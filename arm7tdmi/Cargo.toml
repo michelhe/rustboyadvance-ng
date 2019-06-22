@@ -5,3 +5,6 @@ authors = ["Michel Heily <michelheily@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+enum-primitive-derive = "^0.1"
+num-traits = "^0.1"
+bit = "^0.1"
