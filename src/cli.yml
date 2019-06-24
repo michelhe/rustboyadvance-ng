@@ -1,0 +1,20 @@
+name: rustboyadvance
+author: Michel Heily <michelheily@gmail.com>
+about: Game boy advance emulator
+subcommands:
+    - debug:
+        about: debug the bios with the arm core emulation
+        args:
+            - BIOS:
+                help: Sets the bios file to use
+                required: false
+                default_value: gba_bios.bin
+                index: 1
+    - disass:
+        about: disassemble an arm binary file
+        args:
+            - INPUT:
+                help: Sets the input file to use
+                required: true
+                index: 1
+

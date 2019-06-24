@@ -1,7 +1,7 @@
 use super::super::{reg_string, REG_PC};
-use super::arm_isa::{
-    ArmCond, ArmInstruction, ArmInstructionFormat, ArmShiftedValue, ArmOpCode, ArmShift,
-    ArmShiftType, ArmHalfwordTransferType
+use super::{
+    ArmCond, ArmHalfwordTransferType, ArmInstruction, ArmInstructionFormat, ArmOpCode, ArmShift,
+    ArmShiftType, ArmShiftedValue,
 };
 use std::fmt;
 
@@ -108,9 +108,13 @@ impl ArmInstruction {
             ofs = self.pc.wrapping_add(self.branch_offset() as u32) as u32
         )
     }
-    
+
     fn set_cond_mark(&self) -> &str {
-        if self.set_cond_flag() { "s" } else { "" }
+        if self.set_cond_flag() {
+            "s"
+        } else {
+            ""
+        }
     }
 
     fn fmt_data_processing(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -145,21 +149,27 @@ impl ArmInstruction {
             ),
         }?;
 
-        let operand2 = self.operand2();
+        let operand2 = self.operand2().unwrap();
         match operand2 {
             ArmShiftedValue::RotatedImmediate(_, _) => {
                 let value = operand2.decode_rotated_immediate().unwrap();
                 write!(f, "#{}\t; {:#x}", value, value)
             }
-            ArmShiftedValue::ShiftedRegister{reg, shift, added: _} => {
-                write!(f, "{}", self.make_shifted_reg_string(reg, shift))
-            }
+            ArmShiftedValue::ShiftedRegister {
+                reg,
+                shift,
+                added: _,
+            } => write!(f, "{}", self.make_shifted_reg_string(reg, shift)),
             _ => write!(f, "RegisterNotImpl"),
         }
     }
 
     fn auto_incremenet_mark(&self) -> &str {
-        if self.write_back_flag() { "!" } else { "" }
+        if self.write_back_flag() {
+            "!"
+        } else {
+            ""
+        }
     }
 
     fn fmt_rn_offset(&self, f: &mut fmt::Formatter, offset: ArmShiftedValue) -> fmt::Result {
@@ -176,8 +186,16 @@ impl ArmInstruction {
                     Some(format!("\t; {:#x}", value_for_commnet)),
                 )
             }
-            ArmShiftedValue::ShiftedRegister{reg, shift, added: Some(added)} => (
-                format!("{}{}", if added { "" } else { "-" }, self.make_shifted_reg_string(reg, shift)),
+            ArmShiftedValue::ShiftedRegister {
+                reg,
+                shift,
+                added: Some(added),
+            } => (
+                format!(
+                    "{}{}",
+                    if added { "" } else { "-" },
+                    self.make_shifted_reg_string(reg, shift)
+                ),
                 None,
             ),
             _ => panic!("bad barrel shifter"),
@@ -211,7 +229,7 @@ impl ArmInstruction {
             Rd = reg_string(self.rd()),
         )?;
 
-        self.fmt_rn_offset(f, self.ldr_str_offset())
+        self.fmt_rn_offset(f, self.ldr_str_offset().unwrap())
     }
 
     fn fmt_ldm_stm(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -284,7 +302,11 @@ impl ArmInstruction {
     }
 
     fn sign_mark(&self) -> &str {
-        if self.u_flag() { "s" } else { "u" }
+        if self.u_flag() {
+            "s"
+        } else {
+            "u"
+        }
     }
 
     fn fmt_mull_mlal(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -314,7 +336,7 @@ impl ArmInstruction {
         }
     }
 
-    fn fmt_ldr_str_hs(&self, f: &mut fmt::Formatter) -> fmt::Result{
+    fn fmt_ldr_str_hs(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if let Ok(transfer_type) = self.halfword_data_transfer_type() {
             write!(
                 f,
