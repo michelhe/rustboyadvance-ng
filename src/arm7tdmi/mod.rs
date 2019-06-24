@@ -1,10 +1,5 @@
-#[macro_use]
-extern crate enum_primitive_derive;
-extern crate num_traits;
-
-extern crate bit;
-
 pub mod arm;
+pub use arm::arm_isa::ArmInstruction;
 
 pub const REG_PC: usize = 15;
 

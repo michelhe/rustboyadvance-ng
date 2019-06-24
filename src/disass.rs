@@ -5,12 +5,17 @@ use std::io::prelude::*;
 use std::fs::File;
 use std::convert::TryFrom;
 
+#[macro_use]
+extern crate enum_primitive_derive;
+extern crate num_traits;
+
+extern crate bit;
+
 extern crate byteorder;
 use byteorder::{LittleEndian, ReadBytesExt};
 
-extern crate arm7tdmi;
-
-use arm7tdmi::arm::arm_isa::ArmInstruction;
+mod arm7tdmi;
+use arm7tdmi::ArmInstruction;
 
 #[derive(Debug)]
 pub enum DisassemblerError {
