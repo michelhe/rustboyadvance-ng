@@ -4,10 +4,9 @@ version = "0.1.0"
 authors = ["Michel Heily <michelheily@gmail.com>"]
 edition = "2018"
 
+[workspace]
+members = [".", "arm7tdmi"]
+
 [dependencies]
 byteorder = "*"
 arm7tdmi = {path = "arm7tdmi"}
-
-[[bin]]
-name = "disassembler"
-path = "src/disassembler.rs"
