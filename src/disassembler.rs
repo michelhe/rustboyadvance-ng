@@ -55,7 +55,7 @@ fn main() {
             }
         };
         let addr = (rdr.position() - 4) as u32;
-        print!("{:08x}: <{:08x}>\t", addr, value);
+        print!("{:8x}:\t{:08x} \t", addr, value);
         match ArmInstruction::try_from((value, addr)) {
             Ok(insn) => println!("{}", insn),
             Err(_) => println!("<UNDEFINED>")

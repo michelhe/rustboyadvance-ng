@@ -1,7 +1,7 @@
-use super::super::reg_string;
+use super::super::{reg_string, REG_PC};
 use super::arm_isa::{
-    ArmCond, ArmInstruction, ArmInstructionFormat, ArmInstructionShiftValue, ArmOpCode, ArmShift,
-    ArmShiftType,
+    ArmCond, ArmInstruction, ArmInstructionFormat, ArmShiftedValue, ArmOpCode, ArmShift,
+    ArmShiftType, ArmHalfwordTransferType
 };
 use std::fmt;
 
@@ -64,6 +64,17 @@ impl fmt::Display for ArmShiftType {
     }
 }
 
+impl fmt::Display for ArmHalfwordTransferType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use ArmHalfwordTransferType::*;
+        match self {
+            UnsignedHalfwords => write!(f, "h"),
+            SignedHalfwords => write!(f, "sh"),
+            SignedByte => write!(f, "sb"),
+        }
+    }
+}
+
 fn is_shift(shift: &ArmShift) -> bool {
     if let ArmShift::ImmediateShift(val, typ) = shift {
         return !(*val == 0 && *typ == ArmShiftType::LSL);
@@ -92,98 +103,127 @@ impl ArmInstruction {
         write!(
             f,
             "b{link}{cond}\t{ofs:#x}",
-            link = if self.is_linked_branch() { "l" } else { "" },
+            link = if self.link_flag() { "l" } else { "" },
             cond = self.cond,
             ofs = self.pc.wrapping_add(self.branch_offset() as u32) as u32
         )
+    }
+    
+    fn set_cond_mark(&self) -> &str {
+        if self.set_cond_flag() { "s" } else { "" }
     }
 
     fn fmt_data_processing(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use ArmOpCode::*;
 
         let opcode = self.opcode().unwrap();
-        let rd = reg_string(self.rd());
 
         match opcode {
-            // <opcode>{cond}{S} Rd,<Op2>
             MOV | MVN => write!(
                 f,
-                "{opcode}{cond}{S}\t{Rd}",
+                "{opcode}{S}{cond}\t{Rd}, ",
                 opcode = opcode,
                 cond = self.cond,
-                S = if self.is_set_cond() { "s" } else { "" },
-                Rd = rd
+                S = self.set_cond_mark(),
+                Rd = reg_string(self.rd())
             ),
-            // <opcode>{cond}{S} Rd,Rn,<Op2>
+            CMP | CMN | TEQ | TST => write!(
+                f,
+                "{opcode}{cond}\t{Rn}, ",
+                opcode = opcode,
+                cond = self.cond,
+                Rn = reg_string(self.rn())
+            ),
             _ => write!(
                 f,
-                "{opcode}{cond}\t{Rd}, {Rn}",
+                "{opcode}{S}{cond}\t{Rd}, {Rn}, ",
                 opcode = opcode,
                 cond = self.cond,
-                Rd = rd,
+                S = self.set_cond_mark(),
+                Rd = reg_string(self.rd()),
                 Rn = reg_string(self.rn())
             ),
         }?;
 
         let operand2 = self.operand2();
         match operand2 {
-            ArmInstructionShiftValue::RotatedImmediate(_, _) => {
-                write!(f, ", #{:#x}", operand2.decode_rotated_immediate().unwrap())
+            ArmShiftedValue::RotatedImmediate(_, _) => {
+                let value = operand2.decode_rotated_immediate().unwrap();
+                write!(f, "#{}\t; {:#x}", value, value)
             }
-            ArmInstructionShiftValue::ShiftedRegister(reg, shift) => {
-                write!(f, ", {}", self.make_shifted_reg_string(reg, shift))
+            ArmShiftedValue::ShiftedRegister{reg, shift, added: _} => {
+                write!(f, "{}", self.make_shifted_reg_string(reg, shift))
             }
             _ => write!(f, "RegisterNotImpl"),
         }
     }
 
-    /// <LDR|STR>{cond}{B}{T} Rd,<Address>
+    fn auto_incremenet_mark(&self) -> &str {
+        if self.write_back_flag() { "!" } else { "" }
+    }
+
+    fn fmt_rn_offset(&self, f: &mut fmt::Formatter, offset: ArmShiftedValue) -> fmt::Result {
+        write!(f, "[{Rn}", Rn = reg_string(self.rn()))?;
+        let (ofs_string, comment) = match offset {
+            ArmShiftedValue::ImmediateValue(value) => {
+                let value_for_commnet = if self.rn() == REG_PC {
+                    value + (self.pc as i32) + 8 // account for pipelining
+                } else {
+                    value
+                };
+                (
+                    format!("#{}", value),
+                    Some(format!("\t; {:#x}", value_for_commnet)),
+                )
+            }
+            ArmShiftedValue::ShiftedRegister{reg, shift, added: Some(added)} => (
+                format!("{}{}", if added { "" } else { "-" }, self.make_shifted_reg_string(reg, shift)),
+                None,
+            ),
+            _ => panic!("bad barrel shifter"),
+        };
+
+        if self.pre_index_flag() {
+            write!(f, ", {}]{}", ofs_string, self.auto_incremenet_mark())?;
+        } else {
+            write!(f, "], {}", ofs_string)?;
+        }
+
+        if let Some(comment) = comment {
+            write!(f, "{}", comment)
+        } else {
+            Ok(())
+        }
+    }
+
     fn fmt_ldr_str(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "{mnem}{B}{cond}{T}\t{Rd}, [{Rn}",
-            mnem = if self.is_load() { "ldr" } else { "str" },
+            "{mnem}{B}{cond}{T}\t{Rd}, ",
+            mnem = if self.load_flag() { "ldr" } else { "str" },
             B = if self.transfer_size() == 1 { "b" } else { "" },
             cond = self.cond,
-            T = if !self.is_pre_indexing() && self.is_write_back() {
+            T = if !self.pre_index_flag() && self.write_back_flag() {
                 "t"
             } else {
                 ""
             },
             Rd = reg_string(self.rd()),
-            Rn = reg_string(self.rn())
         )?;
 
-        let offset = self.offset();
-        let auto_incremenet_mark = if self.is_write_back() { "!" } else { "" };
-        let sign_mark = if self.is_ofs_added() { '+' } else { '-' };
-
-        let ofs_string = match offset {
-            ArmInstructionShiftValue::ImmediateValue(value) => format!("#{:+}", value),
-            ArmInstructionShiftValue::ShiftedRegister(reg, shift) => {
-                format!("{}{}", sign_mark, self.make_shifted_reg_string(reg, shift))
-            }
-            _ => panic!("bad barrel shifter"),
-        };
-
-        if self.is_pre_indexing() {
-            write!(f, ", {}]{}", ofs_string, auto_incremenet_mark)
-        } else {
-            write!(f, "], {}", ofs_string)
-        }
+        self.fmt_rn_offset(f, self.ldr_str_offset())
     }
 
-    /// <LDM|STM>{cond}<FD|ED|FA|EA|IA|IB|DA|DB> Rn{!},<Rlist>{^}
     fn fmt_ldm_stm(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "{mnem}{inc_dec}{pre_post}{cond}\t{Rn}{auto_inc}, {{",
-            mnem = if self.is_load() { "ldm" } else { "stm" },
-            inc_dec = if self.is_ofs_added() { 'i' } else { 'd' },
-            pre_post = if self.is_pre_indexing() { 'b' } else { 'a' },
+            mnem = if self.load_flag() { "ldm" } else { "stm" },
+            inc_dec = if self.add_offset_flag() { 'i' } else { 'd' },
+            pre_post = if self.pre_index_flag() { 'b' } else { 'a' },
             cond = self.cond,
             Rn = reg_string(self.rn()),
-            auto_inc = if self.is_write_back() { "!" } else { "" }
+            auto_inc = if self.write_back_flag() { "!" } else { "" }
         )?;
 
         let mut register_list = self.register_list().into_iter();
@@ -197,28 +237,97 @@ impl ArmInstruction {
     }
 
     /// MRS - transfer PSR contents to a register
-    /// MRS{cond} Rd,<psr>
     fn fmt_mrs(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "mrs{cond}\t{Rd}, {psr}",
             cond = self.cond,
             Rd = reg_string(self.rd()),
-            psr = if self.is_spsr() { "SPSR" } else { "CPSR" }
+            psr = if self.spsr_flag() { "SPSR" } else { "CPSR" }
         )
     }
 
     /// MSR - transfer register contents to PSR
-    /// MSR{cond} <psr>,Rm
     fn fmt_msr_reg(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "msr{cond}\t{psr}, {Rm}",
             cond = self.cond,
-            psr = if self.is_spsr() { "SPSR" } else { "CPSR" },
+            psr = if self.spsr_flag() { "SPSR" } else { "CPSR" },
             Rm = reg_string(self.rm()),
-
         )
+    }
+
+    fn fmt_mul_mla(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.accumulate_flag() {
+            write!(
+                f,
+                "mla{S}{cond}\t{Rd}, {Rm}, {Rs}, {Rn}",
+                S = self.set_cond_mark(),
+                cond = self.cond,
+                Rd = reg_string(self.rd()),
+                Rm = reg_string(self.rm()),
+                Rs = reg_string(self.rs()),
+                Rn = reg_string(self.rn()),
+            )
+        } else {
+            write!(
+                f,
+                "mul{S}{cond}\t{Rd}, {Rm}, {Rs}",
+                S = self.set_cond_mark(),
+                cond = self.cond,
+                Rd = reg_string(self.rd()),
+                Rm = reg_string(self.rm()),
+                Rs = reg_string(self.rs()),
+            )
+        }
+    }
+
+    fn sign_mark(&self) -> &str {
+        if self.u_flag() { "s" } else { "u" }
+    }
+
+    fn fmt_mull_mlal(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.accumulate_flag() {
+            write!(
+                f,
+                "{sign}mlal{S}{cond}\t{RdLo}, {RdHi}, {Rm}, {Rs}",
+                sign = self.sign_mark(),
+                S = self.set_cond_mark(),
+                cond = self.cond,
+                RdLo = reg_string(self.rd_lo()),
+                RdHi = reg_string(self.rd_hi()),
+                Rm = reg_string(self.rm()),
+                Rs = reg_string(self.rs()),
+            )
+        } else {
+            write!(
+                f,
+                "{sign}mull{S}{cond}\t{RdLo}, {RdHi}, {Rm}",
+                sign = self.sign_mark(),
+                S = self.set_cond_mark(),
+                cond = self.cond,
+                RdLo = reg_string(self.rd_lo()),
+                RdHi = reg_string(self.rd_hi()),
+                Rm = reg_string(self.rm())
+            )
+        }
+    }
+
+    fn fmt_ldr_str_hs(&self, f: &mut fmt::Formatter) -> fmt::Result{
+        if let Ok(transfer_type) = self.halfword_data_transfer_type() {
+            write!(
+                f,
+                "{mnem}{type}{cond}\t{Rd}, ",
+                mnem = if self.load_flag() { "ldr" } else { "str" },
+                cond = self.cond,
+                type = transfer_type,
+                Rd = reg_string(self.rd()),
+            )?;
+            self.fmt_rn_offset(f, self.ldr_str_hs_offset().unwrap())
+        } else {
+            write!(f, "<undefined>")
+        }
     }
 }
 
@@ -233,6 +342,10 @@ impl fmt::Display for ArmInstruction {
             LDM_STM => self.fmt_ldm_stm(f),
             MRS => self.fmt_mrs(f),
             MSR_REG => self.fmt_msr_reg(f),
+            MUL_MLA => self.fmt_mul_mla(f),
+            MULL_MLAL => self.fmt_mull_mlal(f),
+            LDR_STR_HS_IMM => self.fmt_ldr_str_hs(f),
+            LDR_STR_HS_REG => self.fmt_ldr_str_hs(f),
             _ => write!(f, "({:?})", self),
         }
     }

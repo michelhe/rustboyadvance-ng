@@ -9,6 +9,7 @@ pub enum ArmError {
     UnknownInstructionFormat(u32),
     UndefinedConditionCode(u32),
     InvalidShiftType(u32),
+    InvalidHSBits(u32),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Primitive)]
@@ -81,6 +82,13 @@ pub enum ArmOpCode {
     MVN = 0b1111,
 }
 
+#[derive(Debug, PartialEq, Primitive)]
+pub enum ArmHalfwordTransferType {
+    UnsignedHalfwords = 0b01,
+    SignedByte = 0b10,
+    SignedHalfwords = 0b11,
+}
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ArmInstruction {
     pub cond: ArmCond,
@@ -106,10 +114,20 @@ impl TryFrom<(u32, u32)> for ArmInstruction {
             Ok(BX)
         } else if (0x0e00_0000 & raw) == 0x0a00_0000 {
             Ok(B_BL)
+        } else if (0xe000_0010 & raw) == 0x0600_0000 {
+            Err(ArmError::UnknownInstructionFormat(raw))
+        } else if (0x0fb0_0ff0 & raw) == 0x0100_0090 {
+            Ok(SWP)
         } else if (0x0fc0_00f0 & raw) == 0x0000_0090 {
             Ok(MUL_MLA)
         } else if (0x0f80_00f0 & raw) == 0x0080_0090 {
             Ok(MULL_MLAL)
+        } else if (0x0fbf_0fff & raw) == 0x010f_0000 {
+            Ok(MRS)
+        } else if (0x0fbf_fff0 & raw) == 0x0129_f000 {
+            Ok(MSR_REG)
+        } else if (0x0dbf_f000 & raw) == 0x0128_f000 {
+            Ok(MSR_FLAGS)
         } else if (0x0c00_0000 & raw) == 0x0400_0000 {
             Ok(LDR_STR)
         } else if (0x0e40_0F90 & raw) == 0x0000_0090 {
@@ -118,16 +136,6 @@ impl TryFrom<(u32, u32)> for ArmInstruction {
             Ok(LDR_STR_HS_IMM)
         } else if (0x0e00_0000 & raw) == 0x0800_0000 {
             Ok(LDM_STM)
-        } else if (0x0fb0_0ff0 & raw) == 0x0100_0090 {
-            Ok(SWP)
-        } else if (0x0fbf_0fff & raw) == 0x010f_0000 {
-            Ok(MRS)
-        } else if (0x0fbf_fff0 & raw) == 0x0129_f000 {
-            Ok(MSR_REG)
-        } else if (0x0dbf_f000 & raw) == 0x0128_f000 {
-            Ok(MSR_FLAGS)
-        } else if (0x0fb0_0ff0 & raw) == 0x0100_0090 {
-            Ok(SWP)
         } else if (0x0c00_0000 & raw) == 0x0000_0000 {
             Ok(DP)
         } else {
@@ -176,16 +184,20 @@ impl TryFrom<u32> for ArmShift {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ArmInstructionShiftValue {
-    ImmediateValue(u32),
+pub enum ArmShiftedValue {
+    ImmediateValue(i32),
     RotatedImmediate(u32, u32),
-    ShiftedRegister(usize, ArmShift),
+    ShiftedRegister {
+        reg: usize,
+        shift: ArmShift,
+        added: Option<bool>,
+    },
 }
 
-impl ArmInstructionShiftValue {
+impl ArmShiftedValue {
     /// Decode operand2 as an immediate value
     pub fn decode_rotated_immediate(&self) -> Option<i32> {
-        if let ArmInstructionShiftValue::RotatedImmediate(immediate, rotate) = self {
+        if let ArmShiftedValue::RotatedImmediate(immediate, rotate) = self {
             return Some(immediate.rotate_right(*rotate) as i32);
         }
         None
@@ -212,7 +224,19 @@ impl ArmInstruction {
     pub fn rm(&self) -> usize {
         self.raw.bit_range(0..4) as usize
     }
-    
+
+    pub fn rs(&self) -> usize {
+        self.raw.bit_range(8..12) as usize
+    }
+
+    pub fn rd_lo(&self) -> usize {
+        self.raw.bit_range(12..16) as usize
+    }
+
+    pub fn rd_hi(&self) -> usize {
+        self.raw.bit_range(16..20) as usize
+    }
+
     pub fn opcode(&self) -> Option<ArmOpCode> {
         ArmOpCode::from_u32(self.raw.bit_range(21..25))
     }
@@ -221,16 +245,31 @@ impl ArmInstruction {
         ((((self.raw << 8) as i32) >> 8) << 2) + 8
     }
 
-    pub fn is_load(&self) -> bool {
+    pub fn load_flag(&self) -> bool {
         self.raw.bit(20)
     }
 
-    pub fn is_set_cond(&self) -> bool {
+    pub fn set_cond_flag(&self) -> bool {
         self.raw.bit(20)
     }
 
-    pub fn is_write_back(&self) -> bool {
+    pub fn write_back_flag(&self) -> bool {
         self.raw.bit(21)
+    }
+
+    pub fn accumulate_flag(&self) -> bool {
+        self.raw.bit(21)
+    }
+
+    pub fn u_flag(&self) -> bool {
+        self.raw.bit(22)
+    }
+
+    pub fn halfword_data_transfer_type(&self) -> Result<ArmHalfwordTransferType, ArmError> {
+        match ArmHalfwordTransferType::from_u32((self.raw & 0b1100000) >> 5) {
+            Some(x) => Ok(x),
+            None => Err(ArmError::InvalidHSBits(self.raw)),
+        }
     }
 
     pub fn transfer_size(&self) -> usize {
@@ -245,43 +284,79 @@ impl ArmInstruction {
         self.raw.bit(22)
     }
 
-    pub fn is_spsr(&self) -> bool {
+    pub fn spsr_flag(&self) -> bool {
         self.raw.bit(22)
     }
 
-    pub fn is_ofs_added(&self) -> bool {
+    pub fn add_offset_flag(&self) -> bool {
         self.raw.bit(23)
     }
 
-    pub fn is_pre_indexing(&self) -> bool {
+    pub fn pre_index_flag(&self) -> bool {
         self.raw.bit(24)
     }
 
-    pub fn is_linked_branch(&self) -> bool {
+    pub fn link_flag(&self) -> bool {
         self.raw.bit(24)
     }
 
-    pub fn offset(&self) -> ArmInstructionShiftValue {
+    /// gets offset used by ldr/str instructions
+    pub fn ldr_str_offset(&self) -> ArmShiftedValue {
         let ofs = self.raw.bit_range(0..12);
         if self.raw.bit(25) {
             let rm = ofs & 0xf;
             let shift = ArmShift::try_from(ofs).unwrap();
-            ArmInstructionShiftValue::ShiftedRegister(rm as usize, shift)
+            ArmShiftedValue::ShiftedRegister {
+                reg: rm as usize,
+                shift: shift,
+                added: Some(self.add_offset_flag()),
+            }
         } else {
-            ArmInstructionShiftValue::ImmediateValue(ofs)
+            let ofs = if self.add_offset_flag() {
+                ofs as i32
+            } else {
+                -(ofs as i32)
+            };
+            ArmShiftedValue::ImmediateValue(ofs)
         }
     }
 
-    pub fn operand2(&self) -> ArmInstructionShiftValue {
+    pub fn ldr_str_hs_offset(&self) -> Option<ArmShiftedValue> {
+        match self.fmt {
+            ArmInstructionFormat::LDR_STR_HS_IMM => {
+                let offset8 = (self.raw.bit_range(8..12) << 4) + self.raw.bit_range(0..4);
+                let offset8 = if self.add_offset_flag() {
+                    offset8 as i32
+                } else {
+                    -(offset8 as i32)
+                };
+                Some(ArmShiftedValue::ImmediateValue(offset8))
+            },
+            ArmInstructionFormat::LDR_STR_HS_REG => {
+                Some(ArmShiftedValue::ShiftedRegister {
+                    reg: (self.raw & 0xf) as usize,
+                    shift: ArmShift::ImmediateShift(0, ArmShiftType::LSL),
+                    added: Some(self.add_offset_flag())
+                })
+            },
+            _ => None
+        }
+    }
+
+    pub fn operand2(&self) -> ArmShiftedValue {
         let op2 = self.raw.bit_range(0..12);
         if self.raw.bit(25) {
             let immediate = op2 & 0xff;
             let rotate = 2 * op2.bit_range(8..12);
-            ArmInstructionShiftValue::RotatedImmediate(immediate, rotate)
+            ArmShiftedValue::RotatedImmediate(immediate, rotate)
         } else {
             let reg = op2 & 0xf;
             let shift = ArmShift::try_from(op2).unwrap(); // TODO error handling
-            ArmInstructionShiftValue::ShiftedRegister(reg as usize, shift)
+            ArmShiftedValue::ShiftedRegister {
+                reg: reg as usize,
+                shift: shift,
+                added: None,
+            }
         }
     }
 
