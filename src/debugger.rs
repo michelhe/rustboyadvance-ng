@@ -3,9 +3,13 @@ use std::str::FromStr;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
+use colored::*;
+
 use nom;
 use nom::bytes;
 use nom::IResult;
+use nom::bytes::complete::{tag, take_till1, take_till, take_while_m_n, take_while1};
+use nom::combinator::map_res;
 
 use super::arm7tdmi::arm;
 use super::arm7tdmi::cpu;
@@ -15,16 +19,19 @@ use super::sysbus::SysBus;
 pub struct Debugger {
     cpu: cpu::Core,
     sysbus: SysBus,
+    breakpoints: Vec<u32>,
 }
+
 
 #[derive(Debug, PartialEq)]
 pub enum DebuggerError {
-    ParsingError,
+    ParsingError(String),
+    InvalidCommand(String)
 }
 
 impl From<nom::Err<(&str, nom::error::ErrorKind)>> for DebuggerError {
     fn from(e: nom::Err<(&str, nom::error::ErrorKind)>) -> DebuggerError {
-        DebuggerError::ParsingError
+        DebuggerError::ParsingError("parsing of command failed".to_string())
     }
 }
 
@@ -34,23 +41,63 @@ type DebuggerResult<T> = Result<T, DebuggerError>;
 enum DebuggerCommand {
     SingleStep,
     Continue,
-    Disass { addr: u32, num_opcodes: u32 },
-    Stop,
+    Disass { addr: u32, num_opcodes: usize },
+    AddBreakpoint(u32),
+    ListBreakpoints,
+    Quit,
     Nop,
 }
+use DebuggerCommand::*;
 
-fn parse_debugger_command(input: &str) -> IResult<&str, DebuggerCommand> {
-    let (input, command_name) = bytes::complete::take_while1(|c: char| c.is_alphanumeric())(input)?;
-    println!("parsed command: {}", command_name);
-
-    unimplemented!()
+fn from_hex(input: &str) -> Result<u32, std::num::ParseIntError> {
+  u32::from_str_radix(input, 16)
 }
 
-impl FromStr for DebuggerCommand {
-    type Err = DebuggerError;
+fn from_dec(input: &str) -> Result<u32, std::num::ParseIntError> {
+  u32::from_str_radix(input, 10)
+}
 
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        
+fn whitespace(input: &str) -> IResult<&str, ()> {
+    let (input, _) = take_while1(char::is_whitespace)(input)?;
+    Ok((input, ()))
+}
+
+fn parse_hex_num(input: &str) -> IResult<&str, u32> {
+    let (input, _) = tag("0x")(input)?;
+    map_res(take_while_m_n(1, 8, |c: char| c.is_digit(16)), from_hex)(input)
+}
+
+fn parse_num(input: &str) -> IResult<&str, u32> {
+    map_res(take_while1(|c: char| c.is_digit(10)), from_dec)(input)
+}
+
+fn parse_word(input: &str) -> IResult<&str, &str> {
+    take_till(char::is_whitespace)(input)
+}
+
+fn parse_debugger_command(input: &str) -> DebuggerResult<DebuggerCommand> {
+    // TODO this code is shit!
+    let (input, command_name) = parse_word(input)?;
+    match command_name {
+        "s" | "step" => Ok(SingleStep),
+        "c" | "continue" => Ok(Continue),
+        "d" | "disass" => {
+            let (input, _) = whitespace(input).map_err(|_| DebuggerError::ParsingError("argument missing".to_string()))?;
+            let (input, addr) = parse_hex_num(input)?;
+            let (input, _) = whitespace(input).map_err(|_| DebuggerError::ParsingError("argument missing".to_string()))?;
+            let (_, num_opcodes) = parse_num(input)?;
+            let num_opcodes = num_opcodes as usize;
+            Ok(Disass{ addr, num_opcodes })
+        }
+        "b" | "break" => {
+            let (input, _) = whitespace(input).map_err(|_| DebuggerError::ParsingError("argument missing".to_string()))?;
+            let (_, addr) = parse_hex_num(input)?;
+            Ok(AddBreakpoint(addr))
+        }
+        "bl" => Ok(ListBreakpoints),
+        "q" | "quit" => Ok(Quit),
+        "" => Ok(Nop),
+        _ => Err(DebuggerError::InvalidCommand(command_name.to_string()))
     }
 }
 
@@ -59,16 +106,52 @@ impl Debugger {
         Debugger {
             cpu: cpu,
             sysbus: sysbus,
+            breakpoints: Vec::new(),
         }
     }
 
-    pub fn repl(&self) -> DebuggerResult<()> {
+    pub fn repl(&mut self) -> DebuggerResult<()> {
         let mut rl = Editor::<()>::new();
         loop {
-            let readline = rl.readline("(rustboyadvance-dbg) >> ");
+            let readline = rl.readline(&format!("({}) >> ", "rustboyadvance-dbg".cyan()));
             match readline {
                 Ok(line) => {
-                    let command = parse_debugger_command(&line)?;
+                    let command = parse_debugger_command(&line);
+                    match command {
+                        Ok(Nop) => (),
+                        Ok(SingleStep) => {
+                            self.cpu.step(&mut self.sysbus).unwrap()
+                        },
+                        Ok(Quit) => {
+                            print!("Quitting!");
+                            break
+                        },
+                        Ok(AddBreakpoint(addr)) => {
+                            if !self.breakpoints.contains(&addr) {
+                                let new_index = self.breakpoints.len();
+                                self.breakpoints.push(addr);
+                                println!("added breakpoint [{}] 0x{:08x}", new_index, addr);
+                            } else {
+                                println!("breakpoint already exists!")
+                            }
+                        }
+                        Ok(ListBreakpoints) => {
+                            println!("breakpoint list:");
+                            for (i, b) in self.breakpoints.iter().enumerate() {
+                                println!("[{}] 0x{:08x}", i, b)
+                            }
+                        }
+                        Err(DebuggerError::InvalidCommand(command)) => {
+                            println!("invalid command: {}", command)
+                        }
+                        Err(DebuggerError::ParsingError(msg)) => {
+                            println!("Parsing error: {:?}", msg)
+                        }
+                        Err(e) => {
+                            return Err(e);
+                        }
+                        Ok(command) => println!("got command: {:?}", command),
+                    }
                 }
                 Err(ReadlineError::Interrupted) => {
                     println!("CTRL-C");

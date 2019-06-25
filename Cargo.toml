@@ -12,3 +12,4 @@ bit = "^0.1"
 clap = {version = "2.33", features = ["color", "yaml"]}
 rustyline = "5.0.0"
 nom = "5.0.0"
+colored = "1.8"

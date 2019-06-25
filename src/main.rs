@@ -19,8 +19,9 @@ use clap::{App, ArgMatches};
 
 extern crate rustyline;
 
-#[macro_use]
 extern crate nom;
+
+extern crate colored; // not needed in Rust 2018
 
 pub mod sysbus;
 use sysbus::SysBus;
@@ -105,9 +106,9 @@ fn run_debug(matches: &ArgMatches) -> GBAResult<()> {
     println!("Loading BIOS: {}", gba_bios_path);
     let bios_bin = read_bin_file(gba_bios_path)?;
 
-    let sysbus = SysBus::new(bios_bin);
-    let core = cpu::Core::new();
-    let debugger = Debugger::new(core, sysbus);
+    let mut sysbus = SysBus::new(bios_bin);
+    let mut core = cpu::Core::new();
+    let mut debugger = Debugger::new(core, sysbus);
 
     println!("starting debugger...");
     debugger.repl()?;
