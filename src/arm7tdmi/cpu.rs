@@ -1,3 +1,5 @@
+use std::convert::TryFrom;
+
 use crate::num_traits::FromPrimitive;
 
 use super::arm::*;
@@ -5,7 +7,14 @@ use super::sysbus::SysBus;
 
 #[derive(Debug, PartialEq)]
 pub enum CpuError {
+    ArmDecodeError(ArmDecodeError),
     IllegalInstruction,
+}
+
+impl From<ArmDecodeError> for CpuError {
+    fn from(e: ArmDecodeError) -> CpuError {
+        CpuError::ArmDecodeError(e)
+    }
 }
 
 pub type CpuResult<T> = Result<T, CpuError>;
@@ -92,7 +101,12 @@ impl Core {
     }
 
     fn step_arm(&mut self, sysbus: &mut SysBus) -> CpuResult<()> {
-        Err(CpuError::IllegalInstruction)
+        // fetch
+        let insn = sysbus.read_32(self.pc);
+        // decode
+        let insn = ArmInstruction::try_from((insn, self.pc))?;
+        
+        Ok(())
     }
 
     pub fn step(&mut self, sysbus: &mut SysBus) -> CpuResult<()> {

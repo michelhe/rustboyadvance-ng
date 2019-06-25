@@ -26,7 +26,14 @@ pub struct Debugger {
 #[derive(Debug, PartialEq)]
 pub enum DebuggerError {
     ParsingError(String),
+    CpuError(cpu::CpuError),
     InvalidCommand(String)
+}
+
+impl From<cpu::CpuError> for DebuggerError {
+    fn from(e: cpu::CpuError) -> DebuggerError {
+        DebuggerError::CpuError(e)
+    }
 }
 
 impl From<nom::Err<(&str, nom::error::ErrorKind)>> for DebuggerError {
@@ -39,11 +46,13 @@ type DebuggerResult<T> = Result<T, DebuggerError>;
 
 #[derive(Debug, PartialEq)]
 enum DebuggerCommand {
+    Info,
     SingleStep,
     Continue,
     Disass { addr: u32, num_opcodes: usize },
     AddBreakpoint(u32),
     ListBreakpoints,
+    Reset,
     Quit,
     Nop,
 }
@@ -79,6 +88,7 @@ fn parse_debugger_command(input: &str) -> DebuggerResult<DebuggerCommand> {
     // TODO this code is shit!
     let (input, command_name) = parse_word(input)?;
     match command_name {
+        "i" | "info" => Ok(Info),
         "s" | "step" => Ok(SingleStep),
         "c" | "continue" => Ok(Continue),
         "d" | "disass" => {
@@ -96,6 +106,7 @@ fn parse_debugger_command(input: &str) -> DebuggerResult<DebuggerCommand> {
         }
         "bl" => Ok(ListBreakpoints),
         "q" | "quit" => Ok(Quit),
+        "r" | "reset" => Ok(Reset),
         "" => Ok(Nop),
         _ => Err(DebuggerError::InvalidCommand(command_name.to_string()))
     }
@@ -119,8 +130,13 @@ impl Debugger {
                     let command = parse_debugger_command(&line);
                     match command {
                         Ok(Nop) => (),
+                        Ok(Info) => {
+                            println!("cpu info: {:#?}", self.cpu)
+                        }
                         Ok(SingleStep) => {
-                            self.cpu.step(&mut self.sysbus).unwrap()
+                            println!("single step:");
+                            self.cpu.step(&mut self.sysbus)?;
+                            ()
                         },
                         Ok(Quit) => {
                             print!("Quitting!");
@@ -140,6 +156,11 @@ impl Debugger {
                             for (i, b) in self.breakpoints.iter().enumerate() {
                                 println!("[{}] 0x{:08x}", i, b)
                             }
+                        }
+                        Ok(Reset) => {
+                            println!("resetting cpu...");
+                            self.cpu.reset();
+                            println!("cpu is restarted!")
                         }
                         Err(DebuggerError::InvalidCommand(command)) => {
                             println!("invalid command: {}", command)
