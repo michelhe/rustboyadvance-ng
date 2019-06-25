@@ -13,3 +13,4 @@ clap = {version = "2.33", features = ["color", "yaml"]}
 rustyline = "5.0.0"
 nom = "5.0.0"
 colored = "1.8"
+hexdump = "0.1.0"

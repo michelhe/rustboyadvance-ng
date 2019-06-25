@@ -31,4 +31,13 @@ impl SysBus {
             .read_u16::<LittleEndian>()
             .unwrap()
     }
+
+    pub fn get_bytes(&self, addr: u32, size: usize) -> Option<&[u8]> {
+        let addr = addr as usize;
+        if addr + size > self.bios_rom.len() {
+            None
+        } else {
+            Some(&self.bios_rom[addr..addr + size])
+        }
+    }
 }

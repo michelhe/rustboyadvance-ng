@@ -1,19 +1,19 @@
-use std::str::FromStr;
-
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
 use colored::*;
 
 use nom;
-use nom::bytes;
 use nom::IResult;
 use nom::bytes::complete::{tag, take_till1, take_till, take_while_m_n, take_while1};
 use nom::combinator::map_res;
 
-use super::arm7tdmi::arm;
+use hexdump;
+
 use super::arm7tdmi::cpu;
 use super::sysbus::SysBus;
+
+use crate::disass::Disassembler;
 
 #[derive(Debug)]
 pub struct Debugger {
@@ -50,6 +50,7 @@ enum DebuggerCommand {
     Info,
     SingleStep,
     Continue,
+    HexDump(u32, usize),
     Disass { addr: u32, num_opcodes: usize },
     AddBreakpoint(u32),
     ListBreakpoints,
@@ -92,6 +93,14 @@ fn parse_debugger_command(input: &str) -> DebuggerResult<DebuggerCommand> {
         "i" | "info" => Ok(Info),
         "s" | "step" => Ok(SingleStep),
         "c" | "continue" => Ok(Continue),
+        "xxd" => {
+            let (input, _) = whitespace(input).map_err(|_| DebuggerError::ParsingError("argument missing".to_string()))?;
+            let (input, addr) = parse_hex_num(input)?;
+            let (input, _) = whitespace(input).map_err(|_| DebuggerError::ParsingError("argument missing".to_string()))?;
+            let (_, nbytes) = parse_num(input)?;
+            let nbytes = nbytes as usize;
+            Ok(HexDump(addr, nbytes))
+        }
         "d" | "disass" => {
             let (input, _) = whitespace(input).map_err(|_| DebuggerError::ParsingError("argument missing".to_string()))?;
             let (input, addr) = parse_hex_num(input)?;
@@ -166,6 +175,30 @@ impl Debugger {
                         if self.is_breakpoint_reached() {
                             println!("breakpoint 0x{:08x} reached!", self.cpu.pc)
                         }
+                    }
+                },
+                HexDump(addr, nbytes) => {
+                    let bytes = match self.sysbus.get_bytes(addr, nbytes) {
+                        Some(bytes) => bytes,
+                        None => {
+                            println!("requested content out of bounds");
+                            return
+                        }
+                    };
+                    hexdump::hexdump(bytes);
+                }
+                Disass{ addr, num_opcodes } => {
+                    let bytes = match self.sysbus.get_bytes(addr, 4*num_opcodes) {
+                        Some(bytes) => bytes,
+                        None => {
+                            println!("requested content out of bounds");
+                            return
+                        }
+                    };
+                    let disass = Disassembler::new(addr, bytes);
+
+                    for line in disass {
+                        println!("{}", line)
                     }
                 }
                 Quit => {

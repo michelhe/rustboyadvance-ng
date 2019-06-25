@@ -127,6 +127,10 @@ impl Core {
         }
     }
 
+    pub fn set_state(&mut self, s: CpuState) {
+        self.state = s;
+    }
+
     /// Resets the cpu
     pub fn reset(&mut self) {
         self.pc = 0;
