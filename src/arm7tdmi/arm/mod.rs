@@ -1,4 +1,5 @@
 pub mod display;
+pub mod exec;
 
 use crate::bit::BitIndex;
 use crate::num_traits::FromPrimitive;

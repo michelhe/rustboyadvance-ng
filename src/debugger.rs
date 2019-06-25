@@ -19,6 +19,7 @@ use super::sysbus::SysBus;
 pub struct Debugger {
     cpu: cpu::Core,
     sysbus: SysBus,
+    running: bool,
     breakpoints: Vec<u32>,
 }
 
@@ -118,49 +119,93 @@ impl Debugger {
             cpu: cpu,
             sysbus: sysbus,
             breakpoints: Vec::new(),
+            running: false,
         }
     }
 
+    fn is_breakpoint_reached(&self) -> bool {
+        let pc = self.cpu.pc;
+        for b in &self.breakpoints {
+            if *b == pc {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn command(&mut self, cmd: DebuggerCommand) {
+        match cmd {
+                Nop => (),
+                Info => {
+                    println!("cpu info: {:#x?}", self.cpu)
+                }
+                SingleStep => {
+                    ;
+                    match self.cpu.step(&mut self.sysbus) {
+                        Ok(_) => (),
+                        Err(e) => {
+                            println!("{}: {}", "cpu encountered an error".red(), e);
+                            println!("cpu: {:#x?}", self.cpu);
+                        }
+                    };
+                    if self.is_breakpoint_reached() {
+                        println!("breakpoint 0x{:08x} reached!", self.cpu.pc)
+                    }
+                },
+                Continue => {
+                    loop {
+                        match self.cpu.step(&mut self.sysbus) {
+                            Ok(_) => (),
+                            Err(e) => {
+                                println!("{}: {}", "cpu encountered an error".red(), e);
+                                println!("cpu: {:#x?}", self.cpu);
+                                break
+                            }
+                        };
+                        if self.is_breakpoint_reached() {
+                            println!("breakpoint 0x{:08x} reached!", self.cpu.pc)
+                        }
+                    }
+                }
+                Quit => {
+                    print!("Quitting!");
+                    self.running = false;
+                },
+                AddBreakpoint(addr) => {
+                    if !self.breakpoints.contains(&addr) {
+                        let new_index = self.breakpoints.len();
+                        self.breakpoints.push(addr);
+                        println!("added breakpoint [{}] 0x{:08x}", new_index, addr);
+                    } else {
+                        println!("breakpoint already exists!")
+                    }
+                }
+                ListBreakpoints => {
+                    println!("breakpoint list:");
+                    for (i, b) in self.breakpoints.iter().enumerate() {
+                        println!("[{}] 0x{:08x}", i, b)
+                    }
+                }
+                Reset => {
+                    println!("resetting cpu...");
+                    self.cpu.reset();
+                    println!("cpu is restarted!")
+                },
+                _ => panic!("command {:?} not implemented", cmd)
+        }
+    }
     pub fn repl(&mut self) -> DebuggerResult<()> {
+        self.running = true;
         let mut rl = Editor::<()>::new();
-        loop {
+        while self.running {
             let readline = rl.readline(&format!("({}) >> ", "rustboyadvance-dbg".cyan()));
             match readline {
                 Ok(line) => {
                     let command = parse_debugger_command(&line);
                     match command {
-                        Ok(Nop) => (),
-                        Ok(Info) => {
-                            println!("cpu info: {:#?}", self.cpu)
-                        }
-                        Ok(SingleStep) => {
-                            println!("single step:");
-                            self.cpu.step(&mut self.sysbus)?;
-                            ()
-                        },
-                        Ok(Quit) => {
-                            print!("Quitting!");
-                            break
-                        },
-                        Ok(AddBreakpoint(addr)) => {
-                            if !self.breakpoints.contains(&addr) {
-                                let new_index = self.breakpoints.len();
-                                self.breakpoints.push(addr);
-                                println!("added breakpoint [{}] 0x{:08x}", new_index, addr);
-                            } else {
-                                println!("breakpoint already exists!")
-                            }
-                        }
-                        Ok(ListBreakpoints) => {
-                            println!("breakpoint list:");
-                            for (i, b) in self.breakpoints.iter().enumerate() {
-                                println!("[{}] 0x{:08x}", i, b)
-                            }
-                        }
-                        Ok(Reset) => {
-                            println!("resetting cpu...");
-                            self.cpu.reset();
-                            println!("cpu is restarted!")
+                        Ok(cmd) => {
+                            self.command(cmd)
                         }
                         Err(DebuggerError::InvalidCommand(command)) => {
                             println!("invalid command: {}", command)
@@ -171,7 +216,6 @@ impl Debugger {
                         Err(e) => {
                             return Err(e);
                         }
-                        Ok(command) => println!("got command: {:?}", command),
                     }
                 }
                 Err(ReadlineError::Interrupted) => {
