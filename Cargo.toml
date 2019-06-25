@@ -10,3 +10,5 @@ enum-primitive-derive = "^0.1"
 num-traits = "^0.1"
 bit = "^0.1"
 clap = {version = "2.33", features = ["color", "yaml"]}
+rustyline = "5.0.0"
+nom = "5.0.0"

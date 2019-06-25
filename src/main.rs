@@ -17,17 +17,27 @@ use byteorder::{LittleEndian, ReadBytesExt};
 extern crate clap;
 use clap::{App, ArgMatches};
 
+extern crate rustyline;
+
+#[macro_use]
+extern crate nom;
+
 pub mod sysbus;
 use sysbus::SysBus;
+
 mod arm7tdmi;
 use arm7tdmi::arm;
 use arm7tdmi::cpu;
+
+mod debugger;
+use debugger::{Debugger, DebuggerError};
 
 #[derive(Debug)]
 pub enum GBAError {
     IO(io::Error),
     ArmDecodeError(arm::ArmDecodeError),
     CpuError(cpu::CpuError),
+    DebuggerError(DebuggerError)
 }
 
 pub type GBAResult<T> = Result<T, GBAError>;
@@ -49,6 +59,13 @@ impl From<cpu::CpuError> for GBAError {
         GBAError::CpuError(err)
     }
 }
+
+impl From<DebuggerError> for GBAError {
+    fn from(err: DebuggerError) -> GBAError {
+        GBAError::DebuggerError(err)
+    }
+}
+
 
 fn read_bin_file(filename: &str) -> GBAResult<Vec<u8>> {
     let mut buf = Vec::new();
@@ -90,8 +107,13 @@ fn run_debug(matches: &ArgMatches) -> GBAResult<()> {
 
     let sysbus = SysBus::new(bios_bin);
     let core = cpu::Core::new();
+    let debugger = Debugger::new(core, sysbus);
 
-    unimplemented!()
+    println!("starting debugger...");
+    debugger.repl()?;
+    println!("ending debugger...");
+
+    Ok(())
 }
 
 fn main() {
