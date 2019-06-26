@@ -1,6 +1,6 @@
 use super::super::{reg_string, REG_PC};
 use super::{
-    ArmCond, ArmHalfwordTransferType, ArmInstruction, ArmInstructionFormat, ArmOpCode, ArmShift,
+    ArmCond, ArmHalfwordTransferType, ArmInstruction, ArmInstructionFormat, ArmOpCode, ArmRegisterShift,
     ArmShiftType, ArmShiftedValue,
 };
 use std::fmt;
@@ -75,23 +75,23 @@ impl fmt::Display for ArmHalfwordTransferType {
     }
 }
 
-fn is_shift(shift: &ArmShift) -> bool {
-    if let ArmShift::ImmediateShift(val, typ) = shift {
+fn is_shift(shift: &ArmRegisterShift) -> bool {
+    if let ArmRegisterShift::ShiftAmount(val, typ) = shift {
         return !(*val == 0 && *typ == ArmShiftType::LSL);
     }
     true
 }
 
 impl ArmInstruction {
-    fn make_shifted_reg_string(&self, reg: usize, shift: ArmShift) -> String {
+    fn make_shifted_reg_string(&self, reg: usize, shift: ArmRegisterShift) -> String {
         let reg = reg_string(reg).to_string();
         if !is_shift(&shift) {
             return reg;
         }
 
         match shift {
-            ArmShift::ImmediateShift(imm, typ) => format!("{}, {} #{}", reg, typ, imm),
-            ArmShift::RegisterShift(rs, typ) => format!("{}, {} {}", reg, typ, reg_string(rs)),
+            ArmRegisterShift::ShiftAmount(imm, typ) => format!("{}, {} #{}", reg, typ, imm),
+            ArmRegisterShift::ShiftRegister(rs, typ) => format!("{}, {} {}", reg, typ, reg_string(rs)),
         }
     }
 

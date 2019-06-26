@@ -1,3 +1,4 @@
+mod psr;
 pub mod arm;
 pub mod cpu;
 pub use super::sysbus;

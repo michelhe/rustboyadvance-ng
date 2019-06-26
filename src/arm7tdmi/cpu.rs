@@ -69,7 +69,7 @@ pub struct Core {
 
 #[derive(Debug, PartialEq)]
 pub enum CpuPipelineAction {
-    AdvancePc,
+    AdvanceProgramCounter,
     Branch,
 }
 
@@ -145,7 +145,7 @@ impl Core {
             }
         }
 
-        if CpuPipelineAction::AdvancePc == pipeline_action {
+        if CpuPipelineAction::AdvanceProgramCounter == pipeline_action {
             self.advance_pc();
         }
 

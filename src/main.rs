@@ -91,7 +91,7 @@ fn run_debug(matches: &ArgMatches) -> GBAResult<()> {
     println!("Loading BIOS: {}", gba_bios_path);
     let bios_bin = read_bin_file(gba_bios_path)?;
 
-    let mut sysbus = SysBus::new(bios_bin);
+    let sysbus = SysBus::new(bios_bin);
     let mut core = cpu::Core::new();
     core.set_verbose(true);
     let mut debugger = Debugger::new(core, sysbus);

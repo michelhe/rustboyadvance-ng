@@ -184,12 +184,12 @@ pub enum ArmShiftType {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ArmShift {
-    ImmediateShift(u32, ArmShiftType),
-    RegisterShift(usize, ArmShiftType),
+pub enum ArmRegisterShift {
+    ShiftAmount(u32, ArmShiftType),
+    ShiftRegister(usize, ArmShiftType),
 }
 
-impl TryFrom<u32> for ArmShift {
+impl TryFrom<u32> for ArmRegisterShift {
     type Error = ArmDecodeErrorKind;
 
     fn try_from(v: u32) -> Result<Self, Self::Error> {
@@ -199,10 +199,10 @@ impl TryFrom<u32> for ArmShift {
         }?;
         if v.bit(4) {
             let rs = v.bit_range(8..12) as usize;
-            Ok(ArmShift::RegisterShift(rs, typ))
+            Ok(ArmRegisterShift::ShiftRegister(rs, typ))
         } else {
             let amount = v.bit_range(7..12) as u32;
-            Ok(ArmShift::ImmediateShift(amount, typ))
+            Ok(ArmRegisterShift::ShiftAmount(amount, typ))
         }
     }
 }
@@ -213,7 +213,7 @@ pub enum ArmShiftedValue {
     RotatedImmediate(u32, u32),
     ShiftedRegister {
         reg: usize,
-        shift: ArmShift,
+        shift: ArmRegisterShift,
         added: Option<bool>,
     },
 }
@@ -338,7 +338,7 @@ impl ArmInstruction {
         let ofs = self.raw.bit_range(0..12);
         if self.raw.bit(25) {
             let rm = ofs & 0xf;
-            let shift = ArmShift::try_from(ofs).map_err(|kind| self.make_decode_error(kind))?;
+            let shift = ArmRegisterShift::try_from(ofs).map_err(|kind| self.make_decode_error(kind))?;
             Ok(ArmShiftedValue::ShiftedRegister {
                 reg: rm as usize,
                 shift: shift,
@@ -367,7 +367,7 @@ impl ArmInstruction {
             }
             ArmInstructionFormat::LDR_STR_HS_REG => Ok(ArmShiftedValue::ShiftedRegister {
                 reg: (self.raw & 0xf) as usize,
-                shift: ArmShift::ImmediateShift(0, ArmShiftType::LSL),
+                shift: ArmRegisterShift::ShiftAmount(0, ArmShiftType::LSL),
                 added: Some(self.add_offset_flag()),
             }),
             _ => Err(self.make_decode_error(DecodedPartDoesNotBelongToInstruction)),
@@ -382,7 +382,7 @@ impl ArmInstruction {
             Ok(ArmShiftedValue::RotatedImmediate(immediate, rotate))
         } else {
             let reg = op2 & 0xf;
-            let shift = ArmShift::try_from(op2).map_err(|kind| self.make_decode_error(kind))?; // TODO error handling
+            let shift = ArmRegisterShift::try_from(op2).map_err(|kind| self.make_decode_error(kind))?; // TODO error handling
             Ok(ArmShiftedValue::ShiftedRegister {
                 reg: reg as usize,
                 shift: shift,
