@@ -291,6 +291,7 @@ impl Debugger {
     pub fn repl(&mut self) -> DebuggerResult<()> {
         self.running = true;
         let mut rl = Editor::<()>::new();
+        rl.load_history(".rustboyadvance_history");
         while self.running {
             let readline = rl.readline(&format!("({}) >> ", "rustboyadvance-dbg".cyan()));
             match readline {
@@ -298,6 +299,7 @@ impl Debugger {
                     if line.is_empty() {
                         continue;
                     }
+                    rl.add_history_entry(line.as_str());
                     let expr = parse_expr(&line);
                     match expr {
                         Ok(expr) => self.eval_expr(expr),
@@ -319,6 +321,7 @@ impl Debugger {
                 }
             }
         }
+        rl.save_history(".rustboyadvance_history").unwrap();
         Ok(())
     }
 }
