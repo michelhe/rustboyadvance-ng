@@ -30,7 +30,7 @@ impl From<cpu::CpuError> for DebuggerError {
 
 type DebuggerResult<T> = Result<T, DebuggerError>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Command {
     Info,
     SingleStep,
@@ -95,8 +95,6 @@ impl Command {
                 for line in disass {
                     println!("{}", line)
                 }
-
-                debugger.next_disass_addr = Some(addr + (4 * n as u32));
             }
             Quit => {
                 print!("Quitting!");
@@ -132,7 +130,7 @@ pub struct Debugger {
     sysbus: SysBus,
     running: bool,
     breakpoints: Vec<u32>,
-    next_disass_addr: Option<u32>,
+    previous_command: Option<Command>,
 }
 
 impl Debugger {
@@ -142,7 +140,7 @@ impl Debugger {
             sysbus: sysbus,
             breakpoints: Vec::new(),
             running: false,
-            next_disass_addr: None,
+            previous_command: None
         }
     }
 
@@ -226,7 +224,13 @@ impl Debugger {
 
                         (addr, 10)
                     }
-                    0 => (self.next_disass_addr.unwrap_or(self.cpu.get_reg(15)), 10),
+                    0 => {
+                        if let Some(Command::Disass(addr, n)) = self.previous_command {
+                            (addr + (4 * n as u32), 10)
+                        } else {
+                            (self.cpu.get_reg(15), 10)
+                        }
+                    }
                     _ => {
                         return Err(DebuggerError::InvalidCommandFormat(
                             "disass [addr] [n]".to_string(),
@@ -264,7 +268,10 @@ impl Debugger {
     fn eval_expr(&mut self, expr: Expr) {
         match expr {
             Expr::Command(c, a) => match self.eval_command(c, a) {
-                Ok(cmd) => cmd.run(self),
+                Ok(cmd) => {
+                    self.previous_command = Some(cmd.clone());
+                    cmd.run(self)
+                },
                 Err(DebuggerError::InvalidCommand(c)) => {
                     println!("{}: {:?}", "invalid command".red(), c)
                 }
@@ -297,6 +304,7 @@ impl Debugger {
             match readline {
                 Ok(line) => {
                     if line.is_empty() {
+                        self.previous_command = None;
                         continue;
                     }
                     rl.add_history_entry(line.as_str());
