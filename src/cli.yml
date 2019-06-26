@@ -1,6 +1,6 @@
-name: rustboyadvance
+name: rustboyadvance-ng
 author: Michel Heily <michelheily@gmail.com>
-about: Game boy advance emulator
+about: Game boy advance emulator and debugger
 subcommands:
     - debug:
         about: debug the bios with the arm core emulation

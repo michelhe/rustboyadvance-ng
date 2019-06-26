@@ -1,5 +1,5 @@
 [package]
-name = "rustboyadvance"
+name = "rustboyadvance-ng"
 version = "0.1.0"
 authors = ["Michel Heily <michelheily@gmail.com>"]
 edition = "2018"
