@@ -1,10 +1,11 @@
 use std::convert::TryFrom;
 use std::fmt;
 
-use crate::num_traits::FromPrimitive;
+use colored::*;
 
-use super::arm::exec;
+use super::reg_string;
 use super::arm::*;
+use super::psr::{CpuMode, CpuState, RegPSR};
 use super::sysbus::SysBus;
 
 #[derive(Debug, PartialEq)]
@@ -44,30 +45,12 @@ impl fmt::Display for CpuError {
                 "illegal instruction at address @0x{:08x} (0x{:08x})",
                 insn.pc, insn.raw
             ),
-            e => write!(f, "error: {:#x?}", e)
+            e => write!(f, "error: {:#x?}", e),
         }
     }
 }
 
 pub type CpuResult<T> = Result<T, CpuError>;
-
-#[derive(Debug, PartialEq)]
-pub enum CpuState {
-    ARM,
-    THUMB,
-}
-
-#[derive(Debug, Primitive)]
-#[repr(u8)]
-enum CpuMode {
-    User = 0b10000,
-    Fiq = 0b10001,
-    Irq = 0b10010,
-    Supervisor = 0b10011,
-    Abort = 0b10111,
-    Undefined = 0b11011,
-    System = 0b11111,
-}
 
 pub struct CpuModeContext {
     // r8-r14
@@ -79,12 +62,9 @@ pub struct CpuModeContext {
 pub struct Core {
     pub pc: u32,
     // r0-r7
-    gpr: [u32; 8],
-    cpsr: u32,
-
-    mode: CpuMode,
-    state: CpuState,
-    verbose: bool
+    gpr: [u32; 15],
+    pub cpsr: RegPSR,
+    pub verbose: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -99,10 +79,8 @@ impl Core {
     pub fn new() -> Core {
         Core {
             pc: 0,
-            gpr: [0; 8],
-            cpsr: 0,
-            mode: CpuMode::System,
-            state: CpuState::ARM,
+            gpr: [0; 15],
+            cpsr: RegPSR::new(),
             verbose: false,
         }
     }
@@ -113,34 +91,30 @@ impl Core {
 
     pub fn get_reg(&self, reg_num: usize) -> u32 {
         match reg_num {
-            0...7 => self.gpr[reg_num],
+            0...14 => self.gpr[reg_num],
             15 => self.pc,
-            _ => unimplemented!("TODO banked registers"),
+            _ => panic!("invalid register")
+            // _ => 0x12345678 // unimplemented!("TODO banked registers"),
         }
     }
 
     pub fn set_reg(&mut self, reg_num: usize, val: u32) {
         match reg_num {
-            0...7 => self.gpr[reg_num] = val,
+            0...14 => self.gpr[reg_num] = val,
             15 => self.pc = val,
-            _ => unimplemented!("TODO banked registers"),
+            _ => panic!("invalid register")
+            // _ => unimplemented!("TODO banked registers"),
         }
-    }
-
-    pub fn set_state(&mut self, s: CpuState) {
-        self.state = s;
     }
 
     /// Resets the cpu
     pub fn reset(&mut self) {
         self.pc = 0;
-        self.cpsr = 0;
-        self.mode = CpuMode::System;
-        self.state = CpuState::ARM;
+        self.cpsr.set(0);
     }
 
     fn word_size(&self) -> usize {
-        match self.state {
+        match self.cpsr.state() {
             CpuState::ARM => 4,
             CpuState::THUMB => 2,
         }
@@ -160,7 +134,7 @@ impl Core {
     }
 
     pub fn step(&mut self, sysbus: &mut SysBus) -> CpuResult<()> {
-        let (executed_insn, pipeline_action) = match self.state {
+        let (executed_insn, pipeline_action) = match self.cpsr.state() {
             CpuState::ARM => self.step_arm(sysbus),
             CpuState::THUMB => unimplemented!("thumb not implemented :("),
         }?;
@@ -176,5 +150,18 @@ impl Core {
         }
 
         Ok(())
+    }
+}
+
+impl fmt::Display for Core {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "ARM7TDMI Core")?;
+        writeln!(f, "REGISTERS:")?;
+        for i in 0..16 {
+            let mut reg = reg_string(i).to_string();
+            reg.make_ascii_uppercase();
+            writeln!(f, "\t{}\t= 0x{:08x}", reg.bright_yellow(), self.get_reg(i))?;
+        }
+        write!(f, "CPSR: {}", self.cpsr)
     }
 }
