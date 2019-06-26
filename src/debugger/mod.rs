@@ -158,7 +158,7 @@ impl Debugger {
     }
 
 
-    fn decode_register(&self, s: &str) -> DebuggerResult<usize> {
+    fn decode_reg(&self, s: &str) -> DebuggerResult<usize> {
         let reg_names = vec![
             "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "fp", "ip", "sp", "lr",
             "pc"];
@@ -169,28 +169,27 @@ impl Debugger {
         }
     }
 
-    fn arg_reg(&self, arg: &Value) -> DebuggerResult<u32> {
+    fn val_reg(&self, arg: &Value) -> DebuggerResult<usize> {
         match arg {
             Value::Name(reg) => {
-                let reg = self.decode_register(&reg)?;
-                Ok(self.cpu.get_reg(reg))
+                self.decode_reg(&reg)
             },
             v => Err(DebuggerError::InvalidArgument(format!("expected a number, got {:?}", v)))
         }
     }
 
-    fn arg_number(&self, arg: &Value) -> DebuggerResult<u32> {
+    fn val_number(&self, arg: &Value) -> DebuggerResult<u32> {
         match arg {
             Value::Num(n) => Ok(*n),
             v => Err(DebuggerError::InvalidArgument(format!("expected a number, got {:?}", v)))
         }
     }
 
-    fn arg_address(&self, arg: &Value) -> DebuggerResult<u32> {
+    fn val_address(&self, arg: &Value) -> DebuggerResult<u32> {
         match arg {
             Value::Num(n) => Ok(*n),
             Value::Name(reg) => {
-                let reg = self.decode_register(&reg)?;
+                let reg = self.decode_reg(&reg)?;
                 Ok(self.cpu.get_reg(reg))
             }
             v => Err(DebuggerError::InvalidArgument(format!("addr: expected a number or register, got {:?}", v)))
@@ -210,20 +209,20 @@ impl Debugger {
             "s" | "step" => Ok(Command::SingleStep),
             "c" | "continue" => Ok(Command::Continue),
             "xxd" => {
-                let addr = self.arg_address(&args[0])?;
-                let nbytes = self.arg_number(&args[1])?;
+                let addr = self.val_address(&args[0])?;
+                let nbytes = self.val_number(&args[1])?;
                 Ok(Command::HexDump(addr, nbytes as usize))
             }
             "d" | "disass" => {
                 let (addr, n) = match args.len() {
                     2 => {
-                        let addr = self.arg_address(&args[0])?;
-                        let n = self.arg_number(&args[1])?;
+                        let addr = self.val_address(&args[0])?;
+                        let n = self.val_number(&args[1])?;
 
                         (addr, n as usize)
                     }
                     1 => {
-                        let addr = self.arg_address(&args[0])?;
+                        let addr = self.val_address(&args[0])?;
 
                         (addr, 10)
                     }
@@ -243,7 +242,7 @@ impl Debugger {
                         "disass <addr>".to_string(),
                     ))
                 } else {
-                    let addr =  self.arg_address(&args[0])?;
+                    let addr =  self.val_address(&args[0])?;
                     Ok(Command::AddBreakpoint(addr))
                 }
             }
@@ -252,6 +251,14 @@ impl Debugger {
             "r" | "reset" => Ok(Command::Reset),
             _ => Err(DebuggerError::InvalidCommand(command)),
         }
+    }
+
+    fn eval_assignment(&mut self, lvalue: Value, rvalue: Value) -> DebuggerResult<()> {
+        let lvalue = self.val_reg(&lvalue)?;
+        let rvalue = self.val_address(&rvalue)?;
+
+        self.cpu.set_reg(lvalue, rvalue);
+        Ok(())
     }
 
     fn eval_expr(&mut self, expr: Expr) {
@@ -269,7 +276,10 @@ impl Debugger {
                 }
                 Err(e) => println!("{} {:?}", "failed to build command".red(), e),
             },
-            Expr::Assignment(_, _) => unimplemented!("assignments are not implemented"),
+            Expr::Assignment(lvalue, rvalue) => match self.eval_assignment(lvalue, rvalue) {
+                Err(DebuggerError::InvalidArgument(m)) => println!("{}: {}", "assignment error".red(), m),
+                _ => ()
+            }
             Expr::Empty => println!("Got empty expr"),
         }
     }

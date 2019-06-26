@@ -4,10 +4,10 @@ use nom;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while_m_n};
 use nom::character::complete::{alphanumeric1, char, digit1, multispace0, multispace1};
-use nom::combinator::{cut, map, map_res, opt};
+use nom::combinator::{map, map_res};
 use nom::error::{context, convert_error, ParseError, VerboseError};
-use nom::multi::{many0, separated_list};
-use nom::sequence::{delimited, preceded, separated_pair, terminated, tuple};
+use nom::multi::separated_list;
+use nom::sequence::{preceded, separated_pair, terminated, tuple};
 use nom::IResult;
 
 use super::{DebuggerError, DebuggerResult};
