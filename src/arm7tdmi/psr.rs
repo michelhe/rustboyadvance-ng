@@ -111,11 +111,11 @@ impl RegPSR {
     }
 
     pub fn mode(&self) -> CpuMode {
-        CpuMode::from_u32(self.raw & 0xb11111).unwrap()
+        CpuMode::from_u32(self.raw.bit_range(0..5)).unwrap()
     }
 
     pub fn set_mode(&mut self, mode: CpuMode) {
-        self.raw |= mode as u32;
+        self.raw.set_bit_range(0..5, (mode as u32) & 0b1_1111);
     }
 
     pub fn irq_disabled(&self) -> bool {
