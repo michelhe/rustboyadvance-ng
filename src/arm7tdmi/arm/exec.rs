@@ -1,7 +1,6 @@
 use super::super::cpu::{
-    Core, CpuError, CpuExecResult, CpuInstruction, CpuPipelineAction, CpuResult,
+    Core, CpuError, CpuExecResult, CpuInstruction, CpuPipelineAction, CpuResult, CpuState
 };
-use super::super::psr::CpuState;
 use super::super::sysbus::SysBus;
 use super::{
     ArmCond, ArmInstruction, ArmInstructionFormat, ArmOpCode, ArmRegisterShift, ArmShiftType,

@@ -4,26 +4,9 @@ use std::fmt;
 use crate::bit::BitIndex;
 use crate::num_traits::FromPrimitive;
 
+use super::cpu::{CpuMode, CpuState};
+
 use colored::*;
-
-use super::arm::ArmCond;
-
-#[derive(Debug, PartialEq, Primitive)]
-#[repr(u8)]
-pub enum CpuState {
-    ARM = 0,
-    THUMB = 1,
-}
-
-impl fmt::Display for CpuState {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use CpuState::*;
-        match self {
-            ARM => write!(f, "ARM"),
-            THUMB => write!(f, "THUMB"),
-        }
-    }
-}
 
 impl From<CpuState> for bool {
     fn from(state: CpuState) -> bool {
@@ -44,33 +27,6 @@ impl From<bool> for CpuState {
     }
 }
 
-#[derive(Debug, Primitive)]
-#[repr(u8)]
-pub enum CpuMode {
-    User = 0b10000,
-    Fiq = 0b10001,
-    Irq = 0b10010,
-    Supervisor = 0b10011,
-    Abort = 0b10111,
-    Undefined = 0b11011,
-    System = 0b11111,
-}
-
-impl fmt::Display for CpuMode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use CpuMode::*;
-        match self {
-            User => write!(f, "USR"),
-            Fiq => write!(f, "FIQ"),
-            Irq => write!(f, "IRQ"),
-            Supervisor => write!(f, "SVC"),
-            Abort => write!(f, "ABT"),
-            Undefined => write!(f, "UND"),
-            System => write!(f, "SYS"),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct RegPSR {
     raw: u32,
@@ -81,19 +37,17 @@ fn clear_reserved(n: u32) -> u32 {
     n & !RESERVED_BIT_MASK
 }
 
-impl RegPSR {
-    pub fn new() -> RegPSR {
-        let mut psr = RegPSR { raw: 0 };
-
-        psr.set_irq_disabled(true);
-        psr.set_fiq_disabled(true);
+impl Default for RegPSR {
+    fn default() -> RegPSR {
+        let mut psr = RegPSR {
+            raw: clear_reserved(0),
+        };
         psr.set_mode(CpuMode::Supervisor);
-        psr.set_state(CpuState::ARM);
-        println!("RAW: 0x{:08x}", psr.raw);
-
         psr
     }
+}
 
+impl RegPSR {
     pub fn get(&self) -> u32 {
         self.raw
     }

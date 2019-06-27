@@ -1,6 +1,8 @@
-mod psr;
 pub mod arm;
 pub mod cpu;
+mod psr;
+mod exception;
+
 pub use super::sysbus;
 
 pub const REG_PC: usize = 15;

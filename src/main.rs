@@ -93,6 +93,7 @@ fn run_debug(matches: &ArgMatches) -> GBAResult<()> {
 
     let sysbus = SysBus::new(bios_bin);
     let mut core = cpu::Core::new();
+    core.reset();
     core.set_verbose(true);
     let mut debugger = Debugger::new(core, sysbus);
 
