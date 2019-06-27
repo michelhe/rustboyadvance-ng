@@ -255,7 +255,7 @@ impl Debugger {
         let mut rl = Editor::<()>::new();
         rl.load_history(".rustboyadvance_history");
         while self.running {
-            let readline = rl.readline(&format!("({}) >> ", "rustboyadvance-dbg".cyan()));
+            let readline = rl.readline(&format!("({}) >> ", "rustboyadvance-dbg".bold().cyan()));
             match readline {
                 Ok(line) => {
                     if line.is_empty() {
