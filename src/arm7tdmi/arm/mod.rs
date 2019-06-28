@@ -295,7 +295,7 @@ impl ArmInstruction {
     }
 
     pub fn branch_offset(&self) -> i32 {
-        ((self.raw.bit_range(0..24) << 2) as i32) + 8
+        (((self.raw.bit_range(0..24) << 8) as i32) >> 6).wrapping_add(8)
     }
 
     pub fn load_flag(&self) -> bool {
@@ -437,10 +437,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_swi() {
+    fn test_decode_swi() {
         // swi #0x1337
         let decoded = ArmInstruction::try_from(0xef001337).unwrap();
         assert_eq!(decoded.fmt, ArmInstructionFormat::SWI);
         assert_eq!(decoded.swi_comment(), 0x1337);
+    }
+
+    #[test]
+    fn test_decode_branch_forwards() {
+        // 0x20:   b 0x30
+        let decoded = ArmInstruction::try_from((0xea_00_00_02, 0x20)).unwrap();
+        assert_eq!(decoded.fmt, ArmInstructionFormat::B_BL);
+        assert_eq!(decoded.link_flag(), false);
+        assert_eq!((decoded.pc as i32).wrapping_add(decoded.branch_offset()), 0x30);
+    }
+
+    #[test]
+    fn test_decode_branch_backwards() {
+        // 0x20:   bl 0x10
+        let decoded = ArmInstruction::try_from((0xeb_ff_ff_fa, 0x20)).unwrap();
+        assert_eq!(decoded.fmt, ArmInstructionFormat::B_BL);
+        assert_eq!(decoded.link_flag(), true);
+        assert_eq!((decoded.pc as i32).wrapping_add(decoded.branch_offset()), 0x10);
     }
 }
