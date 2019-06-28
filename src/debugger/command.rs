@@ -26,7 +26,7 @@ impl Command {
             Info => println!("{}", debugger.cpu),
             SingleStep => {
                 if let Some(bp) = debugger.check_breakpoint() {
-                    println!("breakpoint #{} reached!", bp);
+                    println!("hit breakpoint #0x{:08x}!", bp);
                     debugger.delete_breakpoint(bp);
                 } else {
                     match debugger.cpu.step(&mut debugger.sysbus) {
@@ -40,7 +40,7 @@ impl Command {
             }
             Continue => loop {
                 if let Some(bp) = debugger.check_breakpoint() {
-                    println!("breakpoint #{} reached!", bp);
+                    println!("hit breakpoint #0x{:08x}!", bp);
                     debugger.delete_breakpoint(bp);
                     break;
                 }
