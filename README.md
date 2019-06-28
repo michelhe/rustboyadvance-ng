@@ -19,7 +19,7 @@ Currently to test the debugger, any binary file containing arm mode instructions
 $ cargo run -- debug
 ```
 
-No help command yet, so you can view available commands from src/debugger/mod.rs :(
+![Debugger REPL Demo](img/demo.gif)
 
 # Why is this project needed ?
 
