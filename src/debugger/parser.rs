@@ -4,7 +4,7 @@ use nom;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while_m_n};
 use nom::character::complete::{alphanumeric1, char, digit1, multispace0, multispace1};
-use nom::combinator::{map, map_res};
+use nom::combinator::{map, map_res, cut};
 use nom::error::{context, convert_error, ParseError, VerboseError};
 use nom::multi::separated_list;
 use nom::sequence::{preceded, separated_pair, terminated, tuple};
@@ -81,7 +81,7 @@ fn parse_assignment<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&str, Exp
             separated_pair(
                 parse_value,
                 preceded(multispace0, char('=')),
-                preceded(multispace0, parse_value),
+                cut(preceded(multispace0, parse_value)),
             ),
             |(lvalue, rvalue)| Expr::Assignment(lvalue, rvalue),
         ),
