@@ -467,7 +467,7 @@ mod tests {
             (decoded.pc as i32).wrapping_add(decoded.branch_offset()),
             0x10
         );
-        assert_eq!(format!("{}", decoded), "b\t0x10");
+        assert_eq!(format!("{}", decoded), "bl\t0x10");
     }
 
     #[test]
