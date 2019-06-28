@@ -5,7 +5,7 @@ use crate::num_traits::FromPrimitive;
 use colored::*;
 
 use super::arm::*;
-use super::exception::Exception;
+pub use super::exception::Exception;
 use super::psr::RegPSR;
 use super::reg_string;
 use super::sysbus::SysBus;
@@ -86,7 +86,7 @@ impl fmt::Display for CpuMode {
 #[derive(Debug, PartialEq)]
 pub enum CpuError {
     ArmDecodeError(ArmDecodeError),
-    IllegalInstruction(CpuInstruction),
+    IllegalInstruction,
     UnimplementedCpuInstruction(CpuInstruction),
 }
 
@@ -109,10 +109,9 @@ impl fmt::Display for CpuError {
                 "unimplemented instruction: 0x{:08x}:\t0x{:08x}\t{}",
                 insn.pc, insn.raw, insn
             ),
-            CpuError::IllegalInstruction(CpuInstruction::Arm(insn)) => write!(
+            CpuError::IllegalInstruction => write!(
                 f,
-                "illegal instruction at address @0x{:08x} (0x{:08x})",
-                insn.pc, insn.raw
+                "illegal instruction"
             ),
             e => write!(f, "error: {:#x?}", e),
         }

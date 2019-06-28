@@ -54,31 +54,33 @@ pub enum ArmCond {
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[allow(non_camel_case_types)]
 pub enum ArmInstructionFormat {
-    // Branch and Exchange
+    /// Branch and Exchange
     BX,
-    // Branch /w Link
+    /// Branch /w Link
     B_BL,
+    /// Software interrupt
+    SWI,
     // Multiply and Multiply-Accumulate
     MUL_MLA,
-    // Multiply Long and Multiply-Accumulate Long
+    /// Multiply Long and Multiply-Accumulate Long
     MULL_MLAL,
-    // Single Data Transfer
+    /// Single Data Transfer
     LDR_STR,
-    // Halfword and Signed Data Transfer
+    /// Halfword and Signed Data Transfer
     LDR_STR_HS_REG,
-    // Halfword and Signed Data Transfer
+    /// Halfword and Signed Data Transfer
     LDR_STR_HS_IMM,
-    // Data Processing
+    /// Data Processing
     DP,
-    // Block Data Transfer
+    /// Block Data Transfer
     LDM_STM,
-    // Single Data Swap
+    /// Single Data Swap
     SWP,
-    // Transfer PSR contents to a register
+    /// Transfer PSR contents to a register
     MRS,
-    // Transfer register contents to PSR
+    /// Transfer register contents to PSR
     MSR_REG,
-    // Tanssfer immediate/register to PSR flags only
+    /// Tanssfer immediate/register to PSR flags only
     MSR_FLAGS,
 }
 
@@ -100,6 +102,15 @@ pub enum ArmOpCode {
     MOV = 0b1101,
     BIC = 0b1110,
     MVN = 0b1111,
+}
+
+impl ArmOpCode {
+    pub fn is_setting_flags(&self) -> bool {
+        match self {
+            ArmOpCode::TST | ArmOpCode::TEQ | ArmOpCode::CMP | ArmOpCode::CMN => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Primitive)]
@@ -160,6 +171,8 @@ impl TryFrom<(u32, u32)> for ArmInstruction {
             Ok(LDR_STR_HS_IMM)
         } else if (0x0e00_0000 & raw) == 0x0800_0000 {
             Ok(LDM_STM)
+        } else if (0x0f00_0000 & raw) == 0x0f00_0000 {
+            Ok(SWI)
         } else if (0x0c00_0000 & raw) == 0x0000_0000 {
             Ok(DP)
         } else {
@@ -172,6 +185,14 @@ impl TryFrom<(u32, u32)> for ArmInstruction {
             raw: raw,
             pc: addr,
         })
+    }
+}
+
+impl TryFrom<u32> for ArmInstruction {
+    type Error = ArmDecodeError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        ArmInstruction::try_from((value, 0))
     }
 }
 
@@ -274,7 +295,7 @@ impl ArmInstruction {
     }
 
     pub fn branch_offset(&self) -> i32 {
-        ((((self.raw << 8) as i32) >> 8) << 2) + 8
+        ((self.raw.bit_range(0..24) << 2) as i32) + 8
     }
 
     pub fn load_flag(&self) -> bool {
@@ -338,7 +359,8 @@ impl ArmInstruction {
         let ofs = self.raw.bit_range(0..12);
         if self.raw.bit(25) {
             let rm = ofs & 0xf;
-            let shift = ArmRegisterShift::try_from(ofs).map_err(|kind| self.make_decode_error(kind))?;
+            let shift =
+                ArmRegisterShift::try_from(ofs).map_err(|kind| self.make_decode_error(kind))?;
             Ok(ArmShiftedValue::ShiftedRegister {
                 reg: rm as usize,
                 shift: shift,
@@ -382,7 +404,8 @@ impl ArmInstruction {
             Ok(ArmShiftedValue::RotatedImmediate(immediate, rotate))
         } else {
             let reg = op2 & 0xf;
-            let shift = ArmRegisterShift::try_from(op2).map_err(|kind| self.make_decode_error(kind))?; // TODO error handling
+            let shift =
+                ArmRegisterShift::try_from(op2).map_err(|kind| self.make_decode_error(kind))?; // TODO error handling
             Ok(ArmShiftedValue::ShiftedRegister {
                 reg: reg as usize,
                 shift: shift,
@@ -400,5 +423,24 @@ impl ArmInstruction {
             }
         }
         list
+    }
+
+    pub fn swi_comment(&self) -> u32 {
+        self.raw.bit_range(0..24)
+    }
+}
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_swi() {
+        // swi #0x1337
+        let decoded = ArmInstruction::try_from(0xef001337).unwrap();
+        assert_eq!(decoded.fmt, ArmInstructionFormat::SWI);
+        assert_eq!(decoded.swi_comment(), 0x1337);
     }
 }

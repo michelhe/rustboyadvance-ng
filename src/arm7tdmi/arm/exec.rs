@@ -1,13 +1,15 @@
-use super::super::cpu::{
-    Core, CpuError, CpuExecResult, CpuInstruction, CpuPipelineAction, CpuResult, CpuState
+use crate::bit::BitIndex;
+
+use crate::arm7tdmi;
+use arm7tdmi::cpu::{
+    Core, CpuError, CpuExecResult, CpuInstruction, CpuPipelineAction, CpuResult, CpuState, Exception
 };
+
 use super::super::sysbus::SysBus;
 use super::{
     ArmCond, ArmInstruction, ArmInstructionFormat, ArmOpCode, ArmRegisterShift, ArmShiftType,
     ArmShiftedValue,
 };
-
-use crate::bit::BitIndex;
 
 impl Core {
     fn check_arm_cond(&self, cond: ArmCond) -> bool {
@@ -37,6 +39,7 @@ impl Core {
                 ArmInstructionFormat::BX => self.exec_bx(sysbus, insn),
                 ArmInstructionFormat::B_BL => self.exec_b_bl(sysbus, insn),
                 ArmInstructionFormat::DP => self.exec_data_processing(sysbus, insn),
+                ArmInstructionFormat::SWI => self.exec_swi(sysbus, insn),
                 _ => Err(CpuError::UnimplementedCpuInstruction(CpuInstruction::Arm(
                     insn,
                 ))),
@@ -77,7 +80,16 @@ impl Core {
         Ok(CpuPipelineAction::Branch)
     }
 
-    fn do_shift(val: i32, amount: u32, shift: ArmShiftType) -> i32 {
+    fn exec_swi(
+        &mut self,
+        _sysbus: &mut SysBus,
+        _insn: ArmInstruction,
+    ) -> CpuResult<CpuPipelineAction> {
+        self.exception(Exception::SoftwareInterrupt);
+        Ok(CpuPipelineAction::Branch)
+    }
+
+    fn barrel_shift(val: i32, amount: u32, shift: ArmShiftType) -> i32 {
         match shift {
             ArmShiftType::LSL => val.wrapping_shl(amount),
             ArmShiftType::LSR => (val as u32).wrapping_shr(amount) as i32,
@@ -86,12 +98,18 @@ impl Core {
         }
     }
 
-    fn register_shift(&mut self, reg: usize, shift: ArmRegisterShift) -> i32 {
+    fn register_shift(&mut self, reg: usize, shift: ArmRegisterShift) -> CpuResult<i32> {
         let val = self.get_reg(reg) as i32;
         match shift {
-            ArmRegisterShift::ShiftAmount(amount, shift) => Core::do_shift(val, amount, shift),
+            ArmRegisterShift::ShiftAmount(amount, shift) => {
+                Ok(Core::barrel_shift(val, amount, shift))
+            }
             ArmRegisterShift::ShiftRegister(reg, shift) => {
-                Core::do_shift(val, self.get_reg(reg) & 0xff, shift)
+                if reg != arm7tdmi::REG_PC {
+                    Ok(Core::barrel_shift(val, self.get_reg(reg) & 0xff, shift))
+                } else {
+                    Err(CpuError::IllegalInstruction)
+                }
             }
         }
     }
@@ -154,7 +172,7 @@ impl Core {
 
         let op2: i32 = match op2 {
             ArmShiftedValue::RotatedImmediate(immediate, rotate) => {
-                immediate.rotate_right(rotate) as i32
+                Ok(immediate.rotate_right(rotate) as i32)
             }
             ArmShiftedValue::ShiftedRegister {
                 reg,
@@ -162,10 +180,11 @@ impl Core {
                 added: _,
             } => self.register_shift(reg, shift),
             _ => unreachable!(),
-        };
+        }?;
 
         let opcode = insn.opcode().unwrap();
-        if let Some(result) = self.alu(opcode, op1, op2, insn.set_cond_flag()) {
+        let set_flags = opcode.is_setting_flags() || insn.set_cond_flag();
+        if let Some(result) = self.alu(opcode, op1, op2, set_flags) {
             self.set_reg(insn.rd(), result as u32)
         }
 

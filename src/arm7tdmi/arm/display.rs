@@ -1,9 +1,10 @@
+use std::fmt;
+
 use super::super::{reg_string, REG_PC};
 use super::{
-    ArmCond, ArmHalfwordTransferType, ArmInstruction, ArmInstructionFormat, ArmOpCode, ArmRegisterShift,
-    ArmShiftType, ArmShiftedValue,
+    ArmCond, ArmHalfwordTransferType, ArmInstruction, ArmInstructionFormat, ArmOpCode,
+    ArmRegisterShift, ArmShiftType, ArmShiftedValue,
 };
-use std::fmt;
 
 impl fmt::Display for ArmCond {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -91,7 +92,9 @@ impl ArmInstruction {
 
         match shift {
             ArmRegisterShift::ShiftAmount(imm, typ) => format!("{}, {} #{}", reg, typ, imm),
-            ArmRegisterShift::ShiftRegister(rs, typ) => format!("{}, {} {}", reg, typ, reg_string(rs)),
+            ArmRegisterShift::ShiftRegister(rs, typ) => {
+                format!("{}, {} {}", reg, typ, reg_string(rs))
+            }
         }
     }
 
@@ -351,6 +354,15 @@ impl ArmInstruction {
             write!(f, "<undefined>")
         }
     }
+
+    fn fmt_swi(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "swi{cond}\t#0x{comm:08x}",
+            cond = self.cond,
+            comm = self.swi_comment()
+        )
+    }
 }
 
 impl fmt::Display for ArmInstruction {
@@ -368,6 +380,7 @@ impl fmt::Display for ArmInstruction {
             MULL_MLAL => self.fmt_mull_mlal(f),
             LDR_STR_HS_IMM => self.fmt_ldr_str_hs(f),
             LDR_STR_HS_REG => self.fmt_ldr_str_hs(f),
+            SWI => self.fmt_swi(f),
             _ => write!(f, "({:?})", self),
         }
     }

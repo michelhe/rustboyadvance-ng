@@ -1,11 +1,13 @@
 pub mod arm;
 pub mod cpu;
-mod psr;
 mod exception;
+mod psr;
 
 pub use super::sysbus;
 
 pub const REG_PC: usize = 15;
+pub const REG_LR: usize = 14;
+pub const REG_SP: usize = 13;
 
 pub fn reg_string(reg: usize) -> &'static str {
     let reg_names = &[
