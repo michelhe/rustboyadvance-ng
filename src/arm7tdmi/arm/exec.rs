@@ -1,54 +1,32 @@
 use crate::bit::BitIndex;
 
-use crate::arm7tdmi;
-use arm7tdmi::cpu::{
-    Core, CpuError, CpuExecResult, CpuInstruction, CpuPipelineAction, CpuResult, CpuState,
-    Exception,
+use super::super::{
+    cpu::{Core, CpuExecResult, CpuPipelineAction},
+    exception::Exception,
+    sysbus::SysBus,
+    CpuError, CpuInstruction, CpuResult, CpuState, REG_PC,
 };
 
-use super::super::sysbus::SysBus;
 use super::{
     ArmCond, ArmInstruction, ArmInstructionFormat, ArmOpCode, ArmRegisterShift, ArmShiftType,
     ArmShiftedValue,
 };
 
 impl Core {
-    fn check_arm_cond(&self, cond: ArmCond) -> bool {
-        use ArmCond::*;
-        match cond {
-            Equal => self.cpsr.Z(),
-            NotEqual => !self.cpsr.Z(),
-            UnsignedHigherOrSame => self.cpsr.C(),
-            UnsignedLower => !self.cpsr.C(),
-            Negative => self.cpsr.N(),
-            PositiveOrZero => !self.cpsr.N(),
-            Overflow => self.cpsr.V(),
-            NoOverflow => !self.cpsr.V(),
-            UnsignedHigher => self.cpsr.C() && !self.cpsr.Z(),
-            UnsignedLowerOrSame => !self.cpsr.C() && self.cpsr.Z(),
-            GreaterOrEqual => self.cpsr.N() == self.cpsr.V(),
-            LessThan => self.cpsr.N() != self.cpsr.V(),
-            GreaterThan => !self.cpsr.Z() && (self.cpsr.N() == self.cpsr.V()),
-            LessThanOrEqual => self.cpsr.Z() || (self.cpsr.N() != self.cpsr.V()),
-            Always => true,
-        }
-    }
-
     pub fn exec_arm(&mut self, sysbus: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
-        let action = if self.check_arm_cond(insn.cond) {
-            match insn.fmt {
-                ArmInstructionFormat::BX => self.exec_bx(sysbus, insn),
-                ArmInstructionFormat::B_BL => self.exec_b_bl(sysbus, insn),
-                ArmInstructionFormat::DP => self.exec_data_processing(sysbus, insn),
-                ArmInstructionFormat::SWI => self.exec_swi(sysbus, insn),
-                _ => Err(CpuError::UnimplementedCpuInstruction(CpuInstruction::Arm(
-                    insn,
-                ))),
-            }
-        } else {
-            Ok(CpuPipelineAction::AdvanceProgramCounter)
-        }?;
-        Ok((CpuInstruction::Arm(insn), action))
+        if !self.check_arm_cond(insn.cond) {
+            return Ok(CpuPipelineAction::IncPC);
+        }
+        match insn.fmt {
+            ArmInstructionFormat::BX => self.exec_bx(sysbus, insn),
+            ArmInstructionFormat::B_BL => self.exec_b_bl(sysbus, insn),
+            ArmInstructionFormat::DP => self.exec_data_processing(sysbus, insn),
+            ArmInstructionFormat::SWI => self.exec_swi(sysbus, insn),
+            ArmInstructionFormat::LDR_STR => self.exec_ldr_str(sysbus, insn),
+            _ => Err(CpuError::UnimplementedCpuInstruction(CpuInstruction::Arm(
+                insn,
+            ))),
+        }
     }
 
     fn exec_b_bl(
@@ -57,13 +35,12 @@ impl Core {
         insn: ArmInstruction,
     ) -> CpuResult<CpuPipelineAction> {
         if self.verbose && insn.cond != ArmCond::Always {
-            println!("branch taken!")
         }
         if insn.link_flag() {
             self.set_reg(14, self.pc & !0b1);
         }
         self.pc = (self.pc as i32).wrapping_add(insn.branch_offset()) as u32;
-        Ok(CpuPipelineAction::Branch)
+        Ok(CpuPipelineAction::Flush)
     }
 
     fn exec_bx(
@@ -78,7 +55,8 @@ impl Core {
             self.cpsr.set_state(CpuState::ARM);
         }
 
-        Ok(CpuPipelineAction::Branch)
+        self.pc = rn & !1;
+        Ok(CpuPipelineAction::Flush)
     }
 
     fn exec_swi(
@@ -87,7 +65,7 @@ impl Core {
         _insn: ArmInstruction,
     ) -> CpuResult<CpuPipelineAction> {
         self.exception(Exception::SoftwareInterrupt);
-        Ok(CpuPipelineAction::Branch)
+        Ok(CpuPipelineAction::Flush)
     }
 
     fn barrel_shift(val: i32, amount: u32, shift: ArmShiftType) -> i32 {
@@ -106,7 +84,7 @@ impl Core {
                 Ok(Core::barrel_shift(val, amount, shift))
             }
             ArmRegisterShift::ShiftRegister(reg, shift) => {
-                if reg != arm7tdmi::REG_PC {
+                if reg != REG_PC {
                     Ok(Core::barrel_shift(val, self.get_reg(reg) & 0xff, shift))
                 } else {
                     Err(CpuError::IllegalInstruction)
@@ -189,6 +167,16 @@ impl Core {
             self.set_reg(insn.rd(), result as u32)
         }
 
-        Ok(CpuPipelineAction::AdvanceProgramCounter)
+        Ok(CpuPipelineAction::IncPC)
+    }
+
+    fn exec_ldr_str(
+        &mut self,
+        _sysbus: &mut SysBus,
+        insn: ArmInstruction,
+    ) -> CpuResult<CpuPipelineAction> {
+        let rn = self.get_reg(insn.rn());
+        let rd = self.get_reg(insn.rd());
+        Ok(CpuPipelineAction::IncPC)
     }
 }

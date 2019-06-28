@@ -19,13 +19,12 @@ extern crate rustyline;
 extern crate nom;
 
 extern crate colored; // not needed in Rust 2018
+extern crate ansi_term;
 
 pub mod sysbus;
 use sysbus::SysBus;
 
 mod arm7tdmi;
-use arm7tdmi::arm;
-use arm7tdmi::cpu;
 
 mod debugger;
 use debugger::{Debugger, DebuggerError};
@@ -36,8 +35,8 @@ use disass::Disassembler;
 #[derive(Debug)]
 pub enum GBAError {
     IO(io::Error),
-    ArmDecodeError(arm::ArmDecodeError),
-    CpuError(cpu::CpuError),
+    ArmDecodeError(arm7tdmi::arm::ArmDecodeError),
+    CpuError(arm7tdmi::CpuError),
     DebuggerError(DebuggerError)
 }
 
@@ -49,14 +48,14 @@ impl From<io::Error> for GBAError {
     }
 }
 
-impl From<arm::ArmDecodeError> for GBAError {
-    fn from(err: arm::ArmDecodeError) -> GBAError {
+impl From<arm7tdmi::arm::ArmDecodeError> for GBAError {
+    fn from(err: arm7tdmi::arm::ArmDecodeError) -> GBAError {
         GBAError::ArmDecodeError(err)
     }
 }
 
-impl From<cpu::CpuError> for GBAError {
-    fn from(err: cpu::CpuError) -> GBAError {
+impl From<arm7tdmi::CpuError> for GBAError {
+    fn from(err: arm7tdmi::CpuError) -> GBAError {
         GBAError::CpuError(err)
     }
 }
@@ -80,7 +79,7 @@ fn run_disass(matches: &ArgMatches) -> GBAResult<()> {
     let bin = read_bin_file(&input)?;
 
     let disassembler = Disassembler::new(0, &bin);
-    for line in disassembler {
+    for (_, line) in disassembler {
         println!("{}", line)
     }
     Ok(())
@@ -92,7 +91,7 @@ fn run_debug(matches: &ArgMatches) -> GBAResult<()> {
     let bios_bin = read_bin_file(gba_bios_path)?;
 
     let sysbus = SysBus::new(bios_bin);
-    let mut core = cpu::Core::new();
+    let mut core = arm7tdmi::cpu::Core::new();
     core.reset();
     core.set_verbose(true);
     let mut debugger = Debugger::new(core, sysbus);

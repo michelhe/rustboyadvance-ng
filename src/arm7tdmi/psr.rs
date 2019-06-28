@@ -4,7 +4,7 @@ use std::fmt;
 use crate::bit::BitIndex;
 use crate::num_traits::FromPrimitive;
 
-use super::cpu::{CpuMode, CpuState};
+use super::{CpuMode, CpuState};
 
 use colored::*;
 

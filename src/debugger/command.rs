@@ -1,5 +1,8 @@
+use crate::arm7tdmi::{reg_string, REG_PC};
 use crate::debugger::Debugger;
 use crate::disass::Disassembler;
+
+use ansi_term::Colour;
 
 use colored::*;
 use hexdump;
@@ -7,7 +10,7 @@ use hexdump;
 #[derive(Debug, PartialEq, Clone)]
 pub enum Command {
     Info,
-    SingleStep,
+    SingleStep(bool),
     Continue,
     HexDump(u32, usize),
     Disass(u32, usize),
@@ -24,16 +27,24 @@ impl Command {
         use Command::*;
         match *self {
             Info => println!("{}", debugger.cpu),
-            SingleStep => {
+            SingleStep(_cycle) => {
                 if let Some(bp) = debugger.check_breakpoint() {
                     println!("hit breakpoint #0x{:08x}!", bp);
                     debugger.delete_breakpoint(bp);
                 } else {
-                    match debugger.cpu.step(&mut debugger.sysbus) {
-                        Ok(_) => (),
+                    match debugger.cpu.step_debugger(&mut debugger.sysbus) {
+                        Ok(insn) => {
+                            println!("{}\n", debugger.cpu);
+                            println!(
+                                "Executed at @0x{:08x}:\n\t{}",
+                                insn.pc,
+                                Colour::Yellow.italic().paint(format!("{} ", insn))
+                            );
+                            println!("Next instruction at @0x{:08x}", debugger.cpu.get_next_pc())
+                        }
                         Err(e) => {
                             println!("{}: {}", "cpu encountered an error".red(), e);
-                            println!("cpu: {:#x?}", debugger.cpu)
+                            println!("cpu: {:x?}", debugger.cpu)
                         }
                     }
                 }
@@ -44,11 +55,11 @@ impl Command {
                     debugger.delete_breakpoint(bp);
                     break;
                 }
-                match debugger.cpu.step(&mut debugger.sysbus) {
+                match debugger.cpu.step_debugger(&mut debugger.sysbus) {
                     Ok(_) => (),
                     Err(e) => {
                         println!("{}: {}", "cpu encountered an error".red(), e);
-                        println!("cpu: {:#x?}", debugger.cpu);
+                        println!("cpu: {:x?}", debugger.cpu);
                         break;
                     }
                 };
@@ -72,7 +83,7 @@ impl Command {
                     }
                 };
                 let disass = Disassembler::new(addr, bytes);
-                for line in disass {
+                for (_, line) in disass {
                     println!("{}", line)
                 }
             }

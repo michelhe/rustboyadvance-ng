@@ -3,7 +3,7 @@ use rustyline::Editor;
 
 use colored::*;
 
-use super::arm7tdmi::cpu;
+use super::arm7tdmi;
 use super::sysbus::SysBus;
 
 mod parser;
@@ -15,14 +15,14 @@ use command::Command;
 #[derive(Debug, PartialEq)]
 pub enum DebuggerError {
     ParsingError(String),
-    CpuError(cpu::CpuError),
+    CpuError(arm7tdmi::CpuError),
     InvalidCommand(String),
     InvalidArgument(String),
     InvalidCommandFormat(String),
 }
 
-impl From<cpu::CpuError> for DebuggerError {
-    fn from(e: cpu::CpuError) -> DebuggerError {
+impl From<arm7tdmi::CpuError> for DebuggerError {
+    fn from(e: arm7tdmi::CpuError) -> DebuggerError {
         DebuggerError::CpuError(e)
     }
 }
@@ -31,7 +31,7 @@ type DebuggerResult<T> = Result<T, DebuggerError>;
 
 #[derive(Debug)]
 pub struct Debugger {
-    pub cpu: cpu::Core,
+    pub cpu: arm7tdmi::cpu::Core,
     pub sysbus: SysBus,
     running: bool,
     breakpoints: Vec<u32>,
@@ -39,7 +39,7 @@ pub struct Debugger {
 }
 
 impl Debugger {
-    pub fn new(cpu: cpu::Core, sysbus: SysBus) -> Debugger {
+    pub fn new(cpu: arm7tdmi::cpu::Core, sysbus: SysBus) -> Debugger {
         Debugger {
             cpu: cpu,
             sysbus: sysbus,
@@ -50,10 +50,10 @@ impl Debugger {
     }
 
     pub fn check_breakpoint(&self) -> Option<u32> {
-        let pc = self.cpu.get_reg(15);
+        let next_pc = self.cpu.get_next_pc();
         for bp in &self.breakpoints {
-            if *bp == pc {
-                return Some(pc);
+            if *bp == next_pc {
+                return Some(next_pc);
             }
         }
 
@@ -123,7 +123,8 @@ impl Debugger {
 
         match command.as_ref() {
             "i" | "info" => Ok(Command::Info),
-            "s" | "step" => Ok(Command::SingleStep),
+            "s" | "step" => Ok(Command::SingleStep(false)),
+            "sc" | "stepcycle" => Ok(Command::SingleStep(true)),
             "c" | "continue" => Ok(Command::Continue),
             "x" | "hexdump" => {
                 let (addr, n) = match args.len() {
@@ -255,7 +256,7 @@ impl Debugger {
         let mut rl = Editor::<()>::new();
         rl.load_history(".rustboyadvance_history");
         while self.running {
-            let readline = rl.readline(&format!("({}) >> ", "rustboyadvance-dbg".bold().cyan()));
+            let readline = rl.readline(&format!("({}) ᐅ ", "rustboyadvance-dbg".bold().cyan()));
             match readline {
                 Ok(line) => {
                     if line.is_empty() {

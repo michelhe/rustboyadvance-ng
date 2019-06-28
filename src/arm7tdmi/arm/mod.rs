@@ -295,7 +295,7 @@ impl ArmInstruction {
     }
 
     pub fn branch_offset(&self) -> i32 {
-        (((self.raw.bit_range(0..24) << 8) as i32) >> 6).wrapping_add(8)
+        (((self.raw.bit_range(0..24) << 8) as i32) >> 6)
     }
 
     pub fn load_flag(&self) -> bool {
@@ -451,20 +451,20 @@ mod tests {
         assert_eq!(decoded.fmt, ArmInstructionFormat::B_BL);
         assert_eq!(decoded.link_flag(), false);
         assert_eq!(
-            (decoded.pc as i32).wrapping_add(decoded.branch_offset()),
+            (decoded.pc as i32).wrapping_add(decoded.branch_offset()) + 8,
             0x30
         );
         assert_eq!(format!("{}", decoded), "b\t0x30");
     }
 
     #[test]
-    fn test_decode_branch_backwards() {
+    fn test_decode_branch_link_backwards() {
         // 0x20:   bl 0x10
         let decoded = ArmInstruction::try_from((0xeb_ff_ff_fa, 0x20)).unwrap();
         assert_eq!(decoded.fmt, ArmInstructionFormat::B_BL);
         assert_eq!(decoded.link_flag(), true);
         assert_eq!(
-            (decoded.pc as i32).wrapping_add(decoded.branch_offset()),
+            (decoded.pc as i32).wrapping_add(decoded.branch_offset()) + 8,
             0x10
         );
         assert_eq!(format!("{}", decoded), "bl\t0x10");

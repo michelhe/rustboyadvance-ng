@@ -28,7 +28,7 @@ impl<'a> Seek for Disassembler<'a> {
 }
 
 impl<'a> Iterator for Disassembler<'a> {
-    type Item = String;
+    type Item = (u32, String);
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut line = String::new();
@@ -50,6 +50,6 @@ impl<'a> Iterator for Disassembler<'a> {
             Err(_) => line.push_str("<UNDEFINED>"),
         };
 
-        Some(line)
+        Some((addr, line))
     }
 }

@@ -1,135 +1,40 @@
 use std::convert::TryFrom;
 use std::fmt;
 
-use crate::num_traits::FromPrimitive;
-use colored::*;
+use ansi_term::{Colour, Style};
 
-use super::arm::*;
+use super::*;
+
 pub use super::exception::Exception;
 use super::psr::RegPSR;
 use super::reg_string;
 use super::sysbus::SysBus;
 
-#[derive(Debug, PartialEq)]
-pub enum CpuInstruction {
-    Arm(ArmInstruction),
-    Thumb,
+type Addr = u32;
+
+#[derive(Debug, Default)]
+pub struct PipelineContext {
+    fetched: Option<(Addr, u32)>,
+    decoded: Option<ArmInstruction>,
 }
 
-#[derive(Debug, PartialEq, Primitive, Copy, Clone)]
-#[repr(u8)]
-pub enum CpuState {
-    ARM = 0,
-    THUMB = 1,
-}
-
-impl fmt::Display for CpuState {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use CpuState::*;
-        match self {
-            ARM => write!(f, "ARM"),
-            THUMB => write!(f, "THUMB"),
-        }
-    }
-}
-
-#[derive(Debug, Primitive, Copy, Clone, PartialEq)]
-pub enum CpuMode {
-    User = 0b10000,
-    Fiq = 0b10001,
-    Irq = 0b10010,
-    Supervisor = 0b10011,
-    Abort = 0b10111,
-    Undefined = 0b11011,
-    System = 0b11111,
-}
-
-impl CpuMode {
-    pub fn spsr_index(&self) -> Option<usize> {
-        match self {
-            CpuMode::Fiq => Some(0),
-            CpuMode::Irq => Some(1),
-            CpuMode::Supervisor => Some(2),
-            CpuMode::Abort => Some(3),
-            CpuMode::Undefined => Some(4),
-            _ => None,
-        }
+impl PipelineContext {
+    fn is_flushed(&self) -> bool {
+        self.fetched.is_none() && self.decoded.is_none()
     }
 
-    pub fn bank_index(&self) -> usize {
-        match self {
-            CpuMode::User | CpuMode::System => 0,
-            CpuMode::Fiq => 1,
-            CpuMode::Irq => 2,
-            CpuMode::Supervisor => 3,
-            CpuMode::Abort => 4,
-            CpuMode::Undefined => 5,
-        }
+    fn is_only_fetched(&self) -> bool {
+        self.fetched.is_some() && self.decoded.is_none()
     }
-}
 
-impl fmt::Display for CpuMode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use CpuMode::*;
-        match self {
-            User => write!(f, "USR"),
-            Fiq => write!(f, "FIQ"),
-            Irq => write!(f, "IRQ"),
-            Supervisor => write!(f, "SVC"),
-            Abort => write!(f, "ABT"),
-            Undefined => write!(f, "UND"),
-            System => write!(f, "SYS"),
-        }
+    fn is_ready_to_execute(&self) -> bool {
+        self.fetched.is_some() && self.decoded.is_some()
     }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum CpuError {
-    ArmDecodeError(ArmDecodeError),
-    IllegalInstruction,
-    UnimplementedCpuInstruction(CpuInstruction),
-}
-
-impl From<ArmDecodeError> for CpuError {
-    fn from(e: ArmDecodeError) -> CpuError {
-        CpuError::ArmDecodeError(e)
-    }
-}
-
-impl fmt::Display for CpuError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            CpuError::ArmDecodeError(e) => write!(
-                f,
-                "arm decoding error at address @0x{:08x} (instruction 0x{:08x}): {:?}",
-                e.addr, e.insn, e.kind
-            ),
-            CpuError::UnimplementedCpuInstruction(CpuInstruction::Arm(insn)) => write!(
-                f,
-                "unimplemented instruction: 0x{:08x}:\t0x{:08x}\t{}",
-                insn.pc, insn.raw, insn
-            ),
-            CpuError::IllegalInstruction => write!(
-                f,
-                "illegal instruction"
-            ),
-            e => write!(f, "error: {:#x?}", e),
-        }
-    }
-}
-
-pub type CpuResult<T> = Result<T, CpuError>;
-
-pub struct CpuModeContext {
-    // r8-r14
-    banked_gpr: [u32; 7],
-    spsr: u32,
 }
 
 #[derive(Debug, Default)]
 pub struct Core {
     pub pc: u32,
-    // r0-r7
     pub gpr: [u32; 15],
     // r13 and r14 are banked for all modes. System&User mode share them
     pub gpr_banked_r13: [u32; 6],
@@ -141,16 +46,22 @@ pub struct Core {
     pub cpsr: RegPSR,
     pub spsr: [RegPSR; 5],
 
+    pub pipeline: PipelineContext,
+    cycles: usize,
+
+    // store the gpr before executing an instruction to show diff in the Display impl
+    gpr_previous: [u32; 15],
+
     pub verbose: bool,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum CpuPipelineAction {
-    AdvanceProgramCounter,
-    Branch,
+    IncPC,
+    Flush,
 }
 
-pub type CpuExecResult = CpuResult<(CpuInstruction, CpuPipelineAction)>;
+pub type CpuExecResult = CpuResult<CpuPipelineAction>;
 
 impl Core {
     pub fn new() -> Core {
@@ -177,6 +88,10 @@ impl Core {
             15 => self.pc = val,
             _ => panic!("invalid register"),
         }
+    }
+
+    pub fn get_registers(&self) -> [u32; 15] {
+        self.gpr.clone()
     }
 
     fn map_banked_registers(&mut self, curr_mode: CpuMode, new_mode: CpuMode) {
@@ -217,7 +132,7 @@ impl Core {
         self.exception(Exception::Reset);
     }
 
-    fn word_size(&self) -> usize {
+    pub fn word_size(&self) -> usize {
         match self.cpsr.state() {
             CpuState::ARM => 4,
             CpuState::THUMB => 2,
@@ -228,44 +143,133 @@ impl Core {
         self.pc = self.pc.wrapping_add(self.word_size() as u32)
     }
 
-    fn step_arm(&mut self, sysbus: &mut SysBus) -> CpuExecResult {
-        // fetch
-        let insn = sysbus.read_32(self.pc);
-        // decode
-        let insn = ArmInstruction::try_from((insn, self.pc))?;
-        // exec
-        self.exec_arm(sysbus, insn)
+    pub fn check_arm_cond(&self, cond: ArmCond) -> bool {
+        use ArmCond::*;
+        match cond {
+            Equal => self.cpsr.Z(),
+            NotEqual => !self.cpsr.Z(),
+            UnsignedHigherOrSame => self.cpsr.C(),
+            UnsignedLower => !self.cpsr.C(),
+            Negative => self.cpsr.N(),
+            PositiveOrZero => !self.cpsr.N(),
+            Overflow => self.cpsr.V(),
+            NoOverflow => !self.cpsr.V(),
+            UnsignedHigher => self.cpsr.C() && !self.cpsr.Z(),
+            UnsignedLowerOrSame => !self.cpsr.C() && self.cpsr.Z(),
+            GreaterOrEqual => self.cpsr.N() == self.cpsr.V(),
+            LessThan => self.cpsr.N() != self.cpsr.V(),
+            GreaterThan => !self.cpsr.Z() && (self.cpsr.N() == self.cpsr.V()),
+            LessThanOrEqual => self.cpsr.Z() || (self.cpsr.N() != self.cpsr.V()),
+            Always => true,
+        }
     }
 
-    pub fn step(&mut self, sysbus: &mut SysBus) -> CpuResult<()> {
-        let (executed_insn, pipeline_action) = match self.cpsr.state() {
+    fn step_arm(
+        &mut self,
+        sysbus: &mut SysBus,
+    ) -> CpuResult<(Option<ArmInstruction>, CpuPipelineAction)> {
+        // fetch
+        let new_fetched = sysbus.read_32(self.pc);
+
+        // decode
+        let new_decoded = match self.pipeline.fetched {
+            Some((addr, i)) => Some(ArmInstruction::try_from((i, addr)).unwrap()),
+            None => None,
+        };
+        // exec
+        let result = match self.pipeline.decoded {
+            Some(d) => {
+                self.gpr_previous = self.get_registers();
+                let action = self.exec_arm(sysbus, d)?;
+                Ok((Some(d), action))
+            }
+            None => Ok((None, CpuPipelineAction::IncPC)),
+        };
+
+        self.pipeline.fetched = Some((self.pc, new_fetched));
+        if let Some(d) = new_decoded {
+            self.pipeline.decoded = Some(d);
+        }
+
+        result
+    }
+
+    /// Perform a pipeline step
+    /// If an instruction was executed in this step, return it.
+    pub fn step(&mut self, sysbus: &mut SysBus) -> CpuResult<Option<ArmInstruction>> {
+        if self.cycles > 0 {
+            self.cycles -= 1;
+            return Ok(None);
+        }
+        let (executed_instruction, pipeline_action) = match self.cpsr.state() {
             CpuState::ARM => self.step_arm(sysbus),
             CpuState::THUMB => unimplemented!("thumb not implemented :("),
         }?;
 
-        if self.verbose {
-            if let CpuInstruction::Arm(insn) = executed_insn {
-                println!("{:8x}:\t{:08x} \t{}", insn.pc, insn.raw, insn)
+        match pipeline_action {
+            CpuPipelineAction::IncPC => self.advance_pc(),
+            CpuPipelineAction::Flush => {
+                self.pipeline.fetched = None;
+                self.pipeline.decoded = None;
             }
         }
 
-        if CpuPipelineAction::AdvanceProgramCounter == pipeline_action {
-            self.advance_pc();
-        }
+        Ok(executed_instruction)
+    }
 
-        Ok(())
+    /// Get's the address of the next instruction that is going to be executed
+    pub fn get_next_pc(&self) -> Addr {
+        if self.pipeline.is_flushed() {
+            self.pc
+        } else if self.pipeline.is_only_fetched() {
+            self.pipeline.fetched.unwrap().0
+        } else if self.pipeline.is_ready_to_execute() {
+            self.pipeline.decoded.unwrap().pc
+        } else {
+            unreachable!()
+        }
+    }
+
+    /// A step that returns only once an instruction was executed.
+    /// Returns the address of PC before executing an instruction,
+    /// and the address of the next instruction to be executed;
+    pub fn step_debugger(&mut self, sysbus: &mut SysBus) -> CpuResult<ArmInstruction> {
+        loop {
+            if let Some(i) = self.step(sysbus)? {
+                return Ok(i);
+            }
+        }
     }
 }
 
 impl fmt::Display for Core {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "ARM7TDMI Core")?;
-        writeln!(f, "REGISTERS:")?;
-        for i in 0..16 {
-            let mut reg = reg_string(i).to_string();
-            reg.make_ascii_uppercase();
-            writeln!(f, "\t{}\t= 0x{:08x}", reg.bright_yellow(), self.get_reg(i))?;
+        writeln!(f, "ARM7TDMI Core Status:")?;
+        writeln!(f, "\tCPSR: {}", self.cpsr)?;
+        writeln!(f, "\tGeneral Purpose Registers:")?;
+        let reg_normal_style = Style::new().bold();
+        let reg_dirty_style = Colour::Green.bold().on(Colour::Yellow);
+        let gpr = self.get_registers();
+        for i in 0..15 {
+            let mut reg_name = reg_string(i).to_string();
+            reg_name.make_ascii_uppercase();
+
+            let style = if gpr[i] != self.gpr_previous[i] {
+                &reg_dirty_style
+            } else {
+                &reg_normal_style
+            };
+
+            let entry = format!("\t{}\t= 0x{:08x}", reg_name, gpr[i]);
+
+            write!(
+                f,
+                "{}{}",
+                style.paint(entry),
+                if (i + 1) % 4 == 0 { "\n" } else { "" }
+            )?;
         }
-        write!(f, "CPSR: {}", self.cpsr)
+        let pc = format!("\tPC\t= 0x{:08x}", self.pc);
+        writeln!(f, "{}", reg_normal_style.paint(pc))
     }
 }

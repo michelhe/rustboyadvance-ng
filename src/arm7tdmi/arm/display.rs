@@ -108,7 +108,7 @@ impl ArmInstruction {
             "b{link}{cond}\t{ofs:#x}",
             link = if self.link_flag() { "l" } else { "" },
             cond = self.cond,
-            ofs = self.pc.wrapping_add(self.branch_offset() as u32) as u32
+            ofs = 8 + self.pc.wrapping_add(self.branch_offset() as u32) as u32
         )
     }
 

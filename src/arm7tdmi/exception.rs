@@ -1,4 +1,4 @@
-use super::cpu::{Core, CpuMode, CpuState};
+use super::{cpu::Core, CpuMode, CpuState};
 
 use colored::*;
 
