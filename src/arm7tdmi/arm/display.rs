@@ -220,7 +220,7 @@ impl ArmInstruction {
     fn fmt_ldr_str(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "{mnem}{B}{cond}{T}\t{Rd}, ",
+            "{mnem}{B}{T}{cond}\t{Rd}, ",
             mnem = if self.load_flag() { "ldr" } else { "str" },
             B = if self.transfer_size() == 1 { "b" } else { "" },
             cond = self.cond,
@@ -358,7 +358,7 @@ impl ArmInstruction {
     fn fmt_swi(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "swi{cond}\t#0x{comm:08x}",
+            "swi{cond}\t#{comm:#x}",
             cond = self.cond,
             comm = self.swi_comment()
         )

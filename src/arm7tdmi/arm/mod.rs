@@ -430,9 +430,8 @@ impl ArmInstruction {
     }
 }
 
-
-
 #[cfg(test)]
+/// All instructions constants were generated using an ARM assembler.
 mod tests {
     use super::*;
 
@@ -442,6 +441,7 @@ mod tests {
         let decoded = ArmInstruction::try_from(0xef001337).unwrap();
         assert_eq!(decoded.fmt, ArmInstructionFormat::SWI);
         assert_eq!(decoded.swi_comment(), 0x1337);
+        assert_eq!(format!("{}", decoded), "swi\t#0x1337");
     }
 
     #[test]
@@ -450,7 +450,11 @@ mod tests {
         let decoded = ArmInstruction::try_from((0xea_00_00_02, 0x20)).unwrap();
         assert_eq!(decoded.fmt, ArmInstructionFormat::B_BL);
         assert_eq!(decoded.link_flag(), false);
-        assert_eq!((decoded.pc as i32).wrapping_add(decoded.branch_offset()), 0x30);
+        assert_eq!(
+            (decoded.pc as i32).wrapping_add(decoded.branch_offset()),
+            0x30
+        );
+        assert_eq!(format!("{}", decoded), "b\t0x30");
     }
 
     #[test]
@@ -459,6 +463,56 @@ mod tests {
         let decoded = ArmInstruction::try_from((0xeb_ff_ff_fa, 0x20)).unwrap();
         assert_eq!(decoded.fmt, ArmInstructionFormat::B_BL);
         assert_eq!(decoded.link_flag(), true);
-        assert_eq!((decoded.pc as i32).wrapping_add(decoded.branch_offset()), 0x10);
+        assert_eq!(
+            (decoded.pc as i32).wrapping_add(decoded.branch_offset()),
+            0x10
+        );
+        assert_eq!(format!("{}", decoded), "b\t0x10");
+    }
+
+    #[test]
+    fn test_decode_ldr_preindex() {
+        // ldreq r2, [r5, -r6, lsl #5]
+        let decoded = ArmInstruction::try_from(0x07_15_22_86).unwrap();
+        assert_eq!(decoded.fmt, ArmInstructionFormat::LDR_STR);
+        assert_eq!(decoded.cond, ArmCond::Equal);
+        assert_eq!(decoded.load_flag(), true);
+        assert_eq!(decoded.pre_index_flag(), true);
+        assert_eq!(decoded.write_back_flag(), false);
+        assert_eq!(decoded.rd(), 2);
+        assert_eq!(decoded.rn(), 5);
+        assert_eq!(
+            decoded.ldr_str_offset(),
+            Ok(ArmShiftedValue::ShiftedRegister {
+                reg: 6,
+                shift: ArmRegisterShift::ShiftAmount(5, ArmShiftType::LSL),
+                added: Some(false)
+            })
+        );
+
+        assert_eq!(format!("{}", decoded), "ldreq\tr2, [r5, -r6, lsl #5]");
+    }
+
+    #[test]
+    fn test_decode_str_postindex() {
+        // strteq r2, [r4], -r7, lsl #8
+        let decoded = ArmInstruction::try_from(0x06_24_24_47).unwrap();
+        assert_eq!(decoded.fmt, ArmInstructionFormat::LDR_STR);
+        assert_eq!(decoded.cond, ArmCond::Equal);
+        assert_eq!(decoded.load_flag(), false);
+        assert_eq!(decoded.pre_index_flag(), false);
+        assert_eq!(decoded.write_back_flag(), true);
+        assert_eq!(decoded.rd(), 2);
+        assert_eq!(decoded.rn(), 4);
+        assert_eq!(
+            decoded.ldr_str_offset(),
+            Ok(ArmShiftedValue::ShiftedRegister {
+                reg: 7,
+                shift: ArmRegisterShift::ShiftAmount(8, ArmShiftType::ASR),
+                added: Some(false)
+            })
+        );
+
+        assert_eq!(format!("{}", decoded), "strteq\tr2, [r4], -r7, asr #8");
     }
 }

@@ -2,7 +2,8 @@ use crate::bit::BitIndex;
 
 use crate::arm7tdmi;
 use arm7tdmi::cpu::{
-    Core, CpuError, CpuExecResult, CpuInstruction, CpuPipelineAction, CpuResult, CpuState, Exception
+    Core, CpuError, CpuExecResult, CpuInstruction, CpuPipelineAction, CpuResult, CpuState,
+    Exception,
 };
 
 use super::super::sysbus::SysBus;
