@@ -43,8 +43,9 @@ impl Core {
         self.cpsr.set_state(CpuState::ARM);
         self.cpsr.set_mode(new_mode);
         self.cpsr.set_irq_disabled(true);
-        let disabled_fiq = e == Exception::Reset || e == Exception::Fiq;
-        self.cpsr.set_fiq_disabled(disabled_fiq);
+        if e == Exception::Reset || e == Exception::Fiq {
+            self.cpsr.set_fiq_disabled(true);
+        }
 
         // Set PC to vector address
         self.pc = vector;
