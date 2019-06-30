@@ -1,4 +1,5 @@
 use crate::arm7tdmi::{reg_string, REG_PC};
+use crate::arm7tdmi::bus::Bus;
 use crate::debugger::Debugger;
 use crate::disass::Disassembler;
 
@@ -56,7 +57,13 @@ impl Command {
                     break;
                 }
                 match debugger.cpu.step_debugger(&mut debugger.sysbus) {
-                    Ok(_) => (),
+                    Ok(insn) => {
+                        println!(
+                                "@0x{:08x}:\n\t{}",
+                                insn.pc,
+                                Colour::Yellow.italic().paint(format!("{} ", insn))
+                            );
+                    },
                     Err(e) => {
                         println!("{}: {}", "cpu encountered an error".red(), e);
                         println!("cpu: {:x?}", debugger.cpu);

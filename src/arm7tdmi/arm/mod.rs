@@ -1,6 +1,8 @@
 pub mod display;
 pub mod exec;
 
+use crate::arm7tdmi::Addr;
+
 use crate::bit::BitIndex;
 use crate::num_traits::FromPrimitive;
 use std::convert::TryFrom;
@@ -19,11 +21,11 @@ use ArmDecodeErrorKind::*;
 pub struct ArmDecodeError {
     pub kind: ArmDecodeErrorKind,
     pub insn: u32,
-    pub addr: u32,
+    pub addr: Addr,
 }
 
 impl ArmDecodeError {
-    fn new(kind: ArmDecodeErrorKind, insn: u32, addr: u32) -> ArmDecodeError {
+    fn new(kind: ArmDecodeErrorKind, insn: u32, addr: Addr) -> ArmDecodeError {
         ArmDecodeError {
             kind: kind,
             insn: insn,
@@ -125,13 +127,13 @@ pub struct ArmInstruction {
     pub cond: ArmCond,
     pub fmt: ArmInstructionFormat,
     pub raw: u32,
-    pub pc: u32,
+    pub pc: Addr,
 }
 
-impl TryFrom<(u32, u32)> for ArmInstruction {
+impl TryFrom<(u32, Addr)> for ArmInstruction {
     type Error = ArmDecodeError;
 
-    fn try_from(value: (u32, u32)) -> Result<Self, Self::Error> {
+    fn try_from(value: (u32, Addr)) -> Result<Self, Self::Error> {
         use ArmInstructionFormat::*;
         let (raw, addr) = value;
 

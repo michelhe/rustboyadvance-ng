@@ -1,19 +1,19 @@
 use std::fmt;
 
-use crate::num_traits::FromPrimitive;
-
 pub mod arm;
-use arm::*;
+use arm::{ArmInstruction, ArmDecodeError};
 
 pub mod cpu;
+pub mod bus;
 mod exception;
 mod psr;
 
-pub use super::sysbus;
 
 pub const REG_PC: usize = 15;
 pub const REG_LR: usize = 14;
 pub const REG_SP: usize = 13;
+
+pub type Addr = u32;
 
 pub fn reg_string(reg: usize) -> &'static str {
     let reg_names = &[

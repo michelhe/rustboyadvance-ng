@@ -1,6 +1,6 @@
 use std::fmt;
 
-use super::super::{reg_string, REG_PC};
+use crate::arm7tdmi::{Addr, reg_string, REG_PC};
 use super::{
     ArmCond, ArmHalfwordTransferType, ArmInstruction, ArmInstructionFormat, ArmOpCode,
     ArmRegisterShift, ArmShiftType, ArmShiftedValue,
@@ -108,7 +108,7 @@ impl ArmInstruction {
             "b{link}{cond}\t{ofs:#x}",
             link = if self.link_flag() { "l" } else { "" },
             cond = self.cond,
-            ofs = 8 + self.pc.wrapping_add(self.branch_offset() as u32) as u32
+            ofs = 8 + self.pc.wrapping_add(self.branch_offset() as Addr)
         )
     }
 

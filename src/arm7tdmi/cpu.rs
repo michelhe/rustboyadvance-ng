@@ -1,16 +1,18 @@
+use std::ops::Add;
 use std::convert::TryFrom;
 use std::fmt;
 
 use ansi_term::{Colour, Style};
 
-use super::*;
+use crate::sysbus::SysBus;
 
 pub use super::exception::Exception;
-use super::psr::RegPSR;
-use super::reg_string;
-use super::sysbus::SysBus;
-
-type Addr = u32;
+use super::{
+    CpuState, CpuMode, reg_string, CpuResult, Addr,
+    psr::RegPSR,
+    bus::{Bus, MemoryAccess, MemoryAccessType::*, MemoryAccessWidth::*},
+    arm::*
+};
 
 #[derive(Debug, Default)]
 pub struct PipelineContext {
@@ -143,6 +145,18 @@ impl Core {
         self.pc = self.pc.wrapping_add(self.word_size() as u32)
     }
 
+    pub fn cycles(&self) -> usize {
+        self.cycles
+    }
+
+    pub fn add_cycle(&mut self) {
+        self.cycles += 1;
+    }
+
+    pub fn add_cycles(&mut self, addr: Addr, sysbus: &SysBus, access: MemoryAccess) {
+        self.cycles += sysbus.get_cycles(addr, access);
+    }
+
     pub fn check_arm_cond(&self, cond: ArmCond) -> bool {
         use ArmCond::*;
         match cond {
@@ -176,6 +190,7 @@ impl Core {
             Some((addr, i)) => Some(ArmInstruction::try_from((i, addr)).unwrap()),
             None => None,
         };
+
         // exec
         let result = match self.pipeline.decoded {
             Some(d) => {
@@ -183,7 +198,9 @@ impl Core {
                 let action = self.exec_arm(sysbus, d)?;
                 Ok((Some(d), action))
             }
-            None => Ok((None, CpuPipelineAction::IncPC)),
+            None => {
+                Ok((None, CpuPipelineAction::IncPC))
+            },
         };
 
         self.pipeline.fetched = Some((self.pc, new_fetched));
@@ -197,10 +214,6 @@ impl Core {
     /// Perform a pipeline step
     /// If an instruction was executed in this step, return it.
     pub fn step(&mut self, sysbus: &mut SysBus) -> CpuResult<Option<ArmInstruction>> {
-        if self.cycles > 0 {
-            self.cycles -= 1;
-            return Ok(None);
-        }
         let (executed_instruction, pipeline_action) = match self.cpsr.state() {
             CpuState::ARM => self.step_arm(sysbus),
             CpuState::THUMB => unimplemented!("thumb not implemented :("),
@@ -220,7 +233,7 @@ impl Core {
     /// Get's the address of the next instruction that is going to be executed
     pub fn get_next_pc(&self) -> Addr {
         if self.pipeline.is_flushed() {
-            self.pc
+            self.pc as Addr
         } else if self.pipeline.is_only_fetched() {
             self.pipeline.fetched.unwrap().0
         } else if self.pipeline.is_ready_to_execute() {
@@ -245,6 +258,7 @@ impl Core {
 impl fmt::Display for Core {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "ARM7TDMI Core Status:")?;
+        writeln!(f, "\tCycles: {}", self.cycles)?;
         writeln!(f, "\tCPSR: {}", self.cpsr)?;
         writeln!(f, "\tGeneral Purpose Registers:")?;
         let reg_normal_style = Style::new().bold();
