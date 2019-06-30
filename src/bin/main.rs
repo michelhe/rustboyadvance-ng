@@ -1,36 +1,17 @@
-use std::fs::File;
 use std::io;
-use std::io::prelude::*;
-
-#[macro_use]
-extern crate enum_primitive_derive;
-extern crate num_traits;
-
-extern crate bit;
-
-extern crate byteorder;
 
 #[macro_use]
 extern crate clap;
+
 use clap::{App, ArgMatches};
 
-extern crate rustyline;
+extern crate rustboyadvance_ng;
 
-extern crate nom;
-
-extern crate colored; // not needed in Rust 2018
-extern crate ansi_term;
-
-pub mod sysbus;
-use sysbus::SysBus;
-
-mod arm7tdmi;
-
-mod debugger;
-use debugger::{Debugger, DebuggerError};
-
-mod disass;
-use disass::Disassembler;
+use rustboyadvance_ng::arm7tdmi;
+use rustboyadvance_ng::sysbus::SysBus;
+use rustboyadvance_ng::debugger::{Debugger, DebuggerError};
+use rustboyadvance_ng::disass::Disassembler;
+use rustboyadvance_ng::util::read_bin_file;
 
 #[derive(Debug)]
 pub enum GBAError {
@@ -64,14 +45,6 @@ impl From<DebuggerError> for GBAError {
     fn from(err: DebuggerError) -> GBAError {
         GBAError::DebuggerError(err)
     }
-}
-
-
-fn read_bin_file(filename: &str) -> GBAResult<Vec<u8>> {
-    let mut buf = Vec::new();
-    let mut file = File::open(filename)?;
-    file.read_to_end(&mut buf)?;
-    Ok(buf)
 }
 
 fn run_disass(matches: &ArgMatches) -> GBAResult<()> {
