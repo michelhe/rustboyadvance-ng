@@ -131,7 +131,7 @@ impl Core {
     }
 
     fn alu_add_update_carry(a: i32, b: i32, carry: &mut bool) -> i32 {
-        let res = a.wrapping_sub(b);
+        let res = a.wrapping_add(b);
         *carry = res < a;
         res
     }
