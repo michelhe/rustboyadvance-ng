@@ -8,7 +8,7 @@ use crate::arm7tdmi::{Addr, CpuError, CpuInstruction, CpuResult, CpuState, REG_P
 use crate::sysbus::SysBus;
 
 use super::{
-    ArmCond, ArmInstruction, ArmInstructionFormat, ArmOpCode, ArmRegisterShift, ArmShiftType,
+    ArmCond, ArmInstruction, ArmFormat, ArmOpCode, ArmRegisterShift, ArmShiftType,
     ArmShiftedValue,
 };
 
@@ -24,11 +24,11 @@ impl Core {
             return Ok(CpuPipelineAction::IncPC);
         }
         match insn.fmt {
-            ArmInstructionFormat::BX => self.exec_bx(sysbus, insn),
-            ArmInstructionFormat::B_BL => self.exec_b_bl(sysbus, insn),
-            ArmInstructionFormat::DP => self.exec_data_processing(sysbus, insn),
-            ArmInstructionFormat::SWI => self.exec_swi(sysbus, insn),
-            ArmInstructionFormat::LDR_STR => self.exec_ldr_str(sysbus, insn),
+            ArmFormat::BX => self.exec_bx(sysbus, insn),
+            ArmFormat::B_BL => self.exec_b_bl(sysbus, insn),
+            ArmFormat::DP => self.exec_data_processing(sysbus, insn),
+            ArmFormat::SWI => self.exec_swi(sysbus, insn),
+            ArmFormat::LDR_STR => self.exec_ldr_str(sysbus, insn),
             _ => Err(CpuError::UnimplementedCpuInstruction(CpuInstruction::Arm(
                 insn,
             ))),

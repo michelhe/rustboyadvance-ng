@@ -1,7 +1,7 @@
 use std::fmt;
 
 use super::{
-    ArmCond, ArmHalfwordTransferType, ArmInstruction, ArmInstructionFormat, ArmOpCode,
+    ArmCond, ArmHalfwordTransferType, ArmInstruction, ArmFormat, ArmOpCode,
     ArmRegisterShift, ArmShiftType, ArmShiftedValue,
 };
 use crate::arm7tdmi::{reg_string, Addr, REG_PC};
@@ -367,7 +367,7 @@ impl ArmInstruction {
 
 impl fmt::Display for ArmInstruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use ArmInstructionFormat::*;
+        use ArmFormat::*;
         match self.fmt {
             BX => self.fmt_bx(f),
             B_BL => self.fmt_branch(f),

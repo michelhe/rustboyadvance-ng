@@ -55,7 +55,7 @@ pub enum ArmCond {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[allow(non_camel_case_types)]
-pub enum ArmInstructionFormat {
+pub enum ArmFormat {
     /// Branch and Exchange
     BX,
     /// Branch /w Link
@@ -125,7 +125,7 @@ pub enum ArmHalfwordTransferType {
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ArmInstruction {
     pub cond: ArmCond,
-    pub fmt: ArmInstructionFormat,
+    pub fmt: ArmFormat,
     pub raw: u32,
     pub pc: Addr,
 }
@@ -134,7 +134,7 @@ impl TryFrom<(u32, Addr)> for ArmInstruction {
     type Error = ArmDecodeError;
 
     fn try_from(value: (u32, Addr)) -> Result<Self, Self::Error> {
-        use ArmInstructionFormat::*;
+        use ArmFormat::*;
         let (raw, addr) = value;
 
         let cond_code = raw.bit_range(28..32) as u8;
@@ -262,16 +262,16 @@ impl ArmInstruction {
 
     pub fn rn(&self) -> usize {
         match self.fmt {
-            ArmInstructionFormat::MUL_MLA => self.raw.bit_range(12..16) as usize,
-            ArmInstructionFormat::MULL_MLAL => self.raw.bit_range(8..12) as usize,
-            ArmInstructionFormat::BX => self.raw.bit_range(0..4) as usize,
+            ArmFormat::MUL_MLA => self.raw.bit_range(12..16) as usize,
+            ArmFormat::MULL_MLAL => self.raw.bit_range(8..12) as usize,
+            ArmFormat::BX => self.raw.bit_range(0..4) as usize,
             _ => self.raw.bit_range(16..20) as usize,
         }
     }
 
     pub fn rd(&self) -> usize {
         match self.fmt {
-            ArmInstructionFormat::MUL_MLA => self.raw.bit_range(16..20) as usize,
+            ArmFormat::MUL_MLA => self.raw.bit_range(16..20) as usize,
             _ => self.raw.bit_range(12..16) as usize,
         }
     }
@@ -380,7 +380,7 @@ impl ArmInstruction {
 
     pub fn ldr_str_hs_offset(&self) -> Result<ArmShiftedValue, ArmDecodeError> {
         match self.fmt {
-            ArmInstructionFormat::LDR_STR_HS_IMM => {
+            ArmFormat::LDR_STR_HS_IMM => {
                 let offset8 = (self.raw.bit_range(8..12) << 4) + self.raw.bit_range(0..4);
                 let offset8 = if self.add_offset_flag() {
                     offset8 as i32
@@ -389,7 +389,7 @@ impl ArmInstruction {
                 };
                 Ok(ArmShiftedValue::ImmediateValue(offset8))
             }
-            ArmInstructionFormat::LDR_STR_HS_REG => Ok(ArmShiftedValue::ShiftedRegister {
+            ArmFormat::LDR_STR_HS_REG => Ok(ArmShiftedValue::ShiftedRegister {
                 reg: (self.raw & 0xf) as usize,
                 shift: ArmRegisterShift::ShiftAmount(0, ArmShiftType::LSL),
                 added: Some(self.add_offset_flag()),
@@ -441,7 +441,7 @@ mod tests {
     fn test_decode_swi() {
         // swi #0x1337
         let decoded = ArmInstruction::try_from(0xef001337).unwrap();
-        assert_eq!(decoded.fmt, ArmInstructionFormat::SWI);
+        assert_eq!(decoded.fmt, ArmFormat::SWI);
         assert_eq!(decoded.swi_comment(), 0x1337);
         assert_eq!(format!("{}", decoded), "swi\t#0x1337");
     }
@@ -450,7 +450,7 @@ mod tests {
     fn test_decode_branch_forwards() {
         // 0x20:   b 0x30
         let decoded = ArmInstruction::try_from((0xea_00_00_02, 0x20)).unwrap();
-        assert_eq!(decoded.fmt, ArmInstructionFormat::B_BL);
+        assert_eq!(decoded.fmt, ArmFormat::B_BL);
         assert_eq!(decoded.link_flag(), false);
         assert_eq!(
             (decoded.pc as i32).wrapping_add(decoded.branch_offset()) + 8,
@@ -463,7 +463,7 @@ mod tests {
     fn test_decode_branch_link_backwards() {
         // 0x20:   bl 0x10
         let decoded = ArmInstruction::try_from((0xeb_ff_ff_fa, 0x20)).unwrap();
-        assert_eq!(decoded.fmt, ArmInstructionFormat::B_BL);
+        assert_eq!(decoded.fmt, ArmFormat::B_BL);
         assert_eq!(decoded.link_flag(), true);
         assert_eq!(
             (decoded.pc as i32).wrapping_add(decoded.branch_offset()) + 8,
@@ -476,7 +476,7 @@ mod tests {
     fn test_decode_ldr_preindex() {
         // ldreq r2, [r5, -r6, lsl #5]
         let decoded = ArmInstruction::try_from(0x07_15_22_86).unwrap();
-        assert_eq!(decoded.fmt, ArmInstructionFormat::LDR_STR);
+        assert_eq!(decoded.fmt, ArmFormat::LDR_STR);
         assert_eq!(decoded.cond, ArmCond::Equal);
         assert_eq!(decoded.load_flag(), true);
         assert_eq!(decoded.pre_index_flag(), true);
@@ -499,7 +499,7 @@ mod tests {
     fn test_decode_str_postindex() {
         // strteq r2, [r4], -r7, lsl #8
         let decoded = ArmInstruction::try_from(0x06_24_24_47).unwrap();
-        assert_eq!(decoded.fmt, ArmInstructionFormat::LDR_STR);
+        assert_eq!(decoded.fmt, ArmFormat::LDR_STR);
         assert_eq!(decoded.cond, ArmCond::Equal);
         assert_eq!(decoded.load_flag(), false);
         assert_eq!(decoded.pre_index_flag(), false);
