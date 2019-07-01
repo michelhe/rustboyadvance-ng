@@ -1,13 +1,13 @@
 use std::fmt;
 
 pub mod arm;
-use arm::{ArmInstruction, ArmDecodeError};
+use arm::{ArmDecodeError, ArmInstruction};
 
 pub mod cpu;
+pub use cpu::*;
 pub mod bus;
 mod exception;
 mod psr;
-
 
 pub const REG_PC: usize = 15;
 pub const REG_LR: usize = 14;

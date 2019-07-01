@@ -8,9 +8,9 @@ use clap::{App, ArgMatches};
 extern crate rustboyadvance_ng;
 
 use rustboyadvance_ng::arm7tdmi;
-use rustboyadvance_ng::sysbus::SysBus;
 use rustboyadvance_ng::debugger::{Debugger, DebuggerError};
 use rustboyadvance_ng::disass::Disassembler;
+use rustboyadvance_ng::sysbus::SysBus;
 use rustboyadvance_ng::util::read_bin_file;
 
 #[derive(Debug)]
@@ -18,7 +18,7 @@ pub enum GBAError {
     IO(io::Error),
     ArmDecodeError(arm7tdmi::arm::ArmDecodeError),
     CpuError(arm7tdmi::CpuError),
-    DebuggerError(DebuggerError)
+    DebuggerError(DebuggerError),
 }
 
 pub type GBAResult<T> = Result<T, GBAError>;
@@ -59,11 +59,10 @@ fn run_disass(matches: &ArgMatches) -> GBAResult<()> {
 }
 
 fn run_debug(matches: &ArgMatches) -> GBAResult<()> {
-    let gba_bios_path = matches.value_of("BIOS").unwrap_or_default();
-    println!("Loading BIOS: {}", gba_bios_path);
-    let bios_bin = read_bin_file(gba_bios_path)?;
+    let bios_bin = read_bin_file(matches.value_of("bios").unwrap_or_default())?;
+    let rom_bin = read_bin_file(matches.value_of("game_rom").unwrap())?;
 
-    let sysbus = SysBus::new(bios_bin);
+    let sysbus = SysBus::new(bios_bin, rom_bin);
     let mut core = arm7tdmi::cpu::Core::new();
     core.reset();
     core.set_verbose(true);

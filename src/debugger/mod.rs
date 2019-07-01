@@ -171,7 +171,7 @@ impl Debugger {
                         if let Some(Command::Disass(addr, n)) = self.previous_command {
                             (addr + (4 * n as u32), 10)
                         } else {
-                            (self.cpu.get_reg(15), 10)
+                            (self.cpu.get_next_pc(), 10)
                         }
                     }
                     _ => {

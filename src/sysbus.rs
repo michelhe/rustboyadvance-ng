@@ -1,132 +1,163 @@
 use std::io;
 
+use super::arm7tdmi::bus::{Bus, MemoryAccess, MemoryAccessWidth};
 use super::arm7tdmi::Addr;
-use super::arm7tdmi::bus::{Bus, MemoryAccess, MemoryAccessType, MemoryAccessWidth};
-
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 const VIDEO_RAM_SIZE: usize = 128 * 1024;
 const WORK_RAM_SIZE: usize = 256 * 1024;
 const INTERNAL_RAM: usize = 32 * 1024;
-const PALETTE_AM_SIZE: usize = 1 * 1024;
+const PALETTE_RAM_SIZE: usize = 1 * 1024;
 const OAM_SIZE: usize = 1 * 1024;
-const BIOS_SIZE: usize = 16 * 1024;
-const GAMEPAK_ROM_SIZE: usize = 32 * 1024 * 1024;
 
 #[derive(Debug)]
-struct BiosROM(Vec<u8>);
+struct BoxedMemory(Box<[u8]>, WaitState);
 
-impl Bus for BiosROM {
-    fn read_32(&self, addr: Addr) -> u32 {
-        let addr = addr as usize;
-        (&self.0[addr..addr + 4])
-            .read_u32::<LittleEndian>()
-            .unwrap()
-    }
+#[derive(Debug)]
+struct WaitState {
+    access8: usize,
+    access16: usize,
+    access32: usize,
+}
 
-    fn read_16(&self, addr: Addr) -> u16 {
-        let addr = addr as usize;
-        (&self.0[addr..addr + 4])
-            .read_u16::<LittleEndian>()
-            .unwrap()
-    }
-
-    fn read_8(&self, addr: Addr) -> u8 {
-        self.0[addr as usize]
-    }
-
-    fn write_32(&mut self, addr: Addr, value: u32) -> Result<(), io::Error> {
-        let mut wrt =  io::Cursor::new(&mut self.0);
-        wrt.set_position(addr as u64);
-        wrt.write_u32::<LittleEndian>(value)
-    }
-
-    fn write_16(&mut self, addr: Addr, value: u16) -> Result<(), io::Error> {
-        let mut wrt =  io::Cursor::new(&mut self.0);
-        wrt.set_position(addr as u64);
-        wrt.write_u16::<LittleEndian>(value)
-    }
-
-    fn write_8(&mut self, addr: Addr, value: u8) -> Result<(), io::Error> {
-        let mut wrt = io::Cursor::new(&mut self.0);
-        wrt.write_u8(value)
-    }
-
-    fn get_bytes(&self, addr: Addr, size: usize) -> Option<&[u8]> {
-        let addr = addr as usize;
-        if addr + size > self.0.len() {
-            None
-        } else {
-            Some(&self.0[addr..addr + size])
+impl WaitState {
+    fn new(access8: usize, access16: usize, access32: usize) -> WaitState {
+        WaitState {
+            access8,
+            access16,
+            access32,
         }
-    }
-    
-    fn get_cycles(&self, _addr: Addr, _access: MemoryAccess) -> usize {
-        1
     }
 }
 
-#[derive(Debug)]
-enum SysBusDevice {
-    BiosROM(BiosROM)
+impl Default for WaitState {
+    fn default() -> WaitState {
+        WaitState::new(1, 1, 1)
+    }
+}
+
+impl Bus for BoxedMemory {
+    fn get_bytes(&self, addr: Addr, size: usize) -> &[u8] {
+        let addr = addr as usize;
+        &self.0[addr..addr + size]
+    }
+
+    fn get_bytes_mut(&mut self, addr: Addr, size: usize) -> &mut [u8] {
+        let addr = addr as usize;
+        &mut self.0[addr..addr + size]
+    }
+
+    fn get_cycles(&self, _addr: Addr, access: MemoryAccess) -> usize {
+        match access.1 {
+            MemoryAccessWidth::MemoryAccess8 => self.1.access8,
+            MemoryAccessWidth::MemoryAccess16 => self.1.access16,
+            MemoryAccessWidth::MemoryAccess32 => self.1.access32,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct SysBus {
-    bios: BiosROM
+    bios: BoxedMemory,
+    onboard_work_ram: BoxedMemory,
+    internal_work_ram: BoxedMemory,
+    /// Currently model the IOMem as regular buffer, later make it into something more sophisticated.
+    ioregs: BoxedMemory,
+    palette_ram: BoxedMemory,
+    vram: BoxedMemory,
+    oam: BoxedMemory,
+    gamepak_flashrom: BoxedMemory,
 }
 
 impl SysBus {
-    pub fn new(bios_rom: Vec<u8>) -> SysBus {
-        SysBus { bios: BiosROM(bios_rom) }
-    }
-
-    fn map(&self, addr: Addr) -> & impl Bus {
-        match addr as usize {
-            0...BIOS_SIZE => &self.bios,
-            _ => panic!("unmapped address")
+    pub fn new(bios_rom: Vec<u8>, game_rom: Vec<u8>) -> SysBus {
+        SysBus {
+            bios: BoxedMemory(bios_rom.into_boxed_slice(), Default::default()),
+            onboard_work_ram: BoxedMemory(
+                vec![0; WORK_RAM_SIZE].into_boxed_slice(),
+                Default::default(),
+            ),
+            internal_work_ram: BoxedMemory(
+                vec![0; INTERNAL_RAM].into_boxed_slice(),
+                Default::default(),
+            ),
+            ioregs: BoxedMemory(vec![0; 1024].into_boxed_slice(), Default::default()),
+            palette_ram: BoxedMemory(
+                vec![0; PALETTE_RAM_SIZE].into_boxed_slice(),
+                WaitState::new(1, 1, 2),
+            ),
+            vram: BoxedMemory(
+                vec![0; VIDEO_RAM_SIZE].into_boxed_slice(),
+                WaitState::new(1, 1, 2),
+            ),
+            oam: BoxedMemory(vec![0; OAM_SIZE].into_boxed_slice(), Default::default()),
+            gamepak_flashrom: BoxedMemory(game_rom.into_boxed_slice(), WaitState::new(5, 5, 8)),
         }
     }
 
+    fn map(&self, addr: Addr) -> &impl Bus {
+        match addr as usize {
+            0x0000_0000...0x0000_3fff => &self.bios,
+            0x0200_0000...0x0203_ffff => &self.onboard_work_ram,
+            0x0300_0000...0x0300_7fff => &self.internal_work_ram,
+            0x0400_0000...0x0400_03fe => &self.ioregs,
+            0x0500_0000...0x0500_03ff => &self.palette_ram,
+            0x0600_0000...0x0601_7fff => &self.vram,
+            0x0700_0000...0x0700_03ff => &self.oam,
+            0x0800_0000...0x09ff_ffff => &self.gamepak_flashrom,
+            _ => panic!("unmapped address @0x{:08x}", addr),
+        }
+    }
+
+    /// TODO proc-macro for generating this function
     fn map_mut(&mut self, addr: Addr) -> &mut impl Bus {
         match addr as usize {
-            0...BIOS_SIZE => &mut self.bios,
-            _ => panic!("unmapped address")
+            0x0000_0000...0x0000_3fff => &mut self.bios,
+            0x0200_0000...0x0203_ffff => &mut self.onboard_work_ram,
+            0x0300_0000...0x0300_7fff => &mut self.internal_work_ram,
+            0x0400_0000...0x0400_03fe => &mut self.ioregs,
+            0x0500_0000...0x0500_03ff => &mut self.palette_ram,
+            0x0600_0000...0x0601_7fff => &mut self.vram,
+            0x0700_0000...0x0700_03ff => &mut self.oam,
+            0x0800_0000...0x09ff_ffff => &mut self.gamepak_flashrom,
+            _ => panic!("unmapped address @0x{:08x}", addr),
         }
     }
 }
 
 impl Bus for SysBus {
     fn read_32(&self, addr: Addr) -> u32 {
-        self.map(addr).read_32(addr)
+        self.map(addr).read_32(addr & 0xff_ffff)
     }
 
     fn read_16(&self, addr: Addr) -> u16 {
-        self.map(addr).read_16(addr)
+        self.map(addr).read_16(addr & 0xff_ffff)
     }
 
     fn read_8(&self, addr: Addr) -> u8 {
-        self.map(addr).read_8(addr)
+        self.map(addr).read_8(addr & 0xff_ffff)
     }
 
     fn write_32(&mut self, addr: Addr, value: u32) -> Result<(), io::Error> {
-        self.map_mut(addr).write_32(addr, value)
+        self.map_mut(addr).write_32(addr & 0xff_ffff, value)
     }
 
     fn write_16(&mut self, addr: Addr, value: u16) -> Result<(), io::Error> {
-        self.map_mut(addr).write_16(addr, value)
+        self.map_mut(addr).write_16(addr & 0xff_ffff, value)
     }
 
     fn write_8(&mut self, addr: Addr, value: u8) -> Result<(), io::Error> {
-        self.map_mut(addr).write_8(addr, value)
+        self.map_mut(addr).write_8(addr & 0xff_ffff, value)
     }
 
+    fn get_bytes(&self, addr: Addr, size: usize) -> &[u8] {
+        self.map(addr).get_bytes(addr & 0xff_ffff, size)
+    }
 
-    fn get_bytes(&self, addr: Addr, size: usize) -> Option<&[u8]> {
-        self.map(addr).get_bytes(addr, size)
+    fn get_bytes_mut(&mut self, addr: Addr, size: usize) -> &mut [u8] {
+        self.map_mut(addr).get_bytes_mut(addr & 0xff_ffff, size)
     }
 
     fn get_cycles(&self, addr: Addr, access: MemoryAccess) -> usize {
-        self.map(addr).get_cycles(addr, access)
+        self.map(addr).get_cycles(addr & 0xff_ffff, access)
     }
 }

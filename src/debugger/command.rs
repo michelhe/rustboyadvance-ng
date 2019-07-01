@@ -1,5 +1,5 @@
-use crate::arm7tdmi::{reg_string, REG_PC};
 use crate::arm7tdmi::bus::Bus;
+use crate::arm7tdmi::{reg_string, REG_PC};
 use crate::debugger::Debugger;
 use crate::disass::Disassembler;
 
@@ -59,11 +59,11 @@ impl Command {
                 match debugger.cpu.step_debugger(&mut debugger.sysbus) {
                     Ok(insn) => {
                         println!(
-                                "@0x{:08x}:\n\t{}",
-                                insn.pc,
-                                Colour::Yellow.italic().paint(format!("{} ", insn))
-                            );
-                    },
+                            "@0x{:08x}:\n\t{}",
+                            insn.pc,
+                            Colour::Yellow.italic().paint(format!("{} ", insn))
+                        );
+                    }
                     Err(e) => {
                         println!("{}: {}", "cpu encountered an error".red(), e);
                         println!("cpu: {:x?}", debugger.cpu);
@@ -72,23 +72,11 @@ impl Command {
                 };
             },
             HexDump(addr, nbytes) => {
-                let bytes = match debugger.sysbus.get_bytes(addr, nbytes) {
-                    Some(bytes) => bytes,
-                    None => {
-                        println!("requested content out of bounds");
-                        return;
-                    }
-                };
+                let bytes = debugger.sysbus.get_bytes(addr, nbytes);
                 hexdump::hexdump(bytes);
             }
             Disass(addr, n) => {
-                let bytes = match debugger.sysbus.get_bytes(addr, 4 * n) {
-                    Some(bytes) => bytes,
-                    None => {
-                        println!("requested content out of bounds");
-                        return;
-                    }
-                };
+                let bytes = debugger.sysbus.get_bytes(addr, 4 * n);
                 let disass = Disassembler::new(addr, bytes);
                 for (_, line) in disass {
                     println!("{}", line)

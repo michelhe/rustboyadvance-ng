@@ -1,6 +1,6 @@
-use std::ops::Add;
 use std::convert::TryFrom;
 use std::fmt;
+use std::ops::Add;
 
 use ansi_term::{Colour, Style};
 
@@ -8,10 +8,10 @@ use crate::sysbus::SysBus;
 
 pub use super::exception::Exception;
 use super::{
-    CpuState, CpuMode, reg_string, CpuResult, Addr,
-    psr::RegPSR,
+    arm::*,
     bus::{Bus, MemoryAccess, MemoryAccessType::*, MemoryAccessWidth::*},
-    arm::*
+    psr::RegPSR,
+    reg_string, Addr, CpuMode, CpuResult, CpuState,
 };
 
 #[derive(Debug, Default)]
@@ -198,9 +198,7 @@ impl Core {
                 let action = self.exec_arm(sysbus, d)?;
                 Ok((Some(d), action))
             }
-            None => {
-                Ok((None, CpuPipelineAction::IncPC))
-            },
+            None => Ok((None, CpuPipelineAction::IncPC)),
         };
 
         self.pipeline.fetched = Some((self.pc, new_fetched));

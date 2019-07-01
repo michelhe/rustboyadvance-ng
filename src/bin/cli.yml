@@ -5,11 +5,17 @@ subcommands:
     - debug:
         about: debug the bios with the arm core emulation
         args:
-            - BIOS:
+            - bios:
                 help: Sets the bios file to use
                 required: false
                 default_value: gba_bios.bin
                 index: 1
+            - game_rom:
+                short: g
+                long: game-rom
+                takes_value: true
+                help: Sets the game-rom file to use
+                required: true
     - disass:
         about: disassemble an arm binary file
         args:

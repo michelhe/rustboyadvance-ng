@@ -1,10 +1,10 @@
 use std::fmt;
 
-use crate::arm7tdmi::{Addr, reg_string, REG_PC};
 use super::{
     ArmCond, ArmHalfwordTransferType, ArmInstruction, ArmInstructionFormat, ArmOpCode,
     ArmRegisterShift, ArmShiftType, ArmShiftedValue,
 };
+use crate::arm7tdmi::{reg_string, Addr, REG_PC};
 
 impl fmt::Display for ArmCond {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
