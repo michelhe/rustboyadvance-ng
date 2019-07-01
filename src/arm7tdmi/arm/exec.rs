@@ -42,7 +42,7 @@ impl Core {
         insn: ArmInstruction,
     ) -> CpuResult<CpuPipelineAction> {
         if insn.link_flag() {
-            self.set_reg(14, self.pc & !0b1);
+            self.set_reg(14, (insn.pc + (self.word_size() as u32)) & !0b1);
         }
 
         // +1N
