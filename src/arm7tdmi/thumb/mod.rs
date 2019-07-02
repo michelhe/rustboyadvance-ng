@@ -293,4 +293,32 @@ mod tests {
         );
         assert_eq!(core.get_reg(0), 0x27);
     }
+
+    #[test]
+    fn ldr_pc() {
+        use crate::arm7tdmi::cpu::{Core, CpuPipelineAction};
+        use crate::sysbus::BoxedMemory;
+
+        // ldr r0, [pc, #4]
+        let insn = ThumbInstruction::decode(0x4801, 0x6).unwrap();
+
+        let bytes = vec![
+            /* 0: */        0x00, 0x00,
+            /* 2: */        0x00, 0x00,
+            /* 4: */        0x00, 0x00,
+            /* 6: <pc> */   0x00, 0x00,
+            /* 8: */        0x00, 0x00, 0x00, 0x00,
+            /* c: */        0x78, 0x56, 0x34, 0x12,
+        ];
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+        let mut core = Core::new();
+        core.set_reg(0, 0);
+
+        assert_eq!(format!("{}", insn), "ldr\tr0, [pc, #0x4] ; = #0xc");
+        assert_eq!(
+            core.exec_thumb(&mut mem, insn),
+            Ok(CpuPipelineAction::IncPC)
+        );
+        assert_eq!(core.get_reg(0), 0x12345678);
+    }
 }

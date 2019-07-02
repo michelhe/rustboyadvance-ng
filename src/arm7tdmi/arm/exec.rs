@@ -65,11 +65,7 @@ impl Core {
     }
 
     /// Cycles 2S+1N
-    fn exec_bx(
-        &mut self,
-        sysbus: &mut Bus,
-        insn: ArmInstruction,
-    ) -> CpuResult<CpuPipelineAction> {
+    fn exec_bx(&mut self, sysbus: &mut Bus, insn: ArmInstruction) -> CpuResult<CpuPipelineAction> {
         let rn = self.get_reg(insn.rn());
         if rn.bit(0) {
             self.cpsr.set_state(CpuState::THUMB);
@@ -162,7 +158,13 @@ impl Core {
         res
     }
 
-    pub fn alu(&mut self, opcode: ArmOpCode, op1: i32, op2: i32, set_cond_flags: bool) -> Option<i32> {
+    pub fn alu(
+        &mut self,
+        opcode: ArmOpCode,
+        op1: i32,
+        op2: i32,
+        set_cond_flags: bool,
+    ) -> Option<i32> {
         let C = self.cpsr.C() as i32;
 
         let mut carry = self.cpsr.C();
@@ -314,11 +316,11 @@ impl Core {
         if insn.load_flag() {
             let data = if insn.transfer_size() == 1 {
                 // +1N
-                self.add_cycles(dest, sysbus, NonSeq + MemoryAccess8);
+                self.add_cycles(addr, sysbus, NonSeq + MemoryAccess8);
                 sysbus.read_8(addr) as u32
             } else {
                 // +1N
-                self.add_cycles(dest, sysbus, NonSeq + MemoryAccess32);
+                self.add_cycles(addr, sysbus, NonSeq + MemoryAccess32);
                 sysbus.read_32(addr)
             };
             // +1S

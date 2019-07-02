@@ -58,7 +58,7 @@ impl ThumbInstruction {
             "ldr\t{Rd}, [pc, #{Imm:#x}] ; = #{effective:#x}",
             Rd = reg_string(self.rd()),
             Imm = self.word8(),
-            effective = self.pc + 2 + (self.word8() as Addr)
+            effective = (self.pc + 4 & !0b10) + (self.word8() as Addr)
         )
     }
 
