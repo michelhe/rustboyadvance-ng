@@ -1,5 +1,7 @@
 use std::fmt;
 
+use num::Num;
+
 pub mod arm;
 use arm::{ArmDecodeError, ArmInstruction};
 
@@ -7,8 +9,8 @@ pub mod cpu;
 pub use cpu::*;
 pub mod bus;
 pub use bus::Bus;
-mod exception;
-mod psr;
+pub mod exception;
+pub mod psr;
 
 pub const REG_PC: usize = 15;
 pub const REG_LR: usize = 14;

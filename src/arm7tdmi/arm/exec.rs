@@ -1,9 +1,10 @@
 use crate::bit::BitIndex;
 
-use crate::arm7tdmi::bus::{Bus, MemoryAccess, MemoryAccessType::*, MemoryAccessWidth::*};
+use crate::arm7tdmi::bus::{Bus, MemoryAccessType::*, MemoryAccessWidth::*};
 use crate::arm7tdmi::cpu::{Core, CpuExecResult, CpuPipelineAction};
 use crate::arm7tdmi::exception::Exception;
 use crate::arm7tdmi::{Addr, CpuError, CpuInstruction, CpuResult, CpuState, REG_PC};
+use crate::arm7tdmi::psr::RegPSR;
 
 use crate::sysbus::SysBus;
 
@@ -29,9 +30,8 @@ impl Core {
             ArmFormat::DP => self.exec_data_processing(sysbus, insn),
             ArmFormat::SWI => self.exec_swi(sysbus, insn),
             ArmFormat::LDR_STR => self.exec_ldr_str(sysbus, insn),
-            _ => Err(CpuError::UnimplementedCpuInstruction(CpuInstruction::Arm(
-                insn,
-            ))),
+            ArmFormat::MSR_REG => self.exec_msr_reg(sysbus, insn),
+            _ => Err(CpuError::UnimplementedCpuInstruction(CpuInstruction::Arm(insn))),
         }
     }
 
@@ -48,7 +48,7 @@ impl Core {
         // +1N
         self.add_cycles(self.pc, sysbus, NonSeq + MemoryAccess32);
 
-        self.pc = (self.pc as i32).wrapping_add(insn.branch_offset()) as u32;
+        self.pc = (self.pc as i32).wrapping_add(insn.branch_offset()) as u32 & !1;
 
         // +2S
         self.add_cycles(self.pc, sysbus, Seq + MemoryAccess32);
@@ -97,6 +97,29 @@ impl Core {
     ) -> CpuResult<CpuPipelineAction> {
         self.exception(Exception::SoftwareInterrupt);
         Ok(CpuPipelineAction::Flush)
+    }
+
+    fn exec_msr_reg(
+        &mut self,
+        sysbus: &mut SysBus,
+        insn: ArmInstruction,
+    ) -> CpuResult<CpuPipelineAction> {
+        let new_psr = RegPSR::new(self.get_reg(insn.rm()));
+        let old_mode = self.cpsr.mode();
+        if insn.spsr_flag() {
+            if let Some(index) = old_mode.spsr_index() {
+                self.spsr[index] = new_psr;
+            } else {
+                panic!("tried to change spsr from invalid mode {}", old_mode)
+            }
+        } else {
+            if old_mode != new_psr.mode() {
+                self.change_mode(new_psr.mode());
+            }
+            self.cpsr = new_psr;
+        }
+        self.add_cycles(insn.pc, sysbus, Seq + MemoryAccess32);
+        Ok(CpuPipelineAction::IncPC)
     }
 
     fn barrel_shift(val: i32, amount: u32, shift: ArmShiftType) -> i32 {
@@ -183,7 +206,11 @@ impl Core {
 
         let mut pipeline_action = CpuPipelineAction::IncPC;
 
-        let op1 = self.get_reg(insn.rn()) as i32;
+        let op1 = if insn.rn() == REG_PC {
+            self.pc as i32 // prefething
+        } else {
+            self.get_reg(insn.rn()) as i32
+        };
         let op2 = insn.operand2()?;
 
         let rd = insn.rd();
@@ -212,7 +239,7 @@ impl Core {
         let set_flags = opcode.is_setting_flags() || insn.set_cond_flag();
         if let Some(result) = self.alu(opcode, op1, op2, set_flags) {
             self.set_reg(rd, result as u32);
-            if (rd == REG_PC) {
+            if rd == REG_PC {
                 pipeline_action = CpuPipelineAction::Flush;
                 // +1S
                 self.add_cycles(self.pc, sysbus, Seq + MemoryAccess32);
@@ -268,7 +295,7 @@ impl Core {
 
         let mut addr = self.get_reg(insn.rn());
         if insn.rn() == REG_PC {
-            addr += 8; // prefetching
+            addr = insn.pc + 8; // prefetching
         }
         let dest = self.get_reg(insn.rd());
 

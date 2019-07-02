@@ -2,7 +2,7 @@
 use std::fmt;
 
 use crate::bit::BitIndex;
-use crate::num_traits::FromPrimitive;
+use crate::num::FromPrimitive;
 
 use super::{CpuMode, CpuState};
 
@@ -39,15 +39,18 @@ fn clear_reserved(n: u32) -> u32 {
 
 impl Default for RegPSR {
     fn default() -> RegPSR {
-        let mut psr = RegPSR {
-            raw: clear_reserved(0),
-        };
+        let mut psr = RegPSR::new(0);
         psr.set_mode(CpuMode::Supervisor);
         psr
     }
 }
-
 impl RegPSR {
+    pub fn new(u: u32) -> RegPSR {
+        RegPSR {
+            raw: clear_reserved(u),
+        }
+    }
+
     pub fn get(&self) -> u32 {
         self.raw
     }
