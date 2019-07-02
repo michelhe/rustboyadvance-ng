@@ -4,7 +4,7 @@ use crate::bit::BitIndex;
 use crate::byteorder::{LittleEndian, ReadBytesExt};
 use crate::num::FromPrimitive;
 
-use super::arm::{ArmCond, ArmShiftType};
+use super::arm::{ArmCond, ArmOpCode, ArmShiftType};
 use super::{Addr, InstructionDecoder, InstructionDecoderError};
 
 pub mod display;
@@ -159,6 +159,17 @@ pub enum OpFormat3 {
     SUB = 3,
 }
 
+impl From<OpFormat3> for ArmOpCode {
+    fn from(op: OpFormat3) -> ArmOpCode {
+        match op {
+            OpFormat3::MOV => ArmOpCode::MOV,
+            OpFormat3::CMP => ArmOpCode::CMP,
+            OpFormat3::ADD => ArmOpCode::ADD,
+            OpFormat3::SUB => ArmOpCode::SUB,
+        }
+    }
+}
+
 #[derive(Debug, Primitive)]
 pub enum OpFormat5 {
     ADD = 0,
@@ -167,12 +178,29 @@ pub enum OpFormat5 {
     BX = 3,
 }
 
+impl From<OpFormat5> for ArmOpCode {
+    fn from(op: OpFormat5) -> ArmOpCode {
+        match op {
+            OpFormat5::ADD => ArmOpCode::ADD,
+            OpFormat5::CMP => ArmOpCode::CMP,
+            OpFormat5::MOV => ArmOpCode::MOV,
+            _ => unreachable!(), // this should not be called if op = BX
+        }
+    }
+}
+
 impl ThumbInstruction {
     const FLAG_H1: usize = 7;
     const FLAG_H2: usize = 6;
 
     pub fn rd(&self) -> usize {
-        (self.raw & 0b111) as usize
+        match self.fmt {
+            ThumbFormat::DataProcessImm
+            | ThumbFormat::LdrPc
+            | ThumbFormat::LdrStrSp
+            | ThumbFormat::LdrAddress => self.raw.bit_range(8..11) as usize,
+            _ => (self.raw & 0b111) as usize,
+        }
     }
 
     pub fn rs(&self) -> usize {
@@ -237,5 +265,32 @@ impl ThumbInstruction {
 
     pub fn flag(&self, bit: usize) -> bool {
         self.raw.bit(bit)
+    }
+}
+
+#[cfg(test)]
+/// All instructions constants were generated using an ARM assembler.
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mov_low_reg() {
+        use crate::arm7tdmi::cpu::{Core, CpuPipelineAction};
+        use crate::sysbus::BoxedMemory;
+
+        let bytes = vec![];
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+        let mut core = Core::new();
+        core.set_reg(0, 0);
+
+        // movs r0, #0x27
+        let insn = ThumbInstruction::decode(0x2027, 0).unwrap();
+
+        assert_eq!(format!("{}", insn), "mov\tr0, #0x27");
+        assert_eq!(
+            core.exec_thumb(&mut mem, insn),
+            Ok(CpuPipelineAction::IncPC)
+        );
+        assert_eq!(core.get_reg(0), 0x27);
     }
 }

@@ -162,7 +162,7 @@ impl Core {
         res
     }
 
-    fn alu(&mut self, opcode: ArmOpCode, op1: i32, op2: i32, set_cond_flags: bool) -> Option<i32> {
+    pub fn alu(&mut self, opcode: ArmOpCode, op1: i32, op2: i32, set_cond_flags: bool) -> Option<i32> {
         let C = self.cpsr.C() as i32;
 
         let mut carry = self.cpsr.C();

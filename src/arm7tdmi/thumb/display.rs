@@ -20,7 +20,7 @@ impl ThumbInstruction {
     fn fmt_data_process_imm(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "{op}\t{Rd}, #{Offset8}",
+            "{op}\t{Rd}, #{Offset8:#x}",
             op = self.format3_op(),
             Rd = reg_string(self.rd()),
             Offset8 = self.offset8()

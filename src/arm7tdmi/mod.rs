@@ -39,7 +39,7 @@ impl fmt::Display for DecodedInstruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             DecodedInstruction::Arm(a) => write!(f, "{}", a),
-            DecodedInstruction::Thumb(t) => write!(f, "{:#?}", t),
+            DecodedInstruction::Thumb(t) => write!(f, "{}", t),
         }
     }
 }

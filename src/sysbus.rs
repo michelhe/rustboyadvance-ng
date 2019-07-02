@@ -10,13 +10,23 @@ const PALETTE_RAM_SIZE: usize = 1 * 1024;
 const OAM_SIZE: usize = 1 * 1024;
 
 #[derive(Debug)]
-struct BoxedMemory(Box<[u8]>, WaitState);
+pub struct BoxedMemory(Box<[u8]>, WaitState);
+
+impl BoxedMemory {
+    pub fn new(boxed_slice: Box<[u8]>) -> BoxedMemory {
+        BoxedMemory(boxed_slice, Default::default())
+    }
+
+    pub fn new_with_waitstate(boxed_slice: Box<[u8]>, ws: WaitState) -> BoxedMemory {
+        BoxedMemory(boxed_slice, ws)
+    }
+}
 
 #[derive(Debug)]
-struct WaitState {
-    access8: usize,
-    access16: usize,
-    access32: usize,
+pub struct WaitState {
+    pub access8: usize,
+    pub access16: usize,
+    pub access32: usize,
 }
 
 impl WaitState {
