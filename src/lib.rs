@@ -11,11 +11,11 @@ extern crate rustyline;
 
 extern crate nom;
 
-extern crate colored; // not needed in Rust 2018
 extern crate ansi_term;
+extern crate colored; // not needed in Rust 2018
 
-pub mod sysbus;
 pub mod arm7tdmi;
 pub mod debugger;
 pub mod disass;
+pub mod sysbus;
 pub mod util;

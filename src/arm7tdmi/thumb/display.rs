@@ -1,0 +1,142 @@
+use std::fmt;
+
+use crate::bit::BitIndex;
+
+use super::*;
+use crate::arm7tdmi::reg_string;
+
+impl ThumbInstruction {
+    fn fmt_move_shifted_reg(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{op}\t{Rd}, {Rs}, #{Offset5}",
+            op = self.format1_op(),
+            Rd = reg_string(self.rd()),
+            Rs = reg_string(self.rs()),
+            Offset5 = self.offset5()
+        )
+    }
+
+    fn fmt_data_process_imm(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{op}\t{Rd}, #{Offset8}",
+            op = self.format3_op(),
+            Rd = reg_string(self.rd()),
+            Offset8 = self.offset8()
+        )
+    }
+
+    fn fmt_high_reg_op_or_bx(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let op = self.format5_op();
+        let dst_reg = if self.flag(ThumbInstruction::FLAG_H1) {
+            self.rd() + 8
+        } else {
+            self.rd()
+        };
+        let src_reg = if self.flag(ThumbInstruction::FLAG_H2) {
+            self.rs() + 8
+        } else {
+            self.rs()
+        };
+
+        write!(f, "{}\t", op)?;
+        match op {
+            OpFormat5::BX => write!(f, "{}", reg_string(src_reg)),
+            _ => write!(
+                f,
+                "{dst}, {src}",
+                dst = reg_string(dst_reg),
+                src = reg_string(src_reg)
+            ),
+        }
+    }
+
+    fn fmt_ldr_pc(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "ldr\t{Rd}, [pc, #{Imm:#x}] ; = #{effective:#x}",
+            Rd = reg_string(self.rd()),
+            Imm = self.word8(),
+            effective = self.pc + 2 + (self.word8() as Addr)
+        )
+    }
+
+    fn fmt_ldr_str_reg_offset(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{op}{b}\t{Rd}, [{Rb}, {Ro}]",
+            op = if self.is_load() { "ldr" } else { "str" },
+            b = if self.is_transfering_bytes() { "b" } else { "" },
+            Rd = reg_string(self.rd()),
+            Rb = reg_string(self.rb()),
+            Ro = reg_string(self.ro()),
+        )
+    }
+
+    fn fmt_add_sub(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let operand = if self.is_immediate_operand() {
+            format!("#{:x}", self.raw.bit_range(6..9))
+        } else {
+            String::from(reg_string(self.rn()))
+        };
+
+        write!(
+            f,
+            "{op}\t{Rd}, [{Rs}, {operand}]",
+            op = if self.is_subtract() { "sub" } else { "add" },
+            Rd = reg_string(self.rd()),
+            Rs = reg_string(self.rs()),
+            operand = operand
+        )
+    }
+
+    fn fmt_branch_with_cond(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "b{cond}\t{addr:#x}",
+            cond = self.cond(),
+            addr = {
+                let offset = self.offset8() as i8 as i32;
+                (self.pc as i32).wrapping_add(offset) as Addr
+            }
+        )
+    }
+}
+
+impl fmt::Display for ThumbInstruction {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.fmt {
+            ThumbFormat::MoveShiftedReg => self.fmt_move_shifted_reg(f),
+            ThumbFormat::AddSub => self.fmt_add_sub(f),
+            ThumbFormat::DataProcessImm => self.fmt_data_process_imm(f),
+            ThumbFormat::HiRegOpOrBranchExchange => self.fmt_high_reg_op_or_bx(f),
+            ThumbFormat::LdrPc => self.fmt_ldr_pc(f),
+            ThumbFormat::LdrStrRegOffset => self.fmt_ldr_str_reg_offset(f),
+            ThumbFormat::BranchConditional => self.fmt_branch_with_cond(f),
+            _ => write!(f, "({:?})", self),
+        }
+    }
+}
+
+impl fmt::Display for OpFormat3 {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            OpFormat3::MOV => write!(f, "mov"),
+            OpFormat3::CMP => write!(f, "cmp"),
+            OpFormat3::ADD => write!(f, "add"),
+            OpFormat3::SUB => write!(f, "sub"),
+        }
+    }
+}
+
+impl fmt::Display for OpFormat5 {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            OpFormat5::ADD => write!(f, "add"),
+            OpFormat5::CMP => write!(f, "cmp"),
+            OpFormat5::MOV => write!(f, "mov"),
+            OpFormat5::BX => write!(f, "bx"),
+        }
+    }
+}

@@ -36,14 +36,12 @@ impl Default for WaitState {
 }
 
 impl Bus for BoxedMemory {
-    fn get_bytes(&self, addr: Addr, size: usize) -> &[u8] {
-        let addr = addr as usize;
-        &self.0[addr..addr + size]
+    fn get_bytes(&self, addr: Addr) -> &[u8] {
+        &self.0[addr as usize..]
     }
 
-    fn get_bytes_mut(&mut self, addr: Addr, size: usize) -> &mut [u8] {
-        let addr = addr as usize;
-        &mut self.0[addr..addr + size]
+    fn get_bytes_mut(&mut self, addr: Addr) -> &mut [u8] {
+        &mut self.0[addr as usize..]
     }
 
     fn get_cycles(&self, _addr: Addr, access: MemoryAccess) -> usize {
@@ -149,12 +147,12 @@ impl Bus for SysBus {
         self.map_mut(addr).write_8(addr & 0xff_ffff, value)
     }
 
-    fn get_bytes(&self, addr: Addr, size: usize) -> &[u8] {
-        self.map(addr).get_bytes(addr & 0xff_ffff, size)
+    fn get_bytes(&self, addr: Addr) -> &[u8] {
+        self.map(addr).get_bytes(addr & 0xff_ffff)
     }
 
-    fn get_bytes_mut(&mut self, addr: Addr, size: usize) -> &mut [u8] {
-        self.map_mut(addr).get_bytes_mut(addr & 0xff_ffff, size)
+    fn get_bytes_mut(&mut self, addr: Addr) -> &mut [u8] {
+        self.map_mut(addr).get_bytes_mut(addr & 0xff_ffff)
     }
 
     fn get_cycles(&self, addr: Addr, access: MemoryAccess) -> usize {

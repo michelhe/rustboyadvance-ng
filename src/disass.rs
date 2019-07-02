@@ -1,55 +1,69 @@
 use std::convert::TryFrom;
+use std::marker::PhantomData;
 
+use super::arm7tdmi::{Addr, InstructionDecoder, InstructionDecoderError};
+use std::io;
 use std::io::ErrorKind;
-use std::io::{Cursor, Seek, SeekFrom};
 
-use byteorder::{LittleEndian, ReadBytesExt};
-
-use super::arm7tdmi::arm;
-
-pub struct Disassembler<'a> {
-    base: u32,
-    rdr: Cursor<&'a [u8]>,
+pub struct Disassembler<'a, D>
+where
+    D: InstructionDecoder,
+{
+    base: Addr,
+    pos: usize,
+    bytes: &'a [u8],
+    pub word_size: usize,
+    instruction_decoder: PhantomData<D>,
 }
 
-impl<'a> Disassembler<'a> {
-    pub fn new(base: u32, bin: &'a [u8]) -> Disassembler {
+impl<'a, D> Disassembler<'a, D>
+where
+    D: InstructionDecoder,
+{
+    pub fn new(base: Addr, bytes: &'a [u8]) -> Disassembler<D> {
         Disassembler {
-            base: base,
-            rdr: Cursor::new(bin),
+            base: base as Addr,
+            pos: 0,
+            bytes: bytes,
+            word_size: std::mem::size_of::<D::IntType>(),
+            instruction_decoder: PhantomData,
         }
     }
 }
 
-impl<'a> Seek for Disassembler<'a> {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        self.rdr.seek(pos)
-    }
-}
-
-impl<'a> Iterator for Disassembler<'a> {
-    type Item = (u32, String);
+impl<'a, D> Iterator for Disassembler<'a, D>
+where
+    D: InstructionDecoder,
+    <D as InstructionDecoder>::IntType: std::fmt::LowerHex,
+{
+    type Item = (Addr, String);
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut line = String::new();
-        let value: u32 = match self.rdr.read_u32::<LittleEndian>() {
-            Ok(value) => value,
-            Err(e) => match e.kind() {
-                ErrorKind::UnexpectedEof => {
+
+        let addr = self.base + self.pos as Addr;
+        let decoded: Option<D> =
+            match D::decode_from_bytes(&self.bytes[(self.pos as usize)..], addr) {
+                Ok(decoded) => {
+                    self.pos += self.word_size;
+                    Some(decoded)
+                }
+                Err(InstructionDecoderError::IoError(ErrorKind::UnexpectedEof)) => {
                     return None;
                 }
-                _ => panic!("unexpected error"),
-            },
+                _ => {
+                    self.pos += self.word_size;
+                    None
+                }
+            };
+
+        match decoded {
+            Some(insn) => {
+                line.push_str(&format!("{:8x}:\t{:08x} \t{}", addr, insn.get_raw(), insn))
+            }
+            _ => line.push_str(&format!("{:8x}:\t \t<UNDEFINED>", addr)),
         };
 
-        let addr = self.base + (self.rdr.position() - 4) as u32;
-        line.push_str(&format!("{:8x}:\t{:08x} \t", addr, value));
-
-        match arm::ArmInstruction::try_from((value, addr)) {
-            Ok(insn) => line.push_str(&format!("{}", insn)),
-            Err(_) => line.push_str("<UNDEFINED>"),
-        };
-
-        Some((addr, line))
+        Some((self.pos as Addr, line))
     }
 }

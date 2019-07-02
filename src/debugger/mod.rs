@@ -82,7 +82,7 @@ impl Debugger {
 
     fn val_reg(&self, arg: &Value) -> DebuggerResult<usize> {
         match arg {
-            Value::Name(reg) => self.decode_reg(&reg),
+            Value::Identifier(reg) => self.decode_reg(&reg),
             v => Err(DebuggerError::InvalidArgument(format!(
                 "expected a number, got {:?}",
                 v
@@ -103,7 +103,7 @@ impl Debugger {
     fn val_address(&self, arg: &Value) -> DebuggerResult<Addr> {
         match arg {
             Value::Num(n) => Ok(*n),
-            Value::Name(reg) => {
+            Value::Identifier(reg) => {
                 let reg = self.decode_reg(&reg)?;
                 Ok(self.cpu.get_reg(reg))
             }
@@ -167,7 +167,7 @@ impl Debugger {
         println!("Welcome to rustboyadvance-NG debugger 😎!\n");
         self.running = true;
         let mut rl = Editor::<()>::new();
-        rl.load_history(".rustboyadvance_history");
+        rl.load_history(".rustboyadvance_history").unwrap();
         while self.running {
             let readline = rl.readline(&format!("({}) ᐅ ", "rustboyadvance-dbg".bold().cyan()));
             match readline {

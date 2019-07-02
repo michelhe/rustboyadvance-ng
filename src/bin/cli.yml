@@ -16,11 +16,3 @@ subcommands:
                 takes_value: true
                 help: Sets the game-rom file to use
                 required: true
-    - disass:
-        about: disassemble an arm binary file
-        args:
-            - INPUT:
-                help: Sets the input file to use
-                required: true
-                index: 1
-

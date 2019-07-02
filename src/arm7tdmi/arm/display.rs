@@ -1,8 +1,8 @@
 use std::fmt;
 
 use super::{
-    ArmCond, ArmHalfwordTransferType, ArmInstruction, ArmFormat, ArmOpCode,
-    ArmRegisterShift, ArmShiftType, ArmShiftedValue,
+    ArmCond, ArmFormat, ArmHalfwordTransferType, ArmInstruction, ArmOpCode, ArmRegisterShift,
+    ArmShiftType, ArmShiftedValue,
 };
 use crate::arm7tdmi::{reg_string, Addr, REG_PC};
 

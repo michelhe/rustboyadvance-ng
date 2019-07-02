@@ -4,8 +4,8 @@ use crate::arm7tdmi::Addr;
 
 use nom;
 use nom::branch::alt;
-use nom::bytes::complete::{tag, take_while_m_n};
-use nom::character::complete::{alphanumeric1, char, digit1, multispace0, multispace1};
+use nom::bytes::complete::{tag, take_while1, take_while_m_n};
+use nom::character::complete::{char, digit1, multispace0, multispace1};
 use nom::combinator::{cut, map, map_res, opt};
 use nom::error::{context, convert_error, ParseError, VerboseError};
 use nom::multi::separated_list;
@@ -25,7 +25,7 @@ pub enum DerefType {
 pub enum Value {
     Num(u32),
     Boolean(bool),
-    Name(String),
+    Identifier(String),
     Deref(Box<Value>, DerefType),
 }
 
@@ -63,8 +63,11 @@ fn parse_boolean<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, Val
     )(i)
 }
 
-fn parse_name<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, Value, E> {
-    map(alphanumeric1, |s: &str| Value::Name(String::from(s)))(i)
+fn parse_identifier<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, Value, E> {
+    map(
+        take_while1(|c: char| c.is_alphanumeric() || c == '_' || c == '-'),
+        |s: &str| Value::Identifier(String::from(s)),
+    )(i)
 }
 
 fn parse_deref_type<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, DerefType, E> {
@@ -90,7 +93,7 @@ fn parse_deref<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, Value
                         Some(t) => t,
                         None => DerefType::Word,
                     }),
-                    alt((parse_num, parse_name)),
+                    alt((parse_num, parse_identifier)),
                 )),
                 |(t, v)| Value::Deref(Box::new(v), t),
             )),
@@ -101,7 +104,7 @@ fn parse_deref<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, Value
 fn parse_value<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, Value, E> {
     context(
         "argument",
-        alt((parse_boolean, parse_deref, parse_num, parse_name)),
+        alt((parse_boolean, parse_deref, parse_num, parse_identifier)),
     )(i)
 }
 
@@ -110,7 +113,7 @@ fn parse_command<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&str, Expr, 
         "command",
         map(
             tuple((
-                terminated(parse_name, multispace0),
+                terminated(parse_identifier, multispace0),
                 separated_list(multispace1, parse_value),
             )),
             |(cmd, args)| Expr::Command(cmd, args),
@@ -169,14 +172,17 @@ mod tests {
     fn test_parse_command_expr() {
         assert_eq!(
             parse_expr("command"),
-            Ok(Expr::Command(Value::Name("command".to_string()), vec![]))
+            Ok(Expr::Command(
+                Value::Identifier("command".to_string()),
+                vec![]
+            ))
         );
         assert_eq!(
             parse_expr("command   arg0   0x1337   true  "),
             Ok(Expr::Command(
-                Value::Name("command".to_string()),
+                Value::Identifier("command".to_string()),
                 vec![
-                    Value::Name("arg0".to_string()),
+                    Value::Identifier("arg0".to_string()),
                     Value::Num(0x1337),
                     Value::Boolean(true)
                 ]
@@ -189,22 +195,22 @@ mod tests {
         assert_eq!(
             parse_expr("  pc   = 0x1337 "),
             Ok(Expr::Assignment(
-                Value::Name("pc".to_string()),
+                Value::Identifier("pc".to_string()),
                 Value::Num(0x1337)
             ))
         );
         assert_eq!(
             parse_expr("aaa   = false "),
             Ok(Expr::Assignment(
-                Value::Name("aaa".to_string()),
+                Value::Identifier("aaa".to_string()),
                 Value::Boolean(false)
             ))
         );
         assert_eq!(
             parse_expr("  pc   = lr "),
             Ok(Expr::Assignment(
-                Value::Name("pc".to_string()),
-                Value::Name("lr".to_string())
+                Value::Identifier("pc".to_string()),
+                Value::Identifier("lr".to_string())
             ))
         );
     }
@@ -222,7 +228,10 @@ mod tests {
             parse_deref::<VerboseError<&str>>("*r10"),
             Ok((
                 "",
-                Value::Deref(Box::new(Value::Name("r10".to_string())), DerefType::Word)
+                Value::Deref(
+                    Box::new(Value::Identifier("r10".to_string())),
+                    DerefType::Word
+                )
             ))
         );
     }

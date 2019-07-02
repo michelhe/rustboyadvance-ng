@@ -9,7 +9,6 @@ extern crate rustboyadvance_ng;
 
 use rustboyadvance_ng::arm7tdmi;
 use rustboyadvance_ng::debugger::{Debugger, DebuggerError};
-use rustboyadvance_ng::disass::Disassembler;
 use rustboyadvance_ng::sysbus::SysBus;
 use rustboyadvance_ng::util::read_bin_file;
 
@@ -47,17 +46,6 @@ impl From<DebuggerError> for GBAError {
     }
 }
 
-fn run_disass(matches: &ArgMatches) -> GBAResult<()> {
-    let input = matches.value_of("INPUT").unwrap();
-    let bin = read_bin_file(&input)?;
-
-    let disassembler = Disassembler::new(0, &bin);
-    for (_, line) in disassembler {
-        println!("{}", line)
-    }
-    Ok(())
-}
-
 fn run_debug(matches: &ArgMatches) -> GBAResult<()> {
     let bios_bin = read_bin_file(matches.value_of("bios").unwrap_or_default())?;
     let rom_bin = read_bin_file(matches.value_of("game_rom").unwrap())?;
@@ -81,7 +69,6 @@ fn main() {
 
     let result = match matches.subcommand() {
         ("debug", Some(m)) => run_debug(m),
-        ("disass", Some(m)) => run_disass(m),
         _ => Ok(()),
     };
 

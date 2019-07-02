@@ -1,11 +1,14 @@
 pub mod display;
 pub mod exec;
 
-use crate::arm7tdmi::Addr;
+use crate::arm7tdmi::{Addr, InstructionDecoder, InstructionDecoderError};
 
 use crate::bit::BitIndex;
-use crate::num_traits::FromPrimitive;
+use crate::byteorder::{LittleEndian, ReadBytesExt};
+use crate::num::FromPrimitive;
+
 use std::convert::TryFrom;
+use std::io;
 
 #[derive(Debug, PartialEq)]
 pub enum ArmDecodeErrorKind {
@@ -14,6 +17,7 @@ pub enum ArmDecodeErrorKind {
     UndefinedConditionCode(u32),
     InvalidShiftType(u32),
     InvalidHSBits(u32),
+    IoError(io::ErrorKind),
 }
 use ArmDecodeErrorKind::*;
 
@@ -130,13 +134,11 @@ pub struct ArmInstruction {
     pub pc: Addr,
 }
 
-impl TryFrom<(u32, Addr)> for ArmInstruction {
-    type Error = ArmDecodeError;
+impl InstructionDecoder for ArmInstruction {
+    type IntType = u32;
 
-    fn try_from(value: (u32, Addr)) -> Result<Self, Self::Error> {
+    fn decode(raw: u32, addr: Addr) -> Result<Self, InstructionDecoderError> {
         use ArmFormat::*;
-        let (raw, addr) = value;
-
         let cond_code = raw.bit_range(28..32) as u8;
         let cond = match ArmCond::from_u8(cond_code) {
             Some(cond) => Ok(cond),
@@ -188,13 +190,17 @@ impl TryFrom<(u32, Addr)> for ArmInstruction {
             pc: addr,
         })
     }
-}
 
-impl TryFrom<u32> for ArmInstruction {
-    type Error = ArmDecodeError;
+    fn decode_from_bytes(bytes: &[u8], addr: Addr) -> Result<Self, InstructionDecoderError> {
+        let mut rdr = std::io::Cursor::new(bytes);
+        let raw = rdr
+            .read_u32::<LittleEndian>()
+            .map_err(|e| InstructionDecoderError::IoError(e.kind()))?;
+        Self::decode(raw, addr)
+    }
 
-    fn try_from(value: u32) -> Result<Self, Self::Error> {
-        ArmInstruction::try_from((value, 0))
+    fn get_raw(&self) -> u32 {
+        self.raw
     }
 }
 
@@ -440,7 +446,7 @@ mod tests {
     #[test]
     fn test_decode_swi() {
         // swi #0x1337
-        let decoded = ArmInstruction::try_from(0xef001337).unwrap();
+        let decoded = ArmInstruction::decode(0xef001337, 0).unwrap();
         assert_eq!(decoded.fmt, ArmFormat::SWI);
         assert_eq!(decoded.swi_comment(), 0x1337);
         assert_eq!(format!("{}", decoded), "swi\t#0x1337");
@@ -449,7 +455,7 @@ mod tests {
     #[test]
     fn test_decode_branch_forwards() {
         // 0x20:   b 0x30
-        let decoded = ArmInstruction::try_from((0xea_00_00_02, 0x20)).unwrap();
+        let decoded = ArmInstruction::decode(0xea_00_00_02, 0x20).unwrap();
         assert_eq!(decoded.fmt, ArmFormat::B_BL);
         assert_eq!(decoded.link_flag(), false);
         assert_eq!(
@@ -462,7 +468,7 @@ mod tests {
     #[test]
     fn test_decode_branch_link_backwards() {
         // 0x20:   bl 0x10
-        let decoded = ArmInstruction::try_from((0xeb_ff_ff_fa, 0x20)).unwrap();
+        let decoded = ArmInstruction::decode(0xeb_ff_ff_fa, 0x20).unwrap();
         assert_eq!(decoded.fmt, ArmFormat::B_BL);
         assert_eq!(decoded.link_flag(), true);
         assert_eq!(
@@ -473,9 +479,9 @@ mod tests {
     }
 
     #[test]
-    fn test_decode_ldr_preindex() {
+    fn test_decode_ldr_pre_index() {
         // ldreq r2, [r5, -r6, lsl #5]
-        let decoded = ArmInstruction::try_from(0x07_15_22_86).unwrap();
+        let decoded = ArmInstruction::decode(0x07_15_22_86, 0).unwrap();
         assert_eq!(decoded.fmt, ArmFormat::LDR_STR);
         assert_eq!(decoded.cond, ArmCond::Equal);
         assert_eq!(decoded.load_flag(), true);
@@ -496,9 +502,9 @@ mod tests {
     }
 
     #[test]
-    fn test_decode_str_postindex() {
+    fn test_decode_str_post_index() {
         // strteq r2, [r4], -r7, lsl #8
-        let decoded = ArmInstruction::try_from(0x06_24_24_47).unwrap();
+        let decoded = ArmInstruction::decode(0x06_24_24_47, 0).unwrap();
         assert_eq!(decoded.fmt, ArmFormat::LDR_STR);
         assert_eq!(decoded.cond, ArmCond::Equal);
         assert_eq!(decoded.load_flag(), false);

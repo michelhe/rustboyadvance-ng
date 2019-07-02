@@ -3,14 +3,13 @@ use crate::bit::BitIndex;
 use crate::arm7tdmi::bus::{Bus, MemoryAccessType::*, MemoryAccessWidth::*};
 use crate::arm7tdmi::cpu::{Core, CpuExecResult, CpuPipelineAction};
 use crate::arm7tdmi::exception::Exception;
-use crate::arm7tdmi::{Addr, CpuError, CpuInstruction, CpuResult, CpuState, REG_PC};
 use crate::arm7tdmi::psr::RegPSR;
+use crate::arm7tdmi::{Addr, CpuError, CpuResult, CpuState, DecodedInstruction, REG_PC};
 
 use crate::sysbus::SysBus;
 
 use super::{
-    ArmCond, ArmInstruction, ArmFormat, ArmOpCode, ArmRegisterShift, ArmShiftType,
-    ArmShiftedValue,
+    ArmFormat, ArmInstruction, ArmOpCode, ArmRegisterShift, ArmShiftType, ArmShiftedValue,
 };
 
 impl Core {
@@ -31,7 +30,11 @@ impl Core {
             ArmFormat::SWI => self.exec_swi(sysbus, insn),
             ArmFormat::LDR_STR => self.exec_ldr_str(sysbus, insn),
             ArmFormat::MSR_REG => self.exec_msr_reg(sysbus, insn),
-            _ => Err(CpuError::UnimplementedCpuInstruction(CpuInstruction::Arm(insn))),
+            _ => Err(CpuError::UnimplementedCpuInstruction(
+                insn.pc,
+                insn.raw,
+                DecodedInstruction::Arm(insn),
+            )),
         }
     }
 
