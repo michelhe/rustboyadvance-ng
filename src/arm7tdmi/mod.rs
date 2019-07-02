@@ -6,6 +6,7 @@ use arm::{ArmDecodeError, ArmInstruction};
 pub mod cpu;
 pub use cpu::*;
 pub mod bus;
+pub use bus::Bus;
 mod exception;
 mod psr;
 

@@ -1,22 +1,32 @@
 use std::fmt;
 
+use crate::arm7tdmi::Addr;
+
 use nom;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while_m_n};
 use nom::character::complete::{alphanumeric1, char, digit1, multispace0, multispace1};
-use nom::combinator::{cut, map, map_res};
+use nom::combinator::{cut, map, map_res, opt};
 use nom::error::{context, convert_error, ParseError, VerboseError};
 use nom::multi::separated_list;
-use nom::sequence::{preceded, separated_pair, terminated, tuple};
+use nom::sequence::{delimited, preceded, separated_pair, terminated, tuple};
 use nom::IResult;
 
 use super::{DebuggerError, DebuggerResult};
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum DerefType {
+    Word,
+    HalfWord,
+    Byte,
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Value {
     Num(u32),
     Boolean(bool),
     Name(String),
+    Deref(Box<Value>, DerefType),
 }
 
 #[derive(Debug, PartialEq)]
@@ -57,8 +67,42 @@ fn parse_name<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, Value,
     map(alphanumeric1, |s: &str| Value::Name(String::from(s)))(i)
 }
 
+fn parse_deref_type<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, DerefType, E> {
+    delimited(
+        char('('),
+        alt((
+            map(tag("u32*"), |_| DerefType::Word),
+            map(tag("u16*"), |_| DerefType::HalfWord),
+            map(tag("u8*"), |_| DerefType::Byte),
+        )),
+        char(')'),
+    )(i)
+}
+
+fn parse_deref<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, Value, E> {
+    context(
+        "deref",
+        preceded(
+            char('*'),
+            cut(map(
+                tuple((
+                    map(opt(parse_deref_type), |t| match t {
+                        Some(t) => t,
+                        None => DerefType::Word,
+                    }),
+                    alt((parse_num, parse_name)),
+                )),
+                |(t, v)| Value::Deref(Box::new(v), t),
+            )),
+        ),
+    )(i)
+}
+
 fn parse_value<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, Value, E> {
-    context("argument", alt((parse_boolean, parse_num, parse_name)))(i)
+    context(
+        "argument",
+        alt((parse_boolean, parse_deref, parse_num, parse_name)),
+    )(i)
 }
 
 fn parse_command<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&str, Expr, E> {
@@ -165,4 +209,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_parse_deref() {
+        assert_eq!(
+            parse_deref::<VerboseError<&str>>("*(u16*)0x1234"),
+            Ok((
+                "",
+                Value::Deref(Box::new(Value::Num(0x1234)), DerefType::HalfWord)
+            ))
+        );
+        assert_eq!(
+            parse_deref::<VerboseError<&str>>("*r10"),
+            Ok((
+                "",
+                Value::Deref(Box::new(Value::Name("r10".to_string())), DerefType::Word)
+            ))
+        );
+    }
 }

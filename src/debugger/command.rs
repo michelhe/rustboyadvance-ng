@@ -1,7 +1,8 @@
 use crate::arm7tdmi::bus::Bus;
-use crate::arm7tdmi::{reg_string, REG_PC};
-use crate::debugger::Debugger;
+use crate::arm7tdmi::{reg_string, Addr, REG_PC};
 use crate::disass::Disassembler;
+
+use super::{parser::Value, Debugger, DebuggerError, DebuggerResult};
 
 use ansi_term::Colour;
 
@@ -108,6 +109,105 @@ impl Command {
                 debugger.cpu.reset();
                 println!("cpu is restarted!")
             }
+        }
+    }
+}
+
+impl Debugger {
+    pub fn eval_command(&self, command: Value, args: Vec<Value>) -> DebuggerResult<Command> {
+        let command = match command {
+            Value::Name(command) => command,
+            _ => {
+                return Err(DebuggerError::InvalidCommand("expected a name".to_string()));
+            }
+        };
+
+        match command.as_ref() {
+            "i" | "info" => Ok(Command::Info),
+            "s" | "step" => Ok(Command::SingleStep(false)),
+            "sc" | "stepcycle" => Ok(Command::SingleStep(true)),
+            "c" | "continue" => Ok(Command::Continue),
+            "x" | "hexdump" => {
+                let (addr, n) = match args.len() {
+                    2 => {
+                        let addr = self.val_address(&args[0])?;
+                        let n = self.val_number(&args[1])?;
+
+                        (addr, n as usize)
+                    }
+                    1 => {
+                        let addr = self.val_address(&args[0])?;
+
+                        (addr, 0x100)
+                    }
+                    0 => {
+                        if let Some(Command::HexDump(addr, n)) = self.previous_command {
+                            (addr + (4 * n as u32), 0x100)
+                        } else {
+                            (self.cpu.get_reg(15), 0x100)
+                        }
+                    }
+                    _ => {
+                        return Err(DebuggerError::InvalidCommandFormat(
+                            "xxd [addr] [n]".to_string(),
+                        ))
+                    }
+                };
+                Ok(Command::HexDump(addr, n))
+            }
+            "d" | "disass" => {
+                let (addr, n) = match args.len() {
+                    2 => {
+                        let addr = self.val_address(&args[0])?;
+                        let n = self.val_number(&args[1])?;
+
+                        (addr, n as usize)
+                    }
+                    1 => {
+                        let addr = self.val_address(&args[0])?;
+
+                        (addr, 10)
+                    }
+                    0 => {
+                        if let Some(Command::Disass(addr, n)) = self.previous_command {
+                            (addr + (4 * n as u32), 10)
+                        } else {
+                            (self.cpu.get_next_pc(), 10)
+                        }
+                    }
+                    _ => {
+                        return Err(DebuggerError::InvalidCommandFormat(
+                            "disass [addr] [n]".to_string(),
+                        ))
+                    }
+                };
+
+                Ok(Command::Disass(addr, n))
+            }
+            "b" | "break" => {
+                if args.len() != 1 {
+                    Err(DebuggerError::InvalidCommandFormat(
+                        "break <addr>".to_string(),
+                    ))
+                } else {
+                    let addr = self.val_address(&args[0])?;
+                    Ok(Command::AddBreakpoint(addr))
+                }
+            }
+            "bd" | "breakdel" => match args.len() {
+                0 => Ok(Command::ClearBreakpoints),
+                1 => {
+                    let addr = self.val_address(&args[0])?;
+                    Ok(Command::DelBreakpoint(addr))
+                }
+                _ => Err(DebuggerError::InvalidCommandFormat(String::from(
+                    "breakdel [addr]",
+                ))),
+            },
+            "bl" => Ok(Command::ListBreakpoints),
+            "q" | "quit" => Ok(Command::Quit),
+            "r" | "reset" => Ok(Command::Reset),
+            _ => Err(DebuggerError::InvalidCommand(command)),
         }
     }
 }
