@@ -1,5 +1,7 @@
 use std::io;
 
+use crate::cartridge::Cartridge;
+
 use super::arm7tdmi::bus::{Bus, MemoryAccess, MemoryAccessWidth};
 use super::arm7tdmi::Addr;
 
@@ -30,7 +32,7 @@ pub struct WaitState {
 }
 
 impl WaitState {
-    fn new(access8: usize, access16: usize, access32: usize) -> WaitState {
+    pub fn new(access8: usize, access16: usize, access32: usize) -> WaitState {
         WaitState {
             access8,
             access16,
@@ -73,36 +75,30 @@ pub struct SysBus {
     palette_ram: BoxedMemory,
     vram: BoxedMemory,
     oam: BoxedMemory,
-    gamepak_flashrom: BoxedMemory,
+    gamepak: Cartridge,
 }
 
 impl SysBus {
-    pub fn new(bios_rom: Vec<u8>, game_rom: Vec<u8>) -> SysBus {
+    pub fn new(bios_rom: Vec<u8>, gamepak: Cartridge) -> SysBus {
         SysBus {
-            bios: BoxedMemory(bios_rom.into_boxed_slice(), Default::default()),
-            onboard_work_ram: BoxedMemory(
-                vec![0; WORK_RAM_SIZE].into_boxed_slice(),
-                Default::default(),
-            ),
-            internal_work_ram: BoxedMemory(
-                vec![0; INTERNAL_RAM].into_boxed_slice(),
-                Default::default(),
-            ),
-            ioregs: BoxedMemory(vec![0; 1024].into_boxed_slice(), Default::default()),
-            palette_ram: BoxedMemory(
+            bios: BoxedMemory::new(bios_rom.into_boxed_slice()),
+            onboard_work_ram: BoxedMemory::new(vec![0; WORK_RAM_SIZE].into_boxed_slice()),
+            internal_work_ram: BoxedMemory::new(vec![0; INTERNAL_RAM].into_boxed_slice()),
+            ioregs: BoxedMemory::new(vec![0; 1024].into_boxed_slice()),
+            palette_ram: BoxedMemory::new_with_waitstate(
                 vec![0; PALETTE_RAM_SIZE].into_boxed_slice(),
                 WaitState::new(1, 1, 2),
             ),
-            vram: BoxedMemory(
+            vram: BoxedMemory::new_with_waitstate(
                 vec![0; VIDEO_RAM_SIZE].into_boxed_slice(),
                 WaitState::new(1, 1, 2),
             ),
-            oam: BoxedMemory(vec![0; OAM_SIZE].into_boxed_slice(), Default::default()),
-            gamepak_flashrom: BoxedMemory(game_rom.into_boxed_slice(), WaitState::new(5, 5, 8)),
+            oam: BoxedMemory::new(vec![0; OAM_SIZE].into_boxed_slice()),
+            gamepak: gamepak,
         }
     }
 
-    fn map(&self, addr: Addr) -> & Bus {
+    fn map(&self, addr: Addr) -> &Bus {
         match addr as usize {
             0x0000_0000...0x0000_3fff => &self.bios,
             0x0200_0000...0x0203_ffff => &self.onboard_work_ram,
@@ -111,7 +107,7 @@ impl SysBus {
             0x0500_0000...0x0500_03ff => &self.palette_ram,
             0x0600_0000...0x0601_7fff => &self.vram,
             0x0700_0000...0x0700_03ff => &self.oam,
-            0x0800_0000...0x09ff_ffff => &self.gamepak_flashrom,
+            0x0800_0000...0x09ff_ffff => &self.gamepak,
             _ => panic!("unmapped address @0x{:08x}", addr),
         }
     }
@@ -126,7 +122,7 @@ impl SysBus {
             0x0500_0000...0x0500_03ff => &mut self.palette_ram,
             0x0600_0000...0x0601_7fff => &mut self.vram,
             0x0700_0000...0x0700_03ff => &mut self.oam,
-            0x0800_0000...0x09ff_ffff => &mut self.gamepak_flashrom,
+            0x0800_0000...0x09ff_ffff => &mut self.gamepak,
             _ => panic!("unmapped address @0x{:08x}", addr),
         }
     }

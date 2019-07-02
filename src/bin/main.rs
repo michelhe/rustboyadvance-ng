@@ -9,6 +9,7 @@ extern crate rustboyadvance_ng;
 
 use rustboyadvance_ng::arm7tdmi;
 use rustboyadvance_ng::debugger::{Debugger, DebuggerError};
+use rustboyadvance_ng::cartridge::Cartridge;
 use rustboyadvance_ng::sysbus::SysBus;
 use rustboyadvance_ng::util::read_bin_file;
 
@@ -50,7 +51,10 @@ fn run_debug(matches: &ArgMatches) -> GBAResult<()> {
     let bios_bin = read_bin_file(matches.value_of("bios").unwrap_or_default())?;
     let rom_bin = read_bin_file(matches.value_of("game_rom").unwrap())?;
 
-    let sysbus = SysBus::new(bios_bin, rom_bin);
+    let gamepak = Cartridge::new(rom_bin);
+    println!("loaded rom: {:#?}", gamepak.header);
+
+    let sysbus = SysBus::new(bios_bin, gamepak);
     let mut core = arm7tdmi::cpu::Core::new();
     core.reset();
     core.set_verbose(true);
