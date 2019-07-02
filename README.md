@@ -5,7 +5,8 @@
 RustBoyAdvance-NG aims to be a Nintendo GameBoy Advance emulator and debugger, written in the rust programming language.
 
 RustBoyAdvance-NG currently has implemented
-  - Dumbed-down ARM mode disassembling
+  - Dumbed-down ARM/THUMB mode disassembling
+  - Some ARM/THUMB instruction are implemented, but not all of them.
   - A neat debugger REPL
 
 But the way for full emulation is way far ahead, because most of the ARM/THUMB instructions are not yet implemented.
@@ -23,7 +24,7 @@ $ cargo run -- debug
 
 # Why is this project needed ?
 
-It's actually **not**. There are quite a lot of GBA emulators, and even some written in rust.
+It's actually **not**. There are quite a lot of GBA emulators, ~~and even some written in rust~~. Actually, I couldn't find any game capable emulators written in rust.
 
 I'm only doing this as a side project intended for learning rust.
 
