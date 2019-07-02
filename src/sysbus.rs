@@ -92,7 +92,7 @@ impl SysBus {
         }
     }
 
-    fn map(&self, addr: Addr) -> &impl Bus {
+    fn map(&self, addr: Addr) -> & Bus {
         match addr as usize {
             0x0000_0000...0x0000_3fff => &self.bios,
             0x0200_0000...0x0203_ffff => &self.onboard_work_ram,
@@ -107,7 +107,7 @@ impl SysBus {
     }
 
     /// TODO proc-macro for generating this function
-    fn map_mut(&mut self, addr: Addr) -> &mut impl Bus {
+    fn map_mut(&mut self, addr: Addr) -> &mut Bus {
         match addr as usize {
             0x0000_0000...0x0000_3fff => &mut self.bios,
             0x0200_0000...0x0203_ffff => &mut self.onboard_work_ram,

@@ -13,7 +13,7 @@ use super::{
 };
 
 impl Core {
-    pub fn exec_arm(&mut self, sysbus: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
+    pub fn exec_arm(&mut self, sysbus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
         if !self.check_arm_cond(insn.cond) {
             self.add_cycles(
                 insn.pc + (self.word_size() as u32),
@@ -41,7 +41,7 @@ impl Core {
     /// Cycles 2S+1N
     fn exec_b_bl(
         &mut self,
-        sysbus: &mut SysBus,
+        sysbus: &mut Bus,
         insn: ArmInstruction,
     ) -> CpuResult<CpuPipelineAction> {
         if insn.link_flag() {
@@ -67,7 +67,7 @@ impl Core {
     /// Cycles 2S+1N
     fn exec_bx(
         &mut self,
-        sysbus: &mut SysBus,
+        sysbus: &mut Bus,
         insn: ArmInstruction,
     ) -> CpuResult<CpuPipelineAction> {
         let rn = self.get_reg(insn.rn());
@@ -95,7 +95,7 @@ impl Core {
 
     fn exec_swi(
         &mut self,
-        _sysbus: &mut SysBus,
+        _sysbus: &mut Bus,
         _insn: ArmInstruction,
     ) -> CpuResult<CpuPipelineAction> {
         self.exception(Exception::SoftwareInterrupt);
@@ -104,7 +104,7 @@ impl Core {
 
     fn exec_msr_reg(
         &mut self,
-        sysbus: &mut SysBus,
+        sysbus: &mut Bus,
         insn: ArmInstruction,
     ) -> CpuResult<CpuPipelineAction> {
         let new_psr = RegPSR::new(self.get_reg(insn.rm()));
@@ -202,7 +202,7 @@ impl Core {
     ///         Add x=1I cycles if Op2 shifted-by-register. Add y=1S+1N cycles if Rd=R15.
     fn exec_data_processing(
         &mut self,
-        sysbus: &mut SysBus,
+        sysbus: &mut Bus,
         insn: ArmInstruction,
     ) -> CpuResult<CpuPipelineAction> {
         // TODO handle carry flag
@@ -287,7 +287,7 @@ impl Core {
     /// For LDR, add y=1S+1N if Rd=R15.
     fn exec_ldr_str(
         &mut self,
-        sysbus: &mut SysBus,
+        sysbus: &mut Bus,
         insn: ArmInstruction,
     ) -> CpuResult<CpuPipelineAction> {
         if insn.write_back_flag() && insn.rd() == insn.rn() {

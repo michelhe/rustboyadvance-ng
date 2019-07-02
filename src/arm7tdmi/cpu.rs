@@ -183,7 +183,7 @@ impl Core {
         self.cycles += 1;
     }
 
-    pub fn add_cycles(&mut self, addr: Addr, sysbus: &SysBus, access: MemoryAccess) {
+    pub fn add_cycles(&mut self, addr: Addr, sysbus: &Bus, access: MemoryAccess) {
         self.cycles += sysbus.get_cycles(addr, access);
     }
 
@@ -210,7 +210,7 @@ impl Core {
 
     fn step_thumb(
         &mut self,
-        sysbus: &mut SysBus,
+        sysbus: &mut Bus,
     ) -> CpuResult<(Option<DecodedInstruction>, CpuPipelineAction)> {
         // fetch
         let new_fetched = sysbus.read_16(self.pc);
@@ -244,7 +244,7 @@ impl Core {
 
     fn step_arm(
         &mut self,
-        sysbus: &mut SysBus,
+        sysbus: &mut Bus,
     ) -> CpuResult<(Option<DecodedInstruction>, CpuPipelineAction)> {
         // fetch
         let new_fetched = sysbus.read_32(self.pc);
@@ -278,7 +278,7 @@ impl Core {
 
     /// Perform a pipeline step
     /// If an instruction was executed in this step, return it.
-    pub fn step(&mut self, sysbus: &mut SysBus) -> CpuResult<Option<DecodedInstruction>> {
+    pub fn step(&mut self, sysbus: &mut Bus) -> CpuResult<Option<DecodedInstruction>> {
         let (executed_instruction, pipeline_action) = match self.cpsr.state() {
             CpuState::ARM => self.step_arm(sysbus),
             CpuState::THUMB => self.step_thumb(sysbus),
@@ -326,7 +326,7 @@ impl Core {
     /// A step that returns only once an instruction was executed.
     /// Returns the address of PC before executing an instruction,
     /// and the address of the next instruction to be executed;
-    pub fn step_debugger(&mut self, sysbus: &mut SysBus) -> CpuResult<DecodedInstruction> {
+    pub fn step_debugger(&mut self, sysbus: &mut Bus) -> CpuResult<DecodedInstruction> {
         loop {
             if let Some(i) = self.step(sysbus)? {
                 return Ok(i);
