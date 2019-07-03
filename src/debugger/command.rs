@@ -18,7 +18,7 @@ pub enum DisassMode {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Command {
     Info,
-    SingleStep(bool),
+    Step(usize),
     Continue,
     HexDump(Addr, usize),
     Disass(DisassMode, Addr, usize),
@@ -35,27 +35,36 @@ impl Command {
         use Command::*;
         match *self {
             Info => println!("{}", debugger.cpu),
-            SingleStep(_cycle) => {
-                if let Some(bp) = debugger.check_breakpoint() {
-                    println!("hit breakpoint #0x{:08x}!", bp);
-                    debugger.delete_breakpoint(bp);
-                } else {
-                    match debugger.cpu.step_debugger(&mut debugger.sysbus) {
-                        Ok(insn) => {
-                            println!("{}\n", debugger.cpu);
-                            println!(
-                                "Executed at @0x{:08x}:\t{}",
-                                insn.get_pc(),
-                                Colour::Yellow.italic().paint(format!("{} ", insn))
-                            );
-                            println!("Next instruction at @0x{:08x}", debugger.cpu.get_next_pc())
-                        }
-                        Err(e) => {
-                            println!("{}: {}", "cpu encountered an error".red(), e);
-                            println!("cpu: {:x?}", debugger.cpu)
+            Step(count) => {
+                for _ in 0..count {
+                    if let Some(bp) = debugger.check_breakpoint() {
+                        println!("hit breakpoint #0x{:08x}!", bp);
+                        debugger.delete_breakpoint(bp);
+                    } else {
+                        match debugger.cpu.step_debugger(&mut debugger.sysbus) {
+                            Ok(insn) => {
+                                print!(
+                                    "{}\t{}",
+                                    Colour::Black
+                                        .bold()
+                                        .italic()
+                                        .on(Colour::White)
+                                        .paint(format!("Executed at @0x{:08x}:", insn.get_pc(),)),
+                                    insn
+                                );
+                                println!("{}", Colour::Purple.dimmed().italic().paint(format!(
+                                    "\t\t/// Next instruction at @0x{:08x}",
+                                    debugger.cpu.get_next_pc()
+                                )))
+                            }
+                            Err(e) => {
+                                println!("{}: {}", "cpu encountered an error".red(), e);
+                                println!("cpu: {:x?}", debugger.cpu)
+                            }
                         }
                     }
                 }
+                println!("{}\n", debugger.cpu);
             }
             Continue => loop {
                 if let Some(bp) = debugger.check_breakpoint() {
@@ -171,8 +180,18 @@ impl Debugger {
 
         match command.as_ref() {
             "i" | "info" => Ok(Command::Info),
-            "s" | "step" => Ok(Command::SingleStep(false)),
-            "sc" | "stepcycle" => Ok(Command::SingleStep(true)),
+            "s" | "step" => {
+                let count = match args.len() {
+                    0 => 1,
+                    1 => self.val_number(&args[0])?,
+                    _ => {
+                        return Err(DebuggerError::InvalidCommandFormat(
+                            "step [count]".to_string(),
+                        ))
+                    }
+                };
+                Ok(Command::Step(count as usize))
+            }
             "c" | "continue" => Ok(Command::Continue),
             "x" | "hexdump" => {
                 let (addr, n) = match args.len() {

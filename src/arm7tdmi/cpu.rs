@@ -342,7 +342,7 @@ impl fmt::Display for Core {
         writeln!(f, "\tCPSR: {}", self.cpsr)?;
         writeln!(f, "\tGeneral Purpose Registers:")?;
         let reg_normal_style = Style::new().bold();
-        let reg_dirty_style = Colour::Green.bold().on(Colour::Yellow);
+        let reg_dirty_style = Colour::Black.bold().on(Colour::Yellow);
         let gpr = self.get_registers();
         for i in 0..15 {
             let mut reg_name = reg_string(i).to_string();
@@ -354,7 +354,7 @@ impl fmt::Display for Core {
                 &reg_normal_style
             };
 
-            let entry = format!("\t{}\t= 0x{:08x}", reg_name, gpr[i]);
+            let entry = format!("\t{:-3} = 0x{:08x}", reg_name, gpr[i]);
 
             write!(
                 f,
@@ -363,7 +363,7 @@ impl fmt::Display for Core {
                 if (i + 1) % 4 == 0 { "\n" } else { "" }
             )?;
         }
-        let pc = format!("\tPC\t= 0x{:08x}", self.pc);
+        let pc = format!("\tPC  = 0x{:08x}", self.get_next_pc());
         writeln!(f, "{}", reg_normal_style.paint(pc))
     }
 }
