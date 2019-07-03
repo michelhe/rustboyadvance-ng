@@ -442,6 +442,8 @@ impl ArmInstruction {
 /// All instructions constants were generated using an ARM assembler.
 mod tests {
     use super::*;
+    use crate::arm7tdmi::*;
+    use crate::sysbus::BoxedMemory;
 
     #[test]
     fn test_decode_swi() {
@@ -522,5 +524,31 @@ mod tests {
         );
 
         assert_eq!(format!("{}", decoded), "strteq\tr2, [r4], -r7, asr #8");
+    }
+
+    #[test]
+    fn str_pre_index() {
+        // str r4, [sp, 0x10]
+        let decoded = ArmInstruction::decode(0xe58d4010, 0).unwrap();
+        assert_eq!(decoded.fmt, ArmFormat::LDR_STR);
+        assert_eq!(decoded.cond, ArmCond::Always);
+
+        let mut core = Core::new();
+        core.set_reg(4, 0x12345678);
+        core.set_reg(REG_SP, 0);
+
+        let bytes = vec![
+            /*  0: */ 0xaa, 0xbb, 0xcc, 0xdd,
+            /*  4: */ 0xaa, 0xbb, 0xcc, 0xdd,
+            /*  8: */ 0xaa, 0xbb, 0xcc, 0xdd,
+            /*  c: */ 0xaa, 0xbb, 0xcc, 0xdd,
+            /* 10: */ 0xaa, 0xbb, 0xcc, 0xdd,
+        ];
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+
+        assert_ne!(mem.read_32(core.get_reg(REG_SP) + 0x10), 0x12345678);
+        assert_eq!(core.exec_arm(&mut mem, decoded), Ok(CpuPipelineAction::IncPC));
+        assert_eq!(mem.read_32(core.get_reg(REG_SP) + 0x10), 0x12345678);
+
     }
 }
