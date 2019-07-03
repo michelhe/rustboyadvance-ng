@@ -348,7 +348,7 @@ impl Core {
             }
         } else {
             self.add_cycles(addr, sysbus, NonSeq + MemoryAccess32);
-            let value = self.get_reg(insn.rn());
+            let value = self.get_reg(insn.rd());
             if insn.transfer_size() == 1 {
                 // +1N
                 self.add_cycles(dest, sysbus, NonSeq + MemoryAccess8);
