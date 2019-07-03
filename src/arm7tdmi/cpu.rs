@@ -134,8 +134,8 @@ impl Core {
         self.gpr[13] = self.gpr_banked_r13[next_index];
 
         self.gpr_banked_r14[curr_index] = self.gpr[14];
-        self.gpr_banked_r14[next_index] = self.pc; // Store the return address in LR_mode
         self.gpr[14] = self.gpr_banked_r14[next_index];
+        self.gpr_banked_r14[next_index] = self.get_next_pc(); // Store the return address in LR_mode
 
         if new_mode == CpuMode::Fiq {
             for r in 0..5 {
