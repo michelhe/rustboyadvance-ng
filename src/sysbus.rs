@@ -82,7 +82,10 @@ impl SysBus {
     pub fn new(bios_rom: Vec<u8>, gamepak: Cartridge) -> SysBus {
         SysBus {
             bios: BoxedMemory::new(bios_rom.into_boxed_slice()),
-            onboard_work_ram: BoxedMemory::new(vec![0; WORK_RAM_SIZE].into_boxed_slice()),
+            onboard_work_ram: BoxedMemory::new_with_waitstate(
+                vec![0; WORK_RAM_SIZE].into_boxed_slice(),
+                WaitState::new(3, 3, 6),
+            ),
             internal_work_ram: BoxedMemory::new(vec![0; INTERNAL_RAM].into_boxed_slice()),
             ioregs: BoxedMemory::new(vec![0; 1024].into_boxed_slice()),
             palette_ram: BoxedMemory::new_with_waitstate(
