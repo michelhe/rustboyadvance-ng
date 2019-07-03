@@ -66,6 +66,46 @@ impl Bus for BoxedMemory {
 }
 
 #[derive(Debug)]
+struct DummyBus([u8; 4]);
+
+impl Bus for DummyBus {
+    fn read_32(&self, addr: Addr) -> u32 {
+        0
+    }
+
+    fn read_16(&self, addr: Addr) -> u16 {
+        0
+    }
+
+    fn read_8(&self, addr: Addr) -> u8 {
+        0
+    }
+
+    fn write_32(&mut self, addr: Addr, value: u32) -> Result<(), io::Error> {
+        Ok(())
+    }
+
+    fn write_16(&mut self, addr: Addr, value: u16) -> Result<(), io::Error> {
+        Ok(())
+    }
+
+    fn write_8(&mut self, addr: Addr, value: u8) -> Result<(), io::Error> {
+        Ok(())
+    }
+    fn get_bytes(&self, addr: Addr) -> &[u8] {
+        &self.0
+    }
+
+    fn get_bytes_mut(&mut self, addr: Addr) -> &mut [u8] {
+        &mut self.0
+    }
+
+    fn get_cycles(&self, addr: Addr, access: MemoryAccess) -> usize {
+        1
+    }
+}
+
+#[derive(Debug)]
 pub struct SysBus {
     bios: BoxedMemory,
     onboard_work_ram: BoxedMemory,
@@ -76,6 +116,7 @@ pub struct SysBus {
     vram: BoxedMemory,
     oam: BoxedMemory,
     gamepak: Cartridge,
+    dummy: DummyBus,
 }
 
 impl SysBus {
@@ -98,6 +139,7 @@ impl SysBus {
             ),
             oam: BoxedMemory::new(vec![0; OAM_SIZE].into_boxed_slice()),
             gamepak: gamepak,
+            dummy: DummyBus([0; 4]),
         }
     }
 
@@ -111,7 +153,10 @@ impl SysBus {
             0x0600_0000...0x0601_7fff => &self.vram,
             0x0700_0000...0x0700_03ff => &self.oam,
             0x0800_0000...0x09ff_ffff => &self.gamepak,
-            _ => panic!("unmapped address @0x{:08x}", addr),
+            _ => {
+                println!("unmapped address @0x{:08x}", addr);
+                &self.dummy
+            }
         }
     }
 
@@ -126,7 +171,10 @@ impl SysBus {
             0x0600_0000...0x0601_7fff => &mut self.vram,
             0x0700_0000...0x0700_03ff => &mut self.oam,
             0x0800_0000...0x09ff_ffff => &mut self.gamepak,
-            _ => panic!("unmapped address @0x{:08x}", addr),
+            _ => {
+                println!("unmapped address @0x{:08x}", addr);
+                &mut self.dummy
+            }
         }
     }
 }
