@@ -9,8 +9,8 @@
             "request": "launch",
             "name": "Debug the debugger",
             "sourceLanguages": ["rust"],
-            "program": "${workspaceFolder}/target/debug/${workspaceRootFolderName}",
-            "args": ["debug"],
+            "program": "${workspaceFolder}/target/debug/main",
+            "args": ["debug", "-g", "rom.gba"],
             "cwd": "${workspaceFolder}",
             "terminal": "integrated"
         }
