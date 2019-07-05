@@ -247,8 +247,8 @@ impl Core {
         if !self.check_arm_cond(insn.cond()) {
             Ok(CpuPipelineAction::IncPC)
         } else {
-            let offset = insn.offset8() as i8 as i32;
-            self.pc = (insn.pc as i32).wrapping_add(offset) as u32;
+            let offset = ((insn.offset8() as i8) << 1) as i32;
+            self.pc = (self.pc as i32).wrapping_add(offset) as u32;
             Ok(CpuPipelineAction::Flush)
         }
     }

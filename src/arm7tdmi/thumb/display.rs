@@ -164,8 +164,8 @@ impl ThumbInstruction {
             "b{cond}\t{addr:#x}",
             cond = self.cond(),
             addr = {
-                let offset = self.offset8() as i8 as i32;
-                (self.pc as i32).wrapping_add(offset) as Addr
+                let offset = ((self.offset8() as i8) << 1) as i32;
+                (self.pc as i32 + 4).wrapping_add(offset) as Addr
             }
         )
     }
