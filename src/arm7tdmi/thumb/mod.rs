@@ -188,7 +188,7 @@ impl From<OpFormat5> for ArmOpCode {
             OpFormat5::ADD => ArmOpCode::ADD,
             OpFormat5::CMP => ArmOpCode::CMP,
             OpFormat5::MOV => ArmOpCode::MOV,
-            _ => unreachable!(), // this should not be called if op = BX
+            OpFormat5::BX => panic!("this should not be called if op = BX")
         }
     }
 }

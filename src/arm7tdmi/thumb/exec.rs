@@ -121,8 +121,24 @@ impl Core {
         if OpFormat5::BX == insn.format5_op() {
             self.exec_thumb_bx(bus, insn)
         } else {
-            unimplemented!("Sorry, I'm tired");
-            // Ok(CpuPipelineAction::IncPC)
+            let dst_reg = if insn.flag(ThumbInstruction::FLAG_H1) {
+                insn.rd() + 8
+            } else {
+                insn.rd()
+            };
+            let src_reg = if insn.flag(ThumbInstruction::FLAG_H2) {
+                insn.rs() + 8
+            } else {
+                insn.rs()
+            };
+            let arm_alu_op: ArmOpCode = insn.format5_op().into();
+            let op1 = self.gpr[dst_reg] as i32;
+            let op2 = self.gpr[src_reg] as i32;
+            let result = self.alu(arm_alu_op, op1, op2, true);
+            if let Some(result) = result {
+                self.gpr[dst_reg] = result as u32;
+            }
+            Ok(CpuPipelineAction::IncPC)
         }
     }
 
