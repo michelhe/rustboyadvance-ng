@@ -168,6 +168,23 @@ impl Core {
         Ok(CpuPipelineAction::IncPC)
     }
 
+    fn exec_thumb_ldr_str_halfword(
+        &mut self,
+        bus: &mut Bus,
+        insn: ThumbInstruction,
+    ) -> CpuExecResult {
+        let base = self.gpr[insn.rb()] as i32;
+        let addr = base.wrapping_add((insn.offset5() << 1) as i32) as Addr;
+        if insn.is_load() {
+            let data = self.load_16(addr, bus);
+            self.add_cycle();
+            self.gpr[insn.rd()] = data as u32;
+        } else {
+            self.store_16(addr, self.gpr[insn.rd()] as u16, bus);
+        }
+        Ok(CpuPipelineAction::IncPC)
+    }
+
     fn exec_thumb_ldr_str_sp(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         let addr = (self.gpr[REG_SP] & !0b10) + 4 + (insn.word8() as Addr);
         if insn.is_load() {
@@ -267,6 +284,7 @@ impl Core {
             ThumbFormat::HiRegOpOrBranchExchange => self.exec_thumb_hi_reg_op_or_bx(bus, insn),
             ThumbFormat::LdrPc => self.exec_thumb_ldr_pc(bus, insn),
             ThumbFormat::LdrStrRegOffset => self.exec_thumb_ldr_str_reg_offset(bus, insn),
+            ThumbFormat::LdrStrHalfWord => self.exec_thumb_ldr_str_halfword(bus, insn),
             ThumbFormat::LdrStrSp => self.exec_thumb_ldr_str_sp(bus, insn),
             ThumbFormat::AddSp => self.exec_thumb_add_sp(bus, insn),
             ThumbFormat::PushPop => self.exec_thumb_push_pop(bus, insn),

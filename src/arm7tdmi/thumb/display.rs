@@ -93,6 +93,17 @@ impl ThumbInstruction {
         )
     }
 
+    fn fmt_thumb_ldr_str_halfword(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{op}\t{Rd}, [{Rb}, #{imm:#x}]",
+            op = if self.is_load() { "ldrh" } else { "strh" },
+            Rd = reg_string(self.rd()),
+            Rb = reg_string(self.rb()),
+            imm = self.offset5() << 1
+        )
+    }
+
     fn fmt_thumb_ldr_str_sp(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -182,6 +193,7 @@ impl fmt::Display for ThumbInstruction {
             ThumbFormat::HiRegOpOrBranchExchange => self.fmt_thumb_high_reg_op_or_bx(f),
             ThumbFormat::LdrPc => self.fmt_thumb_ldr_pc(f),
             ThumbFormat::LdrStrRegOffset => self.fmt_thumb_ldr_str_reg_offset(f),
+            ThumbFormat::LdrStrHalfWord => self.fmt_thumb_ldr_str_halfword(f),
             ThumbFormat::LdrStrSp => self.fmt_thumb_ldr_str_sp(f),
             ThumbFormat::AddSp => self.fmt_thumb_add_sp(f),
             ThumbFormat::PushPop => self.fmt_thumb_push_pop(f),
