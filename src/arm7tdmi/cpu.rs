@@ -200,6 +200,18 @@ impl Core {
         }
     }
 
+    pub fn get_required_multipiler_array_cycles(&self, rs: i32) -> usize {
+        if rs & 0xff == rs {
+            1
+        } else if rs & 0xffff == rs {
+            2
+        } else if rs & 0xffffff == rs {
+            3
+        } else {
+            4
+        }
+    }
+
     pub fn load_32(&mut self, addr: Addr, bus: &mut Bus) -> u32 {
         self.add_cycles(addr, bus, self.cycle_type(addr) + MemoryAccess32);
         self.memreq = addr;

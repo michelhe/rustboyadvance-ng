@@ -42,6 +42,8 @@ pub enum ThumbFormat {
     AddSub,
     /// Format 3
     DataProcessImm,
+    /// Belongs to Format 4, but decoded seperatly because ArmOpcode doesn't have MUL
+    Mul,
     /// Format 4
     AluOps,
     /// Format 5
@@ -95,6 +97,8 @@ impl InstructionDecoder for ThumbInstruction {
             Ok(MoveShiftedReg)
         } else if raw & 0xe000 == 0x2000 {
             Ok(DataProcessImm)
+        } else if raw & 0xffc0 == 0x4340 {
+            Ok(Mul)
         } else if raw & 0xfc00 == 0x4000 {
             Ok(AluOps)
         } else if raw & 0xfc00 == 0x4400 {
@@ -231,6 +235,13 @@ impl ThumbInstruction {
 
     pub fn format5_op(&self) -> OpFormat5 {
         OpFormat5::from_u8(self.raw.bit_range(8..10) as u8).unwrap()
+    }
+
+    pub fn alu_opcode(&self) -> ArmOpCode {
+        match self.raw.bit_range(6..10) {
+            0b1101 => panic!("tried to decode MUL"),
+            op => ArmOpCode::from_u16(op).unwrap(),
+        }
     }
 
     pub fn offset5(&self) -> i8 {

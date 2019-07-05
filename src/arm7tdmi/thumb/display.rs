@@ -27,6 +27,25 @@ impl ThumbInstruction {
         )
     }
 
+    fn fmt_thumb_mul(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "mul\t{Rd}, {Rs}",
+            Rd = reg_string(self.rd()),
+            Rs = reg_string(self.rs())
+        )
+    }
+
+    fn fmt_thumb_alu_ops(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{op}\t{Rd}, {Rs}",
+            op = self.alu_opcode(),
+            Rd = reg_string(self.rd()),
+            Rs = reg_string(self.rs())
+        )
+    }
+
     fn fmt_thumb_high_reg_op_or_bx(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let op = self.format5_op();
         let dst_reg = if self.flag(ThumbInstruction::FLAG_H1) {
@@ -147,6 +166,8 @@ impl fmt::Display for ThumbInstruction {
             ThumbFormat::MoveShiftedReg => self.fmt_thumb_move_shifted_reg(f),
             ThumbFormat::AddSub => self.fmt_thumb_add_sub(f),
             ThumbFormat::DataProcessImm => self.fmt_thumb_data_process_imm(f),
+            ThumbFormat::Mul => self.fmt_thumb_mul(f),
+            ThumbFormat::AluOps => self.fmt_thumb_alu_ops(f),
             ThumbFormat::HiRegOpOrBranchExchange => self.fmt_thumb_high_reg_op_or_bx(f),
             ThumbFormat::LdrPc => self.fmt_thumb_ldr_pc(f),
             ThumbFormat::LdrStrRegOffset => self.fmt_thumb_ldr_str_reg_offset(f),

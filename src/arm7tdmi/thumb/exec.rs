@@ -45,7 +45,30 @@ impl Core {
     ) -> CpuExecResult {
         let arm_alu_op: ArmOpCode = insn.format3_op().into();
         let op1 = self.get_reg(insn.rd()) as i32;
-        let op2 = insn.offset8() as i32;
+        let op2 = insn.offset8() as u8 as i32;
+        let result = self.alu(arm_alu_op, op1, op2, true);
+        if let Some(result) = result {
+            self.set_reg(insn.rd(), result as u32);
+        }
+
+        Ok(CpuPipelineAction::IncPC)
+    }
+
+    fn exec_thumb_mul(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
+        let op1 = self.get_reg(insn.rd()) as i32;
+        let op2 = self.get_reg(insn.rs()) as i32;
+        let m = self.get_required_multipiler_array_cycles(op2);
+        for i in 0..m {
+            self.add_cycle();
+        }
+        self.gpr[insn.rd()] = (op1 * op2) as u32;
+        Ok(CpuPipelineAction::IncPC)
+    }
+
+    fn exec_thumb_alu_ops(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
+        let arm_alu_op: ArmOpCode = insn.alu_opcode();
+        let op1 = self.get_reg(insn.rd()) as i32;
+        let op2 = self.get_reg(insn.rs()) as i32;
         let result = self.alu(arm_alu_op, op1, op2, true);
         if let Some(result) = result {
             self.set_reg(insn.rd(), result as u32);
@@ -130,7 +153,7 @@ impl Core {
     }
 
     fn exec_thumb_ldr_str_sp(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
-        let addr = (self.gpr[REG_SP] & !0b10) + 4 + (insn.word8() as Addr); 
+        let addr = (self.gpr[REG_SP] & !0b10) + 4 + (insn.word8() as Addr);
         if insn.is_load() {
             let data = self.load_32(addr, bus);
             self.add_cycle();
@@ -140,7 +163,6 @@ impl Core {
         }
         Ok(CpuPipelineAction::IncPC)
     }
-
 
     fn exec_thumb_add_sp(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         let op1 = self.gpr[REG_SP] as i32;
@@ -192,7 +214,7 @@ impl Core {
         if !self.check_arm_cond(insn.cond()) {
             Ok(CpuPipelineAction::IncPC)
         } else {
-            let offset = insn.offset8() as i8 as i32;
+            let offset = insn.offset8() as u8 as i32;
             self.pc = (insn.pc as i32).wrapping_add(offset) as u32;
             Ok(CpuPipelineAction::Flush)
         }
@@ -202,6 +224,8 @@ impl Core {
         match insn.fmt {
             ThumbFormat::AddSub => self.exec_thumb_add_sub(bus, insn),
             ThumbFormat::DataProcessImm => self.exec_thumb_data_process_imm(bus, insn),
+            ThumbFormat::Mul => self.exec_thumb_mul(bus, insn),
+            ThumbFormat::AluOps => self.exec_thumb_alu_ops(bus, insn),
             ThumbFormat::HiRegOpOrBranchExchange => self.exec_thumb_hi_reg_op_or_bx(bus, insn),
             ThumbFormat::LdrPc => self.exec_thumb_ldr_pc(bus, insn),
             ThumbFormat::LdrStrRegOffset => self.exec_thumb_ldr_str_reg_offset(bus, insn),
