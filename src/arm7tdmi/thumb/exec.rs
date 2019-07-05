@@ -132,11 +132,11 @@ impl Core {
                 insn.rs()
             };
             let arm_alu_op: ArmOpCode = insn.format5_op().into();
-            let op1 = self.gpr[dst_reg] as i32;
-            let op2 = self.gpr[src_reg] as i32;
+            let op1 = self.get_reg(dst_reg) as i32;
+            let op2 = self.get_reg(src_reg) as i32;
             let result = self.alu(arm_alu_op, op1, op2, true);
             if let Some(result) = result {
-                self.gpr[dst_reg] = result as u32;
+                self.set_reg(dst_reg, result as u32);
             }
             Ok(CpuPipelineAction::IncPC)
         }
@@ -269,6 +269,16 @@ impl Core {
         }
     }
 
+    fn exec_thumb_branch(
+        &mut self,
+        _bus: &mut Bus,
+        insn: ThumbInstruction,
+    ) -> CpuExecResult {
+        let offset = ((insn.offset11() << 21) >> 20) as i32;
+        self.pc = (self.pc as i32).wrapping_add(offset) as u32;
+        Ok(CpuPipelineAction::Flush)
+    }
+
     fn exec_thumb_branch_long_with_link(
         &mut self,
         _bus: &mut Bus,
@@ -305,6 +315,7 @@ impl Core {
             ThumbFormat::AddSp => self.exec_thumb_add_sp(bus, insn),
             ThumbFormat::PushPop => self.exec_thumb_push_pop(bus, insn),
             ThumbFormat::BranchConditional => self.exec_thumb_branch_with_cond(bus, insn),
+            ThumbFormat::Branch => self.exec_thumb_branch(bus, insn),
             ThumbFormat::BranchLongWithLink => self.exec_thumb_branch_long_with_link(bus, insn),
             _ => unimplemented!("thumb not implemented {:#x?}", insn),
         }

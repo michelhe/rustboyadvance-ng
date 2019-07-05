@@ -170,6 +170,17 @@ impl ThumbInstruction {
         )
     }
 
+    fn fmt_thumb_branch(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "b\t{addr:#x}",
+            addr = {
+                let offset = (self.offset11() << 21) >> 20;
+                (self.pc as i32 + 4).wrapping_add(offset) as Addr
+            }
+        )
+    }
+
     fn fmt_thumb_branch_long_with_link(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "bl\t#0x{:08x}", {
             let offset11 = self.offset11();
@@ -198,6 +209,7 @@ impl fmt::Display for ThumbInstruction {
             ThumbFormat::AddSp => self.fmt_thumb_add_sp(f),
             ThumbFormat::PushPop => self.fmt_thumb_push_pop(f),
             ThumbFormat::BranchConditional => self.fmt_thumb_branch_with_cond(f),
+            ThumbFormat::Branch => self.fmt_thumb_branch(f),
             ThumbFormat::BranchLongWithLink => self.fmt_thumb_branch_long_with_link(f),
             _ => write!(f, "({:?})", self),
         }
