@@ -7,7 +7,6 @@ use super::*;
 fn push(cpu: &mut Core, bus: &mut Bus, r: usize) {
             cpu.gpr[REG_SP] -= 4;
             let stack_addr = cpu.gpr[REG_SP];
-            println!("push reg {} to addr {:#x}", reg_string(r), stack_addr);
             bus.write_32(stack_addr, cpu.get_reg(r)).expect("bus error");
         }
 fn pop(cpu: &mut Core, bus: &mut Bus, r: usize) {
@@ -178,6 +177,24 @@ impl Core {
         Ok(CpuPipelineAction::IncPC)
     }
 
+    fn exec_thumb_add_sp(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
+        let op1 = self.gpr[REG_SP] as i32;
+        let op2 = insn.sword7();
+        let arm_alu_op = ArmOpCode::ADD;
+
+        let result = self.alu(arm_alu_op, op1, op2, false);
+        if let Some(result) = result {
+            self.gpr[REG_SP] = result as u32;
+        }
+        // +1S
+        self.add_cycles(
+            insn.pc + (self.word_size() as u32),
+            bus,
+            Seq + MemoryAccess32,
+        );
+        Ok(CpuPipelineAction::IncPC)
+    }
+
     fn exec_thumb_push_pop(
         &mut self,
         bus: &mut Bus,
@@ -266,6 +283,7 @@ impl Core {
             ThumbFormat::HiRegOpOrBranchExchange => self.exec_thumb_hi_reg_op_or_bx(bus, insn),
             ThumbFormat::LdrPc => self.exec_thumb_ldr_pc(bus, insn),
             ThumbFormat::LdrStrRegOffset => self.exec_thumb_ldr_str_reg_offset(bus, insn),
+            ThumbFormat::AddSp => self.exec_thumb_add_sp(bus, insn),
             ThumbFormat::PushPop => self.exec_thumb_push_pop(bus, insn),
             ThumbFormat::BranchConditional => self.exec_thumb_branch_with_cond(bus, insn),
             _ => unimplemented!("thumb not implemented {:#?}", insn),

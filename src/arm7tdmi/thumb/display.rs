@@ -91,6 +91,14 @@ impl ThumbInstruction {
         )
     }
 
+    fn fmt_thumb_add_sp(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "add\tsp, #{imm:x}",
+            imm = self.sword7()
+        )
+    }
+
     fn fmt_thumb_push_pop(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}\t{{", if self.is_load() { "pop" } else { "push" })?;
         let mut register_list = self.register_list().into_iter();
@@ -136,6 +144,7 @@ impl fmt::Display for ThumbInstruction {
             ThumbFormat::HiRegOpOrBranchExchange => self.fmt_thumb_high_reg_op_or_bx(f),
             ThumbFormat::LdrPc => self.fmt_thumb_ldr_pc(f),
             ThumbFormat::LdrStrRegOffset => self.fmt_thumb_ldr_str_reg_offset(f),
+            ThumbFormat::AddSp => self.fmt_thumb_add_sp(f),
             ThumbFormat::PushPop => self.fmt_thumb_push_pop(f),
             ThumbFormat::BranchConditional => self.fmt_thumb_branch_with_cond(f),
             _ => write!(f, "({:?})", self),

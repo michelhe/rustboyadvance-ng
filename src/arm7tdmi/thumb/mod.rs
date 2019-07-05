@@ -193,6 +193,7 @@ impl ThumbInstruction {
     const FLAG_H1: usize = 7;
     const FLAG_H2: usize = 6;
     const FLAG_R: usize = 8;
+    const FLAG_S: usize = 7;
 
     pub fn rd(&self) -> usize {
         match self.fmt {
@@ -277,6 +278,15 @@ impl ThumbInstruction {
             }
         }
         list
+    }
+
+    pub fn sword7(&self) -> i32 {
+        let imm7 = self.raw & 0x7f;
+        if self.flag(ThumbInstruction::FLAG_S) {
+            -((imm7 << 2) as i32)
+        } else {
+            (imm7 << 2) as i32
+        }
     }
 }
 
