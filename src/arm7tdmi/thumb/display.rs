@@ -74,6 +74,16 @@ impl ThumbInstruction {
         )
     }
 
+    fn fmt_thumb_ldr_str_sp(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{op}\t{Rd}, [sp, #{Imm:#x}]",
+            op = if self.is_load() { "ldr" } else { "str" },
+            Rd = reg_string(self.rd()),
+            Imm = self.word8(),
+        )
+    }
+
     fn fmt_thumb_add_sub(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let operand = if self.is_immediate_operand() {
             format!("#{:x}", self.raw.bit_range(6..9))
@@ -140,6 +150,7 @@ impl fmt::Display for ThumbInstruction {
             ThumbFormat::HiRegOpOrBranchExchange => self.fmt_thumb_high_reg_op_or_bx(f),
             ThumbFormat::LdrPc => self.fmt_thumb_ldr_pc(f),
             ThumbFormat::LdrStrRegOffset => self.fmt_thumb_ldr_str_reg_offset(f),
+            ThumbFormat::LdrStrSp => self.fmt_thumb_ldr_str_sp(f),
             ThumbFormat::AddSp => self.fmt_thumb_add_sp(f),
             ThumbFormat::PushPop => self.fmt_thumb_push_pop(f),
             ThumbFormat::BranchConditional => self.fmt_thumb_branch_with_cond(f),

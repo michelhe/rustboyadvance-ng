@@ -129,6 +129,19 @@ impl Core {
         Ok(CpuPipelineAction::IncPC)
     }
 
+    fn exec_thumb_ldr_str_sp(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
+        let addr = (self.gpr[REG_SP] & !0b10) + 4 + (insn.word8() as Addr); 
+        if insn.is_load() {
+            let data = self.load_32(addr, bus);
+            self.add_cycle();
+            self.gpr[insn.rd()] = data;
+        } else {
+            self.store_32(addr, self.gpr[insn.rd()], bus);
+        }
+        Ok(CpuPipelineAction::IncPC)
+    }
+
+
     fn exec_thumb_add_sp(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         let op1 = self.gpr[REG_SP] as i32;
         let op2 = insn.sword7();
@@ -192,6 +205,7 @@ impl Core {
             ThumbFormat::HiRegOpOrBranchExchange => self.exec_thumb_hi_reg_op_or_bx(bus, insn),
             ThumbFormat::LdrPc => self.exec_thumb_ldr_pc(bus, insn),
             ThumbFormat::LdrStrRegOffset => self.exec_thumb_ldr_str_reg_offset(bus, insn),
+            ThumbFormat::LdrStrSp => self.exec_thumb_ldr_str_sp(bus, insn),
             ThumbFormat::AddSp => self.exec_thumb_add_sp(bus, insn),
             ThumbFormat::PushPop => self.exec_thumb_push_pop(bus, insn),
             ThumbFormat::BranchConditional => self.exec_thumb_branch_with_cond(bus, insn),
