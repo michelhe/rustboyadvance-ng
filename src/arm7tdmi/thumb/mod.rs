@@ -192,6 +192,7 @@ impl From<OpFormat5> for ArmOpCode {
 impl ThumbInstruction {
     const FLAG_H1: usize = 7;
     const FLAG_H2: usize = 6;
+    const FLAG_R: usize = 8;
 
     pub fn rd(&self) -> usize {
         match self.fmt {
@@ -265,6 +266,17 @@ impl ThumbInstruction {
 
     pub fn flag(&self, bit: usize) -> bool {
         self.raw.bit(bit)
+    }
+
+    pub fn register_list(&self) -> Vec<usize> {
+        let list_bits = self.raw & 0xff;
+        let mut list = Vec::with_capacity(8);
+        for i in 0..=7 {
+            if (list_bits & (1 << i)) != 0 {
+                list.push(i)
+            }
+        }
+        list
     }
 }
 

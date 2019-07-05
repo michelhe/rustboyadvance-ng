@@ -6,7 +6,7 @@ use super::*;
 use crate::arm7tdmi::reg_string;
 
 impl ThumbInstruction {
-    fn fmt_move_shifted_reg(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_move_shifted_reg(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "{op}\t{Rd}, {Rs}, #{Offset5}",
@@ -17,7 +17,7 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_data_process_imm(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_data_process_imm(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "{op}\t{Rd}, #{Offset8:#x}",
@@ -27,7 +27,7 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_high_reg_op_or_bx(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_high_reg_op_or_bx(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let op = self.format5_op();
         let dst_reg = if self.flag(ThumbInstruction::FLAG_H1) {
             self.rd() + 8
@@ -52,7 +52,7 @@ impl ThumbInstruction {
         }
     }
 
-    fn fmt_ldr_pc(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_ldr_pc(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "ldr\t{Rd}, [pc, #{Imm:#x}] ; = #{effective:#x}",
@@ -62,7 +62,7 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_ldr_str_reg_offset(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_ldr_str_reg_offset(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "{op}{b}\t{Rd}, [{Rb}, {Ro}]",
@@ -74,7 +74,7 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_add_sub(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_add_sub(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let operand = if self.is_immediate_operand() {
             format!("#{:x}", self.raw.bit_range(6..9))
         } else {
@@ -91,7 +91,30 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_branch_with_cond(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_push_pop(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}\t{{", if self.is_load() { "pop" } else { "push" })?;
+        let mut register_list = self.register_list().into_iter();
+        let mut has_reg = false;
+        if let Some(reg) = register_list.next() {
+            write!(f, "{}", reg_string(reg))?;
+            has_reg = true;
+        }
+        for reg in register_list {
+            has_reg = true;
+            write!(f, ", {}", reg_string(reg))?;
+        };
+        if self.flag(ThumbInstruction::FLAG_R) {
+            let r = if self.is_load() { "pc" } else { "lr" };
+            if has_reg {
+                write!(f, ", {}", r)?;
+            } else {
+                write!(f, "{}", r)?;
+            }
+        }
+        write!(f, "}}")
+    }
+
+    fn fmt_thumb_branch_with_cond(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "b{cond}\t{addr:#x}",
@@ -107,13 +130,14 @@ impl ThumbInstruction {
 impl fmt::Display for ThumbInstruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.fmt {
-            ThumbFormat::MoveShiftedReg => self.fmt_move_shifted_reg(f),
-            ThumbFormat::AddSub => self.fmt_add_sub(f),
-            ThumbFormat::DataProcessImm => self.fmt_data_process_imm(f),
-            ThumbFormat::HiRegOpOrBranchExchange => self.fmt_high_reg_op_or_bx(f),
-            ThumbFormat::LdrPc => self.fmt_ldr_pc(f),
-            ThumbFormat::LdrStrRegOffset => self.fmt_ldr_str_reg_offset(f),
-            ThumbFormat::BranchConditional => self.fmt_branch_with_cond(f),
+            ThumbFormat::MoveShiftedReg => self.fmt_thumb_move_shifted_reg(f),
+            ThumbFormat::AddSub => self.fmt_thumb_add_sub(f),
+            ThumbFormat::DataProcessImm => self.fmt_thumb_data_process_imm(f),
+            ThumbFormat::HiRegOpOrBranchExchange => self.fmt_thumb_high_reg_op_or_bx(f),
+            ThumbFormat::LdrPc => self.fmt_thumb_ldr_pc(f),
+            ThumbFormat::LdrStrRegOffset => self.fmt_thumb_ldr_str_reg_offset(f),
+            ThumbFormat::PushPop => self.fmt_thumb_push_pop(f),
+            ThumbFormat::BranchConditional => self.fmt_thumb_branch_with_cond(f),
             _ => write!(f, "({:?})", self),
         }
     }
