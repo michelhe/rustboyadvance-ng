@@ -1,14 +1,31 @@
-use super::Addr;
+use std::fmt;
 use std::io;
 use std::ops::Add;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
+use super::Addr;
+
+#[derive(Debug)]
 pub enum MemoryAccessType {
     NonSeq,
     Seq,
 }
 
+impl fmt::Display for MemoryAccessType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                MemoryAccessType::NonSeq => "N",
+                MemoryAccessType::Seq => "S",
+            }
+        )
+    }
+}
+
+#[derive(Debug)]
 pub enum MemoryAccessWidth {
     MemoryAccess8,
     MemoryAccess16,
@@ -23,7 +40,14 @@ impl Add<MemoryAccessWidth> for MemoryAccessType {
     }
 }
 
+#[derive(Debug)]
 pub struct MemoryAccess(pub MemoryAccessType, pub MemoryAccessWidth);
+
+impl fmt::Display for MemoryAccess {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}-Cycle ({:?})", self.0, self.1)
+    }
+}
 
 pub trait Bus {
     fn read_32(&self, addr: Addr) -> u32 {

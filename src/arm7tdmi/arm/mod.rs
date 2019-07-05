@@ -538,17 +538,17 @@ mod tests {
         core.set_reg(REG_SP, 0);
 
         let bytes = vec![
-            /*  0: */ 0xaa, 0xbb, 0xcc, 0xdd,
-            /*  4: */ 0xaa, 0xbb, 0xcc, 0xdd,
-            /*  8: */ 0xaa, 0xbb, 0xcc, 0xdd,
-            /*  c: */ 0xaa, 0xbb, 0xcc, 0xdd,
+            /*  0: */ 0xaa, 0xbb, 0xcc, 0xdd, /*  4: */ 0xaa, 0xbb, 0xcc, 0xdd,
+            /*  8: */ 0xaa, 0xbb, 0xcc, 0xdd, /*  c: */ 0xaa, 0xbb, 0xcc, 0xdd,
             /* 10: */ 0xaa, 0xbb, 0xcc, 0xdd,
         ];
         let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
 
         assert_ne!(mem.read_32(core.get_reg(REG_SP) + 0x10), 0x12345678);
-        assert_eq!(core.exec_arm(&mut mem, decoded), Ok(CpuPipelineAction::IncPC));
+        assert_eq!(
+            core.exec_arm(&mut mem, decoded),
+            Ok(CpuPipelineAction::IncPC)
+        );
         assert_eq!(mem.read_32(core.get_reg(REG_SP) + 0x10), 0x12345678);
-
     }
 }

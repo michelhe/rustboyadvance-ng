@@ -1,16 +1,12 @@
-use std::convert::TryFrom;
 use std::fmt;
-use std::ops::Add;
 
 use ansi_term::{Colour, Style};
 use num_traits::Num;
 
-use crate::sysbus::SysBus;
-
 pub use super::exception::Exception;
 use super::{
     arm::*,
-    bus::{Bus, MemoryAccess, MemoryAccessType::*, MemoryAccessWidth::*},
+    bus::{Bus, MemoryAccess, MemoryAccessType, MemoryAccessType::*, MemoryAccessWidth::*},
     psr::RegPSR,
     reg_string,
     thumb::ThumbInstruction,
@@ -84,6 +80,8 @@ pub struct Core {
     // store the gpr before executing an instruction to show diff in the Display impl
     gpr_previous: [u32; 15],
 
+    memreq: Addr,
+
     pub verbose: bool,
 }
 
@@ -98,6 +96,7 @@ pub type CpuExecResult = CpuResult<CpuPipelineAction>;
 impl Core {
     pub fn new() -> Core {
         Core {
+            memreq: 0xffff_0000, // set memreq to an invalid addr so the first load cycle will be non-sequential
             ..Default::default()
         }
     }
@@ -157,8 +156,10 @@ impl Core {
         }
         self.map_banked_registers(curr_mode, new_mode);
         let next_index = new_mode.bank_index();
-        self.gpr_banked_r14[next_index] = self.pc.wrapping_sub(self.word_size() as u32).wrapping_add(4);
-
+        self.gpr_banked_r14[next_index] = self
+            .pc
+            .wrapping_sub(self.word_size() as u32)
+            .wrapping_add(4);
     }
 
     /// Resets the cpu
@@ -182,11 +183,62 @@ impl Core {
     }
 
     pub fn add_cycle(&mut self) {
+        println!("<cycle I-Cyclel> total: {}", self.cycles);
         self.cycles += 1;
     }
 
-    pub fn add_cycles(&mut self, addr: Addr, sysbus: &Bus, access: MemoryAccess) {
-        self.cycles += sysbus.get_cycles(addr, access);
+    pub fn add_cycles(&mut self, addr: Addr, bus: &Bus, access: MemoryAccess) {
+        println!("<cycle {:#x} {}> total: {}", addr, access, self.cycles);
+        self.cycles += bus.get_cycles(addr, access);
+    }
+
+    pub fn cycle_type(&self, addr: Addr) -> MemoryAccessType {
+        if addr == self.memreq || addr == self.memreq + (self.word_size() as Addr) {
+            Seq
+        } else {
+            NonSeq
+        }
+    }
+
+    pub fn load_32(&mut self, addr: Addr, bus: &mut Bus) -> u32 {
+        self.add_cycles(addr, bus, self.cycle_type(addr) + MemoryAccess32);
+        self.memreq = addr;
+        bus.read_32(addr)
+    }
+
+    pub fn load_16(&mut self, addr: Addr, bus: &mut Bus) -> u16 {
+        let cycle_type = self.cycle_type(addr);
+        self.add_cycles(addr, bus, cycle_type + MemoryAccess16);
+        self.memreq = addr;
+        bus.read_16(addr)
+    }
+
+    pub fn load_8(&mut self, addr: Addr, bus: &mut Bus) -> u8 {
+        let cycle_type = self.cycle_type(addr);
+        self.add_cycles(addr, bus, cycle_type + MemoryAccess8);
+        self.memreq = addr;
+        bus.read_8(addr)
+    }
+
+    pub fn store_32(&mut self, addr: Addr, value: u32, bus: &mut Bus) {
+        let cycle_type = self.cycle_type(addr);
+        self.add_cycles(addr, bus, cycle_type + MemoryAccess32);
+        self.memreq = addr;
+        bus.write_32(addr, value).expect("store_32 error");
+    }
+
+    pub fn store_16(&mut self, addr: Addr, value: u16, bus: &mut Bus) {
+        let cycle_type = self.cycle_type(addr);
+        self.add_cycles(addr, bus, cycle_type + MemoryAccess16);
+        self.memreq = addr;
+        bus.write_16(addr, value).expect("store_16 error");
+    }
+
+    pub fn store_8(&mut self, addr: Addr, value: u8, bus: &mut Bus) {
+        let cycle_type = self.cycle_type(addr);
+        self.add_cycles(addr, bus, cycle_type + MemoryAccess8);
+        self.memreq = addr;
+        bus.write_8(addr, value).expect("store_16 error");
     }
 
     pub fn check_arm_cond(&self, cond: ArmCond) -> bool {
@@ -212,10 +264,11 @@ impl Core {
 
     fn step_thumb(
         &mut self,
-        sysbus: &mut Bus,
+        bus: &mut Bus,
     ) -> CpuResult<(Option<DecodedInstruction>, CpuPipelineAction)> {
         // fetch
-        let new_fetched = sysbus.read_16(self.pc);
+        // let new_fetched = bus.read_16(self.pc);
+        let new_fetched = self.load_16(self.pc, bus);
 
         // decode
         let new_decoded = match self.pipeline_thumb.fetched {
@@ -230,7 +283,7 @@ impl Core {
         let result = match self.pipeline_thumb.decoded {
             Some(d) => {
                 self.gpr_previous = self.get_registers();
-                let action = self.exec_thumb(sysbus, d)?;
+                let action = self.exec_thumb(bus, d)?;
                 Ok((Some(DecodedInstruction::Thumb(d)), action))
             }
             None => Ok((None, CpuPipelineAction::IncPC)),
@@ -246,10 +299,10 @@ impl Core {
 
     fn step_arm(
         &mut self,
-        sysbus: &mut Bus,
+        bus: &mut Bus,
     ) -> CpuResult<(Option<DecodedInstruction>, CpuPipelineAction)> {
-        // fetch
-        let new_fetched = sysbus.read_32(self.pc);
+        // let new_fetched = bus.read_32(self.pc);
+        let new_fetched = self.load_32(self.pc, bus);
 
         // decode
         let new_decoded = match self.pipeline_arm.fetched {
@@ -264,7 +317,7 @@ impl Core {
         let result = match self.pipeline_arm.decoded {
             Some(d) => {
                 self.gpr_previous = self.get_registers();
-                let action = self.exec_arm(sysbus, d)?;
+                let action = self.exec_arm(bus, d)?;
                 Ok((Some(DecodedInstruction::Arm(d)), action))
             }
             None => Ok((None, CpuPipelineAction::IncPC)),
@@ -280,10 +333,10 @@ impl Core {
 
     /// Perform a pipeline step
     /// If an instruction was executed in this step, return it.
-    pub fn step(&mut self, sysbus: &mut Bus) -> CpuResult<Option<DecodedInstruction>> {
+    pub fn step(&mut self, bus: &mut Bus) -> CpuResult<Option<DecodedInstruction>> {
         let (executed_instruction, pipeline_action) = match self.cpsr.state() {
-            CpuState::ARM => self.step_arm(sysbus),
-            CpuState::THUMB => self.step_thumb(sysbus),
+            CpuState::ARM => self.step_arm(bus),
+            CpuState::THUMB => self.step_thumb(bus),
         }?;
 
         match pipeline_action {
@@ -328,9 +381,9 @@ impl Core {
     /// A step that returns only once an instruction was executed.
     /// Returns the address of PC before executing an instruction,
     /// and the address of the next instruction to be executed;
-    pub fn step_debugger(&mut self, sysbus: &mut Bus) -> CpuResult<DecodedInstruction> {
+    pub fn step_debugger(&mut self, bus: &mut Bus) -> CpuResult<DecodedInstruction> {
         loop {
-            if let Some(i) = self.step(sysbus)? {
+            if let Some(i) = self.step(bus)? {
                 return Ok(i);
             }
         }

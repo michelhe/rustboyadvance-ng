@@ -325,12 +325,9 @@ mod tests {
         let insn = ThumbInstruction::decode(0x4801, 0x6).unwrap();
 
         let bytes = vec![
-            /* 0: */        0x00, 0x00,
-            /* 2: */        0x00, 0x00,
-            /* 4: */        0x00, 0x00,
-            /* 6: <pc> */   0x00, 0x00,
-            /* 8: */        0x00, 0x00, 0x00, 0x00,
-            /* c: */        0x78, 0x56, 0x34, 0x12,
+            /* 0: */ 0x00, 0x00, /* 2: */ 0x00, 0x00, /* 4: */ 0x00, 0x00,
+            /* 6: <pc> */ 0x00, 0x00, /* 8: */ 0x00, 0x00, 0x00, 0x00,
+            /* c: */ 0x78, 0x56, 0x34, 0x12,
         ];
         let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
         let mut core = Core::new();

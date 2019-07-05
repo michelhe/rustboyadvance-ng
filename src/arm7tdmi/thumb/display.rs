@@ -92,11 +92,7 @@ impl ThumbInstruction {
     }
 
     fn fmt_thumb_add_sp(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "add\tsp, #{imm:x}",
-            imm = self.sword7()
-        )
+        write!(f, "add\tsp, #{imm:x}", imm = self.sword7())
     }
 
     fn fmt_thumb_push_pop(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -110,7 +106,7 @@ impl ThumbInstruction {
         for reg in register_list {
             has_reg = true;
             write!(f, ", {}", reg_string(reg))?;
-        };
+        }
         if self.flag(ThumbInstruction::FLAG_R) {
             let r = if self.is_load() { "pc" } else { "lr" };
             if has_reg {

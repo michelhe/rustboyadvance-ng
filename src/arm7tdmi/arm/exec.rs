@@ -6,30 +6,22 @@ use crate::arm7tdmi::exception::Exception;
 use crate::arm7tdmi::psr::RegPSR;
 use crate::arm7tdmi::{Addr, CpuError, CpuResult, CpuState, DecodedInstruction, REG_PC};
 
-use crate::sysbus::SysBus;
-
 use super::{
     ArmFormat, ArmInstruction, ArmOpCode, ArmRegisterShift, ArmShiftType, ArmShiftedValue,
 };
 
 impl Core {
-    pub fn exec_arm(&mut self, sysbus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
+    pub fn exec_arm(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
         if !self.check_arm_cond(insn.cond) {
-            self.add_cycles(
-                insn.pc + (self.word_size() as u32),
-                sysbus,
-                Seq + MemoryAccess32,
-            );
-            self.add_cycle();
             return Ok(CpuPipelineAction::IncPC);
         }
         match insn.fmt {
-            ArmFormat::BX => self.exec_bx(sysbus, insn),
-            ArmFormat::B_BL => self.exec_b_bl(sysbus, insn),
-            ArmFormat::DP => self.exec_data_processing(sysbus, insn),
-            ArmFormat::SWI => self.exec_swi(sysbus, insn),
-            ArmFormat::LDR_STR => self.exec_ldr_str(sysbus, insn),
-            ArmFormat::MSR_REG => self.exec_msr_reg(sysbus, insn),
+            ArmFormat::BX => self.exec_bx(bus, insn),
+            ArmFormat::B_BL => self.exec_b_bl(bus, insn),
+            ArmFormat::DP => self.exec_data_processing(bus, insn),
+            ArmFormat::SWI => self.exec_swi(bus, insn),
+            ArmFormat::LDR_STR => self.exec_ldr_str(bus, insn),
+            ArmFormat::MSR_REG => self.exec_msr_reg(bus, insn),
             _ => Err(CpuError::UnimplementedCpuInstruction(
                 insn.pc,
                 insn.raw,
@@ -39,33 +31,18 @@ impl Core {
     }
 
     /// Cycles 2S+1N
-    fn exec_b_bl(
-        &mut self,
-        sysbus: &mut Bus,
-        insn: ArmInstruction,
-    ) -> CpuResult<CpuPipelineAction> {
+    fn exec_b_bl(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuResult<CpuPipelineAction> {
         if insn.link_flag() {
             self.set_reg(14, (insn.pc + (self.word_size() as u32)) & !0b1);
         }
 
-        // +1N
-        self.add_cycles(self.pc, sysbus, NonSeq + MemoryAccess32);
-
         self.pc = (self.pc as i32).wrapping_add(insn.branch_offset()) as u32 & !1;
-
-        // +2S
-        self.add_cycles(self.pc, sysbus, Seq + MemoryAccess32);
-        self.add_cycles(
-            self.pc + (self.word_size() as u32),
-            sysbus,
-            Seq + MemoryAccess32,
-        );
 
         Ok(CpuPipelineAction::Flush)
     }
 
     /// Cycles 2S+1N
-    fn exec_bx(&mut self, sysbus: &mut Bus, insn: ArmInstruction) -> CpuResult<CpuPipelineAction> {
+    fn exec_bx(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuResult<CpuPipelineAction> {
         let rn = self.get_reg(insn.rn());
         if rn.bit(0) {
             self.cpsr.set_state(CpuState::THUMB);
@@ -73,34 +50,19 @@ impl Core {
             self.cpsr.set_state(CpuState::ARM);
         }
 
-        // +1N
-        self.add_cycles(self.pc, sysbus, NonSeq + MemoryAccess32);
-
         self.pc = rn & !1;
-
-        // +2S
-        self.add_cycles(self.pc, sysbus, Seq + MemoryAccess32);
-        self.add_cycles(
-            self.pc + (self.word_size() as u32),
-            sysbus,
-            Seq + MemoryAccess32,
-        );
 
         Ok(CpuPipelineAction::Flush)
     }
 
-    fn exec_swi(
-        &mut self,
-        _sysbus: &mut Bus,
-        _insn: ArmInstruction,
-    ) -> CpuResult<CpuPipelineAction> {
+    fn exec_swi(&mut self, _bus: &mut Bus, _insn: ArmInstruction) -> CpuResult<CpuPipelineAction> {
         self.exception(Exception::SoftwareInterrupt);
         Ok(CpuPipelineAction::Flush)
     }
 
     fn exec_msr_reg(
         &mut self,
-        sysbus: &mut Bus,
+        bus: &mut Bus,
         insn: ArmInstruction,
     ) -> CpuResult<CpuPipelineAction> {
         let new_psr = RegPSR::new(self.get_reg(insn.rm()));
@@ -117,7 +79,6 @@ impl Core {
             }
             self.cpsr = new_psr;
         }
-        self.add_cycles(insn.pc, sysbus, Seq + MemoryAccess32);
         Ok(CpuPipelineAction::IncPC)
     }
 
@@ -204,7 +165,7 @@ impl Core {
     ///         Add x=1I cycles if Op2 shifted-by-register. Add y=1S+1N cycles if Rd=R15.
     fn exec_data_processing(
         &mut self,
-        sysbus: &mut Bus,
+        bus: &mut Bus,
         insn: ArmInstruction,
     ) -> CpuResult<CpuPipelineAction> {
         // TODO handle carry flag
@@ -219,10 +180,6 @@ impl Core {
         let op2 = insn.operand2()?;
 
         let rd = insn.rd();
-        if rd == REG_PC {
-            // +1N
-            self.add_cycles(self.pc, sysbus, NonSeq + MemoryAccess32);
-        }
 
         let op2: i32 = match op2 {
             ArmShiftedValue::RotatedImmediate(immediate, rotate) => {
@@ -246,17 +203,9 @@ impl Core {
             self.set_reg(rd, result as u32);
             if rd == REG_PC {
                 pipeline_action = CpuPipelineAction::Flush;
-                // +1S
-                self.add_cycles(self.pc, sysbus, Seq + MemoryAccess32);
             }
         }
 
-        // +1S
-        self.add_cycles(
-            self.pc + (self.word_size() as u32),
-            sysbus,
-            Seq + MemoryAccess32,
-        );
         Ok(pipeline_action)
     }
 
@@ -289,7 +238,7 @@ impl Core {
     /// For LDR, add y=1S+1N if Rd=R15.
     fn exec_ldr_str(
         &mut self,
-        sysbus: &mut Bus,
+        bus: &mut Bus,
         insn: ArmInstruction,
     ) -> CpuResult<CpuPipelineAction> {
         if insn.write_back_flag() && insn.rd() == insn.rn() {
@@ -316,19 +265,11 @@ impl Core {
         if insn.load_flag() {
             let data = if insn.transfer_size() == 1 {
                 // +1N
-                self.add_cycles(addr, sysbus, NonSeq + MemoryAccess8);
-                sysbus.read_8(addr) as u32
+                self.load_8(addr, bus) as u32
             } else {
                 // +1N
-                self.add_cycles(addr, sysbus, NonSeq + MemoryAccess32);
-                sysbus.read_32(addr)
+                self.load_32(addr, bus)
             };
-            // +1S
-            self.add_cycles(
-                self.pc + (self.word_size() as u32),
-                sysbus,
-                Seq + MemoryAccess32,
-            );
 
             self.set_reg(insn.rd(), data);
 
@@ -336,27 +277,15 @@ impl Core {
             self.add_cycle();
             // +y
             if insn.rd() == REG_PC {
-                // +1S
-                self.add_cycles(self.pc, sysbus, Seq + MemoryAccess32);
-                // +1N
-                self.add_cycles(
-                    self.pc + (self.word_size() as u32),
-                    sysbus,
-                    NonSeq + MemoryAccess32,
-                );
                 pipeline_action = CpuPipelineAction::Flush;
             }
         } else {
-            self.add_cycles(addr, sysbus, NonSeq + MemoryAccess32);
             let value = self.get_reg(insn.rd());
             if insn.transfer_size() == 1 {
-                // +1N
-                self.add_cycles(dest, sysbus, NonSeq + MemoryAccess8);
-                sysbus.write_8(addr, value as u8).expect("bus error");
+                self.store_8(addr, value as u8, bus);
             } else {
                 // +1N
-                self.add_cycles(dest, sysbus, NonSeq + MemoryAccess32);
-                sysbus.write_32(addr, value).expect("bus error");
+                self.store_32(addr, value, bus);
             };
         }
 

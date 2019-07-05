@@ -1,20 +1,20 @@
 use crate::arm7tdmi::arm::*;
 use crate::arm7tdmi::bus::{Bus, MemoryAccessType::*, MemoryAccessWidth::*};
 use crate::arm7tdmi::cpu::{Core, CpuExecResult, CpuPipelineAction};
-use crate::arm7tdmi::{Addr, REG_PC, REG_LR, REG_SP, CpuState, reg_string};
+use crate::arm7tdmi::{reg_string, Addr, CpuState, REG_LR, REG_PC, REG_SP};
 
 use super::*;
 fn push(cpu: &mut Core, bus: &mut Bus, r: usize) {
-            cpu.gpr[REG_SP] -= 4;
-            let stack_addr = cpu.gpr[REG_SP];
-            bus.write_32(stack_addr, cpu.get_reg(r)).expect("bus error");
-        }
+    cpu.gpr[REG_SP] -= 4;
+    let stack_addr = cpu.gpr[REG_SP];
+    cpu.store_32(stack_addr, cpu.get_reg(r), bus)
+}
 fn pop(cpu: &mut Core, bus: &mut Bus, r: usize) {
-            let stack_addr = cpu.gpr[REG_SP];
-            let val = bus.read_32(stack_addr);
-            cpu.set_reg(r, val);
-            cpu.gpr[REG_SP] = stack_addr + 4;
-        }
+    let stack_addr = cpu.gpr[REG_SP];
+    let val = cpu.load_32(stack_addr, bus);
+    cpu.set_reg(r, val);
+    cpu.gpr[REG_SP] = stack_addr + 4;
+}
 
 impl Core {
     fn exec_thumb_add_sub(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
@@ -34,12 +34,7 @@ impl Core {
         if let Some(result) = result {
             self.set_reg(insn.rd(), result as u32);
         }
-        // +1S
-        self.add_cycles(
-            insn.pc + (self.word_size() as u32),
-            bus,
-            Seq + MemoryAccess32,
-        );
+
         Ok(CpuPipelineAction::IncPC)
     }
 
@@ -55,21 +50,12 @@ impl Core {
         if let Some(result) = result {
             self.set_reg(insn.rd(), result as u32);
         }
-        // +1S
-        self.add_cycles(
-            insn.pc + (self.word_size() as u32),
-            bus,
-            Seq + MemoryAccess16,
-        );
+
         Ok(CpuPipelineAction::IncPC)
     }
 
     /// Cycles 2S+1N
-    fn exec_thumb_bx(
-        &mut self,
-        bus: &mut Bus,
-        insn: ThumbInstruction,
-    ) -> CpuExecResult {
+    fn exec_thumb_bx(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         let src_reg = if insn.flag(ThumbInstruction::FLAG_H2) {
             insn.rs() + 8
         } else {
@@ -83,18 +69,7 @@ impl Core {
             self.cpsr.set_state(CpuState::ARM);
         }
 
-        // +1N
-        self.add_cycles(self.pc, bus, NonSeq + MemoryAccess32);
-
         self.pc = addr & !1;
-
-        // +2S
-        self.add_cycles(self.pc, bus, Seq + MemoryAccess32);
-        self.add_cycles(
-            self.pc + (self.word_size() as u32),
-            bus,
-            Seq + MemoryAccess32,
-        );
 
         Ok(CpuPipelineAction::Flush)
     }
@@ -108,21 +83,14 @@ impl Core {
             self.exec_thumb_bx(bus, insn)
         } else {
             unimplemented!("Sorry, I'm tired");
-            Ok(CpuPipelineAction::IncPC)
+            // Ok(CpuPipelineAction::IncPC)
         }
     }
 
     fn exec_thumb_ldr_pc(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         let addr = (insn.pc & !0b10) + 4 + (insn.word8() as Addr);
-        let data = bus.read_32(addr);
-        // +1N
-        self.add_cycles(addr, bus, NonSeq + MemoryAccess32);
-        // +1S
-        self.add_cycles(
-            insn.pc + (self.word_size() as u32),
-            bus,
-            Seq + MemoryAccess16,
-        );
+        let data = self.load_32(addr, bus);
+
         self.set_reg(insn.rd(), data);
         // +1I
         self.add_cycle();
@@ -140,37 +108,21 @@ impl Core {
             .wrapping_add(self.get_reg(insn.ro()));
         if insn.is_load() {
             let data = if insn.is_transfering_bytes() {
-                // +1N
-                self.add_cycles(addr, bus, NonSeq + MemoryAccess8);
-                bus.read_8(addr) as u32
+                self.load_8(addr, bus) as u32
             } else {
-                // +1N
-                self.add_cycles(addr, bus, NonSeq + MemoryAccess32);
-                bus.read_32(addr)
+                self.load_32(addr, bus)
             };
-
-            // +1S
-            self.add_cycles(
-                insn.pc + (self.word_size() as u32),
-                bus,
-                Seq + MemoryAccess32,
-            );
 
             self.set_reg(insn.rd(), data);
 
             // +1I
             self.add_cycle();
         } else {
-            self.add_cycles(addr, bus, NonSeq + MemoryAccess32);
             let value = self.get_reg(insn.rd());
             if insn.is_transfering_bytes() {
-                // +1N
-                self.add_cycles(addr, bus, NonSeq + MemoryAccess8);
-                bus.write_8(addr, value as u8).expect("bus error");
+                self.store_8(addr, value as u8, bus);
             } else {
-                // +1N
-                self.add_cycles(addr, bus, NonSeq + MemoryAccess32);
-                bus.write_32(addr, value).expect("bus error");
+                self.store_32(addr, value, bus);
             };
         }
 
@@ -186,26 +138,15 @@ impl Core {
         if let Some(result) = result {
             self.gpr[REG_SP] = result as u32;
         }
-        // +1S
-        self.add_cycles(
-            insn.pc + (self.word_size() as u32),
-            bus,
-            Seq + MemoryAccess32,
-        );
+
         Ok(CpuPipelineAction::IncPC)
     }
 
-    fn exec_thumb_push_pop(
-        &mut self,
-        bus: &mut Bus,
-        insn: ThumbInstruction,
-    ) -> CpuExecResult {
+    fn exec_thumb_push_pop(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         // (From GBATEK) Execution Time: nS+1N+1I (POP), (n+1)S+2N+1I (POP PC), or (n-1)S+2N (PUSH).
 
         let is_pop = insn.is_load();
         let mut pipeline_action = CpuPipelineAction::IncPC;
-
-        self.add_cycles(insn.pc, bus, NonSeq + MemoryAccess16);
 
         let pc_lr_flag = insn.flag(ThumbInstruction::FLAG_R);
         let rlist = insn.register_list();
@@ -216,62 +157,30 @@ impl Core {
             if pc_lr_flag {
                 pop(self, bus, REG_PC);
                 pipeline_action = CpuPipelineAction::Flush;
-                self.add_cycles(
-                    self.pc,
-                    bus,
-                    Seq + MemoryAccess32
-                );
-                self.add_cycles(
-                    self.pc + (self.word_size() as u32),
-                    bus,
-                    NonSeq + MemoryAccess16
-                    );
             }
             self.add_cycle();
         } else {
-            self.add_cycles(
-                self.gpr[REG_SP],
-                bus,
-                NonSeq + MemoryAccess32
-                );
             if pc_lr_flag {
                 push(self, bus, REG_LR);
             }
             for r in rlist.into_iter().rev() {
-                push(self, bus ,r);
+                push(self, bus, r);
             }
-            self.add_cycles(self.gpr[REG_SP], bus, NonSeq + MemoryAccess32);
         }
 
-        Ok(CpuPipelineAction::IncPC)
+        Ok(pipeline_action)
     }
 
     fn exec_thumb_branch_with_cond(
         &mut self,
-        bus: &mut Bus,
+        _bus: &mut Bus,
         insn: ThumbInstruction,
     ) -> CpuExecResult {
         if !self.check_arm_cond(insn.cond()) {
-            self.add_cycles(
-                insn.pc + (self.word_size() as u32),
-                bus,
-                Seq + MemoryAccess16,
-            );
             Ok(CpuPipelineAction::IncPC)
         } else {
-            // +1N
-            self.add_cycles(insn.pc, bus, NonSeq + MemoryAccess32);
             let offset = insn.offset8() as i8 as i32;
             self.pc = (insn.pc as i32).wrapping_add(offset) as u32;
-
-            // +2S
-            self.add_cycles(self.pc, bus, Seq + MemoryAccess32);
-            self.add_cycles(
-                self.pc + (self.word_size() as u32),
-                bus,
-                Seq + MemoryAccess32,
-            );
-
             Ok(CpuPipelineAction::Flush)
         }
     }
