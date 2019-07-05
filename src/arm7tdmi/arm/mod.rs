@@ -342,7 +342,7 @@ impl ArmInstruction {
         }
     }
 
-    pub fn is_loading_psr_and_forcing_user_mode(&self) -> bool {
+    pub fn psr_and_force_user_flag(&self) -> bool {
         self.raw.bit(22)
     }
 

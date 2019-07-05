@@ -21,6 +21,7 @@ impl Core {
             ArmFormat::DP => self.exec_data_processing(bus, insn),
             ArmFormat::SWI => self.exec_swi(bus, insn),
             ArmFormat::LDR_STR => self.exec_ldr_str(bus, insn),
+            ArmFormat::LDM_STM => self.exec_ldm_stm(bus, insn),
             ArmFormat::MSR_REG => self.exec_msr_reg(bus, insn),
             _ => Err(CpuError::UnimplementedCpuInstruction(
                 insn.pc,
@@ -115,7 +116,7 @@ impl Core {
             ArmShiftType::ROR => {
                 let amount = amount % 32;
                 let result = val.rotate_right(amount);
-                self.cpsr.set_C((result >> 1)  &1 == 1);
+                self.cpsr.set_C((result >> 1) & 1 == 1);
                 result
             }
         }
@@ -318,6 +319,71 @@ impl Core {
 
         if insn.write_back_flag() {
             self.set_reg(insn.rn(), effective_addr as u32)
+        }
+
+        Ok(pipeline_action)
+    }
+
+    fn exec_ldm_stm(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
+        let full = insn.pre_index_flag();
+        let ascending = insn.add_offset_flag();
+        let psr_user = insn.psr_and_force_user_flag();
+        let is_load = insn.load_flag();
+        let mut writeback = insn.write_back_flag();
+        let mut pipeline_action = CpuPipelineAction::IncPC;
+        let rn = insn.rn();
+        let mut addr = self.gpr[rn] as i32;
+
+        let step: i32 = if ascending { 4 } else { -4 };
+        let rlist = if ascending {
+            insn.register_list()
+        } else {
+            let mut rlist = insn.register_list();
+            rlist.reverse();
+            rlist
+        };
+
+        if psr_user {
+            unimplemented!("Too tired to implement the mode enforcement");
+        }
+
+        if is_load {
+            if rlist.contains(&rn) {
+                writeback = false;
+            }
+            for r in rlist {
+                if full {
+                    addr = addr.wrapping_add(step);
+                }
+
+                self.add_cycle();
+                let val = self.load_32(addr as Addr, bus);
+                self.set_reg(r, val);
+
+                if r == REG_PC {
+                    pipeline_action = CpuPipelineAction::Flush;
+                }
+
+                if !full {
+                    addr = addr.wrapping_add(step);
+                }
+            }
+        } else {
+            for r in rlist {
+                if full {
+                    addr = addr.wrapping_add(step);
+                }
+
+                self.store_32(addr as Addr, self.get_reg(r), bus);
+
+                if !full {
+                    addr = addr.wrapping_add(step);
+                }
+            }
+        }
+
+        if writeback {
+            self.set_reg(rn, addr as u32);
         }
 
         Ok(pipeline_action)

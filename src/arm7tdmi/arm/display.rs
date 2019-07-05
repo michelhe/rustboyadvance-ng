@@ -254,7 +254,15 @@ impl ArmInstruction {
         for reg in register_list {
             write!(f, ", {}", reg_string(reg))?;
         }
-        write!(f, "}}")
+        write!(
+            f,
+            "}}{}",
+            if self.psr_and_force_user_flag() {
+                "^"
+            } else {
+                ""
+            }
+        )
     }
 
     /// MRS - transfer PSR contents to a register

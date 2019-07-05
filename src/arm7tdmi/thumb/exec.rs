@@ -269,11 +269,7 @@ impl Core {
         }
     }
 
-    fn exec_thumb_branch(
-        &mut self,
-        _bus: &mut Bus,
-        insn: ThumbInstruction,
-    ) -> CpuExecResult {
+    fn exec_thumb_branch(&mut self, _bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         let offset = ((insn.offset11() << 21) >> 20) as i32;
         self.pc = (self.pc as i32).wrapping_add(offset) as u32;
         Ok(CpuPipelineAction::Flush)
