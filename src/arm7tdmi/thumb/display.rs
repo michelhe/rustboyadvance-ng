@@ -3,7 +3,7 @@ use std::fmt;
 use crate::bit::BitIndex;
 
 use super::*;
-use crate::arm7tdmi::reg_string;
+use crate::arm7tdmi::*;
 
 impl ThumbInstruction {
     fn fmt_thumb_move_shifted_reg(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -158,6 +158,17 @@ impl ThumbInstruction {
             }
         )
     }
+
+    fn fmt_thumb_branch_long_with_link(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "bl\t#0x{:08x}", {
+            let offset11 = self.offset11();
+            if self.flag(ThumbInstruction::FLAG_LOW_OFFSET) {
+                (offset11 << 1) as i32
+            } else {
+                ((offset11 << 21) >> 9) as i32
+            }
+        })
+    }
 }
 
 impl fmt::Display for ThumbInstruction {
@@ -175,6 +186,7 @@ impl fmt::Display for ThumbInstruction {
             ThumbFormat::AddSp => self.fmt_thumb_add_sp(f),
             ThumbFormat::PushPop => self.fmt_thumb_push_pop(f),
             ThumbFormat::BranchConditional => self.fmt_thumb_branch_with_cond(f),
+            ThumbFormat::BranchLongWithLink => self.fmt_thumb_branch_long_with_link(f),
             _ => write!(f, "({:?})", self),
         }
     }

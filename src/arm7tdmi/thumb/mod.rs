@@ -198,6 +198,7 @@ impl ThumbInstruction {
     const FLAG_H2: usize = 6;
     const FLAG_R: usize = 8;
     const FLAG_S: usize = 7;
+    const FLAG_LOW_OFFSET: usize = 11;
 
     pub fn rd(&self) -> usize {
         match self.fmt {
@@ -250,6 +251,10 @@ impl ThumbInstruction {
 
     pub fn offset8(&self) -> i8 {
         self.raw.bit_range(0..8) as i8
+    }
+
+    pub fn offset11(&self) -> i32 {
+        (self.raw & 0x7FF) as i32
     }
 
     pub fn word8(&self) -> u16 {

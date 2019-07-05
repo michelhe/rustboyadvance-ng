@@ -1,6 +1,6 @@
 use crate::bit::BitIndex;
 
-use crate::arm7tdmi::bus::{Bus, MemoryAccessType::*, MemoryAccessWidth::*};
+use crate::arm7tdmi::bus::Bus;
 use crate::arm7tdmi::cpu::{Core, CpuExecResult, CpuPipelineAction};
 use crate::arm7tdmi::exception::Exception;
 use crate::arm7tdmi::psr::RegPSR;
@@ -31,7 +31,7 @@ impl Core {
     }
 
     /// Cycles 2S+1N
-    fn exec_b_bl(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuResult<CpuPipelineAction> {
+    fn exec_b_bl(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuResult<CpuPipelineAction> {
         if insn.link_flag() {
             self.set_reg(14, (insn.pc + (self.word_size() as u32)) & !0b1);
         }
@@ -42,7 +42,7 @@ impl Core {
     }
 
     /// Cycles 2S+1N
-    fn exec_bx(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuResult<CpuPipelineAction> {
+    fn exec_bx(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuResult<CpuPipelineAction> {
         let rn = self.get_reg(insn.rn());
         if rn.bit(0) {
             self.cpsr.set_state(CpuState::THUMB);
@@ -62,7 +62,7 @@ impl Core {
 
     fn exec_msr_reg(
         &mut self,
-        bus: &mut Bus,
+        _bus: &mut Bus,
         insn: ArmInstruction,
     ) -> CpuResult<CpuPipelineAction> {
         let new_psr = RegPSR::new(self.get_reg(insn.rm()));
@@ -119,6 +119,7 @@ impl Core {
         res
     }
 
+    #[allow(non_snake_case)]
     pub fn alu(
         &mut self,
         opcode: ArmOpCode,
@@ -129,7 +130,7 @@ impl Core {
         let C = self.cpsr.C() as i32;
 
         let mut carry = self.cpsr.C();
-        let mut overflow = self.cpsr.V();
+        let overflow = self.cpsr.V();
 
         let result = match opcode {
             ArmOpCode::AND | ArmOpCode::TST => op1 & op2,
@@ -165,7 +166,7 @@ impl Core {
     ///         Add x=1I cycles if Op2 shifted-by-register. Add y=1S+1N cycles if Rd=R15.
     fn exec_data_processing(
         &mut self,
-        bus: &mut Bus,
+        _bus: &mut Bus,
         insn: ArmInstruction,
     ) -> CpuResult<CpuPipelineAction> {
         // TODO handle carry flag
@@ -251,7 +252,6 @@ impl Core {
         if insn.rn() == REG_PC {
             addr = insn.pc + 8; // prefetching
         }
-        let dest = self.get_reg(insn.rd());
 
         let offset = self.get_rn_offset(&insn);
 

@@ -1,7 +1,3 @@
-use std::fmt;
-
-use crate::arm7tdmi::Addr;
-
 use nom;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while1, take_while_m_n};

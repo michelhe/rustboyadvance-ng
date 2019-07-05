@@ -1,9 +1,7 @@
 use std::str::from_utf8;
 
-use nom::number::streaming::le_u32;
-
 use crate::arm7tdmi::{
-    bus::{Bus, MemoryAccess, MemoryAccessType, MemoryAccessWidth},
+    bus::{Bus, MemoryAccess, MemoryAccessWidth},
     Addr,
 };
 use crate::sysbus::WaitState;

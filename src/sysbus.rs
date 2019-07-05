@@ -69,38 +69,38 @@ impl Bus for BoxedMemory {
 struct DummyBus([u8; 4]);
 
 impl Bus for DummyBus {
-    fn read_32(&self, addr: Addr) -> u32 {
+    fn read_32(&self, _addr: Addr) -> u32 {
         0
     }
 
-    fn read_16(&self, addr: Addr) -> u16 {
+    fn read_16(&self, _addr: Addr) -> u16 {
         0
     }
 
-    fn read_8(&self, addr: Addr) -> u8 {
+    fn read_8(&self, _addr: Addr) -> u8 {
         0
     }
 
-    fn write_32(&mut self, addr: Addr, value: u32) -> Result<(), io::Error> {
+    fn write_32(&mut self, _addr: Addr, _value: u32) -> Result<(), io::Error> {
         Ok(())
     }
 
-    fn write_16(&mut self, addr: Addr, value: u16) -> Result<(), io::Error> {
+    fn write_16(&mut self, _addr: Addr, _value: u16) -> Result<(), io::Error> {
         Ok(())
     }
 
-    fn write_8(&mut self, addr: Addr, value: u8) -> Result<(), io::Error> {
+    fn write_8(&mut self, _addr: Addr, _value: u8) -> Result<(), io::Error> {
         Ok(())
     }
-    fn get_bytes(&self, addr: Addr) -> &[u8] {
+    fn get_bytes(&self, _addr: Addr) -> &[u8] {
         &self.0
     }
 
-    fn get_bytes_mut(&mut self, addr: Addr) -> &mut [u8] {
+    fn get_bytes_mut(&mut self, _addr: Addr) -> &mut [u8] {
         &mut self.0
     }
 
-    fn get_cycles(&self, addr: Addr, access: MemoryAccess) -> usize {
+    fn get_cycles(&self, _addr: Addr, _access: MemoryAccess) -> usize {
         1
     }
 }

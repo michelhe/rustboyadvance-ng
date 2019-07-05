@@ -1,8 +1,6 @@
-use std::convert::TryFrom;
 use std::marker::PhantomData;
 
 use super::arm7tdmi::{Addr, InstructionDecoder, InstructionDecoderError};
-use std::io;
 use std::io::ErrorKind;
 
 pub struct Disassembler<'a, D>

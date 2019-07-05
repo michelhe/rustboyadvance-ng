@@ -198,12 +198,6 @@ impl fmt::Display for CpuError {
 
 pub type CpuResult<T> = Result<T, CpuError>;
 
-pub struct CpuModeContext {
-    // r8-r14
-    banked_gpr: [u32; 7],
-    spsr: u32,
-}
-
 #[cfg(test)]
 mod tests {
     #[test]

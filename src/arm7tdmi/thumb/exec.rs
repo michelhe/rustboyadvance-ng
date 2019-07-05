@@ -1,7 +1,7 @@
 use crate::arm7tdmi::arm::*;
-use crate::arm7tdmi::bus::{Bus, MemoryAccessType::*, MemoryAccessWidth::*};
+use crate::arm7tdmi::bus::Bus;
 use crate::arm7tdmi::cpu::{Core, CpuExecResult, CpuPipelineAction};
-use crate::arm7tdmi::{reg_string, Addr, CpuState, REG_LR, REG_PC, REG_SP};
+use crate::arm7tdmi::*;
 
 use super::*;
 fn push(cpu: &mut Core, bus: &mut Bus, r: usize) {
@@ -19,7 +19,7 @@ fn pop(cpu: &mut Core, bus: &mut Bus, r: usize) {
 impl Core {
     fn exec_thumb_move_shifted_reg(
         &mut self,
-        bus: &mut Bus,
+        _bus: &mut Bus,
         insn: ThumbInstruction,
     ) -> CpuExecResult {
         let result = self
@@ -33,7 +33,7 @@ impl Core {
         Ok(CpuPipelineAction::IncPC)
     }
 
-    fn exec_thumb_add_sub(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
+    fn exec_thumb_add_sub(&mut self, _bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         let op1 = self.get_reg(insn.rs()) as i32;
         let op2 = if insn.is_immediate_operand() {
             insn.rn() as u32 as i32
@@ -56,7 +56,7 @@ impl Core {
 
     fn exec_thumb_data_process_imm(
         &mut self,
-        bus: &mut Bus,
+        _bus: &mut Bus,
         insn: ThumbInstruction,
     ) -> CpuExecResult {
         let arm_alu_op: ArmOpCode = insn.format3_op().into();
@@ -70,18 +70,18 @@ impl Core {
         Ok(CpuPipelineAction::IncPC)
     }
 
-    fn exec_thumb_mul(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
+    fn exec_thumb_mul(&mut self, _bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         let op1 = self.get_reg(insn.rd()) as i32;
         let op2 = self.get_reg(insn.rs()) as i32;
         let m = self.get_required_multipiler_array_cycles(op2);
-        for i in 0..m {
+        for _ in 0..m {
             self.add_cycle();
         }
         self.gpr[insn.rd()] = (op1 * op2) as u32;
         Ok(CpuPipelineAction::IncPC)
     }
 
-    fn exec_thumb_alu_ops(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
+    fn exec_thumb_alu_ops(&mut self, _bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         let arm_alu_op: ArmOpCode = insn.alu_opcode();
         let op1 = self.get_reg(insn.rd()) as i32;
         let op2 = self.get_reg(insn.rs()) as i32;
@@ -94,7 +94,7 @@ impl Core {
     }
 
     /// Cycles 2S+1N
-    fn exec_thumb_bx(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
+    fn exec_thumb_bx(&mut self, _bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         let src_reg = if insn.flag(ThumbInstruction::FLAG_H2) {
             insn.rs() + 8
         } else {
@@ -180,7 +180,7 @@ impl Core {
         Ok(CpuPipelineAction::IncPC)
     }
 
-    fn exec_thumb_add_sp(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
+    fn exec_thumb_add_sp(&mut self, _bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         let op1 = self.gpr[REG_SP] as i32;
         let op2 = insn.sword7();
         let arm_alu_op = ArmOpCode::ADD;
@@ -230,9 +230,30 @@ impl Core {
         if !self.check_arm_cond(insn.cond()) {
             Ok(CpuPipelineAction::IncPC)
         } else {
-            let offset = insn.offset8() as u8 as i32;
+            let offset = insn.offset8() as i8 as i32;
             self.pc = (insn.pc as i32).wrapping_add(offset) as u32;
             Ok(CpuPipelineAction::Flush)
+        }
+    }
+
+    fn exec_thumb_branch_long_with_link(
+        &mut self,
+        _bus: &mut Bus,
+        insn: ThumbInstruction,
+    ) -> CpuExecResult {
+        let mut off = insn.offset11();
+        if insn.flag(ThumbInstruction::FLAG_LOW_OFFSET) {
+            off = off << 1;
+            let next_pc = (self.pc - 2) | 1;
+            self.pc = (self.gpr[REG_LR] as i32).wrapping_add(off) as u32;
+            self.gpr[REG_LR] = next_pc;
+
+            Ok(CpuPipelineAction::Flush)
+        } else {
+            off = (off << 21) >> 9;
+            self.gpr[REG_LR] = (self.pc as i32).wrapping_add(off) as u32;
+
+            Ok(CpuPipelineAction::IncPC)
         }
     }
 
@@ -250,6 +271,7 @@ impl Core {
             ThumbFormat::AddSp => self.exec_thumb_add_sp(bus, insn),
             ThumbFormat::PushPop => self.exec_thumb_push_pop(bus, insn),
             ThumbFormat::BranchConditional => self.exec_thumb_branch_with_cond(bus, insn),
+            ThumbFormat::BranchLongWithLink => self.exec_thumb_branch_long_with_link(bus, insn),
             _ => unimplemented!("thumb not implemented {:#x?}", insn),
         }
     }
