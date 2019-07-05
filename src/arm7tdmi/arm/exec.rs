@@ -82,12 +82,42 @@ impl Core {
         Ok(CpuPipelineAction::IncPC)
     }
 
-    fn barrel_shift(val: i32, amount: u32, shift: ArmShiftType) -> i32 {
+    fn barrel_shift(&mut self, val: i32, amount: u32, shift: ArmShiftType) -> i32 {
         match shift {
-            ArmShiftType::LSL => val.wrapping_shl(amount),
-            ArmShiftType::LSR => (val as u32).wrapping_shr(amount) as i32,
-            ArmShiftType::ASR => val.wrapping_shr(amount),
-            ArmShiftType::ROR => val.rotate_right(amount),
+            ArmShiftType::LSL => {
+                if amount < 32 {
+                    self.cpsr.set_C(val.wrapping_shr(32 - amount) & 1 == 1);
+                } else {
+                    if amount == 32 {
+                        self.cpsr.set_C(val & 1 == 1);
+                    } else {
+                        self.cpsr.set_C(false)
+                    }
+                }
+                val.wrapping_shl(amount)
+            }
+            ArmShiftType::LSR => {
+                if amount < 32 {
+                    self.cpsr.set_C(val.wrapping_shr(amount - 1) & 1 == 1);
+                } else {
+                    self.cpsr.set_C(false);
+                }
+                (val as u32).wrapping_shr(amount) as i32
+            }
+            ArmShiftType::ASR => {
+                if amount < 32 {
+                    self.cpsr.set_C(val.wrapping_shr(amount - 1) & 1 == 1);
+                } else {
+                    self.cpsr.set_C(val >> 31 == 1);
+                }
+                val.wrapping_shr(amount)
+            }
+            ArmShiftType::ROR => {
+                let amount = amount % 32;
+                let result = val.rotate_right(amount);
+                self.cpsr.set_C((result >> 1)  &1 == 1);
+                result
+            }
         }
     }
 
@@ -95,11 +125,11 @@ impl Core {
         let val = self.get_reg(reg) as i32;
         match shift {
             ArmRegisterShift::ShiftAmount(amount, shift) => {
-                Ok(Core::barrel_shift(val, amount, shift))
+                Ok(self.barrel_shift(val, amount, shift))
             }
             ArmRegisterShift::ShiftRegister(reg, shift) => {
                 if reg != REG_PC {
-                    Ok(Core::barrel_shift(val, self.get_reg(reg) & 0xff, shift))
+                    Ok(self.barrel_shift(val, self.get_reg(reg) & 0xff, shift))
                 } else {
                     Err(CpuError::IllegalInstruction)
                 }
