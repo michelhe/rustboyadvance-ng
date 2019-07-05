@@ -91,7 +91,7 @@ impl Core {
         }
     }
 
-    fn register_shift(&mut self, reg: usize, shift: ArmRegisterShift) -> CpuResult<i32> {
+    pub fn register_shift(&mut self, reg: usize, shift: ArmRegisterShift) -> CpuResult<i32> {
         let val = self.get_reg(reg) as i32;
         match shift {
             ArmRegisterShift::ShiftAmount(amount, shift) => {
@@ -264,10 +264,8 @@ impl Core {
 
         if insn.load_flag() {
             let data = if insn.transfer_size() == 1 {
-                // +1N
                 self.load_8(addr, bus) as u32
             } else {
-                // +1N
                 self.load_32(addr, bus)
             };
 
@@ -275,7 +273,7 @@ impl Core {
 
             // +1I
             self.add_cycle();
-            // +y
+
             if insn.rd() == REG_PC {
                 pipeline_action = CpuPipelineAction::Flush;
             }
@@ -284,7 +282,6 @@ impl Core {
             if insn.transfer_size() == 1 {
                 self.store_8(addr, value as u8, bus);
             } else {
-                // +1N
                 self.store_32(addr, value, bus);
             };
         }

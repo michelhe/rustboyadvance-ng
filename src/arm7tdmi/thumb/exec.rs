@@ -17,6 +17,22 @@ fn pop(cpu: &mut Core, bus: &mut Bus, r: usize) {
 }
 
 impl Core {
+    fn exec_thumb_move_shifted_reg(
+        &mut self,
+        bus: &mut Bus,
+        insn: ThumbInstruction,
+    ) -> CpuExecResult {
+        let result = self
+            .register_shift(
+                insn.rs(),
+                ArmRegisterShift::ShiftAmount(insn.offset5() as u8 as u32, insn.format1_op()),
+            )
+            .unwrap();
+        self.gpr[insn.rd()] = result as u32;
+
+        Ok(CpuPipelineAction::IncPC)
+    }
+
     fn exec_thumb_add_sub(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         let op1 = self.get_reg(insn.rs()) as i32;
         let op2 = if insn.is_immediate_operand() {
@@ -222,6 +238,7 @@ impl Core {
 
     pub fn exec_thumb(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         match insn.fmt {
+            ThumbFormat::MoveShiftedReg => self.exec_thumb_move_shifted_reg(bus, insn),
             ThumbFormat::AddSub => self.exec_thumb_add_sub(bus, insn),
             ThumbFormat::DataProcessImm => self.exec_thumb_data_process_imm(bus, insn),
             ThumbFormat::Mul => self.exec_thumb_mul(bus, insn),
@@ -233,7 +250,7 @@ impl Core {
             ThumbFormat::AddSp => self.exec_thumb_add_sp(bus, insn),
             ThumbFormat::PushPop => self.exec_thumb_push_pop(bus, insn),
             ThumbFormat::BranchConditional => self.exec_thumb_branch_with_cond(bus, insn),
-            _ => unimplemented!("thumb not implemented {:#?}", insn),
+            _ => unimplemented!("thumb not implemented {:#x?}", insn),
         }
     }
 }
