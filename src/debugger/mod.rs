@@ -3,9 +3,8 @@ use rustyline::Editor;
 
 use colored::*;
 
-use super::arm7tdmi;
-use super::arm7tdmi::{Addr, Bus};
-use super::sysbus::SysBus;
+use super::arm7tdmi::{Addr, Bus, CpuError};
+use super::GameBoyAdvance;
 
 mod parser;
 use parser::{parse_expr, DerefType, Expr, Value};
@@ -16,14 +15,14 @@ use command::Command;
 #[derive(Debug, PartialEq)]
 pub enum DebuggerError {
     ParsingError(String),
-    CpuError(arm7tdmi::CpuError),
+    CpuError(CpuError),
     InvalidCommand(String),
     InvalidArgument(String),
     InvalidCommandFormat(String),
 }
 
-impl From<arm7tdmi::CpuError> for DebuggerError {
-    fn from(e: arm7tdmi::CpuError) -> DebuggerError {
+impl From<CpuError> for DebuggerError {
+    fn from(e: CpuError) -> DebuggerError {
         DebuggerError::CpuError(e)
     }
 }
@@ -32,18 +31,16 @@ type DebuggerResult<T> = Result<T, DebuggerError>;
 
 #[derive(Debug)]
 pub struct Debugger {
-    pub cpu: arm7tdmi::cpu::Core,
-    pub sysbus: SysBus,
+    pub gba: GameBoyAdvance,
     running: bool,
     breakpoints: Vec<u32>,
     pub previous_command: Option<Command>,
 }
 
 impl Debugger {
-    pub fn new(cpu: arm7tdmi::cpu::Core, sysbus: SysBus) -> Debugger {
+    pub fn new(gba: GameBoyAdvance) -> Debugger {
         Debugger {
-            cpu: cpu,
-            sysbus: sysbus,
+            gba: gba,
             breakpoints: Vec::new(),
             running: false,
             previous_command: None,
@@ -51,7 +48,7 @@ impl Debugger {
     }
 
     pub fn check_breakpoint(&self) -> Option<u32> {
-        let next_pc = self.cpu.get_next_pc();
+        let next_pc = self.gba.cpu.get_next_pc();
         for bp in &self.breakpoints {
             if *bp == next_pc {
                 return Some(next_pc);
@@ -105,7 +102,7 @@ impl Debugger {
             Value::Num(n) => Ok(*n),
             Value::Identifier(reg) => {
                 let reg = self.decode_reg(&reg)?;
-                Ok(self.cpu.get_reg(reg))
+                Ok(self.gba.cpu.get_reg(reg))
             }
             v => Err(DebuggerError::InvalidArgument(format!(
                 "addr: expected a number or register, got {:?}",
@@ -120,14 +117,14 @@ impl Debugger {
             Value::Deref(addr_value, deref_type) => {
                 let addr = self.val_address(&addr_value)?;
                 match deref_type {
-                    DerefType::Word => self.sysbus.read_32(addr),
-                    DerefType::HalfWord => self.sysbus.read_16(addr) as u32,
-                    DerefType::Byte => self.sysbus.read_8(addr) as u32,
+                    DerefType::Word => self.gba.sysbus.read_32(addr),
+                    DerefType::HalfWord => self.gba.sysbus.read_16(addr) as u32,
+                    DerefType::Byte => self.gba.sysbus.read_8(addr) as u32,
                 }
             }
             _ => self.val_address(&rvalue)?,
         };
-        self.cpu.set_reg(lvalue, rvalue);
+        self.gba.cpu.set_reg(lvalue, rvalue);
         Ok(())
     }
 

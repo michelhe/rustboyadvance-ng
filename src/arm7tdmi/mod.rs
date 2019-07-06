@@ -11,7 +11,7 @@ use thumb::{ThumbDecodeError, ThumbInstruction};
 pub mod cpu;
 pub use cpu::*;
 pub mod bus;
-pub use bus::Bus;
+pub use bus::*;
 pub mod exception;
 pub mod psr;
 

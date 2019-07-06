@@ -143,7 +143,8 @@ impl fmt::Display for RegPSR {
         };
         write!(
             f,
-            "{{ mode: {mode}, state: {state}, irq: {irq}, fiq: {fiq}, condition_flags: (N={N} Z={Z} C={C} V={V}) }}",
+            "{{ [{raw:#010x}] mode: {mode}, state: {state}, irq: {irq}, fiq: {fiq}, condition_flags: (N={N} Z={Z} C={C} V={V}) }}",
+            raw = self.raw,
             mode = self.mode(),
             state = self.state(),
             irq = disabled_string(self.irq_disabled()),

@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::cartridge::Cartridge;
+use super::{cartridge::Cartridge, ioregs::IoRegs};
 
 use super::arm7tdmi::bus::{Bus, MemoryAccess, MemoryAccessWidth};
 use super::arm7tdmi::Addr;
@@ -111,7 +111,7 @@ pub struct SysBus {
     onboard_work_ram: BoxedMemory,
     internal_work_ram: BoxedMemory,
     /// Currently model the IOMem as regular buffer, later make it into something more sophisticated.
-    ioregs: BoxedMemory,
+    pub ioregs: IoRegs,
     palette_ram: BoxedMemory,
     vram: BoxedMemory,
     oam: BoxedMemory,
@@ -128,7 +128,7 @@ impl SysBus {
                 WaitState::new(3, 3, 6),
             ),
             internal_work_ram: BoxedMemory::new(vec![0; INTERNAL_RAM].into_boxed_slice()),
-            ioregs: BoxedMemory::new(vec![0; 1024].into_boxed_slice()),
+            ioregs: IoRegs::default(),
             palette_ram: BoxedMemory::new_with_waitstate(
                 vec![0; PALETTE_RAM_SIZE].into_boxed_slice(),
                 WaitState::new(1, 1, 2),

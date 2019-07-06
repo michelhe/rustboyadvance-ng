@@ -1,6 +1,7 @@
 use crate::arm7tdmi::bus::Bus;
 use crate::arm7tdmi::{Addr, CpuState};
 use crate::disass::Disassembler;
+use crate::GBAError;
 
 use super::{parser::Value, Debugger, DebuggerError, DebuggerResult};
 
@@ -34,14 +35,14 @@ impl Command {
     pub fn run(&self, debugger: &mut Debugger) {
         use Command::*;
         match *self {
-            Info => println!("{}", debugger.cpu),
+            Info => println!("{}", debugger.gba.cpu),
             Step(count) => {
                 for _ in 0..count {
                     if let Some(bp) = debugger.check_breakpoint() {
                         println!("hit breakpoint #0x{:08x}!", bp);
                         debugger.delete_breakpoint(bp);
                     } else {
-                        match debugger.cpu.step_debugger(&mut debugger.sysbus) {
+                        match debugger.gba.step() {
                             Ok(insn) => {
                                 print!(
                                     "{}\t{}",
@@ -52,19 +53,23 @@ impl Command {
                                         .paint(format!("Executed at @0x{:08x}:", insn.get_pc(),)),
                                     insn
                                 );
-                                println!("{}", Colour::Purple.dimmed().italic().paint(format!(
-                                    "\t\t/// Next instruction at @0x{:08x}",
-                                    debugger.cpu.get_next_pc()
-                                )))
+                                println!(
+                                    "{}",
+                                    Colour::Purple.dimmed().italic().paint(format!(
+                                        "\t\t/// Next instruction at @0x{:08x}",
+                                        debugger.gba.cpu.get_next_pc()
+                                    ))
+                                )
                             }
-                            Err(e) => {
+                            Err(GBAError::CpuError(e)) => {
                                 println!("{}: {}", "cpu encountered an error".red(), e);
-                                println!("cpu: {:x?}", debugger.cpu)
+                                println!("cpu: {:x?}", debugger.gba.cpu)
                             }
+                            _ => unreachable!(),
                         }
                     }
                 }
-                println!("{}\n", debugger.cpu);
+                println!("{}\n", debugger.gba.cpu);
             }
             Continue => loop {
                 if let Some(bp) = debugger.check_breakpoint() {
@@ -72,7 +77,7 @@ impl Command {
                     debugger.delete_breakpoint(bp);
                     break;
                 }
-                match debugger.cpu.step_debugger(&mut debugger.sysbus) {
+                match debugger.gba.step() {
                     Ok(insn) => {
                         println!(
                             "@0x{:08x}:\t{}",
@@ -80,22 +85,23 @@ impl Command {
                             Colour::Yellow.italic().paint(format!("{} ", insn))
                         );
                     }
-                    Err(e) => {
+                    Err(GBAError::CpuError(e)) => {
                         println!("{}: {}", "cpu encountered an error".red(), e);
-                        println!("cpu: {:x?}", debugger.cpu);
+                        println!("cpu: {:x?}", debugger.gba.cpu);
                         break;
                     }
+                    _ => unreachable!(),
                 };
             },
             HexDump(addr, nbytes) => {
-                let bytes = debugger.sysbus.get_bytes(addr);
+                let bytes = debugger.gba.sysbus.get_bytes(addr);
                 hexdump::hexdump(&bytes[0..nbytes]);
             }
             Disass(mode, addr, n) => {
                 use crate::arm7tdmi::arm::ArmInstruction;
                 use crate::arm7tdmi::thumb::ThumbInstruction;
 
-                let bytes = debugger.sysbus.get_bytes(addr);
+                let bytes = debugger.gba.sysbus.get_bytes(addr);
                 match mode {
                     DisassMode::ModeArm => {
                         let disass = Disassembler::<ArmInstruction>::new(addr, bytes);
@@ -134,7 +140,7 @@ impl Command {
             }
             Reset => {
                 println!("resetting cpu...");
-                debugger.cpu.reset();
+                debugger.gba.cpu.reset();
                 println!("cpu is restarted!")
             }
         }
@@ -159,7 +165,7 @@ impl Debugger {
                 if let Some(Command::Disass(_mode, addr, n)) = &self.previous_command {
                     Ok((*addr + (4 * (*n as u32)), 10))
                 } else {
-                    Ok((self.cpu.get_next_pc(), 10))
+                    Ok((self.gba.cpu.get_next_pc(), 10))
                 }
             }
             _ => {
@@ -210,7 +216,7 @@ impl Debugger {
                         if let Some(Command::HexDump(addr, n)) = self.previous_command {
                             (addr + (4 * n as u32), 0x100)
                         } else {
-                            (self.cpu.get_reg(15), 0x100)
+                            (self.gba.cpu.get_reg(15), 0x100)
                         }
                     }
                     _ => {
@@ -224,7 +230,7 @@ impl Debugger {
             "d" | "disass" => {
                 let (addr, n) = self.get_disassembler_args(args)?;
 
-                let m = match self.cpu.cpsr.state() {
+                let m = match self.gba.cpu.cpsr.state() {
                     CpuState::ARM => DisassMode::ModeArm,
                     CpuState::THUMB => DisassMode::ModeThumb,
                 };

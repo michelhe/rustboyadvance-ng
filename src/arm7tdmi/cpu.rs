@@ -75,7 +75,7 @@ pub struct Core {
 
     pub pipeline_arm: PipelineContext<ArmInstruction, u32>,
     pub pipeline_thumb: PipelineContext<ThumbInstruction, u16>,
-    cycles: usize,
+    pub cycles: usize,
 
     // store the gpr before executing an instruction to show diff in the Display impl
     gpr_previous: [u32; 15],
@@ -183,12 +183,12 @@ impl Core {
     }
 
     pub fn add_cycle(&mut self) {
-        println!("<cycle I-Cyclel> total: {}", self.cycles);
+        // println!("<cycle I-Cyclel> total: {}", self.cycles);
         self.cycles += 1;
     }
 
     pub fn add_cycles(&mut self, addr: Addr, bus: &Bus, access: MemoryAccess) {
-        println!("<cycle {:#x} {}> total: {}", addr, access, self.cycles);
+        // println!("<cycle {:#x} {}> total: {}", addr, access, self.cycles);
         self.cycles += bus.get_cycles(addr, access);
     }
 
@@ -393,7 +393,7 @@ impl Core {
     /// A step that returns only once an instruction was executed.
     /// Returns the address of PC before executing an instruction,
     /// and the address of the next instruction to be executed;
-    pub fn step_debugger(&mut self, bus: &mut Bus) -> CpuResult<DecodedInstruction> {
+    pub fn step_one(&mut self, bus: &mut Bus) -> CpuResult<DecodedInstruction> {
         loop {
             if let Some(i) = self.step(bus)? {
                 return Ok(i);
