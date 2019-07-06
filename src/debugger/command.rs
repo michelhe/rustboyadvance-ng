@@ -4,6 +4,7 @@ use crate::disass::Disassembler;
 use crate::GBAError;
 
 use super::{parser::Value, Debugger, DebuggerError, DebuggerResult};
+use super::palette_view::create_palette_view;
 
 use ansi_term::Colour;
 
@@ -25,6 +26,7 @@ pub enum Command {
     Disass(DisassMode, Addr, usize),
     AddBreakpoint(Addr),
     DelBreakpoint(Addr),
+    PaletteView,
     ClearBreakpoints,
     ListBreakpoints,
     Reset,
@@ -138,6 +140,7 @@ impl Command {
                     println!("[{}] 0x{:08x}", i, b)
                 }
             }
+            PaletteView => create_palette_view(debugger.gba.sysbus.get_bytes(0x0500_0000)),
             Reset => {
                 println!("resetting cpu...");
                 debugger.gba.cpu.reset();
@@ -266,6 +269,7 @@ impl Debugger {
                     "breakdel [addr]",
                 ))),
             },
+            "palette-view" => Ok(Command::PaletteView),
             "bl" => Ok(Command::ListBreakpoints),
             "q" | "quit" => Ok(Command::Quit),
             "r" | "reset" => Ok(Command::Reset),

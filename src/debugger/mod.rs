@@ -12,6 +12,8 @@ use parser::{parse_expr, DerefType, Expr, Value};
 mod command;
 use command::Command;
 
+mod palette_view;
+
 #[derive(Debug, PartialEq)]
 pub enum DebuggerError {
     ParsingError(String),

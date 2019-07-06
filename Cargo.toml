@@ -16,6 +16,7 @@ nom = "5.0.0"
 colored = "1.8"
 ansi_term = "0.11.0"
 hexdump = "0.1.0"
+sdl2 = "0.32.2"
 
 [profile.dev]
 opt-level = 0
