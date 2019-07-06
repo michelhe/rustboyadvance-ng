@@ -16,3 +16,6 @@ subcommands:
                 takes_value: true
                 help: Sets the game-rom file to use
                 required: true
+            - skip_bios:
+                long: skip-bios
+                help: Skip running bios and start from the ROM instead.
