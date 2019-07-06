@@ -96,15 +96,13 @@ impl Lcd {
 }
 
 impl EmuIoDev for Lcd {
-    fn step(&mut self, cycles: usize, sysbus: &mut SysBus) -> Option<Interrupt> {
+    fn step(&mut self, cycles: usize, sysbus: &mut SysBus) -> (usize, Option<Interrupt>) {
         self.cycles += cycles;
 
-        let mut result = None;
-        let mut dispcnt = DisplayControl::from(sysbus.ioregs.read_reg(REG_DISPCNT));
-        let mut dispstat = DisplayStatus::from(sysbus.ioregs.read_reg(REG_DISPSTAT));
+        // let mut dispcnt = DisplayControl::from(sysbus.ioregs.read_reg(REG_DISPCNT));
+        // let mut dispstat = DisplayStatus::from(sysbus.ioregs.read_reg(REG_DISPSTAT));
 
         // TODO
-
-        result
+        (0, None)
     }
 }

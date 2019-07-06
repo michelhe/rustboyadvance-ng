@@ -25,12 +25,13 @@ pub mod ioregs;
 pub use interrupt::Interrupt;
 pub mod gba;
 pub use gba::GameBoyAdvance;
+pub mod dma;
 pub mod lcd;
 pub mod palette;
 pub mod util;
 
 pub trait EmuIoDev {
-    fn step(&mut self, cycles: usize, sysbus: &mut SysBus) -> Option<Interrupt>;
+    fn step(&mut self, cycles: usize, sysbus: &mut SysBus) -> (usize, Option<Interrupt>);
 }
 
 #[derive(Debug)]
