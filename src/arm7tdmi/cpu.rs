@@ -193,7 +193,7 @@ impl Core {
     }
 
     pub fn cycle_type(&self, addr: Addr) -> MemoryAccessType {
-        if addr == self.memreq || addr == self.memreq + (self.word_size() as Addr) {
+        if addr == self.memreq || addr == self.memreq.wrapping_add(self.word_size() as Addr) {
             Seq
         } else {
             NonSeq

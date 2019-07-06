@@ -3,8 +3,8 @@ use crate::arm7tdmi::{Addr, CpuState};
 use crate::disass::Disassembler;
 use crate::GBAError;
 
-use super::{parser::Value, Debugger, DebuggerError, DebuggerResult};
 use super::palette_view::create_palette_view;
+use super::{parser::Value, Debugger, DebuggerError, DebuggerResult};
 
 use ansi_term::Colour;
 
@@ -80,19 +80,19 @@ impl Command {
                     break;
                 }
                 match debugger.gba.step() {
-                    Ok(insn) => {
-                        println!(
-                            "@0x{:08x}:\t{}",
-                            insn.get_pc(),
-                            Colour::Yellow.italic().paint(format!("{} ", insn))
-                        );
-                    }
+                    // Ok(insn) => {
+                    //     println!(
+                    //         "@0x{:08x}:\t{}",
+                    //         insn.get_pc(),
+                    //         Colour::Yellow.italic().paint(format!("{} ", insn))
+                    //     );
+                    // }
                     Err(GBAError::CpuError(e)) => {
                         println!("{}: {}", "cpu encountered an error".red(), e);
                         println!("cpu: {:x?}", debugger.gba.cpu);
                         break;
                     }
-                    _ => unreachable!(),
+                    _ => (),
                 };
             },
             HexDump(addr, nbytes) => {

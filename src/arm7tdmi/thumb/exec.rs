@@ -193,6 +193,43 @@ impl Core {
         self.do_exec_thumb_ldr_str(bus, insn, addr)
     }
 
+    fn exec_thumb_ldr_str_shb(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
+        let addr = self
+            .get_reg(insn.rb())
+            .wrapping_add(self.get_reg(insn.ro()));
+        let rd = insn.rd();
+        match (
+            insn.flag(ThumbInstruction::FLAG_SIGN_EXTEND),
+            insn.flag(ThumbInstruction::FLAG_HALFWORD),
+        ) {
+            (false, false) =>
+            /* strh */
+            {
+                self.store_16(addr, self.gpr[rd] as u16, bus)
+            }
+            (false, true) =>
+            /* ldrh */
+            {
+                self.gpr[rd] = self.load_16(addr, bus) as u32
+            }
+            (true, false) =>
+            /* ldsb */
+            {
+                let val = self.load_8(addr, bus) as i8 as i32 as u32;
+                self.gpr[rd] = val;
+            }
+            (true, true) =>
+            /* ldsh */
+            {
+                let val = self.load_16(addr, bus) as i16 as i32 as u32;
+                self.gpr[rd] = val;
+            }
+            _ => panic!("invalid flags"),
+        }
+
+        Ok(CpuPipelineAction::IncPC)
+    }
+
     fn exec_thumb_ldr_str_imm_offset(
         &mut self,
         bus: &mut Bus,
@@ -225,7 +262,25 @@ impl Core {
     }
 
     fn exec_thumb_ldr_str_sp(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
-        let addr = (self.gpr[REG_SP] & !0b10) + 4 + (insn.word8() as Addr);
+        let addr = self.gpr[REG_SP] + (insn.word8() as Addr);
+        self.do_exec_thumb_ldr_str_with_addr(bus, insn, addr)
+    }
+
+    fn exec_thumb_ldr_address(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
+        let addr = if insn.flag(ThumbInstruction::FLAG_SP) {
+            self.gpr[REG_SP] + (insn.word8() as Addr)
+        } else {
+            (insn.pc & !0b10) + 4 + (insn.word8() as Addr)
+        };
+        self.do_exec_thumb_ldr_str_with_addr(bus, insn, addr)
+    }
+
+    fn do_exec_thumb_ldr_str_with_addr(
+        &mut self,
+        bus: &mut Bus,
+        insn: ThumbInstruction,
+        addr: Addr,
+    ) -> CpuExecResult {
         if insn.is_load() {
             let data = self.load_32(addr, bus);
             self.add_cycle();
@@ -263,6 +318,7 @@ impl Core {
             }
             if pc_lr_flag {
                 pop(self, bus, REG_PC);
+                self.pc = self.pc & !1;
                 pipeline_action = CpuPipelineAction::Flush;
             }
             self.add_cycle();
@@ -272,6 +328,32 @@ impl Core {
             }
             for r in rlist.into_iter().rev() {
                 push(self, bus, r);
+            }
+        }
+
+        Ok(pipeline_action)
+    }
+
+    fn exec_thumb_ldm_stm(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
+        // (From GBATEK) Execution Time: nS+1N+1I (POP), (n+1)S+2N+1I (POP PC), or (n-1)S+2N (PUSH).
+
+        let is_load = insn.is_load();
+        let rb = insn.rb();
+        let mut pipeline_action = CpuPipelineAction::IncPC;
+
+        let mut addr = self.gpr[rb];
+        let rlist = insn.register_list();
+        if is_load {
+            for r in rlist {
+                let val = self.load_32(addr, bus);
+                addr += 4;
+                self.add_cycle();
+                self.set_reg(r, val);
+            }
+        } else {
+            for r in rlist.into_iter().rev() {
+                self.store_32(addr, self.gpr[r], bus);
+                addr += 4;
             }
         }
 
@@ -329,11 +411,14 @@ impl Core {
             ThumbFormat::HiRegOpOrBranchExchange => self.exec_thumb_hi_reg_op_or_bx(bus, insn),
             ThumbFormat::LdrPc => self.exec_thumb_ldr_pc(bus, insn),
             ThumbFormat::LdrStrRegOffset => self.exec_thumb_ldr_str_reg_offset(bus, insn),
+            ThumbFormat::LdrStrSHB => self.exec_thumb_ldr_str_shb(bus, insn),
             ThumbFormat::LdrStrImmOffset => self.exec_thumb_ldr_str_imm_offset(bus, insn),
             ThumbFormat::LdrStrHalfWord => self.exec_thumb_ldr_str_halfword(bus, insn),
             ThumbFormat::LdrStrSp => self.exec_thumb_ldr_str_sp(bus, insn),
+            ThumbFormat::LdrAddress => self.exec_thumb_ldr_address(bus, insn),
             ThumbFormat::AddSp => self.exec_thumb_add_sp(bus, insn),
             ThumbFormat::PushPop => self.exec_thumb_push_pop(bus, insn),
+            ThumbFormat::LdmStm => self.exec_thumb_ldm_stm(bus, insn),
             ThumbFormat::BranchConditional => self.exec_thumb_branch_with_cond(bus, insn),
             ThumbFormat::Branch => self.exec_thumb_branch(bus, insn),
             ThumbFormat::BranchLongWithLink => self.exec_thumb_branch_long_with_link(bus, insn),

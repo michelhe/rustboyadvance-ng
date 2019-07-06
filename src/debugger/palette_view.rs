@@ -43,7 +43,6 @@ impl ColoredRect {
 }
 
 pub fn create_palette_view(palette_ram: &[u8]) {
-
     let palette = Palette::from(palette_ram);
 
     let sdl_context = sdl2::init().unwrap();

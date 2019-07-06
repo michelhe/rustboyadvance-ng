@@ -98,7 +98,7 @@ impl Core {
                 val.wrapping_shl(amount)
             }
             ArmShiftType::LSR => {
-                if amount < 32 {
+                if 0 < amount && amount < 32 {
                     self.cpsr.set_C(val.wrapping_shr(amount - 1) & 1 == 1);
                 } else {
                     self.cpsr.set_C(false);
@@ -106,7 +106,7 @@ impl Core {
                 (val as u32).wrapping_shr(amount) as i32
             }
             ArmShiftType::ASR => {
-                if amount < 32 {
+                if 0 < amount && amount < 32 {
                     self.cpsr.set_C(val.wrapping_shr(amount - 1) & 1 == 1);
                 } else {
                     self.cpsr.set_C(val >> 31 == 1);
@@ -374,7 +374,12 @@ impl Core {
                     addr = addr.wrapping_add(step);
                 }
 
-                self.store_32(addr as Addr, self.get_reg(r), bus);
+                let val = if r == REG_PC {
+                    insn.pc + 12
+                } else {
+                    self.get_reg(r)
+                };
+                self.store_32(addr as Addr, val, bus);
 
                 if !full {
                     addr = addr.wrapping_add(step);

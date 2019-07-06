@@ -97,6 +97,28 @@ impl ThumbInstruction {
         )
     }
 
+    fn fmt_thumb_ldr_str_shb(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{op}\t{Rd}, [{Rb}, {Ro}]",
+            op = {
+                match (
+                    self.flag(ThumbInstruction::FLAG_SIGN_EXTEND),
+                    self.flag(ThumbInstruction::FLAG_HALFWORD),
+                ) {
+                    (false, false) => "strh",
+                    (false, true) => "ldrh",
+                    (true, false) => "ldsb",
+                    (true, true) => "ldsh",
+                    _ => panic!("invalid flags"),
+                }
+            },
+            Rd = reg_string(self.rd()),
+            Rb = reg_string(self.rb()),
+            Ro = reg_string(self.ro()),
+        )
+    }
+
     fn fmt_thumb_ldr_str_imm_offset(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -141,6 +163,20 @@ impl ThumbInstruction {
         )
     }
 
+    fn fmt_thumb_ldr_address(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "add\t{Rd}, {r}, #{Imm:#x}",
+            Rd = reg_string(self.rd()),
+            r = if self.flag(ThumbInstruction::FLAG_SP) {
+                "sp"
+            } else {
+                "pc"
+            },
+            Imm = self.word8(),
+        )
+    }
+
     fn fmt_thumb_add_sub(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let operand = if self.is_immediate_operand() {
             format!("#{:x}", self.raw.bit_range(6..9))
@@ -150,7 +186,7 @@ impl ThumbInstruction {
 
         write!(
             f,
-            "{op}\t{Rd}, [{Rs}, {operand}]",
+            "{op}\t{Rd}, {Rs}, {operand}",
             op = if self.is_subtract() { "sub" } else { "add" },
             Rd = reg_string(self.rd()),
             Rs = reg_string(self.rs()),
@@ -181,6 +217,26 @@ impl ThumbInstruction {
             } else {
                 write!(f, "{}", r)?;
             }
+        }
+        write!(f, "}}")
+    }
+
+    fn fmt_thumb_ldm_stm(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{op}\t{Rb}!, {{",
+            op = if self.is_load() { "ldm" } else { "stm" },
+            Rb = reg_string(self.rb()),
+        )?;
+        let mut register_list = self.register_list().into_iter();
+        let mut has_reg = false;
+        if let Some(reg) = register_list.next() {
+            write!(f, "{}", reg_string(reg))?;
+            has_reg = true;
+        }
+        for reg in register_list {
+            has_reg = true;
+            write!(f, ", {}", reg_string(reg))?;
         }
         write!(f, "}}")
     }
@@ -231,11 +287,14 @@ impl fmt::Display for ThumbInstruction {
             ThumbFormat::HiRegOpOrBranchExchange => self.fmt_thumb_high_reg_op_or_bx(f),
             ThumbFormat::LdrPc => self.fmt_thumb_ldr_pc(f),
             ThumbFormat::LdrStrRegOffset => self.fmt_thumb_ldr_str_reg_offset(f),
+            ThumbFormat::LdrStrSHB => self.fmt_thumb_ldr_str_shb(f),
             ThumbFormat::LdrStrImmOffset => self.fmt_thumb_ldr_str_imm_offset(f),
             ThumbFormat::LdrStrHalfWord => self.fmt_thumb_ldr_str_halfword(f),
             ThumbFormat::LdrStrSp => self.fmt_thumb_ldr_str_sp(f),
+            ThumbFormat::LdrAddress => self.fmt_thumb_ldr_address(f),
             ThumbFormat::AddSp => self.fmt_thumb_add_sp(f),
             ThumbFormat::PushPop => self.fmt_thumb_push_pop(f),
+            ThumbFormat::LdmStm => self.fmt_thumb_ldm_stm(f),
             ThumbFormat::BranchConditional => self.fmt_thumb_branch_with_cond(f),
             ThumbFormat::Branch => self.fmt_thumb_branch(f),
             ThumbFormat::BranchLongWithLink => self.fmt_thumb_branch_long_with_link(f),

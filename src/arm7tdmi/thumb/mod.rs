@@ -199,6 +199,9 @@ impl ThumbInstruction {
     const FLAG_R: usize = 8;
     const FLAG_S: usize = 7;
     const FLAG_LOW_OFFSET: usize = 11;
+    const FLAG_SP: usize = 11;
+    const FLAG_SIGN_EXTEND: usize = 10;
+    const FLAG_HALFWORD: usize = 11;
 
     pub fn rd(&self) -> usize {
         match self.fmt {
@@ -265,7 +268,7 @@ impl ThumbInstruction {
         match self.fmt {
             ThumbFormat::LdrStrRegOffset => self.raw.bit(10),
             ThumbFormat::LdrStrImmOffset => self.raw.bit(12),
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
@@ -314,6 +317,11 @@ impl ThumbInstruction {
 /// All instructions constants were generated using an ARM assembler.
 mod tests {
     use super::*;
+    use crate::arm7tdmi::{
+        cpu::{Core, CpuPipelineAction},
+        Bus,
+    };
+    use crate::sysbus::BoxedMemory;
 
     #[test]
     fn mov_low_reg() {
@@ -336,11 +344,14 @@ mod tests {
         assert_eq!(core.get_reg(0), 0x27);
     }
 
+    // #[test]
+    // fn decode_add_sub() {
+    //     let insn = ThumbInstruction::decode(0xac19, 0).unwrap();
+    //     assert!(format!("add\tr4, r4"))
+    // }
+
     #[test]
     fn ldr_pc() {
-        use crate::arm7tdmi::cpu::{Core, CpuPipelineAction};
-        use crate::sysbus::BoxedMemory;
-
         // ldr r0, [pc, #4]
         let insn = ThumbInstruction::decode(0x4801, 0x6).unwrap();
 
@@ -363,12 +374,6 @@ mod tests {
 
     #[test]
     fn ldr_str_reg_offset() {
-        use crate::arm7tdmi::{
-            cpu::{Core, CpuPipelineAction},
-            Bus,
-        };
-        use crate::sysbus::BoxedMemory;
-
         // str	r0, [r4, r1]
         let str_insn = ThumbInstruction::decode(0x5060, 0x6).unwrap();
         // ldrb r2, [r4, r1]
@@ -399,5 +404,45 @@ mod tests {
             Ok(CpuPipelineAction::IncPC)
         );
         assert_eq!(core.get_reg(2), 0x78);
+    }
+
+    #[allow(overflowing_literals)]
+    #[test]
+    fn format8() {
+        let mut core = Core::new();
+        let bytes = vec![
+            /*  0: */ 0xaa, 0xbb, 0xcc, 0xdd, 0xaa, 0xbb, 0xcc, 0xdd,
+            /*  8: */ 0xaa, 0xbb, 0xcc, 0xdd, 0xaa, 0xbb, 0xcc, 0xdd,
+            /* 10: */ 0xaa, 0xbb, 0xcc, 0xdd, 0xaa, 0xbb, 0xcc, 0xdd,
+        ];
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+
+        
+        core.gpr[4] = 0x12345678;
+        core.gpr[3] = 0x2;
+        core.gpr[0] = 0x4;
+        // strh r4, [r3, r0]
+        let decoded = ThumbInstruction::decode(0x521c, 0).unwrap();
+        assert_eq!(format!("{}", decoded), "strh\tr4, [r3, r0]");
+        core.exec_thumb(&mut mem, decoded).unwrap();
+        assert_eq!(&mem.get_bytes(0x6)[..4], [0x78, 0x56, 0xaa, 0xbb]);
+
+        // ldsb r2, [r7, r1]
+        core.gpr[2] = 0;
+        core.gpr[7] = 0x10;
+        core.gpr[1] = 0x5;
+        let decoded = ThumbInstruction::decode(0x567a, 0).unwrap();
+        assert_eq!(format!("{}", decoded), "ldsb\tr2, [r7, r1]");
+        core.exec_thumb(&mut mem, decoded).unwrap();
+        assert_eq!(core.gpr[2], mem.read_8(0x15) as i8 as u32);
+
+        // ldsh r3, [r4, r2]
+        core.gpr[3] = 0x0;
+        core.gpr[4] = 0x0;
+        core.gpr[2] = 0x6;
+        let decoded = ThumbInstruction::decode(0x5ea3, 0).unwrap();
+        assert_eq!(format!("{}", decoded), "ldsh\tr3, [r4, r2]");
+        core.exec_thumb(&mut mem, decoded).unwrap();
+        assert_eq!(core.gpr[3], 0x5678);
     }
 }
