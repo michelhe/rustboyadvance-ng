@@ -41,20 +41,20 @@ where
     D: InstructionDecoder,
     N: Num,
 {
-    fn flush(&mut self) {
+    pub fn flush(&mut self) {
         self.fetched = None;
         self.decoded = None;
     }
 
-    fn is_flushed(&self) -> bool {
+    pub fn is_flushed(&self) -> bool {
         self.fetched.is_none() && self.decoded.is_none()
     }
 
-    fn is_only_fetched(&self) -> bool {
+    pub fn is_only_fetched(&self) -> bool {
         self.fetched.is_some() && self.decoded.is_none()
     }
 
-    fn is_ready_to_execute(&self) -> bool {
+    pub fn is_ready_to_execute(&self) -> bool {
         self.fetched.is_some() && self.decoded.is_some()
     }
 }

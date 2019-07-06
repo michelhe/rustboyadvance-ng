@@ -262,7 +262,11 @@ impl ThumbInstruction {
     }
 
     pub fn is_transferring_bytes(&self) -> bool {
-        self.raw.bit(10)
+        match self.fmt {
+            ThumbFormat::LdrStrRegOffset => self.raw.bit(10),
+            ThumbFormat::LdrStrImmOffset => self.raw.bit(12),
+            _ => unreachable!()
+        }
     }
 
     pub fn is_load(&self) -> bool {

@@ -446,16 +446,30 @@ mod tests {
     use crate::sysbus::BoxedMemory;
 
     #[test]
-    fn test_decode_swi() {
+    fn swi() {
+        let mut core = Core::new();
+
+        let bytes = vec![];
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+
+
         // swi #0x1337
         let decoded = ArmInstruction::decode(0xef001337, 0).unwrap();
         assert_eq!(decoded.fmt, ArmFormat::SWI);
         assert_eq!(decoded.swi_comment(), 0x1337);
         assert_eq!(format!("{}", decoded), "swi\t#0x1337");
+
+        assert_eq!(
+            core.exec_arm(&mut mem, decoded),
+            Ok(CpuPipelineAction::Flush)
+        );
+
+        assert_eq!(core.cpsr.mode() , CpuMode::Supervisor);
+        assert_eq!(core.pc, Exception::SoftwareInterrupt as u32);
     }
 
     #[test]
-    fn test_decode_branch_forwards() {
+    fn branch_forwards() {
         // 0x20:   b 0x30
         let decoded = ArmInstruction::decode(0xea_00_00_02, 0x20).unwrap();
         assert_eq!(decoded.fmt, ArmFormat::B_BL);
@@ -465,10 +479,22 @@ mod tests {
             0x30
         );
         assert_eq!(format!("{}", decoded), "b\t0x30");
+
+        let mut core = Core::new();
+        core.pc = 0x20 + 8;
+
+        let bytes = vec![];
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+
+        assert_eq!(
+            core.exec_arm(&mut mem, decoded),
+            Ok(CpuPipelineAction::Flush)
+        );
+        assert_eq!(core.pc, 0x30);
     }
 
     #[test]
-    fn test_decode_branch_link_backwards() {
+    fn branch_link_backwards() {
         // 0x20:   bl 0x10
         let decoded = ArmInstruction::decode(0xeb_ff_ff_fa, 0x20).unwrap();
         assert_eq!(decoded.fmt, ArmFormat::B_BL);
@@ -478,10 +504,22 @@ mod tests {
             0x10
         );
         assert_eq!(format!("{}", decoded), "bl\t0x10");
+
+        let mut core = Core::new();
+        core.pc = 0x20 + 8;
+
+        let bytes = vec![];
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+
+        assert_eq!(
+            core.exec_arm(&mut mem, decoded),
+            Ok(CpuPipelineAction::Flush)
+        );
+        assert_eq!(core.pc, 0x10);
     }
 
     #[test]
-    fn test_decode_ldr_pre_index() {
+    fn ldr_pre_index() {
         // ldreq r2, [r5, -r6, lsl #5]
         let decoded = ArmInstruction::decode(0x07_15_22_86, 0).unwrap();
         assert_eq!(decoded.fmt, ArmFormat::LDR_STR);
@@ -501,11 +539,31 @@ mod tests {
         );
 
         assert_eq!(format!("{}", decoded), "ldreq\tr2, [r5, -r6, lsl #5]");
+
+        let mut core = Core::new();
+        core.cpsr.set_Z(true);
+        core.gpr[5] = 0x34;
+        core.gpr[6] = 1;
+        core.gpr[2] = 0;
+
+        let bytes = vec![
+            /* 00h: */   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            /* 10h: */   0x00, 0x00, 0x00, 0x00, 0x37, 0x13, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            /* 20h: */   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            /* 30h: */   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        ];
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+
+        assert_eq!(
+            core.exec_arm(&mut mem, decoded),
+            Ok(CpuPipelineAction::IncPC)
+        );
+        assert_eq!(core.gpr[2], 0x1337);
     }
 
     #[test]
-    fn test_decode_str_post_index() {
-        // strteq r2, [r4], -r7, lsl #8
+    fn str_post_index() {
+        // strteq r2, [r4], -r7, asr #8
         let decoded = ArmInstruction::decode(0x06_24_24_47, 0).unwrap();
         assert_eq!(decoded.fmt, ArmFormat::LDR_STR);
         assert_eq!(decoded.cond, ArmCond::Equal);
@@ -524,6 +582,26 @@ mod tests {
         );
 
         assert_eq!(format!("{}", decoded), "strteq\tr2, [r4], -r7, asr #8");
+
+        let mut core = Core::new();
+        core.cpsr.set_Z(true);
+        core.gpr[4] = 0x0;
+        core.gpr[7] = 1;
+        core.gpr[2] = 0xabababab;
+
+        let bytes = vec![
+            /* 00h: */   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            /* 10h: */   0x00, 0x00, 0x00, 0x00, 0x37, 0x13, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            /* 20h: */   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            /* 30h: */   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        ];
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+
+        assert_eq!(
+            core.exec_arm(&mut mem, decoded),
+            Ok(CpuPipelineAction::IncPC)
+        );
+        assert_eq!(mem.read_32(0), 0xabababab);
     }
 
     #[test]
