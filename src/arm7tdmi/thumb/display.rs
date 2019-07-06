@@ -86,10 +86,37 @@ impl ThumbInstruction {
             f,
             "{op}{b}\t{Rd}, [{Rb}, {Ro}]",
             op = if self.is_load() { "ldr" } else { "str" },
-            b = if self.is_transfering_bytes() { "b" } else { "" },
+            b = if self.is_transferring_bytes() {
+                "b"
+            } else {
+                ""
+            },
             Rd = reg_string(self.rd()),
             Rb = reg_string(self.rb()),
             Ro = reg_string(self.ro()),
+        )
+    }
+
+    fn fmt_thumb_ldr_str_imm_offset(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{op}{b}\t{Rd}, [{Rb}, #{imm:#x}]",
+            op = if self.is_load() { "ldr" } else { "str" },
+            b = if self.is_transferring_bytes() {
+                "b"
+            } else {
+                ""
+            },
+            Rd = reg_string(self.rd()),
+            Rb = reg_string(self.rb()),
+            imm = {
+                let offset5 = self.offset5();
+                if self.is_transferring_bytes() {
+                    offset5
+                } else {
+                    (offset5 << 3) >> 1
+                }
+            },
         )
     }
 
@@ -204,6 +231,7 @@ impl fmt::Display for ThumbInstruction {
             ThumbFormat::HiRegOpOrBranchExchange => self.fmt_thumb_high_reg_op_or_bx(f),
             ThumbFormat::LdrPc => self.fmt_thumb_ldr_pc(f),
             ThumbFormat::LdrStrRegOffset => self.fmt_thumb_ldr_str_reg_offset(f),
+            ThumbFormat::LdrStrImmOffset => self.fmt_thumb_ldr_str_imm_offset(f),
             ThumbFormat::LdrStrHalfWord => self.fmt_thumb_ldr_str_halfword(f),
             ThumbFormat::LdrStrSp => self.fmt_thumb_ldr_str_sp(f),
             ThumbFormat::AddSp => self.fmt_thumb_add_sp(f),

@@ -261,7 +261,7 @@ impl ThumbInstruction {
         self.raw.bit_range(0..8) << 2
     }
 
-    pub fn is_transfering_bytes(&self) -> bool {
+    pub fn is_transferring_bytes(&self) -> bool {
         self.raw.bit(10)
     }
 

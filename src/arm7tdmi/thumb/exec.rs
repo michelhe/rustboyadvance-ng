@@ -153,16 +153,14 @@ impl Core {
         Ok(CpuPipelineAction::IncPC)
     }
 
-    fn exec_thumb_ldr_str_reg_offset(
+    fn do_exec_thumb_ldr_str(
         &mut self,
         bus: &mut Bus,
         insn: ThumbInstruction,
+        addr: Addr,
     ) -> CpuExecResult {
-        let addr = self
-            .get_reg(insn.rb())
-            .wrapping_add(self.get_reg(insn.ro()));
         if insn.is_load() {
-            let data = if insn.is_transfering_bytes() {
+            let data = if insn.is_transferring_bytes() {
                 self.load_8(addr, bus) as u32
             } else {
                 self.load_32(addr, bus)
@@ -174,7 +172,7 @@ impl Core {
             self.add_cycle();
         } else {
             let value = self.get_reg(insn.rd());
-            if insn.is_transfering_bytes() {
+            if insn.is_transferring_bytes() {
                 self.store_8(addr, value as u8, bus);
             } else {
                 self.store_32(addr, value, bus);
@@ -182,6 +180,31 @@ impl Core {
         }
 
         Ok(CpuPipelineAction::IncPC)
+    }
+
+    fn exec_thumb_ldr_str_reg_offset(
+        &mut self,
+        bus: &mut Bus,
+        insn: ThumbInstruction,
+    ) -> CpuExecResult {
+        let addr = self
+            .get_reg(insn.rb())
+            .wrapping_add(self.get_reg(insn.ro()));
+        self.do_exec_thumb_ldr_str(bus, insn, addr)
+    }
+
+    fn exec_thumb_ldr_str_imm_offset(
+        &mut self,
+        bus: &mut Bus,
+        insn: ThumbInstruction,
+    ) -> CpuExecResult {
+        let offset = if insn.is_transferring_bytes() {
+            insn.offset5()
+        } else {
+            (insn.offset5() << 3) >> 1
+        };
+        let addr = self.get_reg(insn.rb()).wrapping_add(offset as u32);
+        self.do_exec_thumb_ldr_str(bus, insn, addr)
     }
 
     fn exec_thumb_ldr_str_halfword(
@@ -306,6 +329,7 @@ impl Core {
             ThumbFormat::HiRegOpOrBranchExchange => self.exec_thumb_hi_reg_op_or_bx(bus, insn),
             ThumbFormat::LdrPc => self.exec_thumb_ldr_pc(bus, insn),
             ThumbFormat::LdrStrRegOffset => self.exec_thumb_ldr_str_reg_offset(bus, insn),
+            ThumbFormat::LdrStrImmOffset => self.exec_thumb_ldr_str_imm_offset(bus, insn),
             ThumbFormat::LdrStrHalfWord => self.exec_thumb_ldr_str_halfword(bus, insn),
             ThumbFormat::LdrStrSp => self.exec_thumb_ldr_str_sp(bus, insn),
             ThumbFormat::AddSp => self.exec_thumb_add_sp(bus, insn),
