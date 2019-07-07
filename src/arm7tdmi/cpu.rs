@@ -116,7 +116,7 @@ impl Core {
     pub fn set_reg(&mut self, reg_num: usize, val: u32) {
         match reg_num {
             0...14 => self.gpr[reg_num] = val,
-            15 => self.pc = val,
+            15 => self.pc = val & !1,
             _ => panic!("invalid register"),
         }
     }
