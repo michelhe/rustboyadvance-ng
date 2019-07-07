@@ -6,9 +6,7 @@ use crate::arm7tdmi::exception::Exception;
 use crate::arm7tdmi::psr::RegPSR;
 use crate::arm7tdmi::{Addr, CpuError, CpuResult, CpuState, DecodedInstruction, REG_PC};
 
-use super::{
-    ArmFormat, ArmInstruction, ArmOpCode, ArmRegisterShift, ArmShiftType, ArmShiftedValue,
-};
+use super::*;
 
 impl Core {
     pub fn exec_arm(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
@@ -21,6 +19,8 @@ impl Core {
             ArmFormat::DP => self.exec_data_processing(bus, insn),
             ArmFormat::SWI => self.exec_swi(bus, insn),
             ArmFormat::LDR_STR => self.exec_ldr_str(bus, insn),
+            ArmFormat::LDR_STR_HS_IMM => self.exec_ldr_str_hs(bus, insn),
+            ArmFormat::LDR_STR_HS_REG => self.exec_ldr_str_hs(bus, insn),
             ArmFormat::LDM_STM => self.exec_ldm_stm(bus, insn),
             ArmFormat::MSR_REG => self.exec_msr_reg(bus, insn),
             _ => Err(CpuError::UnimplementedCpuInstruction(
@@ -241,9 +241,9 @@ impl Core {
         Ok(pipeline_action)
     }
 
-    fn get_rn_offset(&mut self, insn: &ArmInstruction) -> i32 {
+    fn get_rn_offset(&mut self, sval: ArmShiftedValue) -> i32 {
         // TODO decide if error handling or panic here
-        match insn.ldr_str_offset().unwrap() {
+        match sval {
             ArmShiftedValue::ImmediateValue(offset) => offset,
             ArmShiftedValue::ShiftedRegister {
                 reg,
@@ -284,7 +284,7 @@ impl Core {
             addr = insn.pc + 8; // prefetching
         }
 
-        let offset = self.get_rn_offset(&insn);
+        let offset = self.get_rn_offset(insn.ldr_str_offset().unwrap());
 
         let effective_addr = (addr as i32).wrapping_add(offset) as Addr;
         addr = if insn.pre_index_flag() {
@@ -318,6 +318,70 @@ impl Core {
                 self.store_8(addr, value as u8, bus);
             } else {
                 self.store_32(addr, value, bus);
+            };
+        }
+
+        if insn.write_back_flag() {
+            self.set_reg(insn.rn(), effective_addr as u32)
+        }
+
+        Ok(pipeline_action)
+    }
+
+    fn exec_ldr_str_hs(
+        &mut self,
+        bus: &mut Bus,
+        insn: ArmInstruction,
+    ) -> CpuResult<CpuPipelineAction> {
+        if insn.write_back_flag() && insn.rd() == insn.rn() {
+            return Err(CpuError::IllegalInstruction);
+        }
+
+        let mut pipeline_action = CpuPipelineAction::IncPC;
+
+        let mut addr = self.get_reg(insn.rn());
+        if insn.rn() == REG_PC {
+            addr = insn.pc + 8; // prefetching
+        }
+
+        let offset = self.get_rn_offset(insn.ldr_str_hs_offset().unwrap());
+
+        let effective_addr = (addr as i32).wrapping_add(offset) as Addr;
+        addr = if insn.pre_index_flag() {
+            effective_addr
+        } else {
+            addr
+        };
+
+        if insn.load_flag() {
+            let data = match insn.halfword_data_transfer_type().unwrap() {
+                ArmHalfwordTransferType::SignedByte => self.load_8(addr, bus) as u8 as i8 as u32,
+                ArmHalfwordTransferType::SignedHalfwords => {
+                    self.load_16(addr, bus) as u16 as i16 as u32
+                }
+                ArmHalfwordTransferType::UnsignedHalfwords => self.load_16(addr, bus) as u16 as u32,
+            };
+
+            self.set_reg(insn.rd(), data);
+
+            // +1I
+            self.add_cycle();
+
+            if insn.rd() == REG_PC {
+                pipeline_action = CpuPipelineAction::Flush;
+            }
+        } else {
+            let value = if insn.rd() == REG_PC {
+                insn.pc + 12
+            } else {
+                self.get_reg(insn.rd())
+            };
+
+            match insn.halfword_data_transfer_type().unwrap() {
+                ArmHalfwordTransferType::UnsignedHalfwords => {
+                    self.store_16(addr, value as u16, bus)
+                }
+                _ => panic!("invalid HS flags for L=0")
             };
         }
 
