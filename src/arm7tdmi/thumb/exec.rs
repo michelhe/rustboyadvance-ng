@@ -1,4 +1,4 @@
-use crate::arm7tdmi::arm::*;
+use crate::arm7tdmi::arm::exec::*;
 use crate::arm7tdmi::bus::Bus;
 use crate::arm7tdmi::cpu::{Core, CpuExecResult, CpuPipelineAction};
 use crate::arm7tdmi::*;
@@ -82,12 +82,20 @@ impl Core {
     }
 
     fn exec_thumb_alu_ops(&mut self, _bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
-        let arm_alu_op: ArmOpCode = insn.alu_opcode();
-        let op1 = self.get_reg(insn.rd()) as i32;
-        let op2 = self.get_reg(insn.rs()) as i32;
+        let rd = insn.rd();
+
+        let (arm_alu_op, shft) = insn.alu_opcode();
+        let op1 = self.get_reg(rd) as i32;
+        let op2 = if let Some(shft) = shft {
+            let bs_result = self.register_shift(rd, shft)?;
+            bs_result
+        } else {
+            self.get_reg(insn.rs()) as i32
+        };
+
         let result = self.alu(arm_alu_op, op1, op2, true);
         if let Some(result) = result {
-            self.set_reg(insn.rd(), result as u32);
+            self.set_reg(rd, result as u32);
         }
 
         Ok(CpuPipelineAction::IncPC)

@@ -4,7 +4,7 @@ use crate::bit::BitIndex;
 use crate::byteorder::{LittleEndian, ReadBytesExt};
 use crate::num::FromPrimitive;
 
-use super::arm::{ArmCond, ArmOpCode, ArmShiftType};
+use super::arm::*;
 use super::{Addr, InstructionDecoder, InstructionDecoderError};
 
 pub mod display;
@@ -241,10 +241,38 @@ impl ThumbInstruction {
         OpFormat5::from_u8(self.raw.bit_range(8..10) as u8).unwrap()
     }
 
-    pub fn alu_opcode(&self) -> ArmOpCode {
+    pub fn alu_opcode(&self) -> (ArmOpCode, Option<ArmRegisterShift>) {
         match self.raw.bit_range(6..10) {
+            0b0010 => (
+                ArmOpCode::MOV,
+                Some(ArmRegisterShift::ShiftRegister(
+                    self.rs(),
+                    ArmShiftType::LSL,
+                )),
+            ),
+            0b0011 => (
+                ArmOpCode::MOV,
+                Some(ArmRegisterShift::ShiftRegister(
+                    self.rs(),
+                    ArmShiftType::LSR,
+                )),
+            ),
+            0b0100 => (
+                ArmOpCode::MOV,
+                Some(ArmRegisterShift::ShiftRegister(
+                    self.rs(),
+                    ArmShiftType::ASR,
+                )),
+            ),
+            0b0111 => (
+                ArmOpCode::MOV,
+                Some(ArmRegisterShift::ShiftRegister(
+                    self.rs(),
+                    ArmShiftType::ROR,
+                )),
+            ),
             0b1101 => panic!("tried to decode MUL"),
-            op => ArmOpCode::from_u16(op).unwrap(),
+            op => (ArmOpCode::from_u16(op).unwrap(), None),
         }
     }
 

@@ -37,10 +37,15 @@ impl ThumbInstruction {
     }
 
     fn fmt_thumb_alu_ops(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let (op, shft) = self.alu_opcode();
+        if let Some(ArmRegisterShift::ShiftRegister(_, shftOp)) = shft {
+            write!(f, "{}", shftOp)?;
+        } else {
+            write!(f, "{}", op)?;
+        }
         write!(
             f,
-            "{op}\t{Rd}, {Rs}",
-            op = self.alu_opcode(),
+            "\t{Rd}, {Rs}",
             Rd = reg_string(self.rd()),
             Rs = reg_string(self.rs())
         )
