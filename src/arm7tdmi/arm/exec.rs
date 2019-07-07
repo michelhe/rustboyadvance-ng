@@ -309,7 +309,11 @@ impl Core {
                 pipeline_action = CpuPipelineAction::Flush;
             }
         } else {
-            let value = self.get_reg(insn.rd());
+            let value = if insn.rd() == REG_PC {
+                insn.pc + 12
+            } else {
+                self.get_reg(insn.rd())
+            };
             if insn.transfer_size() == 1 {
                 self.store_8(addr, value as u8, bus);
             } else {
