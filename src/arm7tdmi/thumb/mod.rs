@@ -61,7 +61,7 @@ pub enum ThumbFormat {
     /// Format 11
     LdrStrSp,
     /// Format 12
-    LdrAddress,
+    LoadAddress,
     /// Format 13
     AddSp,
     /// Format 14
@@ -116,7 +116,7 @@ impl InstructionDecoder for ThumbInstruction {
         } else if raw & 0xf000 == 0x9000 {
             Ok(LdrStrSp)
         } else if raw & 0xf000 == 0xa000 {
-            Ok(LdrAddress)
+            Ok(LoadAddress)
         } else if raw & 0xff00 == 0xb000 {
             Ok(AddSp)
         } else if raw & 0xf600 == 0xb400 {
@@ -208,7 +208,7 @@ impl ThumbInstruction {
             ThumbFormat::DataProcessImm
             | ThumbFormat::LdrPc
             | ThumbFormat::LdrStrSp
-            | ThumbFormat::LdrAddress => self.raw.bit_range(8..11) as usize,
+            | ThumbFormat::LoadAddress => self.raw.bit_range(8..11) as usize,
             _ => (self.raw & 0b111) as usize,
         }
     }

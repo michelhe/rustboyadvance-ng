@@ -163,7 +163,7 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_thumb_ldr_address(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_load_address(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "add\t{Rd}, {r}, #{Imm:#x}",
@@ -291,7 +291,7 @@ impl fmt::Display for ThumbInstruction {
             ThumbFormat::LdrStrImmOffset => self.fmt_thumb_ldr_str_imm_offset(f),
             ThumbFormat::LdrStrHalfWord => self.fmt_thumb_ldr_str_halfword(f),
             ThumbFormat::LdrStrSp => self.fmt_thumb_ldr_str_sp(f),
-            ThumbFormat::LdrAddress => self.fmt_thumb_ldr_address(f),
+            ThumbFormat::LoadAddress => self.fmt_thumb_load_address(f),
             ThumbFormat::AddSp => self.fmt_thumb_add_sp(f),
             ThumbFormat::PushPop => self.fmt_thumb_push_pop(f),
             ThumbFormat::LdmStm => self.fmt_thumb_ldm_stm(f),

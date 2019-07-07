@@ -266,13 +266,15 @@ impl Core {
         self.do_exec_thumb_ldr_str_with_addr(bus, insn, addr)
     }
 
-    fn exec_thumb_ldr_address(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
-        let addr = if insn.flag(ThumbInstruction::FLAG_SP) {
+    fn exec_thumb_load_address(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
+        let result = if insn.flag(ThumbInstruction::FLAG_SP) {
             self.gpr[REG_SP] + (insn.word8() as Addr)
         } else {
             (insn.pc & !0b10) + 4 + (insn.word8() as Addr)
         };
-        self.do_exec_thumb_ldr_str_with_addr(bus, insn, addr)
+        self.gpr[insn.rd()] = result;
+
+        Ok(CpuPipelineAction::IncPC)
     }
 
     fn do_exec_thumb_ldr_str_with_addr(
@@ -415,7 +417,7 @@ impl Core {
             ThumbFormat::LdrStrImmOffset => self.exec_thumb_ldr_str_imm_offset(bus, insn),
             ThumbFormat::LdrStrHalfWord => self.exec_thumb_ldr_str_halfword(bus, insn),
             ThumbFormat::LdrStrSp => self.exec_thumb_ldr_str_sp(bus, insn),
-            ThumbFormat::LdrAddress => self.exec_thumb_ldr_address(bus, insn),
+            ThumbFormat::LoadAddress => self.exec_thumb_load_address(bus, insn),
             ThumbFormat::AddSp => self.exec_thumb_add_sp(bus, insn),
             ThumbFormat::PushPop => self.exec_thumb_push_pop(bus, insn),
             ThumbFormat::LdmStm => self.exec_thumb_ldm_stm(bus, insn),
