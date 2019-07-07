@@ -137,6 +137,9 @@ impl Core {
             let result = self.alu(arm_alu_op, op1, op2, true);
             if let Some(result) = result {
                 self.set_reg(dst_reg, result as u32);
+                if dst_reg == REG_PC {
+                    return Ok(CpuPipelineAction::Flush);
+                }
             }
             Ok(CpuPipelineAction::IncPC)
         }
