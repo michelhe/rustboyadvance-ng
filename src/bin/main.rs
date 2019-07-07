@@ -14,13 +14,12 @@ use rustboyadvance_ng::{GBAResult, GameBoyAdvance};
 fn run_debug(matches: &ArgMatches) -> GBAResult<()> {
     let skip_bios = match matches.occurrences_of("skip_bios") {
         0 => false,
-        _ => true
+        _ => true,
     };
 
     let bios_bin = read_bin_file(matches.value_of("bios").unwrap_or_default())?;
-    let rom_bin = read_bin_file(matches.value_of("game_rom").unwrap())?;
 
-    let gamepak = Cartridge::new(rom_bin);
+    let gamepak = Cartridge::load(matches.value_of("game_rom").unwrap())?;
     println!("loaded rom: {:#?}", gamepak.header);
 
     let mut core = Core::new();

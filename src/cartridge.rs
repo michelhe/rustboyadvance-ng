@@ -5,6 +5,8 @@ use crate::arm7tdmi::{
     Addr,
 };
 use crate::sysbus::WaitState;
+use crate::util::read_bin_file;
+use crate::GBAError;
 
 /// From GBATEK
 ///
@@ -73,13 +75,20 @@ pub struct Cartridge {
 }
 
 impl Cartridge {
-    pub fn new(gamepak: Vec<u8>) -> Cartridge {
-        let header = CartridgeHeader::parse(&gamepak);
-        Cartridge {
-            header: header,
-            bytes: gamepak.into_boxed_slice(),
-            ws: WaitState::new(5, 5, 8),
+    const MIN_SIZE: usize = 4 * 1024 * 1024;
+
+    pub fn load(path: &str) -> Result<Cartridge, GBAError> {
+        let mut rom_bin = read_bin_file(path)?;
+        if rom_bin.len() < Cartridge::MIN_SIZE {
+            rom_bin.resize_with(Cartridge::MIN_SIZE, Default::default);
         }
+
+        let header = CartridgeHeader::parse(&rom_bin);
+        Ok(Cartridge {
+            header: header,
+            bytes: rom_bin.into_boxed_slice(),
+            ws: WaitState::new(5, 5, 8),
+        })
     }
 }
 

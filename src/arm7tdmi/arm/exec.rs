@@ -381,7 +381,7 @@ impl Core {
                 ArmHalfwordTransferType::UnsignedHalfwords => {
                     self.store_16(addr, value as u16, bus)
                 }
-                _ => panic!("invalid HS flags for L=0")
+                _ => panic!("invalid HS flags for L=0"),
             };
         }
 
