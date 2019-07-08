@@ -239,7 +239,7 @@ impl Core {
 
     fn alu_add_flags(a: i32, b: i32, carry: &mut bool, overflow: &mut bool) -> i32 {
         let res = a.wrapping_add(b) as u32;
-        *carry = res < a as u32|| res < b as u32;
+        *carry = res < a as u32 || res < b as u32;
         let (_, would_overflow) = a.overflowing_add(b);
         *overflow = would_overflow;
         res as i32
@@ -267,8 +267,8 @@ impl Core {
             RSB => Self::alu_sub_flags(op2, op1, &mut carry, &mut overflow),
             ADD | CMN => Self::alu_add_flags(op1, op2, &mut carry, &mut overflow),
             ADC => Self::alu_add_flags(op1, op2.wrapping_add(C), &mut carry, &mut overflow),
-            SBC => Self::alu_sub_flags(op1, op2.wrapping_sub(1 - C), &mut carry, &mut overflow),
-            RSC => Self::alu_sub_flags(op2, op1.wrapping_sub(1 - C), &mut carry, &mut overflow),
+            SBC => Self::alu_sub_flags(op1, op2, &mut carry, &mut overflow).wrapping_sub(1 - C),
+            RSC => Self::alu_sub_flags(op2, op1, &mut carry, &mut overflow).wrapping_sub(1 - C),
             ORR => op1 | op2,
             MOV => op2,
             BIC => op1 & (!op2),
