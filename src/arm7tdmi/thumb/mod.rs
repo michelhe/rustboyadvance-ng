@@ -4,6 +4,7 @@ use crate::bit::BitIndex;
 use crate::byteorder::{LittleEndian, ReadBytesExt};
 use crate::num::FromPrimitive;
 
+use super::alu::*;
 use super::arm::*;
 use super::{Addr, InstructionDecoder, InstructionDecoderError};
 
@@ -42,7 +43,7 @@ pub enum ThumbFormat {
     AddSub,
     /// Format 3
     DataProcessImm,
-    /// Belongs to Format 4, but decoded seperatly because ArmOpcode doesn't have MUL
+    /// Belongs to Format 4, but decoded seperatly because AluOpCode doesn't have MUL
     Mul,
     /// Format 4
     AluOps,
@@ -163,13 +164,13 @@ pub enum OpFormat3 {
     SUB = 3,
 }
 
-impl From<OpFormat3> for ArmOpCode {
-    fn from(op: OpFormat3) -> ArmOpCode {
+impl From<OpFormat3> for AluOpCode {
+    fn from(op: OpFormat3) -> AluOpCode {
         match op {
-            OpFormat3::MOV => ArmOpCode::MOV,
-            OpFormat3::CMP => ArmOpCode::CMP,
-            OpFormat3::ADD => ArmOpCode::ADD,
-            OpFormat3::SUB => ArmOpCode::SUB,
+            OpFormat3::MOV => AluOpCode::MOV,
+            OpFormat3::CMP => AluOpCode::CMP,
+            OpFormat3::ADD => AluOpCode::ADD,
+            OpFormat3::SUB => AluOpCode::SUB,
         }
     }
 }
@@ -182,12 +183,12 @@ pub enum OpFormat5 {
     BX = 3,
 }
 
-impl From<OpFormat5> for ArmOpCode {
-    fn from(op: OpFormat5) -> ArmOpCode {
+impl From<OpFormat5> for AluOpCode {
+    fn from(op: OpFormat5) -> AluOpCode {
         match op {
-            OpFormat5::ADD => ArmOpCode::ADD,
-            OpFormat5::CMP => ArmOpCode::CMP,
-            OpFormat5::MOV => ArmOpCode::MOV,
+            OpFormat5::ADD => AluOpCode::ADD,
+            OpFormat5::CMP => AluOpCode::CMP,
+            OpFormat5::MOV => AluOpCode::MOV,
             OpFormat5::BX => panic!("this should not be called if op = BX"),
         }
     }
@@ -229,8 +230,8 @@ impl ThumbInstruction {
         self.raw.bit_range(6..9) as usize
     }
 
-    pub fn format1_op(&self) -> ArmShiftType {
-        ArmShiftType::from_u8(self.raw.bit_range(11..13) as u8).unwrap()
+    pub fn format1_op(&self) -> BarrelShiftOpCode {
+        BarrelShiftOpCode::from_u8(self.raw.bit_range(11..13) as u8).unwrap()
     }
 
     pub fn format3_op(&self) -> OpFormat3 {
@@ -241,38 +242,38 @@ impl ThumbInstruction {
         OpFormat5::from_u8(self.raw.bit_range(8..10) as u8).unwrap()
     }
 
-    pub fn alu_opcode(&self) -> (ArmOpCode, Option<ArmRegisterShift>) {
+    pub fn alu_opcode(&self) -> (AluOpCode, Option<ShiftedRegister>) {
         match self.raw.bit_range(6..10) {
             0b0010 => (
-                ArmOpCode::MOV,
-                Some(ArmRegisterShift::ShiftRegister(
+                AluOpCode::MOV,
+                Some(ShiftedRegister::ByRegister(
                     self.rs(),
-                    ArmShiftType::LSL,
+                    BarrelShiftOpCode::LSL,
                 )),
             ),
             0b0011 => (
-                ArmOpCode::MOV,
-                Some(ArmRegisterShift::ShiftRegister(
+                AluOpCode::MOV,
+                Some(ShiftedRegister::ByRegister(
                     self.rs(),
-                    ArmShiftType::LSR,
+                    BarrelShiftOpCode::LSR,
                 )),
             ),
             0b0100 => (
-                ArmOpCode::MOV,
-                Some(ArmRegisterShift::ShiftRegister(
+                AluOpCode::MOV,
+                Some(ShiftedRegister::ByRegister(
                     self.rs(),
-                    ArmShiftType::ASR,
+                    BarrelShiftOpCode::ASR,
                 )),
             ),
             0b0111 => (
-                ArmOpCode::MOV,
-                Some(ArmRegisterShift::ShiftRegister(
+                AluOpCode::MOV,
+                Some(ShiftedRegister::ByRegister(
                     self.rs(),
-                    ArmShiftType::ROR,
+                    BarrelShiftOpCode::ROR,
                 )),
             ),
             0b1101 => panic!("tried to decode MUL"),
-            op => (ArmOpCode::from_u16(op).unwrap(), None),
+            op => (AluOpCode::from_u16(op).unwrap(), None),
         }
     }
 
@@ -383,9 +384,13 @@ mod tests {
         // ldr r0, [pc, #4]
         let insn = ThumbInstruction::decode(0x4801, 0x6).unwrap();
 
+        #[rustfmt::skip]
         let bytes = vec![
-            /* 0: */ 0x00, 0x00, /* 2: */ 0x00, 0x00, /* 4: */ 0x00, 0x00,
-            /* 6: <pc> */ 0x00, 0x00, /* 8: */ 0x00, 0x00, 0x00, 0x00,
+            /* 0: */ 0x00, 0x00, 
+            /* 2: */ 0x00, 0x00,
+            /* 4: */ 0x00, 0x00,
+            /* 6: <pc> */ 0x00, 0x00,
+            /* 8: */ 0x00, 0x00, 0x00, 0x00,
             /* c: */ 0x78, 0x56, 0x34, 0x12,
         ];
         let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
@@ -413,10 +418,13 @@ mod tests {
         core.set_reg(1, 0x4);
         core.set_reg(4, 0xc);
 
+        #[rustfmt::skip]
         let bytes = vec![
-            /*  0: */ 0xaa, 0xbb, 0xcc, 0xdd, /*  4: */ 0xaa, 0xbb, 0xcc, 0xdd,
-            /*  8: */ 0xaa, 0xbb, 0xcc, 0xdd, /*  c: */ 0xaa, 0xbb, 0xcc, 0xdd,
-            /* 10: */ 0xaa, 0xbb, 0xcc, 0xdd,
+            /* 00h: */ 0xaa, 0xbb, 0xcc, 0xdd,
+            /* 04h: */ 0xaa, 0xbb, 0xcc, 0xdd,
+            /* 08h: */ 0xaa, 0xbb, 0xcc, 0xdd,
+            /* 0ch: */ 0xaa, 0xbb, 0xcc, 0xdd,
+            /* 10h: */ 0xaa, 0xbb, 0xcc, 0xdd,
         ];
         let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
 
@@ -438,14 +446,14 @@ mod tests {
     #[test]
     fn format8() {
         let mut core = Core::new();
+        #[rustfmt::skip]
         let bytes = vec![
-            /*  0: */ 0xaa, 0xbb, 0xcc, 0xdd, 0xaa, 0xbb, 0xcc, 0xdd,
-            /*  8: */ 0xaa, 0xbb, 0xcc, 0xdd, 0xaa, 0xbb, 0xcc, 0xdd,
-            /* 10: */ 0xaa, 0xbb, 0xcc, 0xdd, 0xaa, 0xbb, 0xcc, 0xdd,
+            /* 00h: */ 0xaa, 0xbb, 0xcc, 0xdd, 0xaa, 0xbb, 0xcc, 0xdd,
+            /* 08h: */ 0xaa, 0xbb, 0xcc, 0xdd, 0xaa, 0xbb, 0xcc, 0xdd,
+            /* 10h: */ 0xaa, 0xbb, 0xcc, 0xdd, 0xaa, 0xbb, 0xcc, 0xdd,
         ];
         let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
 
-        
         core.gpr[4] = 0x12345678;
         core.gpr[3] = 0x2;
         core.gpr[0] = 0x4;

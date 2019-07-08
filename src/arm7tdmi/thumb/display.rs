@@ -38,8 +38,8 @@ impl ThumbInstruction {
 
     fn fmt_thumb_alu_ops(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let (op, shft) = self.alu_opcode();
-        if let Some(ArmRegisterShift::ShiftRegister(_, shftOp)) = shft {
-            write!(f, "{}", shftOp)?;
+        if let Some(ShiftedRegister::ByRegister(_, op)) = shft {
+            write!(f, "{}", op)?;
         } else {
             write!(f, "{}", op)?;
         }
@@ -115,7 +115,6 @@ impl ThumbInstruction {
                     (false, true) => "ldrh",
                     (true, false) => "ldsb",
                     (true, true) => "ldsh",
-                    _ => panic!("invalid flags"),
                 }
             },
             Rd = reg_string(self.rd()),

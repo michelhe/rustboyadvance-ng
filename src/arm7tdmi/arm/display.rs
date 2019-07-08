@@ -1,10 +1,9 @@
 use std::fmt;
 
-use super::{
-    ArmCond, ArmFormat, ArmHalfwordTransferType, ArmInstruction, ArmOpCode, ArmRegisterShift,
-    ArmShiftType, ArmShiftedValue,
+use super::{AluOpCode, ArmCond, ArmFormat, ArmHalfwordTransferType, ArmInstruction};
+use crate::arm7tdmi::{
+    reg_string, Addr, BarrelShiftOpCode, BarrelShifterValue, ShiftedRegister, REG_PC,
 };
-use crate::arm7tdmi::{reg_string, Addr, REG_PC};
 
 impl fmt::Display for ArmCond {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -29,9 +28,9 @@ impl fmt::Display for ArmCond {
     }
 }
 
-impl fmt::Display for ArmOpCode {
+impl fmt::Display for AluOpCode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use ArmOpCode::*;
+        use AluOpCode::*;
         match self {
             AND => write!(f, "and"),
             EOR => write!(f, "eor"),
@@ -53,9 +52,9 @@ impl fmt::Display for ArmOpCode {
     }
 }
 
-impl fmt::Display for ArmShiftType {
+impl fmt::Display for BarrelShiftOpCode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use ArmShiftType::*;
+        use BarrelShiftOpCode::*;
         match self {
             LSL => write!(f, "lsl"),
             LSR => write!(f, "lsr"),
@@ -76,25 +75,23 @@ impl fmt::Display for ArmHalfwordTransferType {
     }
 }
 
-fn is_shift(shift: &ArmRegisterShift) -> bool {
-    if let ArmRegisterShift::ShiftAmount(val, typ) = shift {
-        return !(*val == 0 && *typ == ArmShiftType::LSL);
+fn is_shift(shift: &ShiftedRegister) -> bool {
+    if let ShiftedRegister::ByAmount(val, typ) = shift {
+        return !(*val == 0 && *typ == BarrelShiftOpCode::LSL);
     }
     true
 }
 
 impl ArmInstruction {
-    fn make_shifted_reg_string(&self, reg: usize, shift: ArmRegisterShift) -> String {
+    fn make_shifted_reg_string(&self, reg: usize, shift: ShiftedRegister) -> String {
         let reg = reg_string(reg).to_string();
         if !is_shift(&shift) {
             return reg;
         }
 
         match shift {
-            ArmRegisterShift::ShiftAmount(imm, typ) => format!("{}, {} #{}", reg, typ, imm),
-            ArmRegisterShift::ShiftRegister(rs, typ) => {
-                format!("{}, {} {}", reg, typ, reg_string(rs))
-            }
+            ShiftedRegister::ByAmount(imm, typ) => format!("{}, {} #{}", reg, typ, imm),
+            ShiftedRegister::ByRegister(rs, typ) => format!("{}, {} {}", reg, typ, reg_string(rs)),
         }
     }
 
@@ -121,7 +118,7 @@ impl ArmInstruction {
     }
 
     fn fmt_data_processing(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use ArmOpCode::*;
+        use AluOpCode::*;
 
         let opcode = self.opcode().unwrap();
 
@@ -154,11 +151,11 @@ impl ArmInstruction {
 
         let operand2 = self.operand2().unwrap();
         match operand2 {
-            ArmShiftedValue::RotatedImmediate(_, _) => {
+            BarrelShifterValue::RotatedImmediate(_, _) => {
                 let value = operand2.decode_rotated_immediate().unwrap();
                 write!(f, "#{}\t; {:#x}", value, value)
             }
-            ArmShiftedValue::ShiftedRegister {
+            BarrelShifterValue::ShiftedRegister {
                 reg,
                 shift,
                 added: _,
@@ -175,10 +172,10 @@ impl ArmInstruction {
         }
     }
 
-    fn fmt_rn_offset(&self, f: &mut fmt::Formatter, offset: ArmShiftedValue) -> fmt::Result {
+    fn fmt_rn_offset(&self, f: &mut fmt::Formatter, offset: BarrelShifterValue) -> fmt::Result {
         write!(f, "[{Rn}", Rn = reg_string(self.rn()))?;
         let (ofs_string, comment) = match offset {
-            ArmShiftedValue::ImmediateValue(value) => {
+            BarrelShifterValue::ImmediateValue(value) => {
                 let value_for_commnet = if self.rn() == REG_PC {
                     value + (self.pc as i32) + 8 // account for pipelining
                 } else {
@@ -189,7 +186,7 @@ impl ArmInstruction {
                     Some(format!("\t; {:#x}", value_for_commnet)),
                 )
             }
-            ArmShiftedValue::ShiftedRegister {
+            BarrelShifterValue::ShiftedRegister {
                 reg,
                 shift,
                 added: Some(added),
@@ -232,7 +229,7 @@ impl ArmInstruction {
             Rd = reg_string(self.rd()),
         )?;
 
-        self.fmt_rn_offset(f, self.ldr_str_offset().unwrap())
+        self.fmt_rn_offset(f, self.ldr_str_offset())
     }
 
     fn fmt_ldm_stm(&self, f: &mut fmt::Formatter) -> fmt::Result {

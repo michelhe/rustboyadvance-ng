@@ -1,4 +1,3 @@
-use crate::arm7tdmi::arm::exec::*;
 use crate::arm7tdmi::bus::Bus;
 use crate::arm7tdmi::cpu::{Core, CpuExecResult, CpuPipelineAction};
 use crate::arm7tdmi::*;
@@ -25,7 +24,7 @@ impl Core {
         let result = self
             .register_shift(
                 insn.rs(),
-                ArmRegisterShift::ShiftAmount(insn.offset5() as u8 as u32, insn.format1_op()),
+                ShiftedRegister::ByAmount(insn.offset5() as u8 as u32, insn.format1_op()),
             )
             .unwrap();
         self.gpr[insn.rd()] = result as u32;
@@ -41,9 +40,9 @@ impl Core {
             self.get_reg(insn.rn()) as i32
         };
         let arm_alu_op = if insn.is_subtract() {
-            ArmOpCode::SUB
+            AluOpCode::SUB
         } else {
-            ArmOpCode::ADD
+            AluOpCode::ADD
         };
 
         let result = self.alu(arm_alu_op, op1, op2, true);
@@ -59,7 +58,7 @@ impl Core {
         _bus: &mut Bus,
         insn: ThumbInstruction,
     ) -> CpuExecResult {
-        let arm_alu_op: ArmOpCode = insn.format3_op().into();
+        let arm_alu_op: AluOpCode = insn.format3_op().into();
         let op1 = self.get_reg(insn.rd()) as i32;
         let op2 = insn.offset8() as u8 as i32;
         let result = self.alu(arm_alu_op, op1, op2, true);
@@ -139,10 +138,10 @@ impl Core {
             } else {
                 insn.rs()
             };
-            let arm_alu_op: ArmOpCode = insn.format5_op().into();
+            let arm_alu_op: AluOpCode = insn.format5_op().into();
             let op1 = self.get_reg(dst_reg) as i32;
             let op2 = self.get_reg(src_reg) as i32;
-            let result = self.alu(arm_alu_op, op1, op2, true);
+            let result = self.alu(arm_alu_op, op1, op2, false);
             if let Some(result) = result {
                 self.set_reg(dst_reg, result as u32);
                 if dst_reg == REG_PC {
@@ -235,7 +234,6 @@ impl Core {
                 let val = self.load_16(addr, bus) as i16 as i32 as u32;
                 self.gpr[rd] = val;
             }
-            _ => panic!("invalid flags"),
         }
 
         Ok(CpuPipelineAction::IncPC)
@@ -277,7 +275,7 @@ impl Core {
         self.do_exec_thumb_ldr_str_with_addr(bus, insn, addr)
     }
 
-    fn exec_thumb_load_address(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
+    fn exec_thumb_load_address(&mut self, _bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         let result = if insn.flag(ThumbInstruction::FLAG_SP) {
             self.gpr[REG_SP] + (insn.word8() as Addr)
         } else {
@@ -307,7 +305,7 @@ impl Core {
     fn exec_thumb_add_sp(&mut self, _bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         let op1 = self.gpr[REG_SP] as i32;
         let op2 = insn.sword7();
-        let arm_alu_op = ArmOpCode::ADD;
+        let arm_alu_op = AluOpCode::ADD;
 
         let result = self.alu(arm_alu_op, op1, op2, false);
         if let Some(result) = result {
@@ -352,7 +350,6 @@ impl Core {
 
         let is_load = insn.is_load();
         let rb = insn.rb();
-        let mut pipeline_action = CpuPipelineAction::IncPC;
 
         let mut addr = self.gpr[rb];
         let rlist = insn.register_list();
@@ -370,7 +367,7 @@ impl Core {
             }
         }
 
-        Ok(pipeline_action)
+        Ok(CpuPipelineAction::IncPC)
     }
 
     fn exec_thumb_branch_with_cond(

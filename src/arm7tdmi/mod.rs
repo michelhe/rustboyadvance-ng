@@ -10,6 +10,8 @@ use thumb::{ThumbDecodeError, ThumbInstruction};
 
 pub mod cpu;
 pub use cpu::*;
+pub mod alu;
+pub use alu::*;
 pub mod bus;
 pub use bus::*;
 pub mod exception;
