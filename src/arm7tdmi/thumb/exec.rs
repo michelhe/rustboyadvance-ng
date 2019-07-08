@@ -114,10 +114,12 @@ impl Core {
             insn.rs()
         };
 
-        let addr = self.get_reg(src_reg);
+        let mut addr = self.get_reg(src_reg);
         if addr.bit(0) {
             self.cpsr.set_state(CpuState::THUMB);
         } else {
+            // word align when switching to arm state
+            addr = addr & !0x3;
             self.cpsr.set_state(CpuState::ARM);
         }
 
