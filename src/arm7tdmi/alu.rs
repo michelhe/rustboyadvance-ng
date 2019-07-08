@@ -3,7 +3,7 @@ use num::FromPrimitive;
 
 use super::{Core, CpuError, CpuResult, REG_PC};
 
-#[derive(Debug, Primitive)]
+#[derive(Debug, Primitive, PartialEq)]
 pub enum AluOpCode {
     AND = 0b0000,
     EOR = 0b0001,
@@ -226,6 +226,26 @@ impl Core {
                     Err(CpuError::IllegalInstruction)
                 }
             }
+        }
+    }
+
+    pub fn get_barrel_shifted_value(&mut self, sval: BarrelShifterValue) -> i32 {
+        // TODO decide if error handling or panic here
+        match sval {
+            BarrelShifterValue::ImmediateValue(offset) => offset,
+            BarrelShifterValue::ShiftedRegister {
+                reg,
+                shift,
+                added: Some(added),
+            } => {
+                let abs = self.register_shift(reg, shift).unwrap();
+                if added {
+                    abs
+                } else {
+                    -abs
+                }
+            }
+            _ => panic!("bad barrel shift"),
         }
     }
 

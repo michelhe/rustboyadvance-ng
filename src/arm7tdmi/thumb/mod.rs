@@ -242,36 +242,42 @@ impl ThumbInstruction {
         OpFormat5::from_u8(self.raw.bit_range(8..10) as u8).unwrap()
     }
 
-    pub fn alu_opcode(&self) -> (AluOpCode, Option<ShiftedRegister>) {
+    pub fn alu_opcode(&self) -> (AluOpCode, Option<BarrelShifterValue>) {
+        use ShiftedRegister::*;
         match self.raw.bit_range(6..10) {
             0b0010 => (
                 AluOpCode::MOV,
-                Some(ShiftedRegister::ByRegister(
-                    self.rs(),
-                    BarrelShiftOpCode::LSL,
-                )),
+                Some(BarrelShifterValue::ShiftedRegister {
+                    reg: self.rd(),
+                    shift: ByRegister(self.rs(), BarrelShiftOpCode::LSL),
+                    added: Some(true),
+                }),
             ),
             0b0011 => (
                 AluOpCode::MOV,
-                Some(ShiftedRegister::ByRegister(
-                    self.rs(),
-                    BarrelShiftOpCode::LSR,
-                )),
+                Some(BarrelShifterValue::ShiftedRegister {
+                    reg: self.rd(),
+                    shift: ByRegister(self.rs(), BarrelShiftOpCode::LSR),
+                    added: Some(true),
+                }),
             ),
             0b0100 => (
                 AluOpCode::MOV,
-                Some(ShiftedRegister::ByRegister(
-                    self.rs(),
-                    BarrelShiftOpCode::ASR,
-                )),
+                Some(BarrelShifterValue::ShiftedRegister {
+                    reg: self.rd(),
+                    shift: ByRegister(self.rs(), BarrelShiftOpCode::ASR),
+                    added: Some(true),
+                }),
             ),
             0b0111 => (
                 AluOpCode::MOV,
-                Some(ShiftedRegister::ByRegister(
-                    self.rs(),
-                    BarrelShiftOpCode::ROR,
-                )),
+                Some(BarrelShifterValue::ShiftedRegister {
+                    reg: self.rd(),
+                    shift: ByRegister(self.rs(), BarrelShiftOpCode::ROR),
+                    added: Some(true),
+                }),
             ),
+            0b1001 => (AluOpCode::RSB, Some(BarrelShifterValue::ImmediateValue(0))),
             0b1101 => panic!("tried to decode MUL"),
             op => (AluOpCode::from_u16(op).unwrap(), None),
         }

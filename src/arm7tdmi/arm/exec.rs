@@ -135,26 +135,6 @@ impl Core {
         Ok(pipeline_action)
     }
 
-    fn get_rn_offset(&mut self, sval: BarrelShifterValue) -> i32 {
-        // TODO decide if error handling or panic here
-        match sval {
-            BarrelShifterValue::ImmediateValue(offset) => offset,
-            BarrelShifterValue::ShiftedRegister {
-                reg,
-                shift,
-                added: Some(added),
-            } => {
-                let abs = self.register_shift(reg, shift).unwrap();
-                if added {
-                    abs
-                } else {
-                    -abs
-                }
-            }
-            _ => panic!("bad barrel shift"),
-        }
-    }
-
     /// Memory Load/Store
     /// Instruction                     |  Cycles       | Flags | Expl.
     /// ------------------------------------------------------------------------------
@@ -178,7 +158,7 @@ impl Core {
             addr = insn.pc + 8; // prefetching
         }
 
-        let offset = self.get_rn_offset(insn.ldr_str_offset());
+        let offset = self.get_barrel_shifted_value(insn.ldr_str_offset());
 
         let effective_addr = (addr as i32).wrapping_add(offset) as Addr;
         addr = if insn.pre_index_flag() {
@@ -238,7 +218,7 @@ impl Core {
             addr = insn.pc + 8; // prefetching
         }
 
-        let offset = self.get_rn_offset(insn.ldr_str_hs_offset().unwrap());
+        let offset = self.get_barrel_shifted_value(insn.ldr_str_hs_offset().unwrap());
 
         let effective_addr = (addr as i32).wrapping_add(offset) as Addr;
         addr = if insn.pre_index_flag() {

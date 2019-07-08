@@ -37,9 +37,16 @@ impl ThumbInstruction {
     }
 
     fn fmt_thumb_alu_ops(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use ShiftedRegister::ByRegister;
         let (op, shft) = self.alu_opcode();
-        if let Some(ShiftedRegister::ByRegister(_, op)) = shft {
+        if let Some(BarrelShifterValue::ShiftedRegister {
+            shift: ByRegister(_, op),
+            ..
+        }) = shft
+        {
             write!(f, "{}", op)?;
+        } else if op == AluOpCode::RSB {
+            write!(f, "neg")?;
         } else {
             write!(f, "{}", op)?;
         }

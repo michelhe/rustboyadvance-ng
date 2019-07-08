@@ -92,8 +92,7 @@ impl Core {
         let (arm_alu_op, shft) = insn.alu_opcode();
         let op1 = self.get_reg(rd) as i32;
         let op2 = if let Some(shft) = shft {
-            let bs_result = self.register_shift(rd, shft)?;
-            bs_result
+            self.get_barrel_shifted_value(shft)
         } else {
             self.get_reg(insn.rs()) as i32
         };
