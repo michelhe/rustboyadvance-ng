@@ -238,11 +238,11 @@ impl Core {
     }
 
     fn alu_add_flags(a: i32, b: i32, carry: &mut bool, overflow: &mut bool) -> i32 {
-        let res = a.wrapping_add(b);
-        *carry = res < a;
+        let res = a.wrapping_add(b) as u32;
+        *carry = res < a as u32|| res < b as u32;
         let (_, would_overflow) = a.overflowing_add(b);
         *overflow = would_overflow;
-        res
+        res as i32
     }
 
     #[allow(non_snake_case)]
