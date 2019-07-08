@@ -176,9 +176,9 @@ impl Core {
                         val
                     }
                     _ => {
-                        let result = val.rotate_right(amount);
-                        self.cpsr.set_C((result >> 1) & 1 == 1);
-                        result
+                        let amount = amount % 32;
+                        self.cpsr.set_C(((val as u32) >> (amount - 1)) & 1 == 1);
+                        val.rotate_right(amount)
                     }
                 }
             }
