@@ -201,7 +201,7 @@ impl Core {
 
     fn alu_sub_flags(a: i32, b: i32, carry: &mut bool, overflow: &mut bool) -> i32 {
         let res = a.wrapping_sub(b);
-        *carry = res > a;
+        *carry = b <= a;
         let (_, would_overflow) = a.overflowing_sub(b);
         *overflow = would_overflow;
         res
