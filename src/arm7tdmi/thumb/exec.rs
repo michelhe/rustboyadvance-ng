@@ -147,9 +147,10 @@ impl Core {
                 insn.rs()
             };
             let arm_alu_op: AluOpCode = insn.format5_op().into();
+            let set_flags = arm_alu_op.is_setting_flags();
             let op1 = self.get_reg(dst_reg) as i32;
             let op2 = self.get_reg(src_reg) as i32;
-            let result = self.alu(arm_alu_op, op1, op2, false);
+            let result = self.alu(arm_alu_op, op1, op2, set_flags);
             if let Some(result) = result {
                 self.set_reg(dst_reg, result as u32);
                 if dst_reg == REG_PC {
