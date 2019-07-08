@@ -21,13 +21,19 @@ impl Core {
         _bus: &mut Bus,
         insn: ThumbInstruction,
     ) -> CpuExecResult {
-        let result = self
+        let op2 = self
             .register_shift(
                 insn.rs(),
                 ShiftedRegister::ByAmount(insn.offset5() as u8 as u32, insn.format1_op()),
             )
             .unwrap();
-        self.gpr[insn.rd()] = result as u32;
+
+        let rd = insn.rd();
+        let op1 = self.get_reg(rd) as i32;
+        let result = self.alu(AluOpCode::MOV, op1, op2, true);
+        if let Some(result) = result {
+            self.set_reg(rd, result as u32);
+        }
 
         Ok(CpuPipelineAction::IncPC)
     }
