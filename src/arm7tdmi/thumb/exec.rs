@@ -375,6 +375,8 @@ impl Core {
             }
         }
 
+        self.gpr[rb] = addr as u32;
+
         Ok(CpuPipelineAction::IncPC)
     }
 

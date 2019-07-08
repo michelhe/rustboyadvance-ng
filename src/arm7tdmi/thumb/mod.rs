@@ -219,7 +219,10 @@ impl ThumbInstruction {
     }
 
     pub fn rb(&self) -> usize {
-        self.raw.bit_range(3..6) as usize
+        match self.fmt {
+            ThumbFormat::LdmStm => self.raw.bit_range(8..11) as usize,
+            _ => self.raw.bit_range(3..6) as usize,
+        }
     }
 
     pub fn ro(&self) -> usize {
