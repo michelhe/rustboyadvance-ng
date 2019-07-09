@@ -2,7 +2,7 @@
 name = "rustboyadvance-ng"
 version = "0.1.0"
 authors = ["Michel Heily <michelheily@gmail.com>"]
-edition = "2018"
+edition = "2019"
 
 [dependencies]
 byteorder = "*"
