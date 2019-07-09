@@ -3,7 +3,7 @@ author: Michel Heily <michelheily@gmail.com>
 about: Game boy advance emulator and debugger
 subcommands:
     - debug:
-        about: debug the bios with the arm core emulation
+        about: Debug the bios with the arm core emulation
         args:
             - bios:
                 help: Sets the bios file to use
@@ -18,4 +18,4 @@ subcommands:
                 required: true
             - skip_bios:
                 long: skip-bios
-                help: Skip running bios and start from the ROM instead.
+                help: Skip running bios and start from the ROM instead
