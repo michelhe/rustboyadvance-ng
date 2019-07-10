@@ -5,7 +5,7 @@ use crate::arm7tdmi::bus::Bus;
 use crate::arm7tdmi::cpu::{Core, CpuExecResult, CpuPipelineAction};
 use crate::arm7tdmi::exception::Exception;
 use crate::arm7tdmi::psr::RegPSR;
-use crate::arm7tdmi::{Addr, CpuError, CpuResult, CpuState, DecodedInstruction, REG_PC};
+use crate::arm7tdmi::{Addr, CpuError, CpuMode, CpuResult, CpuState, DecodedInstruction, REG_PC};
 
 use super::*;
 
@@ -23,6 +23,7 @@ impl Core {
             ArmFormat::LDR_STR_HS_IMM => self.exec_ldr_str_hs(bus, insn),
             ArmFormat::LDR_STR_HS_REG => self.exec_ldr_str_hs(bus, insn),
             ArmFormat::LDM_STM => self.exec_ldm_stm(bus, insn),
+            ArmFormat::MRS => self.exec_mrs(bus, insn),
             ArmFormat::MSR_REG => self.exec_msr_reg(bus, insn),
             ArmFormat::MSR_FLAGS => self.exec_msr_flags(bus, insn),
             ArmFormat::MUL_MLA => self.exec_mul_mla(bus, insn),
@@ -67,6 +68,21 @@ impl Core {
     fn exec_swi(&mut self, _bus: &mut Bus, _insn: ArmInstruction) -> CpuExecResult {
         self.exception(Exception::SoftwareInterrupt);
         Ok(CpuPipelineAction::Flush)
+    }
+
+    fn exec_mrs(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
+        let mode = self.cpsr.mode();
+        let result = if insn.spsr_flag() {
+            if let Some(index) = mode.spsr_index() {
+                self.spsr[index].get()
+            } else {
+                panic!("tried to get spsr from invalid mode {}", mode)
+            }
+        } else {
+            self.cpsr.get()
+        };
+        self.set_reg(insn.rd(), result);
+        Ok(CpuPipelineAction::IncPC)
     }
 
     fn exec_msr_reg(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
