@@ -399,15 +399,15 @@ impl Core {
             return Err(CpuError::IllegalInstruction);
         }
 
-        if !insn.accumulate_flag() {
-            self.set_reg(insn.rn(), 0);
-        } else {
-            panic!("accumelate not implemented yet");
-        }
-
         let op1 = self.get_reg(rm) as i32;
         let op2 = self.get_reg(rs) as i32;
-        let result = (op1 * op2) as u32;
+        let mut result = (op1 * op2) as u32;
+
+        if insn.accumulate_flag() {
+            result = result.wrapping_add(self.get_reg(rn));
+            self.add_cycle();
+        }
+
         self.set_reg(rd, result);
 
         let m = self.get_required_multipiler_array_cycles(op2);
