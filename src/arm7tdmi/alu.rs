@@ -191,8 +191,8 @@ impl Core {
                     0 => {
                         if immediate {
                             /* RRX */
-                            self.cpsr.set_C(val & 0b1 != 0);
                             let old_c = self.cpsr.C() as i32;
+                            self.cpsr.set_C(val & 0b1 != 0);
                             ((val as u32) >> 1) as i32 | (old_c << 31)
                         } else {
                             val
