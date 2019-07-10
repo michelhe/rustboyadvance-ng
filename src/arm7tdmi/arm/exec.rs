@@ -24,6 +24,7 @@ impl Core {
             ArmFormat::LDR_STR_HS_REG => self.exec_ldr_str_hs(bus, insn),
             ArmFormat::LDM_STM => self.exec_ldm_stm(bus, insn),
             ArmFormat::MSR_REG => self.exec_msr_reg(bus, insn),
+            ArmFormat::MUL_MLA => self.exec_mul_mla(bus, insn),
             _ => Err(CpuError::UnimplementedCpuInstruction(
                 insn.pc,
                 insn.raw,
@@ -334,5 +335,47 @@ impl Core {
         }
 
         Ok(pipeline_action)
+    }
+
+    fn exec_mul_mla(
+        &mut self,
+        bus: &mut Bus,
+        insn: ArmInstruction,
+    ) -> CpuResult<CpuPipelineAction> {
+        let rd = insn.rd();
+        let rn = insn.rn();
+        let rs = insn.rs();
+        let rm = insn.rm();
+
+        // check validity
+        if REG_PC == rd || REG_PC == rn || REG_PC == rs || REG_PC == rm {
+            return Err(CpuError::IllegalInstruction);
+        }
+        if rd == rm {
+            return Err(CpuError::IllegalInstruction);
+        }
+
+        if !insn.accumulate_flag() {
+            self.set_reg(insn.rn(), 0);
+        } else {
+            panic!("accumelate not implemented yet");
+        }
+
+        let op1 = self.get_reg(rm) as i32;
+        let op2 = self.get_reg(rs) as i32;
+        let result = (op1 * op2) as u32;
+        self.set_reg(rd, result);
+
+        let m = self.get_required_multipiler_array_cycles(op2);
+        for _ in 0..m {
+            self.add_cycle();
+        }
+
+        if insn.set_cond_flag() {
+            self.cpsr.set_N(result.bit(31));
+            self.cpsr.set_Z(result == 0);
+        }
+
+        Ok(CpuPipelineAction::IncPC)
     }
 }

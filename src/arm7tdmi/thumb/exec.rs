@@ -369,7 +369,7 @@ impl Core {
                 self.set_reg(r, val);
             }
         } else {
-            for r in rlist.into_iter().rev() {
+            for r in rlist {
                 self.store_32(addr, self.gpr[r], bus);
                 addr += 4;
             }
