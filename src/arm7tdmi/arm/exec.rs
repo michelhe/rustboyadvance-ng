@@ -35,7 +35,7 @@ impl Core {
     }
 
     /// Cycles 2S+1N
-    fn exec_b_bl(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuResult<CpuPipelineAction> {
+    fn exec_b_bl(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
         if insn.link_flag() {
             self.set_reg(14, (insn.pc + (self.word_size() as u32)) & !0b1);
         }
@@ -45,7 +45,7 @@ impl Core {
         Ok(CpuPipelineAction::Flush)
     }
 
-    pub fn branch_exchange(&mut self, mut addr: Addr) -> CpuResult<CpuPipelineAction> {
+    pub fn branch_exchange(&mut self, mut addr: Addr) -> CpuExecResult {
         if addr.bit(0) {
             addr = addr & !0x1;
             self.cpsr.set_state(CpuState::THUMB);
@@ -60,21 +60,21 @@ impl Core {
     }
 
     /// Cycles 2S+1N
-    fn exec_bx(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuResult<CpuPipelineAction> {
+    fn exec_bx(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
         self.branch_exchange(self.get_reg(insn.rn()))
     }
 
-    fn exec_swi(&mut self, _bus: &mut Bus, _insn: ArmInstruction) -> CpuResult<CpuPipelineAction> {
+    fn exec_swi(&mut self, _bus: &mut Bus, _insn: ArmInstruction) -> CpuExecResult {
         self.exception(Exception::SoftwareInterrupt);
         Ok(CpuPipelineAction::Flush)
     }
 
-    fn exec_msr_reg(
-        &mut self,
-        _bus: &mut Bus,
-        insn: ArmInstruction,
-    ) -> CpuResult<CpuPipelineAction> {
-        let new_psr = RegPSR::new(self.get_reg(insn.rm()));
+    fn exec_msr_reg(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
+        self.exec_msr(insn, self.get_reg(insn.rm()))
+    }
+
+    fn exec_msr(&mut self, insn: ArmInstruction, value: u32) -> CpuExecResult {
+        let new_psr = RegPSR::new(value);
         let old_mode = self.cpsr.mode();
         if insn.spsr_flag() {
             if let Some(index) = old_mode.spsr_index() {
@@ -91,13 +91,9 @@ impl Core {
         Ok(CpuPipelineAction::IncPC)
     }
 
-    fn exec_msr_flags(
-        &mut self,
-        _bus: &mut Bus,
-        insn: ArmInstruction,
-    ) -> CpuResult<CpuPipelineAction> {
+    fn exec_msr_flags(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
         let op = insn.operand2()?;
-        let op = self.decode_operand2(op)?;
+        let op = self.decode_operand2(op, false)?;
 
         let old_mode = self.cpsr.mode();
         if insn.spsr_flag() {
@@ -112,9 +108,15 @@ impl Core {
         Ok(CpuPipelineAction::IncPC)
     }
 
-    fn decode_operand2(&mut self, op2: BarrelShifterValue) -> CpuResult<u32> {
+    fn decode_operand2(&mut self, op2: BarrelShifterValue, set_flags: bool) -> CpuResult<u32> {
         match op2 {
-            BarrelShifterValue::RotatedImmediate(imm, r) => Ok(imm.rotate_right(r)),
+            BarrelShifterValue::RotatedImmediate(imm, r) => {
+                let result = imm.rotate_right(r);
+                if set_flags {
+                    self.cpsr.set_C((result as u32).bit(31));
+                }
+                Ok(result)
+            }
             BarrelShifterValue::ShiftedRegister {
                 reg,
                 shift,
@@ -143,13 +145,27 @@ impl Core {
         } else {
             self.get_reg(insn.rn()) as i32
         };
+
+        let opcode = insn.opcode().unwrap();
+
+        let set_flags = opcode.is_setting_flags() || insn.set_cond_flag();
         let op2 = insn.operand2()?;
-        let op2 = self.decode_operand2(op2)? as i32;
+        let op2 = self.decode_operand2(op2, set_flags)? as i32;
+
+        if !insn.set_cond_flag() {
+            match opcode {
+                AluOpCode::TEQ | AluOpCode::CMN => {
+                    return self.exec_msr(insn, op2 as u32);
+                }
+                AluOpCode::TST | AluOpCode::CMP => {
+                    unimplemented!("TODO implement MRS");
+                }
+                _ => (),
+            }
+        }
 
         let rd = insn.rd();
 
-        let opcode = insn.opcode().unwrap();
-        let set_flags = opcode.is_setting_flags() || insn.set_cond_flag();
         if let Some(result) = self.alu(opcode, op1, op2, set_flags) {
             self.set_reg(rd, result as u32);
             if rd == REG_PC {
@@ -167,11 +183,7 @@ impl Core {
     /// STR{cond}{B}{T} Rd,<Address>    | 2N            | ----  |  [Rn+/-<offset>]=Rd
     /// ------------------------------------------------------------------------------
     /// For LDR, add y=1S+1N if Rd=R15.
-    fn exec_ldr_str(
-        &mut self,
-        bus: &mut Bus,
-        insn: ArmInstruction,
-    ) -> CpuResult<CpuPipelineAction> {
+    fn exec_ldr_str(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
         if insn.write_back_flag() && insn.rd() == insn.rn() {
             return Err(CpuError::IllegalInstruction);
         }
@@ -227,11 +239,7 @@ impl Core {
         Ok(pipeline_action)
     }
 
-    fn exec_ldr_str_hs(
-        &mut self,
-        bus: &mut Bus,
-        insn: ArmInstruction,
-    ) -> CpuResult<CpuPipelineAction> {
+    fn exec_ldr_str_hs(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
         if insn.write_back_flag() && insn.rd() == insn.rn() {
             return Err(CpuError::IllegalInstruction);
         }
@@ -361,11 +369,7 @@ impl Core {
         Ok(pipeline_action)
     }
 
-    fn exec_mul_mla(
-        &mut self,
-        bus: &mut Bus,
-        insn: ArmInstruction,
-    ) -> CpuResult<CpuPipelineAction> {
+    fn exec_mul_mla(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
         let rd = insn.rd();
         let rn = insn.rn();
         let rs = insn.rs();
