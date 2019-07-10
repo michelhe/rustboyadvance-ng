@@ -112,19 +112,7 @@ impl Core {
         } else {
             insn.rs()
         };
-
-        let mut addr = self.get_reg(src_reg);
-        if addr.bit(0) {
-            self.cpsr.set_state(CpuState::THUMB);
-        } else {
-            // word align when switching to arm state
-            addr = addr & !0x3;
-            self.cpsr.set_state(CpuState::ARM);
-        }
-
-        self.pc = addr & !1;
-
-        Ok(CpuPipelineAction::Flush)
+        self.branch_exchange(self.get_reg(src_reg))
     }
 
     fn exec_thumb_hi_reg_op_or_bx(

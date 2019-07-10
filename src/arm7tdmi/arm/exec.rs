@@ -44,18 +44,23 @@ impl Core {
         Ok(CpuPipelineAction::Flush)
     }
 
-    /// Cycles 2S+1N
-    fn exec_bx(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuResult<CpuPipelineAction> {
-        let rn = self.get_reg(insn.rn());
-        if rn.bit(0) {
+    pub fn branch_exchange(&mut self, mut addr: Addr) -> CpuResult<CpuPipelineAction> {
+        if addr.bit(0) {
+            addr = addr & !0x1;
             self.cpsr.set_state(CpuState::THUMB);
         } else {
+            addr = addr & !0x3;
             self.cpsr.set_state(CpuState::ARM);
         }
 
-        self.pc = rn & !1;
+        self.pc = addr;
 
         Ok(CpuPipelineAction::Flush)
+    }
+
+    /// Cycles 2S+1N
+    fn exec_bx(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuResult<CpuPipelineAction> {
+        self.branch_exchange(self.get_reg(insn.rn()))
     }
 
     fn exec_swi(&mut self, _bus: &mut Bus, _insn: ArmInstruction) -> CpuResult<CpuPipelineAction> {
