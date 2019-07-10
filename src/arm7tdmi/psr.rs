@@ -45,6 +45,8 @@ impl Default for RegPSR {
     }
 }
 impl RegPSR {
+    pub const FLAG_BITMASK: u32 = 0xf000_0000;
+
     pub fn new(u: u32) -> RegPSR {
         RegPSR {
             raw: clear_reserved(u),
@@ -57,6 +59,11 @@ impl RegPSR {
 
     pub fn set(&mut self, psr: u32) {
         self.raw = clear_reserved(psr);
+    }
+
+    pub fn set_flag_bits(&mut self, value: u32) {
+        self.raw &= !Self::FLAG_BITMASK;
+        self.raw |= Self::FLAG_BITMASK & value;
     }
 
     pub fn state(&self) -> CpuState {

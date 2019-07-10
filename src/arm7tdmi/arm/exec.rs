@@ -24,6 +24,7 @@ impl Core {
             ArmFormat::LDR_STR_HS_REG => self.exec_ldr_str_hs(bus, insn),
             ArmFormat::LDM_STM => self.exec_ldm_stm(bus, insn),
             ArmFormat::MSR_REG => self.exec_msr_reg(bus, insn),
+            ArmFormat::MSR_FLAGS => self.exec_msr_flags(bus, insn),
             ArmFormat::MUL_MLA => self.exec_mul_mla(bus, insn),
             _ => Err(CpuError::UnimplementedCpuInstruction(
                 insn.pc,
@@ -90,15 +91,49 @@ impl Core {
         Ok(CpuPipelineAction::IncPC)
     }
 
-    /// Logical/Arithmetic ALU operations
-    ///
-    /// Cycles: 1S+x+y (from GBATEK)
-    ///         Add x=1I cycles if Op2 shifted-by-register. Add y=1S+1N cycles if Rd=R15.
-    fn exec_data_processing(
+    fn exec_msr_flags(
         &mut self,
         _bus: &mut Bus,
         insn: ArmInstruction,
     ) -> CpuResult<CpuPipelineAction> {
+        let op = insn.operand2()?;
+        let op = self.decode_operand2(op)?;
+
+        let old_mode = self.cpsr.mode();
+        if insn.spsr_flag() {
+            if let Some(index) = old_mode.spsr_index() {
+                self.spsr[index].set_flag_bits(op);
+            } else {
+                panic!("tried to change spsr from invalid mode {}", old_mode)
+            }
+        } else {
+            self.cpsr.set_flag_bits(op);
+        }
+        Ok(CpuPipelineAction::IncPC)
+    }
+
+    fn decode_operand2(&mut self, op2: BarrelShifterValue) -> CpuResult<u32> {
+        match op2 {
+            BarrelShifterValue::RotatedImmediate(imm, r) => Ok(imm.rotate_right(r)),
+            BarrelShifterValue::ShiftedRegister {
+                reg,
+                shift,
+                added: _,
+            } => {
+                // +1I
+                self.add_cycle();
+                let result = self.register_shift(reg, shift)?;
+                Ok(result as u32)
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    /// Logical/Arithmetic ALU operations
+    ///
+    /// Cycles: 1S+x+y (from GBATEK)
+    ///         Add x=1I cycles if Op2 shifted-by-register. Add y=1S+1N cycles if Rd=R15.
+    fn exec_data_processing(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
         // TODO handle carry flag
 
         let mut pipeline_action = CpuPipelineAction::IncPC;
@@ -109,25 +144,9 @@ impl Core {
             self.get_reg(insn.rn()) as i32
         };
         let op2 = insn.operand2()?;
+        let op2 = self.decode_operand2(op2)? as i32;
 
         let rd = insn.rd();
-
-        let op2: i32 = match op2 {
-            BarrelShifterValue::RotatedImmediate(immediate, rotate) => {
-                immediate.rotate_right(rotate) as i32
-            }
-            BarrelShifterValue::ShiftedRegister {
-                reg,
-                shift,
-                added: _,
-            } => {
-                // +1I
-                self.add_cycle();
-                let result = self.register_shift(reg, shift)?;
-                result
-            }
-            _ => unreachable!(),
-        };
 
         let opcode = insn.opcode().unwrap();
         let set_flags = opcode.is_setting_flags() || insn.set_cond_flag();

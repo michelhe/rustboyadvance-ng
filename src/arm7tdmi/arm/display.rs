@@ -2,7 +2,7 @@ use std::fmt;
 
 use super::{AluOpCode, ArmCond, ArmFormat, ArmHalfwordTransferType, ArmInstruction};
 use crate::arm7tdmi::{
-    reg_string, Addr, BarrelShiftOpCode, BarrelShifterValue, ShiftedRegister, REG_PC,
+    psr::RegPSR, reg_string, Addr, BarrelShiftOpCode, BarrelShifterValue, ShiftedRegister, REG_PC,
 };
 
 impl fmt::Display for ArmCond {
@@ -117,6 +117,26 @@ impl ArmInstruction {
         }
     }
 
+    fn fmt_operand2(&self, f: &mut fmt::Formatter) -> Result<Option<u32>, fmt::Error> {
+        let operand2 = self.operand2().unwrap();
+        match operand2 {
+            BarrelShifterValue::RotatedImmediate(_, _) => {
+                let value = operand2.decode_rotated_immediate().unwrap();
+                write!(f, "#{}\t; {:#x}", value, value)?;
+                Ok(Some(value as u32))
+            }
+            BarrelShifterValue::ShiftedRegister {
+                reg,
+                shift,
+                added: _,
+            } => {
+                write!(f, "{}", self.make_shifted_reg_string(reg, shift))?;
+                Ok(None)
+            }
+            _ => panic!("invalid operand2"),
+        }
+    }
+
     fn fmt_data_processing(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use AluOpCode::*;
 
@@ -149,19 +169,8 @@ impl ArmInstruction {
             ),
         }?;
 
-        let operand2 = self.operand2().unwrap();
-        match operand2 {
-            BarrelShifterValue::RotatedImmediate(_, _) => {
-                let value = operand2.decode_rotated_immediate().unwrap();
-                write!(f, "#{}\t; {:#x}", value, value)
-            }
-            BarrelShifterValue::ShiftedRegister {
-                reg,
-                shift,
-                added: _,
-            } => write!(f, "{}", self.make_shifted_reg_string(reg, shift)),
-            _ => write!(f, "RegisterNotImpl"),
-        }
+        self.fmt_operand2(f).unwrap();
+        Ok(())
     }
 
     fn auto_incremenet_mark(&self) -> &str {
@@ -284,6 +293,27 @@ impl ArmInstruction {
         )
     }
 
+    fn fmt_msr_flags(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "msr{cond}\t{psr}, ",
+            cond = self.cond,
+            psr = if self.spsr_flag() { "SPSR_f" } else { "CPSR_f" },
+        )?;
+        if let Ok(Some(op)) = self.fmt_operand2(f) {
+            let psr = RegPSR::new(op & 0xf000_0000);
+            write!(
+                f,
+                "\t; N={} Z={} C={} V={}",
+                psr.N(),
+                psr.Z(),
+                psr.C(),
+                psr.V()
+            )?;
+        }
+        Ok(())
+    }
+
     fn fmt_mul_mla(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.accumulate_flag() {
             write!(
@@ -381,6 +411,7 @@ impl fmt::Display for ArmInstruction {
             LDM_STM => self.fmt_ldm_stm(f),
             MRS => self.fmt_mrs(f),
             MSR_REG => self.fmt_msr_reg(f),
+            MSR_FLAGS => self.fmt_msr_flags(f),
             MUL_MLA => self.fmt_mul_mla(f),
             MULL_MLAL => self.fmt_mull_mlal(f),
             LDR_STR_HS_IMM => self.fmt_ldr_str_hs(f),
