@@ -15,11 +15,11 @@ pub struct GameBoyAdvance {
     pub sysbus: SysBus,
 
     // io devices
-    lcd: Lcd,
-    dma0: DmaChannel,
-    dma1: DmaChannel,
-    dma2: DmaChannel,
-    dma3: DmaChannel,
+    pub lcd: Lcd,
+    pub dma0: DmaChannel,
+    pub dma1: DmaChannel,
+    pub dma2: DmaChannel,
+    pub dma3: DmaChannel,
 
     post_bool_flags: bool,
 }
@@ -42,29 +42,51 @@ impl GameBoyAdvance {
         }
     }
 
+    fn run_cpu_for_n_cycles(&mut self, n: usize) {
+        let previous_cycles = self.cpu.cycles;
+        loop {
+            self.cpu.step_one(&mut self.sysbus).unwrap();
+            if n > self.cpu.cycles - previous_cycles {
+                break;
+            }
+        }
+    }
+
+    pub fn frame(&mut self) {
+        for _ in 0..Lcd::DISPLAY_HEIGHT {
+            self.run_cpu_for_n_cycles(Lcd::CYCLES_HDRAW);
+            let _irq = self.lcd.set_hblank(&mut self.sysbus);
+            self.run_cpu_for_n_cycles(Lcd::CYCLES_HBLANK);
+        }
+        let _irq = self.lcd.set_vblank(&mut self.sysbus);
+        self.run_cpu_for_n_cycles(Lcd::CYCLES_VBLANK);
+        self.lcd.render(&mut self.sysbus); // Currently not implemented
+        self.lcd.set_hdraw();
+    }
+
     pub fn step(&mut self) -> GBAResult<DecodedInstruction> {
         let previous_cycles = self.cpu.cycles;
-        let decoded = self.cpu.step_one(&mut self.sysbus)?;
+        let executed_insn = self.cpu.step_one(&mut self.sysbus)?;
 
-        // drop interrupts at the moment
-        let cycles = self.cpu.cycles - previous_cycles;
-        let (dma_cycles, _) = self.dma0.step(cycles, &mut self.sysbus);
-        let cycles = cycles + dma_cycles;
+        let mut cycles = self.cpu.cycles - previous_cycles;
 
-        let cycles = self.cpu.cycles - previous_cycles;
-        let (dma_cycles, _) = self.dma1.step(cycles, &mut self.sysbus);
-        let cycles = cycles + dma_cycles;
+        // // drop interrupts at the moment
 
-        let cycles = self.cpu.cycles - previous_cycles;
-        let (dma_cycles, _) = self.dma2.step(cycles, &mut self.sysbus);
-        let cycles = cycles + dma_cycles;
+        // let (dma_cycles, _) = self.dma0.step(cycles, &mut self.sysbus);
+        // cycles += dma_cycles;
 
-        let cycles = self.cpu.cycles - previous_cycles;
-        let (dma_cycles, _) = self.dma3.step(cycles, &mut self.sysbus);
-        let cycles = cycles + dma_cycles;
+        // let (dma_cycles, _) = self.dma1.step(cycles, &mut self.sysbus);
+        // cycles += dma_cycles;
 
-        let (lcd_cycles, _) = self.lcd.step(cycles, &mut self.sysbus);
+        // let (dma_cycles, _) = self.dma2.step(cycles, &mut self.sysbus);
+        // cycles += dma_cycles;
 
-        Ok(decoded) // return the decoded instruction for the debugger
+        // let (dma_cycles, _) = self.dma3.step(cycles, &mut self.sysbus);
+        // cycles += dma_cycles;
+
+        // let (lcd_cycles, _) = self.lcd.step(cycles, &mut self.sysbus);
+        // cycles += lcd_cycles;
+
+        Ok(executed_insn)
     }
 }

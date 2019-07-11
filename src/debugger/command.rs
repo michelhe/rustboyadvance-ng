@@ -1,6 +1,8 @@
 use crate::arm7tdmi::bus::Bus;
 use crate::arm7tdmi::{Addr, CpuState};
 use crate::disass::Disassembler;
+use crate::ioregs::consts::*;
+use crate::lcd::*;
 use crate::GBAError;
 
 use super::palette_view::create_palette_view;
@@ -20,8 +22,10 @@ pub enum DisassMode {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Command {
     Info,
+    DisplayInfo,
     Step(usize),
     Continue,
+    Frame(usize),
     HexDump(Addr, usize),
     Disass(DisassMode, Addr, usize),
     AddBreakpoint(Addr),
@@ -38,6 +42,21 @@ impl Command {
         use Command::*;
         match *self {
             Info => println!("{}", debugger.gba.cpu),
+            DisplayInfo => {
+                println!("{:?}", debugger.gba.lcd);
+                println!(
+                    "DISPCNT: {:#?}",
+                    DisplayControl::from(debugger.gba.sysbus.ioregs.read_reg(REG_DISPCNT))
+                );
+                println!(
+                    "DISPSTAT: {:#?}",
+                    DisplayStatus::from(debugger.gba.sysbus.ioregs.read_reg(REG_DISPSTAT))
+                );
+                println!(
+                    "VCOUNT: {:?}",
+                    debugger.gba.sysbus.ioregs.read_reg(REG_VCOUNT)
+                );
+            }
             Step(count) => {
                 for _ in 0..count {
                     if let Some(bp) = debugger.check_breakpoint() {
@@ -95,6 +114,12 @@ impl Command {
                     _ => (),
                 };
             },
+            Frame(count) => {
+                for _ in 0..count {
+                    debugger.gba.frame();
+                    print!(".")
+                }
+            }
             HexDump(addr, nbytes) => {
                 let bytes = debugger.gba.sysbus.get_bytes(addr);
                 hexdump::hexdump(&bytes[0..nbytes]);
@@ -189,6 +214,7 @@ impl Debugger {
 
         match command.as_ref() {
             "i" | "info" => Ok(Command::Info),
+            "dispinfo" => Ok(Command::DisplayInfo),
             "s" | "step" => {
                 let count = match args.len() {
                     0 => 1,
@@ -202,6 +228,18 @@ impl Debugger {
                 Ok(Command::Step(count as usize))
             }
             "c" | "continue" => Ok(Command::Continue),
+            "f" | "frame" => {
+                let count = match args.len() {
+                    0 => 1,
+                    1 => self.val_number(&args[0])?,
+                    _ => {
+                        return Err(DebuggerError::InvalidCommandFormat(
+                            "frame [count]".to_string(),
+                        ))
+                    }
+                };
+                Ok(Command::Frame(count as usize))
+            }
             "x" | "hexdump" => {
                 let (addr, n) = match args.len() {
                     2 => {
