@@ -27,6 +27,7 @@ impl Core {
             ArmFormat::MSR_REG => self.exec_msr_reg(bus, insn),
             ArmFormat::MSR_FLAGS => self.exec_msr_flags(bus, insn),
             ArmFormat::MUL_MLA => self.exec_mul_mla(bus, insn),
+            ArmFormat::MULL_MLAL => self.exec_mull_mlal(bus, insn),
             _ => Err(CpuError::UnimplementedCpuInstruction(
                 insn.pc,
                 insn.raw,
@@ -200,10 +201,11 @@ impl Core {
     /// ------------------------------------------------------------------------------
     /// For LDR, add y=1S+1N if Rd=R15.
     fn exec_ldr_str(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
-        if insn.write_back_flag() && insn.rd() == insn.rn() {
+        let mut writeback = insn.write_back_flag();
+
+        if writeback && insn.rd() == insn.rn() {
             return Err(CpuError::IllegalInstruction);
         }
-
         let mut pipeline_action = CpuPipelineAction::IncPC;
 
         let mut addr = self.get_reg(insn.rn());
@@ -217,6 +219,7 @@ impl Core {
         addr = if insn.pre_index_flag() {
             effective_addr
         } else {
+            writeback = true;
             addr
         };
 
@@ -248,7 +251,7 @@ impl Core {
             };
         }
 
-        if insn.write_back_flag() {
+        if writeback {
             self.set_reg(insn.rn(), effective_addr as u32)
         }
 
@@ -256,7 +259,8 @@ impl Core {
     }
 
     fn exec_ldr_str_hs(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
-        if insn.write_back_flag() && insn.rd() == insn.rn() {
+        let mut writeback = insn.write_back_flag();
+        if writeback && insn.rd() == insn.rn() {
             return Err(CpuError::IllegalInstruction);
         }
 
@@ -273,6 +277,7 @@ impl Core {
         addr = if insn.pre_index_flag() {
             effective_addr
         } else {
+            writeback = true;
             addr
         };
 
@@ -308,7 +313,7 @@ impl Core {
             };
         }
 
-        if insn.write_back_flag() {
+        if writeback {
             self.set_reg(insn.rn(), effective_addr as u32)
         }
 
@@ -386,10 +391,7 @@ impl Core {
     }
 
     fn exec_mul_mla(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
-        let rd = insn.rd();
-        let rn = insn.rn();
-        let rs = insn.rs();
-        let rm = insn.rm();
+        let (rd, rn, rs, rm) = (insn.rd(), insn.rn(), insn.rs(), insn.rm());
 
         // check validity
         if REG_PC == rd || REG_PC == rn || REG_PC == rs || REG_PC == rm {
@@ -416,7 +418,50 @@ impl Core {
         }
 
         if insn.set_cond_flag() {
-            self.cpsr.set_N(result.bit(31));
+            self.cpsr.set_N((result as i32) < 0);
+            self.cpsr.set_Z(result == 0);
+        }
+
+        Ok(CpuPipelineAction::IncPC)
+    }
+
+    fn exec_mull_mlal(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
+        let (rd_hi, rd_lo, rn, rs, rm) =
+            (insn.rd_hi(), insn.rd_lo(), insn.rn(), insn.rs(), insn.rm());
+
+        // check validity
+        if REG_PC == rd_hi || REG_PC == rd_lo || REG_PC == rn || REG_PC == rs || REG_PC == rm {
+            return Err(CpuError::IllegalInstruction);
+        }
+        if rd_hi != rd_hi && rd_hi != rm && rd_lo != rm {
+            return Err(CpuError::IllegalInstruction);
+        }
+
+        let op1 = self.get_reg(rm) as u64;
+        let op2 = self.get_reg(rs) as u64;
+        let mut result: u64 = if insn.u_flag() {
+            // signed
+            (op1 as i64).wrapping_mul(op2 as i64) as u64
+        } else {
+            op1.wrapping_mul(op2)
+        };
+        self.add_cycle();
+
+        if insn.accumulate_flag() {
+            result = result.wrapping_add(self.get_reg(rn) as u64);
+            self.add_cycle();
+        }
+
+        self.set_reg(rd_hi, (result >> 32) as u32);
+        self.set_reg(rd_lo, (result & 0xffffffff) as u32);
+
+        let m = self.get_required_multipiler_array_cycles(self.get_reg(rs) as i32);
+        for _ in 0..m {
+            self.add_cycle();
+        }
+
+        if insn.set_cond_flag() {
+            self.cpsr.set_N((result as i64) < 0);
             self.cpsr.set_Z(result == 0);
         }
 

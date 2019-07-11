@@ -333,7 +333,7 @@ impl ThumbInstruction {
     pub fn register_list(&self) -> Vec<usize> {
         let list_bits = self.raw & 0xff;
         let mut list = Vec::with_capacity(8);
-        for i in 0..=7 {
+        for i in 0..8 {
             if (list_bits & (1 << i)) != 0 {
                 list.push(i)
             }
