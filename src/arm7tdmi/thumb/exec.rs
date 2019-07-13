@@ -82,7 +82,7 @@ impl Core {
         for _ in 0..m {
             self.add_cycle();
         }
-        self.gpr[insn.rd()] = (op1 * op2) as u32;
+        self.gpr[insn.rd()] = op1.wrapping_mul(op2) as u32;
         Ok(CpuPipelineAction::IncPC)
     }
 
