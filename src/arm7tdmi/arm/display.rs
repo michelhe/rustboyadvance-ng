@@ -9,21 +9,21 @@ impl fmt::Display for ArmCond {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use ArmCond::*;
         match self {
-            Equal => write!(f, "eq"),
-            NotEqual => write!(f, "ne"),
-            UnsignedHigherOrSame => write!(f, "cs"),
-            UnsignedLower => write!(f, "cc"),
-            Negative => write!(f, "mi"),
-            PositiveOrZero => write!(f, "pl"),
-            Overflow => write!(f, "vs"),
-            NoOverflow => write!(f, "vc"),
-            UnsignedHigher => write!(f, "hi"),
-            UnsignedLowerOrSame => write!(f, "ls"),
-            GreaterOrEqual => write!(f, "ge"),
-            LessThan => write!(f, "lt"),
-            GreaterThan => write!(f, "gt"),
-            LessThanOrEqual => write!(f, "le"),
-            Always => write!(f, ""), // the dissasembly should ignore this
+            EQ => write!(f, "eq"),
+            NE => write!(f, "ne"),
+            HS => write!(f, "cs"),
+            LO => write!(f, "cc"),
+            MI => write!(f, "mi"),
+            PL => write!(f, "pl"),
+            VS => write!(f, "vs"),
+            VC => write!(f, "vc"),
+            HI => write!(f, "hi"),
+            LS => write!(f, "ls"),
+            GE => write!(f, "ge"),
+            LT => write!(f, "lt"),
+            GT => write!(f, "gt"),
+            LE => write!(f, "le"),
+            AL => write!(f, ""), // the dissasembly should ignore this
         }
     }
 }

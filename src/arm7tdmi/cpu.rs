@@ -256,21 +256,21 @@ impl Core {
     pub fn check_arm_cond(&self, cond: ArmCond) -> bool {
         use ArmCond::*;
         match cond {
-            Equal => self.cpsr.Z(),
-            NotEqual => !self.cpsr.Z(),
-            UnsignedHigherOrSame => self.cpsr.C(),
-            UnsignedLower => !self.cpsr.C(),
-            Negative => self.cpsr.N(),
-            PositiveOrZero => !self.cpsr.N(),
-            Overflow => self.cpsr.V(),
-            NoOverflow => !self.cpsr.V(),
-            UnsignedHigher => self.cpsr.C() && !self.cpsr.Z(),
-            UnsignedLowerOrSame => !self.cpsr.C() && self.cpsr.Z(),
-            GreaterOrEqual => self.cpsr.N() == self.cpsr.V(),
-            LessThan => self.cpsr.N() != self.cpsr.V(),
-            GreaterThan => !self.cpsr.Z() && (self.cpsr.N() == self.cpsr.V()),
-            LessThanOrEqual => self.cpsr.Z() || (self.cpsr.N() != self.cpsr.V()),
-            Always => true,
+            EQ => self.cpsr.Z(),
+            NE => !self.cpsr.Z(),
+            HS => self.cpsr.C(),
+            LO => !self.cpsr.C(),
+            MI => self.cpsr.N(),
+            PL => !self.cpsr.N(),
+            VS => self.cpsr.V(),
+            VC => !self.cpsr.V(),
+            HI => self.cpsr.C() && !self.cpsr.Z(),
+            LS => !self.cpsr.C() || self.cpsr.Z(),
+            GE => self.cpsr.N() == self.cpsr.V(),
+            LT => self.cpsr.N() != self.cpsr.V(),
+            GT => !self.cpsr.Z() && (self.cpsr.N() == self.cpsr.V()),
+            LE => self.cpsr.Z() || (self.cpsr.N() != self.cpsr.V()),
+            AL => true,
         }
     }
 

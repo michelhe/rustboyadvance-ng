@@ -40,21 +40,21 @@ impl ArmDecodeError {
 
 #[derive(Debug, Copy, Clone, PartialEq, Primitive)]
 pub enum ArmCond {
-    Equal = 0b0000,
-    NotEqual = 0b0001,
-    UnsignedHigherOrSame = 0b0010,
-    UnsignedLower = 0b0011,
-    Negative = 0b0100,
-    PositiveOrZero = 0b0101,
-    Overflow = 0b0110,
-    NoOverflow = 0b0111,
-    UnsignedHigher = 0b1000,
-    UnsignedLowerOrSame = 0b1001,
-    GreaterOrEqual = 0b1010,
-    LessThan = 0b1011,
-    GreaterThan = 0b1100,
-    LessThanOrEqual = 0b1101,
-    Always = 0b1110,
+    EQ = 0b0000,
+    NE = 0b0001,
+    HS = 0b0010,
+    LO = 0b0011,
+    MI = 0b0100,
+    PL = 0b0101,
+    VS = 0b0110,
+    VC = 0b0111,
+    HI = 0b1000,
+    LS = 0b1001,
+    GE = 0b1010,
+    LT = 0b1011,
+    GT = 0b1100,
+    LE = 0b1101,
+    AL = 0b1110,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -438,7 +438,7 @@ mod tests {
         // ldreq r2, [r5, -r6, lsl #5]
         let decoded = ArmInstruction::decode(0x07_15_22_86, 0).unwrap();
         assert_eq!(decoded.fmt, ArmFormat::LDR_STR);
-        assert_eq!(decoded.cond, ArmCond::Equal);
+        assert_eq!(decoded.cond, ArmCond::EQ);
         assert_eq!(decoded.load_flag(), true);
         assert_eq!(decoded.pre_index_flag(), true);
         assert_eq!(decoded.write_back_flag(), false);
@@ -482,7 +482,7 @@ mod tests {
         // strteq r2, [r4], -r7, asr #8
         let decoded = ArmInstruction::decode(0x06_24_24_47, 0).unwrap();
         assert_eq!(decoded.fmt, ArmFormat::LDR_STR);
-        assert_eq!(decoded.cond, ArmCond::Equal);
+        assert_eq!(decoded.cond, ArmCond::EQ);
         assert_eq!(decoded.load_flag(), false);
         assert_eq!(decoded.pre_index_flag(), false);
         assert_eq!(decoded.write_back_flag(), true);
@@ -526,7 +526,7 @@ mod tests {
         // str r4, [sp, 0x10]
         let decoded = ArmInstruction::decode(0xe58d4010, 0).unwrap();
         assert_eq!(decoded.fmt, ArmFormat::LDR_STR);
-        assert_eq!(decoded.cond, ArmCond::Always);
+        assert_eq!(decoded.cond, ArmCond::AL);
 
         let mut core = Core::new();
         core.set_reg(4, 0x12345678);
