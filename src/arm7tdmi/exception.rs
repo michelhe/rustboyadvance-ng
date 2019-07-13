@@ -49,5 +49,7 @@ impl Core {
 
         // Set PC to vector address
         self.pc = vector;
+        self.pipeline_arm.flush();
+        self.pipeline_thumb.flush();
     }
 }
