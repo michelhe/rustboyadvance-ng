@@ -13,6 +13,9 @@ mod command;
 use command::Command;
 
 mod palette_view;
+mod render_view;
+mod tile_view;
+extern crate time;
 
 #[derive(Debug, PartialEq)]
 pub enum DebuggerError {
@@ -31,7 +34,6 @@ impl From<CpuError> for DebuggerError {
 
 type DebuggerResult<T> = Result<T, DebuggerError>;
 
-#[derive(Debug)]
 pub struct Debugger {
     pub gba: GameBoyAdvance,
     running: bool,

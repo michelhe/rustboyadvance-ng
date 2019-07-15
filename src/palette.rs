@@ -3,7 +3,7 @@ use std::fmt;
 use byteorder::{LittleEndian, ReadBytesExt};
 use std::io::Cursor;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
 pub struct Rgb15 {
     pub r: u8,
     pub g: u8,
@@ -32,6 +32,12 @@ impl Rgb15 {
     pub fn get_rgb24(&self) -> (u8, u8, u8) {
         (self.r << 3, self.g << 3, self.b << 3)
     }
+}
+
+#[derive(Debug, Primitive, Copy, Clone)]
+pub enum PixelFormat {
+    BPP4 = 0,
+    BPP8 = 1,
 }
 
 pub struct Palette {

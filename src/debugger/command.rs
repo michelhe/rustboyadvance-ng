@@ -6,6 +6,8 @@ use crate::lcd::*;
 use crate::GBAError;
 
 use super::palette_view::create_palette_view;
+use super::render_view::create_render_view;
+use super::tile_view::create_tile_view;
 use super::{parser::Value, Debugger, DebuggerError, DebuggerResult};
 
 use ansi_term::Colour;
@@ -26,11 +28,13 @@ pub enum Command {
     Step(usize),
     Continue,
     Frame(usize),
+    Render,
     HexDump(Addr, usize),
     Disass(DisassMode, Addr, usize),
     AddBreakpoint(Addr),
     DelBreakpoint(Addr),
     PaletteView,
+    TileView(u32),
     ClearBreakpoints,
     ListBreakpoints,
     Reset,
@@ -43,7 +47,6 @@ impl Command {
         match *self {
             Info => println!("{}", debugger.gba.cpu),
             DisplayInfo => {
-                println!("{:?}", debugger.gba.lcd);
                 println!(
                     "DISPCNT: {:#?}",
                     DisplayControl::from(debugger.gba.sysbus.ioregs.read_reg(REG_DISPCNT))
@@ -56,6 +59,11 @@ impl Command {
                     "VCOUNT: {:?}",
                     debugger.gba.sysbus.ioregs.read_reg(REG_VCOUNT)
                 );
+                for bg in 0..4 {
+                    let bgcnt =
+                        BgControl::from(debugger.gba.sysbus.ioregs.read_reg(REG_BG0CNT + 2 * bg));
+                    println!("BG{}CNT: {:#?}", bg, bgcnt);
+                }
             }
             Step(count) => {
                 for _ in 0..count {
@@ -115,11 +123,15 @@ impl Command {
                 };
             },
             Frame(count) => {
+                use super::time::PreciseTime;
+                let start = PreciseTime::now();
                 for _ in 0..count {
                     debugger.gba.frame();
-                    print!(".")
                 }
+                let end = PreciseTime::now();
+                println!("that took {} seconds", start.to(end));
             }
+            Render => create_render_view(&debugger.gba),
             HexDump(addr, nbytes) => {
                 let bytes = debugger.gba.sysbus.get_bytes(addr);
                 hexdump::hexdump(&bytes[0..nbytes]);
@@ -166,6 +178,7 @@ impl Command {
                 }
             }
             PaletteView => create_palette_view(debugger.gba.sysbus.get_bytes(0x0500_0000)),
+            TileView(bg) => create_tile_view(bg, &debugger.gba),
             Reset => {
                 println!("resetting cpu...");
                 debugger.gba.cpu.reset();
@@ -308,9 +321,17 @@ impl Debugger {
                 ))),
             },
             "palette-view" => Ok(Command::PaletteView),
+            "tiles" => {
+                if args.len() != 1 {
+                    return Err(DebuggerError::InvalidCommandFormat("tile <bg>".to_string()));
+                }
+                let bg = self.val_number(&args[0])?;
+                Ok(Command::TileView(bg))
+            }
             "bl" => Ok(Command::ListBreakpoints),
             "q" | "quit" => Ok(Command::Quit),
             "r" | "reset" => Ok(Command::Reset),
+            "rd" | "render" => Ok(Command::Render),
             _ => Err(DebuggerError::InvalidCommand(command)),
         }
     }

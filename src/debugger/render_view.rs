@@ -1,0 +1,50 @@
+use sdl2::event::Event;
+use sdl2::pixels::Color;
+use sdl2::rect::Point;
+
+use crate::gba::GameBoyAdvance;
+use crate::lcd::Lcd;
+
+const SCREEN_WIDTH: u32 = Lcd::DISPLAY_WIDTH as u32;
+const SCREEN_HEIGHT: u32 = Lcd::DISPLAY_HEIGHT as u32;
+
+pub fn create_render_view(gba: &GameBoyAdvance) {
+    let sdl_context = sdl2::init().unwrap();
+    let video_subsystem = sdl_context.video().unwrap();
+
+    let window = video_subsystem
+        .window("RenderView", SCREEN_WIDTH, SCREEN_HEIGHT)
+        .position_centered()
+        .build()
+        .unwrap();
+
+    let mut canvas = window.into_canvas().build().unwrap();
+
+    canvas.set_draw_color(Color::RGB(0xfa, 0xfa, 0xfa));
+    canvas.clear();
+
+    for y in 0..Lcd::DISPLAY_HEIGHT {
+        for x in 0..Lcd::DISPLAY_WIDTH {
+            let index = (x as usize) + (y as usize) * (256 as usize);
+            let color = gba.lcd.pixeldata[index];
+            let rgb24: Color = color.into();
+            canvas.set_draw_color(rgb24);
+            canvas.draw_point(Point::from((x as i32, y as i32)));
+        }
+    }
+
+    canvas.present();
+
+    let mut event_pump = sdl_context.event_pump().unwrap();
+    'running: loop {
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::Quit { .. } => break 'running,
+                Event::MouseButtonDown { x, y, .. } => {
+                    println!("({},{}) {:x}", x, y, x + y * (Lcd::DISPLAY_WIDTH as i32));
+                }
+                _ => {}
+            }
+        }
+    }
+}

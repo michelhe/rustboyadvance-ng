@@ -1,15 +1,15 @@
 /// Struct containing everything
 ///
-use super::arm7tdmi::{Core, DecodedInstruction};
+use super::arm7tdmi::{exception::*, Core, DecodedInstruction};
 use super::cartridge::Cartridge;
 use super::dma::DmaChannel;
+use super::interrupt::*;
 use super::ioregs::consts::*;
-use super::lcd::Lcd;
+use super::lcd::*;
 use super::sysbus::SysBus;
 
-use super::{EmuIoDev, GBAResult};
+use super::{EmuIoDev, GBAError, GBAResult};
 
-#[derive(Debug)]
 pub struct GameBoyAdvance {
     pub cpu: Core,
     pub sysbus: SysBus,
@@ -42,26 +42,52 @@ impl GameBoyAdvance {
         }
     }
 
-    fn run_cpu_for_n_cycles(&mut self, n: usize) {
-        let previous_cycles = self.cpu.cycles;
+    fn emulate_n_cycles(&mut self, mut n: usize) {
+        let mut cycles = 0;
         loop {
+            let previous_cycles = self.cpu.cycles;
             self.cpu.step_one(&mut self.sysbus).unwrap();
-            if n > self.cpu.cycles - previous_cycles {
+            let new_cycles = self.cpu.cycles - previous_cycles;
+
+            self.lcd.step(new_cycles, &mut self.sysbus);
+            cycles += new_cycles;
+
+            if n <= cycles {
                 break;
             }
         }
     }
 
     pub fn frame(&mut self) {
-        for _ in 0..Lcd::DISPLAY_HEIGHT {
-            self.run_cpu_for_n_cycles(Lcd::CYCLES_HDRAW);
-            let _irq = self.lcd.set_hblank(&mut self.sysbus);
-            self.run_cpu_for_n_cycles(Lcd::CYCLES_HBLANK);
+        while self.lcd.state == LcdState::VBlank {
+            self.emulate();
         }
-        let _irq = self.lcd.set_vblank(&mut self.sysbus);
-        self.run_cpu_for_n_cycles(Lcd::CYCLES_VBLANK);
-        self.lcd.render(&mut self.sysbus); // Currently not implemented
-        self.lcd.set_hdraw();
+        while self.lcd.state != LcdState::VBlank {
+            self.emulate();
+        }
+    }
+
+    pub fn emulate(&mut self) {
+        let previous_cycles = self.cpu.cycles;
+        self.cpu.step(&mut self.sysbus).unwrap();
+        let cycles = self.cpu.cycles - previous_cycles;
+        self.lcd.step(cycles, &mut self.sysbus);
+    }
+
+    fn interrupts_disabled(&self) -> bool {
+        self.sysbus.ioregs.read_reg(REG_IME) & 1 == 0
+    }
+
+    fn request_irq(&mut self, irq: Interrupt) {
+        // if self.interrupts_disabled() {
+        //     return;
+        // }
+        // let irq_bit = irq as usize;
+        // let reg_ie = self.sysbus.ioregs.read_reg(REG_IE);
+        // if reg_ie & (1 << irq_bit) != 0 {
+        //     println!("entering {:?}", irq);
+        //     self.cpu.exception(Exception::Irq);
+        // }
     }
 
     pub fn step(&mut self) -> GBAResult<DecodedInstruction> {
@@ -84,7 +110,11 @@ impl GameBoyAdvance {
         // let (dma_cycles, _) = self.dma3.step(cycles, &mut self.sysbus);
         // cycles += dma_cycles;
 
-        // let (lcd_cycles, _) = self.lcd.step(cycles, &mut self.sysbus);
+        /* let (_, irq) = */
+        self.lcd.step(cycles, &mut self.sysbus);
+        // if let Some(irq) = irq {
+        //     self.request_irq(irq);
+        // }
         // cycles += lcd_cycles;
 
         Ok(executed_insn)
