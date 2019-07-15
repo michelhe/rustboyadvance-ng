@@ -313,9 +313,25 @@ impl Lcd {
         }
     }
 
+    fn scanline_mode4(&mut self, bg: u32, dispcnt: &DisplayControl, sysbus: &mut SysBus) {
+        let page: u32 = match dispcnt.display_frame {
+            0 => 0x0600_0000,
+            1 => 0x0600_a000,
+            _ => unreachable!()
+        };
+
+        let y = self.current_scanline;
+
+        for x in 0..Self::DISPLAY_WIDTH {
+            let bitmap_index = x + y * Self::DISPLAY_WIDTH;
+            let bitmap_addr = page + (bitmap_index as u32);
+            let index = sysbus.read_8(bitmap_addr as Addr) as u32;
+            self.pixeldata[x + y * 256] = self.get_palette_color(sysbus, index, 0);
+        }
+    }
+
     pub fn scanline(&mut self, sysbus: &mut SysBus) {
         let dispcnt = DisplayControl::from(sysbus.ioregs.read_reg(REG_DISPCNT));
-        let dispstat = DisplayStatus::from(sysbus.ioregs.read_reg(REG_DISPSTAT));
 
         match dispcnt.bg_mode {
             BGMode::BGMode0 | BGMode::BGMode2 => {
@@ -324,6 +340,9 @@ impl Lcd {
                         self.scanline_mode0(bg as u32, sysbus);
                     }
                 }
+            }
+            BGMode::BGMode4 => {
+                self.scanline_mode4(2, &dispcnt, sysbus);
             }
             _ => panic!("{:?} not supported", dispcnt.bg_mode),
         }

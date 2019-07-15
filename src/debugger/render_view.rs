@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use sdl2::event::Event;
 use sdl2::pixels::Color;
 use sdl2::rect::Point;
@@ -20,21 +22,6 @@ pub fn create_render_view(gba: &GameBoyAdvance) {
 
     let mut canvas = window.into_canvas().build().unwrap();
 
-    canvas.set_draw_color(Color::RGB(0xfa, 0xfa, 0xfa));
-    canvas.clear();
-
-    for y in 0..Lcd::DISPLAY_HEIGHT {
-        for x in 0..Lcd::DISPLAY_WIDTH {
-            let index = (x as usize) + (y as usize) * (256 as usize);
-            let color = gba.lcd.pixeldata[index];
-            let rgb24: Color = color.into();
-            canvas.set_draw_color(rgb24);
-            canvas.draw_point(Point::from((x as i32, y as i32)));
-        }
-    }
-
-    canvas.present();
-
     let mut event_pump = sdl_context.event_pump().unwrap();
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -46,5 +33,22 @@ pub fn create_render_view(gba: &GameBoyAdvance) {
                 _ => {}
             }
         }
+
+        canvas.set_draw_color(Color::RGB(0xfa, 0xfa, 0xfa));
+        canvas.clear();
+
+        for y in 0..Lcd::DISPLAY_HEIGHT {
+            for x in 0..Lcd::DISPLAY_WIDTH {
+                let index = (x as usize) + (y as usize) * (256 as usize);
+                let color = gba.lcd.pixeldata[index];
+                let rgb24: Color = color.into();
+                canvas.set_draw_color(rgb24);
+                canvas.draw_point(Point::from((x as i32, y as i32)));
+            }
+        }
+
+        canvas.present();
+
+        ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
     }
 }
