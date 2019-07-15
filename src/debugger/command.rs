@@ -2,7 +2,7 @@ use crate::arm7tdmi::bus::Bus;
 use crate::arm7tdmi::{Addr, CpuState};
 use crate::disass::Disassembler;
 use crate::ioregs::consts::*;
-use crate::lcd::*;
+use crate::gpu::*;
 use crate::GBAError;
 
 use super::palette_view::create_palette_view;

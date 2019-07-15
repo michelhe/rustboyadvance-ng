@@ -1,13 +1,9 @@
-use std::io::Cursor;
-use std::io::{Seek, SeekFrom};
-
 use super::arm7tdmi::{Addr, Bus};
 use super::ioregs::consts::*;
 use super::palette::{Palette, PixelFormat, Rgb15};
 use super::*;
 
 use crate::bit::BitIndex;
-use crate::byteorder::{LittleEndian, ReadBytesExt};
 use crate::num::FromPrimitive;
 
 const VRAM_ADDR: Addr = 0x0600_0000;
@@ -127,34 +123,34 @@ impl BgControl {
 
     pub fn tile_format(&self) -> (u32, PixelFormat) {
         if self.palette256 {
-            (2 * Lcd::TILE_SIZE, PixelFormat::BPP8)
+            (2 * Gpu::TILE_SIZE, PixelFormat::BPP8)
         } else {
-            (Lcd::TILE_SIZE, PixelFormat::BPP4)
+            (Gpu::TILE_SIZE, PixelFormat::BPP4)
         }
     }
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub enum LcdState {
+pub enum GpuState {
     HDraw = 0,
     HBlank,
     VBlank,
 }
-impl Default for LcdState {
-    fn default() -> LcdState {
-        LcdState::HDraw
+impl Default for GpuState {
+    fn default() -> GpuState {
+        GpuState::HDraw
     }
 }
-use LcdState::*;
+use GpuState::*;
 
-pub struct Lcd {
+pub struct Gpu {
     cycles: usize,
     pub pixeldata: [Rgb15; 256 * 256],
-    pub state: LcdState,
+    pub state: GpuState,
     pub current_scanline: usize, // VCOUNT
 }
 
-impl Lcd {
+impl Gpu {
     pub const DISPLAY_WIDTH: usize = 240;
     pub const DISPLAY_HEIGHT: usize = 160;
 
@@ -167,8 +163,8 @@ impl Lcd {
 
     pub const TILE_SIZE: u32 = 0x20;
 
-    pub fn new() -> Lcd {
-        Lcd {
+    pub fn new() -> Gpu {
+        Gpu {
             state: HDraw,
             current_scanline: 0,
             cycles: 0,
@@ -349,9 +345,9 @@ impl Lcd {
     }
 }
 
-// *TODO* Running the Lcd step by step causes a massive performance impact, so for now not treat it as an emulated IO device.
+// *TODO* Running the Gpu step by step causes a massive performance impact, so for now not treat it as an emulated IO device.
 
-impl EmuIoDev for Lcd {
+impl EmuIoDev for Gpu {
     fn step(&mut self, cycles: usize, sysbus: &mut SysBus) -> (usize, Option<Interrupt>) {
         self.cycles += cycles;
 
@@ -367,11 +363,11 @@ impl EmuIoDev for Lcd {
 
         match self.state {
             HDraw => {
-                if self.cycles > Lcd::CYCLES_HDRAW {
+                if self.cycles > Gpu::CYCLES_HDRAW {
                     self.current_scanline += 1;
-                    self.cycles -= Lcd::CYCLES_HDRAW;
+                    self.cycles -= Gpu::CYCLES_HDRAW;
 
-                    let (new_state, irq) = if self.current_scanline < Lcd::DISPLAY_HEIGHT {
+                    let (new_state, irq) = if self.current_scanline < Gpu::DISPLAY_HEIGHT {
                         self.scanline(sysbus);
                         // HBlank
                         dispstat.hblank_flag = true;
@@ -396,8 +392,8 @@ impl EmuIoDev for Lcd {
                 }
             }
             HBlank => {
-                if self.cycles > Lcd::CYCLES_HBLANK {
-                    self.cycles -= Lcd::CYCLES_HBLANK;
+                if self.cycles > Gpu::CYCLES_HBLANK {
+                    self.cycles -= Gpu::CYCLES_HBLANK;
                     self.state = HDraw;
                     dispstat.hblank_flag = false;
                     self.update_regs(dispstat, sysbus);
@@ -405,8 +401,8 @@ impl EmuIoDev for Lcd {
                 }
             }
             VBlank => {
-                if self.cycles > Lcd::CYCLES_VBLANK {
-                    self.cycles -= Lcd::CYCLES_VBLANK;
+                if self.cycles > Gpu::CYCLES_VBLANK {
+                    self.cycles -= Gpu::CYCLES_VBLANK;
                     self.state = HDraw;
                     dispstat.vblank_flag = false;
                     self.current_scanline = 0;

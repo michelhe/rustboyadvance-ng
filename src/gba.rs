@@ -5,7 +5,7 @@ use super::cartridge::Cartridge;
 use super::dma::DmaChannel;
 use super::interrupt::*;
 use super::ioregs::consts::*;
-use super::lcd::*;
+use super::gpu::*;
 use super::sysbus::SysBus;
 
 use super::{EmuIoDev, GBAError, GBAResult};
@@ -15,7 +15,7 @@ pub struct GameBoyAdvance {
     pub sysbus: SysBus,
 
     // io devices
-    pub lcd: Lcd,
+    pub gpu: Gpu,
     pub dma0: DmaChannel,
     pub dma1: DmaChannel,
     pub dma2: DmaChannel,
@@ -32,7 +32,7 @@ impl GameBoyAdvance {
             cpu: cpu,
             sysbus: sysbus,
 
-            lcd: Lcd::new(),
+            gpu: Gpu::new(),
             dma0: DmaChannel::new(REG_DMA0SAD, REG_DMA0DAD, REG_DMA0DAD),
             dma1: DmaChannel::new(REG_DMA1SAD, REG_DMA1DAD, REG_DMA1DAD),
             dma2: DmaChannel::new(REG_DMA2SAD, REG_DMA2DAD, REG_DMA2DAD),
@@ -49,7 +49,7 @@ impl GameBoyAdvance {
             self.cpu.step_one(&mut self.sysbus).unwrap();
             let new_cycles = self.cpu.cycles - previous_cycles;
 
-            self.lcd.step(new_cycles, &mut self.sysbus);
+            self.gpu.step(new_cycles, &mut self.sysbus);
             cycles += new_cycles;
 
             if n <= cycles {
@@ -59,10 +59,10 @@ impl GameBoyAdvance {
     }
 
     pub fn frame(&mut self) {
-        while self.lcd.state == LcdState::VBlank {
+        while self.gpu.state == GpuState::VBlank {
             self.emulate();
         }
-        while self.lcd.state != LcdState::VBlank {
+        while self.gpu.state != GpuState::VBlank {
             self.emulate();
         }
     }
@@ -71,7 +71,7 @@ impl GameBoyAdvance {
         let previous_cycles = self.cpu.cycles;
         self.cpu.step(&mut self.sysbus).unwrap();
         let cycles = self.cpu.cycles - previous_cycles;
-        self.lcd.step(cycles, &mut self.sysbus);
+        self.gpu.step(cycles, &mut self.sysbus);
     }
 
     fn interrupts_disabled(&self) -> bool {
@@ -111,7 +111,7 @@ impl GameBoyAdvance {
         // cycles += dma_cycles;
 
         /* let (_, irq) = */
-        self.lcd.step(cycles, &mut self.sysbus);
+        self.gpu.step(cycles, &mut self.sysbus);
         // if let Some(irq) = irq {
         //     self.request_irq(irq);
         // }

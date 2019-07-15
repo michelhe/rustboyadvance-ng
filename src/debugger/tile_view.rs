@@ -8,7 +8,7 @@ use sdl2::render::Canvas;
 use crate::arm7tdmi::bus::Bus;
 use crate::gba::GameBoyAdvance;
 use crate::ioregs::consts::*;
-use crate::lcd::*;
+use crate::gpu::*;
 use crate::palette::*;
 use crate::sysbus::SysBus;
 
@@ -31,15 +31,15 @@ fn draw_tile(
             let color = match pixel_format {
                 PixelFormat::BPP4 => {
                     let index =
-                        gba.lcd
+                        gba.gpu
                             .read_pixel_index(&gba.sysbus, tile_addr, x, y, 4, pixel_format);
-                    gba.lcd.get_palette_color(&gba.sysbus, index as u32, 0)
+                    gba.gpu.get_palette_color(&gba.sysbus, index as u32, 3)
                 }
                 PixelFormat::BPP8 => {
                     let index =
-                        gba.lcd
+                        gba.gpu
                             .read_pixel_index(&gba.sysbus, tile_addr, x, y, 8, pixel_format);
-                    gba.lcd.get_palette_color(&gba.sysbus, index as u32, 0)
+                    gba.gpu.get_palette_color(&gba.sysbus, index as u32, 0)
                 }
             };
             let (r, g, b) = color.get_rgb24();

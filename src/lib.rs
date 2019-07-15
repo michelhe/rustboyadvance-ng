@@ -15,6 +15,7 @@ extern crate ansi_term;
 extern crate colored; // not needed in Rust 2018
 
 pub mod arm7tdmi;
+pub mod gpu;
 pub mod cartridge;
 pub mod debugger;
 pub mod disass;
@@ -26,7 +27,6 @@ pub use interrupt::Interrupt;
 pub mod gba;
 pub use gba::GameBoyAdvance;
 pub mod dma;
-pub mod lcd;
 pub mod palette;
 pub mod util;
 

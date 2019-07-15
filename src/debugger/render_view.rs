@@ -5,10 +5,10 @@ use sdl2::pixels::Color;
 use sdl2::rect::Point;
 
 use crate::gba::GameBoyAdvance;
-use crate::lcd::Lcd;
+use crate::gpu::Gpu;
 
-const SCREEN_WIDTH: u32 = Lcd::DISPLAY_WIDTH as u32;
-const SCREEN_HEIGHT: u32 = Lcd::DISPLAY_HEIGHT as u32;
+const SCREEN_WIDTH: u32 = Gpu::DISPLAY_WIDTH as u32;
+const SCREEN_HEIGHT: u32 = Gpu::DISPLAY_HEIGHT as u32;
 
 pub fn create_render_view(gba: &GameBoyAdvance) {
     let sdl_context = sdl2::init().unwrap();
@@ -28,7 +28,7 @@ pub fn create_render_view(gba: &GameBoyAdvance) {
             match event {
                 Event::Quit { .. } => break 'running,
                 Event::MouseButtonDown { x, y, .. } => {
-                    println!("({},{}) {:x}", x, y, x + y * (Lcd::DISPLAY_WIDTH as i32));
+                    println!("({},{}) {:x}", x, y, x + y * (Gpu::DISPLAY_WIDTH as i32));
                 }
                 _ => {}
             }
@@ -37,10 +37,10 @@ pub fn create_render_view(gba: &GameBoyAdvance) {
         canvas.set_draw_color(Color::RGB(0xfa, 0xfa, 0xfa));
         canvas.clear();
 
-        for y in 0..Lcd::DISPLAY_HEIGHT {
-            for x in 0..Lcd::DISPLAY_WIDTH {
+        for y in 0..Gpu::DISPLAY_HEIGHT {
+            for x in 0..Gpu::DISPLAY_WIDTH {
                 let index = (x as usize) + (y as usize) * (256 as usize);
-                let color = gba.lcd.pixeldata[index];
+                let color = gba.gpu.pixeldata[index];
                 let rgb24: Color = color.into();
                 canvas.set_draw_color(rgb24);
                 canvas.draw_point(Point::from((x as i32, y as i32)));
