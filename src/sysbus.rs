@@ -1,5 +1,7 @@
 use std::io;
 
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+
 use super::{cartridge::Cartridge, ioregs::IoRegs};
 
 use super::arm7tdmi::bus::{Bus, MemoryAccess, MemoryAccessWidth};
@@ -48,6 +50,38 @@ impl Default for WaitState {
 }
 
 impl Bus for BoxedMemory {
+    fn read_32(&self, addr: Addr) -> u32 {
+        (&self.0[addr as usize..])
+            .read_u32::<LittleEndian>()
+            .unwrap()
+    }
+
+    fn read_16(&self, addr: Addr) -> u16 {
+        (&self.0[addr as usize..])
+            .read_u16::<LittleEndian>()
+            .unwrap()
+    }
+
+    fn read_8(&self, addr: Addr) -> u8 {
+        (&self.0[addr as usize..])[0]
+    }
+
+    fn write_32(&mut self, addr: Addr, value: u32) {
+        (&mut self.0[addr as usize..])
+            .write_u32::<LittleEndian>(value)
+            .unwrap()
+    }
+
+    fn write_16(&mut self, addr: Addr, value: u16) {
+        (&mut self.0[addr as usize..])
+            .write_u16::<LittleEndian>(value)
+            .unwrap()
+    }
+
+    fn write_8(&mut self, addr: Addr, value: u8) {
+        (&mut self.0[addr as usize..]).write_u8(value).unwrap()
+    }
+
     fn get_bytes(&self, addr: Addr) -> &[u8] {
         &self.0[addr as usize..]
     }
@@ -81,17 +115,12 @@ impl Bus for DummyBus {
         0
     }
 
-    fn write_32(&mut self, _addr: Addr, _value: u32) -> Result<(), io::Error> {
-        Ok(())
-    }
+    fn write_32(&mut self, _addr: Addr, _value: u32) {}
 
-    fn write_16(&mut self, _addr: Addr, _value: u16) -> Result<(), io::Error> {
-        Ok(())
-    }
+    fn write_16(&mut self, _addr: Addr, _value: u16) {}
 
-    fn write_8(&mut self, _addr: Addr, _value: u8) -> Result<(), io::Error> {
-        Ok(())
-    }
+    fn write_8(&mut self, _addr: Addr, _value: u8) {}
+
     fn get_bytes(&self, _addr: Addr) -> &[u8] {
         &self.0
     }
@@ -153,10 +182,7 @@ impl SysBus {
             0x0600_0000...0x0601_7fff => &self.vram,
             0x0700_0000...0x0700_03ff => &self.oam,
             0x0800_0000...0x09ff_ffff => &self.gamepak,
-            _ => {
-                println!("unmapped address @0x{:08x}", addr);
-                &self.dummy
-            }
+            _ => &self.dummy,
         }
     }
 
@@ -171,10 +197,7 @@ impl SysBus {
             0x0600_0000...0x0601_7fff => &mut self.vram,
             0x0700_0000...0x0700_03ff => &mut self.oam,
             0x0800_0000...0x09ff_ffff => &mut self.gamepak,
-            _ => {
-                println!("unmapped address @0x{:08x}", addr);
-                &mut self.dummy
-            }
+            _ => &mut self.dummy,
         }
     }
 }
@@ -192,15 +215,15 @@ impl Bus for SysBus {
         self.map(addr).read_8(addr & 0xff_ffff)
     }
 
-    fn write_32(&mut self, addr: Addr, value: u32) -> Result<(), io::Error> {
+    fn write_32(&mut self, addr: Addr, value: u32) {
         self.map_mut(addr).write_32(addr & 0xff_ffff, value)
     }
 
-    fn write_16(&mut self, addr: Addr, value: u16) -> Result<(), io::Error> {
+    fn write_16(&mut self, addr: Addr, value: u16) {
         self.map_mut(addr).write_16(addr & 0xff_ffff, value)
     }
 
-    fn write_8(&mut self, addr: Addr, value: u8) -> Result<(), io::Error> {
+    fn write_8(&mut self, addr: Addr, value: u8) {
         self.map_mut(addr).write_8(addr & 0xff_ffff, value)
     }
 

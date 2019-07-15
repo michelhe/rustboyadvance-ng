@@ -236,21 +236,21 @@ impl Core {
         let cycle_type = self.cycle_type(addr);
         self.add_cycles(addr, bus, cycle_type + MemoryAccess32);
         self.memreq = addr;
-        bus.write_32(addr, value).expect("store_32 error");
+        bus.write_32(addr, value);
     }
 
     pub fn store_16(&mut self, addr: Addr, value: u16, bus: &mut Bus) {
         let cycle_type = self.cycle_type(addr);
         self.add_cycles(addr, bus, cycle_type + MemoryAccess16);
         self.memreq = addr;
-        bus.write_16(addr, value).expect("store_16 error");
+        bus.write_16(addr, value);
     }
 
     pub fn store_8(&mut self, addr: Addr, value: u8, bus: &mut Bus) {
         let cycle_type = self.cycle_type(addr);
         self.add_cycles(addr, bus, cycle_type + MemoryAccess8);
         self.memreq = addr;
-        bus.write_8(addr, value).expect("store_16 error");
+        bus.write_8(addr, value);
     }
 
     pub fn check_arm_cond(&self, cond: ArmCond) -> bool {

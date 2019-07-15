@@ -1,5 +1,7 @@
 use std::str::from_utf8;
 
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+
 use crate::arm7tdmi::{
     bus::{Bus, MemoryAccess, MemoryAccessWidth},
     Addr,
@@ -93,6 +95,38 @@ impl Cartridge {
 }
 
 impl Bus for Cartridge {
+    fn read_32(&self, addr: Addr) -> u32 {
+        (&self.bytes[addr as usize..])
+            .read_u32::<LittleEndian>()
+            .unwrap()
+    }
+
+    fn read_16(&self, addr: Addr) -> u16 {
+        (&self.bytes[addr as usize..])
+            .read_u16::<LittleEndian>()
+            .unwrap()
+    }
+
+    fn read_8(&self, addr: Addr) -> u8 {
+        (&self.bytes[addr as usize..])[0]
+    }
+
+    fn write_32(&mut self, addr: Addr, value: u32) {
+        (&mut self.bytes[addr as usize..])
+            .write_u32::<LittleEndian>(value)
+            .unwrap()
+    }
+
+    fn write_16(&mut self, addr: Addr, value: u16) {
+        (&mut self.bytes[addr as usize..])
+            .write_u16::<LittleEndian>(value)
+            .unwrap()
+    }
+
+    fn write_8(&mut self, addr: Addr, value: u8) {
+        (&mut self.bytes[addr as usize..]).write_u8(value).unwrap()
+    }
+
     fn get_bytes(&self, addr: Addr) -> &[u8] {
         &self.bytes[addr as usize..]
     }

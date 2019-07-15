@@ -168,19 +168,19 @@ impl Bus for IoRegs {
         self.read_reg(IO_BASE + addr) as u8
     }
 
-    fn write_32(&mut self, addr: Addr, value: u32) -> Result<(), io::Error> {
-        self.get_bytes_mut(addr).write_u32::<LittleEndian>(value)
+    fn write_32(&mut self, addr: Addr, value: u32) {
+        self.get_bytes_mut(addr)
+            .write_u32::<LittleEndian>(value)
+            .unwrap()
     }
 
-    fn write_16(&mut self, addr: Addr, value: u16) -> Result<(), io::Error> {
+    fn write_16(&mut self, addr: Addr, value: u16) {
         self.write_reg(IO_BASE + addr, value);
-        Ok(())
     }
 
-    fn write_8(&mut self, addr: Addr, value: u8) -> Result<(), io::Error> {
+    fn write_8(&mut self, addr: Addr, value: u8) {
         let new_value = self.read_reg(IO_BASE + addr) & 0xff00 | (value as u16);
         self.write_reg(IO_BASE + addr, new_value);
-        Ok(())
     }
 
     /// Return a slice of bytes

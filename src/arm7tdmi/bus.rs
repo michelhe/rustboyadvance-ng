@@ -2,8 +2,6 @@ use std::fmt;
 use std::io;
 use std::ops::Add;
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-
 use super::Addr;
 
 #[derive(Debug)]
@@ -50,29 +48,12 @@ impl fmt::Display for MemoryAccess {
 }
 
 pub trait Bus {
-    fn read_32(&self, addr: Addr) -> u32 {
-        self.get_bytes(addr).read_u32::<LittleEndian>().unwrap()
-    }
-
-    fn read_16(&self, addr: Addr) -> u16 {
-        self.get_bytes(addr).read_u16::<LittleEndian>().unwrap()
-    }
-
-    fn read_8(&self, addr: Addr) -> u8 {
-        self.get_bytes(addr)[0]
-    }
-
-    fn write_32(&mut self, addr: Addr, value: u32) -> Result<(), io::Error> {
-        self.get_bytes_mut(addr).write_u32::<LittleEndian>(value)
-    }
-
-    fn write_16(&mut self, addr: Addr, value: u16) -> Result<(), io::Error> {
-        self.get_bytes_mut(addr).write_u16::<LittleEndian>(value)
-    }
-
-    fn write_8(&mut self, addr: Addr, value: u8) -> Result<(), io::Error> {
-        self.get_bytes_mut(addr).write_u8(value)
-    }
+    fn read_32(&self, addr: Addr) -> u32;
+    fn read_16(&self, addr: Addr) -> u16;
+    fn read_8(&self, addr: Addr) -> u8;
+    fn write_32(&mut self, addr: Addr, value: u32);
+    fn write_16(&mut self, addr: Addr, value: u16);
+    fn write_8(&mut self, addr: Addr, value: u8);
     /// Return a slice of bytes
     fn get_bytes(&self, addr: Addr) -> &[u8];
 
