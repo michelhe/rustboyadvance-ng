@@ -33,7 +33,7 @@ pub struct DisplayControl {
 impl From<u16> for DisplayControl {
     fn from(v: u16) -> Self {
         DisplayControl {
-            bg_mode: BGMode::from_u8(v.bit_range(0..2) as u8).unwrap(),
+            bg_mode: BGMode::from_u8(v.bit_range(0..3) as u8).unwrap(),
             // bit 3 is unused
             display_frame: v.bit(4) as usize,
             hblank_interval_free: v.bit(5),
@@ -70,7 +70,7 @@ impl From<u16> for DisplayStatus {
             hblank_irq_enable: v.bit(4),
             vcount_irq_enable: v.bit(5),
             // bits 6-7 are unused in GBA
-            vcount_setting: v.bit_range(8..15) as u8,
+            vcount_setting: v.bit_range(8..16) as u8,
             raw_value: v,
         }
     }
@@ -90,7 +90,7 @@ pub struct BgControl {
 
 impl From<u16> for BgControl {
     fn from(v: u16) -> Self {
-        let (width, height) = match v.bit_range(14..15) {
+        let (width, height) = match v.bit_range(14..16) {
             0 => (256, 256),
             1 => (512, 256),
             2 => (256, 512),
@@ -98,11 +98,11 @@ impl From<u16> for BgControl {
             _ => unreachable!(),
         };
         BgControl {
-            bg_priority: v.bit_range(0..1) as u8,
+            bg_priority: v.bit_range(0..2) as u8,
             character_base_block: v.bit_range(2..3) as u8,
             moasic: v.bit(6),
             colors_palettes: v.bit(7), // 0=16/16, 1=256/1)
-            screen_base_block: v.bit_range(8..12) as u8,
+            screen_base_block: v.bit_range(8..13) as u8,
             wraparound: v.bit(13),
             screen_width: width,
             screen_height: height,
