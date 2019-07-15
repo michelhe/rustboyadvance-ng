@@ -28,11 +28,11 @@ fn run_debug(matches: &ArgMatches) -> GBAResult<()> {
     if skip_bios {
         core.gpr[13] = 0x0300_7f00;
         core.gpr_banked_r13[0] = 0x0300_7f00; // USR/SYS
-        core.gpr_banked_r13[0] = 0x0300_7f00; // FIQ
-        core.gpr_banked_r13[0] = 0x0300_7fa0; // IRQ
-        core.gpr_banked_r13[0] = 0x0300_7fe0; // SVC
-        core.gpr_banked_r13[0] = 0x0300_7f00; // ABT
-        core.gpr_banked_r13[0] = 0x0300_7f00; // UND
+        core.gpr_banked_r13[1] = 0x0300_7f00; // FIQ
+        core.gpr_banked_r13[2] = 0x0300_7fa0; // IRQ
+        core.gpr_banked_r13[3] = 0x0300_7fe0; // SVC
+        core.gpr_banked_r13[4] = 0x0300_7f00; // ABT
+        core.gpr_banked_r13[5] = 0x0300_7f00; // UND
 
         core.pc = 0x0800_0000;
 
