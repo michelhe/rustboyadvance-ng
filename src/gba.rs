@@ -3,9 +3,9 @@
 use super::arm7tdmi::{exception::*, Core, DecodedInstruction};
 use super::cartridge::Cartridge;
 use super::dma::DmaChannel;
+use super::gpu::*;
 use super::interrupt::*;
 use super::ioregs::consts::*;
-use super::gpu::*;
 use super::sysbus::SysBus;
 
 use super::{EmuIoDev, GBAError, GBAResult};

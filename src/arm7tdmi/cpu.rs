@@ -13,49 +13,16 @@ use super::{
     Addr, CpuMode, CpuResult, CpuState, DecodedInstruction, InstructionDecoder,
 };
 
-#[derive(Debug)]
-pub struct PipelineContext<D, N>
-where
-    D: InstructionDecoder,
-    N: Num,
-{
-    fetched: Option<(Addr, N)>,
-    decoded: Option<D>,
+#[derive(Debug, PartialEq)]
+enum PipelineState {
+    Refill1,
+    Refill2,
+    Execute,
 }
 
-impl<D, N> Default for PipelineContext<D, N>
-where
-    D: InstructionDecoder,
-    N: Num,
-{
-    fn default() -> PipelineContext<D, N> {
-        PipelineContext {
-            fetched: None,
-            decoded: None,
-        }
-    }
-}
-
-impl<D, N> PipelineContext<D, N>
-where
-    D: InstructionDecoder,
-    N: Num,
-{
-    pub fn flush(&mut self) {
-        self.fetched = None;
-        self.decoded = None;
-    }
-
-    pub fn is_flushed(&self) -> bool {
-        self.fetched.is_none() && self.decoded.is_none()
-    }
-
-    pub fn is_only_fetched(&self) -> bool {
-        self.fetched.is_some() && self.decoded.is_none()
-    }
-
-    pub fn is_ready_to_execute(&self) -> bool {
-        self.fetched.is_some() && self.decoded.is_some()
+impl Default for PipelineState {
+    fn default() -> PipelineState {
+        PipelineState::Refill1
     }
 }
 
@@ -73,8 +40,13 @@ pub struct Core {
     pub cpsr: RegPSR,
     pub spsr: [RegPSR; 5],
 
-    pub pipeline_arm: PipelineContext<ArmInstruction, u32>,
-    pub pipeline_thumb: PipelineContext<ThumbInstruction, u16>,
+    pipeline_state: PipelineState,
+    fetched_arm: u32,
+    decoded_arm: u32,
+    fetched_thumb: u16,
+    decoded_thumb: u16,
+    last_executed: Option<DecodedInstruction>,
+
     pub cycles: usize,
 
     // store the gpr before executing an instruction to show diff in the Display impl
@@ -85,13 +57,7 @@ pub struct Core {
     pub verbose: bool,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum CpuPipelineAction {
-    IncPC,
-    Flush,
-}
-
-pub type CpuExecResult = CpuResult<CpuPipelineAction>;
+pub type CpuExecResult = CpuResult<()>;
 
 impl Core {
     pub fn new() -> Core {
@@ -274,119 +240,110 @@ impl Core {
         }
     }
 
-    fn step_thumb(
-        &mut self,
-        bus: &mut Bus,
-    ) -> CpuResult<(Option<DecodedInstruction>, CpuPipelineAction)> {
-        // fetch
-        // let new_fetched = bus.read_16(self.pc);
-        let new_fetched = self.load_16(self.pc, bus);
-
-        // decode
-        let new_decoded = match self.pipeline_thumb.fetched {
-            Some((addr, i)) => {
-                let insn = ThumbInstruction::decode(i, addr)?;
-                Some(insn)
+    fn step_arm_exec(&mut self, insn: u32, sb: &mut Bus) -> CpuResult<()> {
+        let pc = self.pc;
+        match self.pipeline_state {
+            PipelineState::Refill1 => {
+                self.pc = pc.wrapping_add(4);
+                self.pipeline_state = PipelineState::Refill2;
             }
-            None => None,
-        };
-
-        // exec
-        let result = match self.pipeline_thumb.decoded {
-            Some(d) => {
+            PipelineState::Refill2 => {
+                self.pc = pc.wrapping_add(4);
+                self.pipeline_state = PipelineState::Execute;
+            }
+            PipelineState::Execute => {
+                let insn = ArmInstruction::decode(insn, self.pc.wrapping_sub(8))?;
                 self.gpr_previous = self.get_registers();
-                let action = self.exec_thumb(bus, d)?;
-                Ok((Some(DecodedInstruction::Thumb(d)), action))
+                self.exec_arm(sb, insn)?;
+                if !self.did_pipeline_flush() {
+                    self.pc = pc.wrapping_add(4);
+                }
+                self.last_executed = Some(DecodedInstruction::Arm(insn));
             }
-            None => Ok((None, CpuPipelineAction::IncPC)),
-        };
-
-        self.pipeline_thumb.fetched = Some((self.pc, new_fetched));
-        if let Some(d) = new_decoded {
-            self.pipeline_thumb.decoded = Some(d);
         }
-
-        result
+        Ok(())
     }
 
-    fn step_arm(
-        &mut self,
-        bus: &mut Bus,
-    ) -> CpuResult<(Option<DecodedInstruction>, CpuPipelineAction)> {
-        // let new_fetched = bus.read_32(self.pc);
-        let new_fetched = self.load_32(self.pc, bus);
+    fn arm(&mut self, sb: &mut Bus) -> CpuResult<()> {
+        let pc = self.pc;
+
+        // fetch
+        let fetched_now = self.load_32(pc, sb);
+        let executed_now = self.decoded_arm;
 
         // decode
-        let new_decoded = match self.pipeline_arm.fetched {
-            Some((addr, i)) => {
-                let insn = ArmInstruction::decode(i, addr)?;
-                Some(insn)
-            }
-            None => None,
-        };
+        self.decoded_arm = self.fetched_arm;
+        self.fetched_arm = fetched_now;
 
-        // exec
-        let result = match self.pipeline_arm.decoded {
-            Some(d) => {
+        // execute
+        self.step_arm_exec(executed_now, sb)?;
+        Ok(())
+    }
+
+    pub fn did_pipeline_flush(&self) -> bool {
+        self.pipeline_state == PipelineState::Refill1
+    }
+
+    fn step_thumb_exec(&mut self, insn: u16, sb: &mut Bus) -> CpuResult<()> {
+        let pc = self.pc;
+        match self.pipeline_state {
+            PipelineState::Refill1 => {
+                self.pc = pc.wrapping_add(2);
+                self.pipeline_state = PipelineState::Refill2;
+            }
+            PipelineState::Refill2 => {
+                self.pc = pc.wrapping_add(2);
+                self.pipeline_state = PipelineState::Execute;
+            }
+            PipelineState::Execute => {
+                let insn = ThumbInstruction::decode(insn, self.pc.wrapping_sub(4))?;
                 self.gpr_previous = self.get_registers();
-                let action = self.exec_arm(bus, d)?;
-                Ok((Some(DecodedInstruction::Arm(d)), action))
+                self.exec_thumb(sb, insn)?;
+                if !self.did_pipeline_flush() {
+                    self.pc = pc.wrapping_add(2);
+                }
+                self.last_executed = Some(DecodedInstruction::Thumb(insn));
             }
-            None => Ok((None, CpuPipelineAction::IncPC)),
-        };
-
-        self.pipeline_arm.fetched = Some((self.pc, new_fetched));
-        if let Some(d) = new_decoded {
-            self.pipeline_arm.decoded = Some(d);
         }
+        Ok(())
+    }
 
-        result
+    fn thumb(&mut self, sb: &mut Bus) -> CpuResult<()> {
+        let pc = self.pc;
+
+        // fetch
+        let fetched_now = self.load_16(pc, sb);
+        let executed_now = self.decoded_thumb;
+
+        // decode
+        self.decoded_thumb = self.fetched_thumb;
+        self.fetched_thumb = fetched_now;
+
+        // execute
+        self.step_thumb_exec(executed_now, sb)?;
+        Ok(())
+    }
+
+    pub fn flush_pipeline(&mut self) {
+        self.pipeline_state = PipelineState::Refill1;
     }
 
     /// Perform a pipeline step
     /// If an instruction was executed in this step, return it.
-    pub fn step(&mut self, bus: &mut Bus) -> CpuResult<Option<DecodedInstruction>> {
-        let (executed_instruction, pipeline_action) = match self.cpsr.state() {
-            CpuState::ARM => self.step_arm(bus),
-            CpuState::THUMB => self.step_thumb(bus),
-        }?;
-
-        match pipeline_action {
-            CpuPipelineAction::IncPC => self.advance_pc(),
-            CpuPipelineAction::Flush => {
-                self.pipeline_arm.flush();
-                self.pipeline_thumb.flush();
-            }
+    pub fn step(&mut self, bus: &mut Bus) -> CpuResult<()> {
+        match self.cpsr.state() {
+            CpuState::ARM => self.arm(bus),
+            CpuState::THUMB => self.thumb(bus),
         }
-
-        Ok(executed_instruction)
     }
 
     /// Get's the address of the next instruction that is going to be executed
     pub fn get_next_pc(&self) -> Addr {
-        match self.cpsr.state() {
-            CpuState::ARM => {
-                if self.pipeline_arm.is_flushed() {
-                    self.pc as Addr
-                } else if self.pipeline_arm.is_only_fetched() {
-                    self.pipeline_arm.fetched.unwrap().0
-                } else if self.pipeline_arm.is_ready_to_execute() {
-                    self.pipeline_arm.decoded.unwrap().pc
-                } else {
-                    unreachable!()
-                }
-            }
-            CpuState::THUMB => {
-                if self.pipeline_thumb.is_flushed() {
-                    self.pc as Addr
-                } else if self.pipeline_thumb.is_only_fetched() {
-                    self.pipeline_thumb.fetched.unwrap().0
-                } else if self.pipeline_thumb.is_ready_to_execute() {
-                    self.pipeline_thumb.decoded.unwrap().pc
-                } else {
-                    unreachable!()
-                }
-            }
+        let insn_size = self.word_size() as u32;
+        match self.pipeline_state {
+            PipelineState::Refill1 => self.pc,
+            PipelineState::Refill2 => self.pc - insn_size,
+            PipelineState::Execute => self.pc - 2 * insn_size,
         }
     }
 
@@ -395,8 +352,14 @@ impl Core {
     /// and the address of the next instruction to be executed;
     pub fn step_one(&mut self, bus: &mut Bus) -> CpuResult<DecodedInstruction> {
         loop {
-            if let Some(i) = self.step(bus)? {
-                return Ok(i);
+            match self.pipeline_state {
+                PipelineState::Execute => {
+                    self.step(bus)?;
+                    return Ok(self.last_executed.unwrap());
+                }
+                _ => {
+                    self.step(bus)?;
+                }
             }
         }
     }

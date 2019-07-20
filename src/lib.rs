@@ -15,10 +15,10 @@ extern crate ansi_term;
 extern crate colored; // not needed in Rust 2018
 
 pub mod arm7tdmi;
-pub mod gpu;
 pub mod cartridge;
 pub mod debugger;
 pub mod disass;
+pub mod gpu;
 pub mod sysbus;
 pub use sysbus::SysBus;
 pub mod interrupt;

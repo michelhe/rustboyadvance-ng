@@ -374,10 +374,8 @@ mod tests {
         assert_eq!(decoded.swi_comment(), 0x1337);
         assert_eq!(format!("{}", decoded), "swi\t#0x1337");
 
-        assert_eq!(
-            core.exec_arm(&mut mem, decoded),
-            Ok(CpuPipelineAction::Flush)
-        );
+        core.exec_arm(&mut mem, decoded).unwrap();
+        assert_eq!(core.did_pipeline_flush(), true);
 
         assert_eq!(core.cpsr.mode(), CpuMode::Supervisor);
         assert_eq!(core.pc, Exception::SoftwareInterrupt as u32);
@@ -401,10 +399,8 @@ mod tests {
         let bytes = vec![];
         let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
 
-        assert_eq!(
-            core.exec_arm(&mut mem, decoded),
-            Ok(CpuPipelineAction::Flush)
-        );
+        core.exec_arm(&mut mem, decoded).unwrap();
+        assert_eq!(core.did_pipeline_flush(), true);
         assert_eq!(core.pc, 0x30);
     }
 
@@ -426,10 +422,8 @@ mod tests {
         let bytes = vec![];
         let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
 
-        assert_eq!(
-            core.exec_arm(&mut mem, decoded),
-            Ok(CpuPipelineAction::Flush)
-        );
+        core.exec_arm(&mut mem, decoded).unwrap();
+        assert_eq!(core.did_pipeline_flush(), true);
         assert_eq!(core.pc, 0x10);
     }
 
@@ -470,10 +464,7 @@ mod tests {
         ];
         let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
 
-        assert_eq!(
-            core.exec_arm(&mut mem, decoded),
-            Ok(CpuPipelineAction::IncPC)
-        );
+        core.exec_arm(&mut mem, decoded).unwrap();
         assert_eq!(core.gpr[2], 0x1337);
     }
 
@@ -514,10 +505,7 @@ mod tests {
         ];
         let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
 
-        assert_eq!(
-            core.exec_arm(&mut mem, decoded),
-            Ok(CpuPipelineAction::IncPC)
-        );
+        core.exec_arm(&mut mem, decoded).unwrap();
         assert_eq!(mem.read_32(0), 0xabababab);
     }
 
@@ -543,10 +531,7 @@ mod tests {
         let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
 
         assert_ne!(mem.read_32(core.get_reg(REG_SP) + 0x10), 0x12345678);
-        assert_eq!(
-            core.exec_arm(&mut mem, decoded),
-            Ok(CpuPipelineAction::IncPC)
-        );
+        core.exec_arm(&mut mem, decoded).unwrap();
         assert_eq!(mem.read_32(core.get_reg(REG_SP) + 0x10), 0x12345678);
     }
 }

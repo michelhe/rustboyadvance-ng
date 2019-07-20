@@ -355,17 +355,11 @@ impl ThumbInstruction {
 /// All instructions constants were generated using an ARM assembler.
 mod tests {
     use super::*;
-    use crate::arm7tdmi::{
-        cpu::{Core, CpuPipelineAction},
-        Bus,
-    };
+    use crate::arm7tdmi::{Core, Bus};
     use crate::sysbus::BoxedMemory;
 
     #[test]
     fn mov_low_reg() {
-        use crate::arm7tdmi::cpu::{Core, CpuPipelineAction};
-        use crate::sysbus::BoxedMemory;
-
         let bytes = vec![];
         let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
         let mut core = Core::new();
@@ -375,10 +369,7 @@ mod tests {
         let insn = ThumbInstruction::decode(0x2027, 0).unwrap();
 
         assert_eq!(format!("{}", insn), "mov\tr0, #0x27");
-        assert_eq!(
-            core.exec_thumb(&mut mem, insn),
-            Ok(CpuPipelineAction::IncPC)
-        );
+        core.exec_thumb(&mut mem, insn).unwrap();
         assert_eq!(core.get_reg(0), 0x27);
     }
 
@@ -395,7 +386,7 @@ mod tests {
 
         #[rustfmt::skip]
         let bytes = vec![
-            /* 0: */ 0x00, 0x00, 
+            /* 0: */ 0x00, 0x00,
             /* 2: */ 0x00, 0x00,
             /* 4: */ 0x00, 0x00,
             /* 6: <pc> */ 0x00, 0x00,
@@ -407,10 +398,7 @@ mod tests {
         core.set_reg(0, 0);
 
         assert_eq!(format!("{}", insn), "ldr\tr0, [pc, #0x4] ; = #0xc");
-        assert_eq!(
-            core.exec_thumb(&mut mem, insn),
-            Ok(CpuPipelineAction::IncPC)
-        );
+        core.exec_thumb(&mut mem, insn).unwrap();
         assert_eq!(core.get_reg(0), 0x12345678);
     }
 
@@ -439,15 +427,9 @@ mod tests {
 
         assert_eq!(format!("{}", str_insn), "str\tr0, [r4, r1]");
         assert_eq!(format!("{}", ldr_insn), "ldrb\tr2, [r4, r1]");
-        assert_eq!(
-            core.exec_thumb(&mut mem, str_insn),
-            Ok(CpuPipelineAction::IncPC)
-        );
+        core.exec_thumb(&mut mem, str_insn).unwrap();
         assert_eq!(mem.read_32(0x10), 0x12345678);
-        assert_eq!(
-            core.exec_thumb(&mut mem, ldr_insn),
-            Ok(CpuPipelineAction::IncPC)
-        );
+        core.exec_thumb(&mut mem, ldr_insn).unwrap();
         assert_eq!(core.get_reg(2), 0x78);
     }
 

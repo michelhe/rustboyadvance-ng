@@ -1,5 +1,5 @@
 use crate::arm7tdmi::bus::Bus;
-use crate::arm7tdmi::cpu::{Core, CpuExecResult, CpuPipelineAction};
+use crate::arm7tdmi::cpu::{Core, CpuExecResult};
 use crate::arm7tdmi::*;
 
 use super::*;
@@ -35,7 +35,7 @@ impl Core {
             self.set_reg(rd, result as u32);
         }
 
-        Ok(CpuPipelineAction::IncPC)
+        Ok(())
     }
 
     fn exec_thumb_add_sub(&mut self, _bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
@@ -56,7 +56,7 @@ impl Core {
             self.set_reg(insn.rd(), result as u32);
         }
 
-        Ok(CpuPipelineAction::IncPC)
+        Ok(())
     }
 
     fn exec_thumb_data_process_imm(
@@ -72,7 +72,7 @@ impl Core {
             self.set_reg(insn.rd(), result as u32);
         }
 
-        Ok(CpuPipelineAction::IncPC)
+        Ok(())
     }
 
     fn exec_thumb_mul(&mut self, _bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
@@ -83,7 +83,7 @@ impl Core {
             self.add_cycle();
         }
         self.gpr[insn.rd()] = op1.wrapping_mul(op2) as u32;
-        Ok(CpuPipelineAction::IncPC)
+        Ok(())
     }
 
     fn exec_thumb_alu_ops(&mut self, _bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
@@ -102,7 +102,7 @@ impl Core {
             self.set_reg(rd, result as u32);
         }
 
-        Ok(CpuPipelineAction::IncPC)
+        Ok(())
     }
 
     /// Cycles 2S+1N
@@ -141,10 +141,10 @@ impl Core {
             if let Some(result) = result {
                 self.set_reg(dst_reg, result as u32);
                 if dst_reg == REG_PC {
-                    return Ok(CpuPipelineAction::Flush);
+                    self.flush_pipeline();
                 }
             }
-            Ok(CpuPipelineAction::IncPC)
+            Ok(())
         }
     }
 
@@ -156,7 +156,7 @@ impl Core {
         // +1I
         self.add_cycle();
 
-        Ok(CpuPipelineAction::IncPC)
+        Ok(())
     }
 
     fn do_exec_thumb_ldr_str(
@@ -185,7 +185,7 @@ impl Core {
             };
         }
 
-        Ok(CpuPipelineAction::IncPC)
+        Ok(())
     }
 
     fn exec_thumb_ldr_str_reg_offset(
@@ -232,7 +232,7 @@ impl Core {
             }
         }
 
-        Ok(CpuPipelineAction::IncPC)
+        Ok(())
     }
 
     fn exec_thumb_ldr_str_imm_offset(
@@ -263,7 +263,7 @@ impl Core {
         } else {
             self.store_16(addr, self.gpr[insn.rd()] as u16, bus);
         }
-        Ok(CpuPipelineAction::IncPC)
+        Ok(())
     }
 
     fn exec_thumb_ldr_str_sp(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
@@ -279,7 +279,7 @@ impl Core {
         };
         self.gpr[insn.rd()] = result;
 
-        Ok(CpuPipelineAction::IncPC)
+        Ok(())
     }
 
     fn do_exec_thumb_ldr_str_with_addr(
@@ -295,7 +295,7 @@ impl Core {
         } else {
             self.store_32(addr, self.gpr[insn.rd()], bus);
         }
-        Ok(CpuPipelineAction::IncPC)
+        Ok(())
     }
 
     fn exec_thumb_add_sp(&mut self, _bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
@@ -308,14 +308,13 @@ impl Core {
             self.gpr[REG_SP] = result as u32;
         }
 
-        Ok(CpuPipelineAction::IncPC)
+        Ok(())
     }
 
     fn exec_thumb_push_pop(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         // (From GBATEK) Execution Time: nS+1N+1I (POP), (n+1)S+2N+1I (POP PC), or (n-1)S+2N (PUSH).
 
         let is_pop = insn.is_load();
-        let mut pipeline_action = CpuPipelineAction::IncPC;
 
         let pc_lr_flag = insn.flag(ThumbInstruction::FLAG_R);
         let rlist = insn.register_list();
@@ -326,7 +325,7 @@ impl Core {
             if pc_lr_flag {
                 pop(self, bus, REG_PC);
                 self.pc = self.pc & !1;
-                pipeline_action = CpuPipelineAction::Flush;
+                self.flush_pipeline();
             }
             self.add_cycle();
         } else {
@@ -338,7 +337,7 @@ impl Core {
             }
         }
 
-        Ok(pipeline_action)
+        Ok(())
     }
 
     fn exec_thumb_ldm_stm(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
@@ -365,7 +364,7 @@ impl Core {
 
         self.gpr[rb] = addr as u32;
 
-        Ok(CpuPipelineAction::IncPC)
+        Ok(())
     }
 
     fn exec_thumb_branch_with_cond(
@@ -374,18 +373,20 @@ impl Core {
         insn: ThumbInstruction,
     ) -> CpuExecResult {
         if !self.check_arm_cond(insn.cond()) {
-            Ok(CpuPipelineAction::IncPC)
+            Ok(())
         } else {
             let offset = ((insn.offset8() as i8) << 1) as i32;
             self.pc = (self.pc as i32).wrapping_add(offset) as u32;
-            Ok(CpuPipelineAction::Flush)
+            self.flush_pipeline();
+            Ok(())
         }
     }
 
     fn exec_thumb_branch(&mut self, _bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         let offset = ((insn.offset11() << 21) >> 20) as i32;
         self.pc = (self.pc as i32).wrapping_add(offset) as u32;
-        Ok(CpuPipelineAction::Flush)
+        self.flush_pipeline();
+        Ok(())
     }
 
     fn exec_thumb_branch_long_with_link(
@@ -400,12 +401,13 @@ impl Core {
             self.pc = (self.gpr[REG_LR] as i32).wrapping_add(off) as u32;
             self.gpr[REG_LR] = next_pc;
 
-            Ok(CpuPipelineAction::Flush)
+            self.flush_pipeline();
+            Ok(())
         } else {
             off = (off << 21) >> 9;
             self.gpr[REG_LR] = (self.pc as i32).wrapping_add(off) as u32;
 
-            Ok(CpuPipelineAction::IncPC)
+            Ok(())
         }
     }
 
