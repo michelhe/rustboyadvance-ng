@@ -5,12 +5,12 @@ use sdl2::pixels::Color;
 use sdl2::rect::{Point, Rect};
 use sdl2::render::Canvas;
 
-use crate::arm7tdmi::bus::Bus;
-use crate::gba::GameBoyAdvance;
-use crate::ioregs::consts::*;
-use crate::gpu::*;
-use crate::palette::*;
-use crate::sysbus::SysBus;
+use crate::core::arm7tdmi::bus::Bus;
+use crate::core::gba::GameBoyAdvance;
+use crate::core::gpu::*;
+use crate::core::ioregs::consts::*;
+use crate::core::palette::*;
+use crate::core::sysbus::SysBus;
 
 impl Into<Color> for Rgb15 {
     fn into(self) -> Color {
@@ -99,7 +99,6 @@ pub fn create_tile_view(bg: u32, gba: &GameBoyAdvance) {
                 _ => {}
             }
         }
-
 
         canvas.set_draw_color(Color::RGB(00, 00, 00));
         canvas.clear();

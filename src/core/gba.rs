@@ -7,8 +7,8 @@ use super::gpu::*;
 use super::interrupt::*;
 use super::ioregs::consts::*;
 use super::sysbus::SysBus;
-
-use super::{EmuIoDev, GBAError, GBAResult};
+use super::EmuIoDev;
+use super::{GBAError, GBAResult};
 
 pub struct GameBoyAdvance {
     pub cpu: Core,

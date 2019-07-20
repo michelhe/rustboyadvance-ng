@@ -1,11 +1,13 @@
 use crate::bit::BitIndex;
 
-use crate::arm7tdmi::alu::*;
-use crate::arm7tdmi::bus::Bus;
-use crate::arm7tdmi::cpu::{Core, CpuExecResult};
-use crate::arm7tdmi::exception::Exception;
-use crate::arm7tdmi::psr::RegPSR;
-use crate::arm7tdmi::{Addr, CpuError, CpuMode, CpuResult, CpuState, DecodedInstruction, REG_PC};
+use crate::core::arm7tdmi::alu::*;
+use crate::core::arm7tdmi::bus::Bus;
+use crate::core::arm7tdmi::cpu::{Core, CpuExecResult};
+use crate::core::arm7tdmi::exception::Exception;
+use crate::core::arm7tdmi::psr::RegPSR;
+use crate::core::arm7tdmi::{
+    Addr, CpuError, CpuMode, CpuResult, CpuState, DecodedInstruction, REG_PC,
+};
 
 use super::*;
 

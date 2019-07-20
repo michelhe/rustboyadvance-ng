@@ -3,7 +3,7 @@ use std::fmt;
 use crate::bit::BitIndex;
 
 use super::{AluOpCode, ArmCond, ArmFormat, ArmHalfwordTransferType, ArmInstruction};
-use crate::arm7tdmi::{
+use crate::core::arm7tdmi::{
     psr::RegPSR, reg_string, Addr, BarrelShiftOpCode, BarrelShifterValue, ShiftedRegister, REG_PC,
 };
 

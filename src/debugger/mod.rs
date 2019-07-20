@@ -3,8 +3,8 @@ use rustyline::Editor;
 
 use colored::*;
 
-use super::arm7tdmi::{Addr, Bus, CpuError};
-use super::GameBoyAdvance;
+use super::core::arm7tdmi::{Addr, Bus, CpuError};
+use super::core::GameBoyAdvance;
 
 mod parser;
 use parser::{parse_expr, DerefType, Expr, Value};

@@ -2,7 +2,7 @@ use std::io;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-use crate::arm7tdmi::{Addr, Bus, MemoryAccess};
+use crate::core::arm7tdmi::{Addr, Bus, MemoryAccess};
 
 pub mod consts {
     use super::*;

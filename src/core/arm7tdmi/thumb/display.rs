@@ -3,7 +3,7 @@ use std::fmt;
 use crate::bit::BitIndex;
 
 use super::*;
-use crate::arm7tdmi::*;
+use crate::core::arm7tdmi::*;
 
 impl ThumbInstruction {
     fn fmt_thumb_move_shifted_reg(&self, f: &mut fmt::Formatter) -> fmt::Result {

@@ -1,9 +1,11 @@
-use crate::arm7tdmi::bus::Bus;
-use crate::arm7tdmi::{Addr, CpuState};
+use crate::core::arm7tdmi::arm::ArmInstruction;
+use crate::core::arm7tdmi::bus::Bus;
+use crate::core::arm7tdmi::thumb::ThumbInstruction;
+use crate::core::arm7tdmi::{Addr, CpuState};
+use crate::core::gpu::*;
+use crate::core::ioregs::consts::*;
+use crate::core::GBAError;
 use crate::disass::Disassembler;
-use crate::ioregs::consts::*;
-use crate::gpu::*;
-use crate::GBAError;
 
 use super::palette_view::create_palette_view;
 use super::render_view::create_render_view;
@@ -137,9 +139,6 @@ impl Command {
                 hexdump::hexdump(&bytes[0..nbytes]);
             }
             Disass(mode, addr, n) => {
-                use crate::arm7tdmi::arm::ArmInstruction;
-                use crate::arm7tdmi::thumb::ThumbInstruction;
-
                 let bytes = debugger.gba.sysbus.get_bytes(addr);
                 match mode {
                     DisassMode::ModeArm => {

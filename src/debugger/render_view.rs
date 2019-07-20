@@ -4,8 +4,8 @@ use sdl2::event::Event;
 use sdl2::pixels::Color;
 use sdl2::rect::Point;
 
-use crate::gba::GameBoyAdvance;
-use crate::gpu::Gpu;
+use crate::core::gba::GameBoyAdvance;
+use crate::core::gpu::Gpu;
 
 const SCREEN_WIDTH: u32 = Gpu::DISPLAY_WIDTH as u32;
 const SCREEN_HEIGHT: u32 = Gpu::DISPLAY_HEIGHT as u32;
@@ -39,7 +39,7 @@ pub fn create_render_view(gba: &GameBoyAdvance) {
 
         for y in 0..Gpu::DISPLAY_HEIGHT {
             for x in 0..Gpu::DISPLAY_WIDTH {
-                let index = (x as usize) + (y as usize) * (256 as usize);
+                let index = (x as usize) + (y as usize) * (512 as usize);
                 let color = gba.gpu.pixeldata[index];
                 let rgb24: Color = color.into();
                 canvas.set_draw_color(rgb24);

@@ -2,7 +2,7 @@ pub mod display;
 pub mod exec;
 
 use super::alu::*;
-use crate::arm7tdmi::{Addr, InstructionDecoder, InstructionDecoderError};
+use crate::core::arm7tdmi::{Addr, InstructionDecoder, InstructionDecoderError};
 
 use crate::bit::BitIndex;
 use crate::byteorder::{LittleEndian, ReadBytesExt};
@@ -351,7 +351,7 @@ impl ArmInstruction {
 /// All instructions constants were generated using an ARM assembler.
 mod tests {
     use super::*;
-    use crate::arm7tdmi::*;
+    use crate::core::arm7tdmi::*;
     use crate::sysbus::BoxedMemory;
 
     #[test]

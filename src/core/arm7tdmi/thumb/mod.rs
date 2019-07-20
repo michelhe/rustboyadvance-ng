@@ -348,7 +348,7 @@ impl ThumbInstruction {
 /// All instructions constants were generated using an ARM assembler.
 mod tests {
     use super::*;
-    use crate::arm7tdmi::{Core, Bus};
+    use crate::core::arm7tdmi::{Bus, Core};
     use crate::sysbus::BoxedMemory;
 
     #[test]

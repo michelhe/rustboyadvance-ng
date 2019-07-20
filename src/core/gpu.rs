@@ -145,7 +145,7 @@ use GpuState::*;
 
 pub struct Gpu {
     cycles: usize,
-    pub pixeldata: [Rgb15; 256 * 256],
+    pub pixeldata: [Rgb15; 512 * 512],
     pub state: GpuState,
     pub current_scanline: usize, // VCOUNT
 }
@@ -168,7 +168,7 @@ impl Gpu {
             state: HDraw,
             current_scanline: 0,
             cycles: 0,
-            pixeldata: [Rgb15::from(0); 256 * 256],
+            pixeldata: [Rgb15::from(0); 512 * 512],
         }
     }
 
@@ -300,7 +300,7 @@ impl Gpu {
                         self.get_palette_color(sysbus, index as u32, 0)
                     }
                 };
-                self.pixeldata[((px + tile_x) as usize) + py * 256] = color;
+                self.pixeldata[((px + tile_x) as usize) + py * 512] = color;
             }
             px += 8;
             if px == bgcnt.screen_width as u32 {
@@ -313,7 +313,7 @@ impl Gpu {
         let page: u32 = match dispcnt.display_frame {
             0 => 0x0600_0000,
             1 => 0x0600_a000,
-            _ => unreachable!()
+            _ => unreachable!(),
         };
 
         let y = self.current_scanline;
@@ -322,7 +322,7 @@ impl Gpu {
             let bitmap_index = x + y * Self::DISPLAY_WIDTH;
             let bitmap_addr = page + (bitmap_index as u32);
             let index = sysbus.read_8(bitmap_addr as Addr) as u32;
-            self.pixeldata[x + y * 256] = self.get_palette_color(sysbus, index, 0);
+            self.pixeldata[x + y * 512] = self.get_palette_color(sysbus, index, 0);
         }
     }
 

@@ -5,11 +5,11 @@ use clap::{App, ArgMatches};
 
 extern crate rustboyadvance_ng;
 
-use rustboyadvance_ng::arm7tdmi::Core;
-use rustboyadvance_ng::cartridge::Cartridge;
-use rustboyadvance_ng::debugger::Debugger;
+use rustboyadvance_ng::core::arm7tdmi::Core;
+use rustboyadvance_ng::core::cartridge::Cartridge;
+use rustboyadvance_ng::core::{GBAResult, GameBoyAdvance};
 use rustboyadvance_ng::util::read_bin_file;
-use rustboyadvance_ng::{GBAResult, GameBoyAdvance};
+use rustboyadvance_ng::debugger::Debugger;
 
 fn run_debug(matches: &ArgMatches) -> GBAResult<()> {
     let skip_bios = match matches.occurrences_of("skip_bios") {
