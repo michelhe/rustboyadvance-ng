@@ -9,8 +9,10 @@ use super::ioregs::consts::*;
 use super::sysbus::SysBus;
 use super::EmuIoDev;
 use super::{GBAError, GBAResult};
+use crate::backend::*;
 
 pub struct GameBoyAdvance {
+    backend: Box<EmulatorBackend>,
     pub cpu: Core,
     pub sysbus: SysBus,
 
@@ -25,10 +27,16 @@ pub struct GameBoyAdvance {
 }
 
 impl GameBoyAdvance {
-    pub fn new(cpu: Core, bios_rom: Vec<u8>, gamepak: Cartridge) -> GameBoyAdvance {
+    pub fn new(
+        cpu: Core,
+        bios_rom: Vec<u8>,
+        gamepak: Cartridge,
+        backend: Box<EmulatorBackend>,
+    ) -> GameBoyAdvance {
         let sysbus = SysBus::new(bios_rom, gamepak);
 
         GameBoyAdvance {
+            backend: backend,
             cpu: cpu,
             sysbus: sysbus,
 
@@ -59,12 +67,19 @@ impl GameBoyAdvance {
     }
 
     pub fn frame(&mut self) {
+        self.update_key_state();
         while self.gpu.state == GpuState::VBlank {
             self.emulate();
         }
         while self.gpu.state != GpuState::VBlank {
             self.emulate();
         }
+        self.backend.render(self.gpu.render());
+    }
+
+    fn update_key_state(&mut self) {
+        let keyinput = self.backend.get_key_state();
+        self.sysbus.ioregs.write_reg(REG_KEYINPUT, keyinput);
     }
 
     pub fn emulate(&mut self) {

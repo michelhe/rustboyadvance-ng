@@ -1,3 +1,6 @@
+use std::time;
+use std::time::Duration;
+
 #[macro_use]
 extern crate clap;
 
@@ -5,16 +8,30 @@ use clap::{App, ArgMatches};
 
 extern crate rustboyadvance_ng;
 
+use rustboyadvance_ng::backend::*;
 use rustboyadvance_ng::core::arm7tdmi::Core;
 use rustboyadvance_ng::core::cartridge::Cartridge;
+use rustboyadvance_ng::core::gpu;
 use rustboyadvance_ng::core::{GBAResult, GameBoyAdvance};
-use rustboyadvance_ng::util::read_bin_file;
 use rustboyadvance_ng::debugger::Debugger;
+use rustboyadvance_ng::util::read_bin_file;
 
-fn run_debug(matches: &ArgMatches) -> GBAResult<()> {
+fn run_emulator(matches: &ArgMatches) -> GBAResult<()> {
     let skip_bios = match matches.occurrences_of("skip_bios") {
         0 => false,
         _ => true,
+    };
+    let debug = match matches.occurrences_of("debug") {
+        0 => false,
+        _ => true,
+    };
+
+    let backend: Box<EmulatorBackend> = match matches.value_of("backend") {
+        Some("sdl2") => panic!("sdl2 not implemented"),
+        Some("minifb") => Box::new(MinifbBackend::new()),
+        // None => DummyBackend::new(),
+        None => Box::new(DummyBackend {}),
+        _ => unreachable!(),
     };
 
     let bios_bin = read_bin_file(matches.value_of("bios").unwrap_or_default())?;
@@ -39,13 +56,25 @@ fn run_debug(matches: &ArgMatches) -> GBAResult<()> {
         core.cpsr.set(0x5f);
     }
 
-    let gba = GameBoyAdvance::new(core, bios_bin, gamepak);
+    let mut gba = GameBoyAdvance::new(core, bios_bin, gamepak, backend);
 
-    let mut debugger = Debugger::new(gba);
-
-    println!("starting debugger...");
-    debugger.repl()?;
-    println!("ending debugger...");
+    if debug {
+        let mut debugger = Debugger::new(gba);
+        println!("starting debugger...");
+        debugger.repl()?;
+        println!("ending debugger...");
+    } else {
+        let frame_time = time::Duration::new(0, 1_000_000_000u32 / 60);
+        loop {
+            let start_time = time::Instant::now();
+            gba.frame();
+            let time_passed = time::Instant::now() - start_time;
+            if time_passed <= frame_time {
+                let duration = frame_time - time_passed;
+                ::std::thread::sleep(duration);
+            }
+        }
+    }
 
     Ok(())
 }
@@ -54,10 +83,7 @@ fn main() {
     let yaml = load_yaml!("cli.yml");
     let matches = App::from_yaml(yaml).get_matches();
 
-    let result = match matches.subcommand() {
-        ("debug", Some(m)) => run_debug(m),
-        _ => Ok(()),
-    };
+    let result = run_emulator(&matches);
 
     if let Err(err) = result {
         println!("Got an error: {:?}", err);

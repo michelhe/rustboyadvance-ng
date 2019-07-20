@@ -1,21 +1,27 @@
 name: rustboyadvance-ng
 author: Michel Heily <michelheily@gmail.com>
 about: Game boy advance emulator and debugger
-subcommands:
+args:
+    - bios:
+        help: Sets the bios file to use
+        short: b
+        required: false
+        default_value: gba_bios.bin
+    - game_rom:
+        long: game-rom
+        takes_value: true
+        help: Sets the game-rom file to use
+        required: true
+        index: 1
+    - skip_bios:
+        long: skip-bios
+        help: Skip running bios and start from the ROM instead
+    - backend:
+        long: backend
+        takes_value: true
+        possible_values: [ sdl2, minifb ]
+        default_value: minifb
+        required: false
     - debug:
-        about: Debug the bios with the arm core emulation
-        args:
-            - bios:
-                help: Sets the bios file to use
-                required: false
-                default_value: gba_bios.bin
-                index: 1
-            - game_rom:
-                short: g
-                long: game-rom
-                takes_value: true
-                help: Sets the game-rom file to use
-                required: true
-            - skip_bios:
-                long: skip-bios
-                help: Skip running bios and start from the ROM instead
+        long: debug
+        help: Start with the debugger attached

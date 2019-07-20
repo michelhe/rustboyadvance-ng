@@ -9,6 +9,7 @@ pub use interrupt::Interrupt;
 pub mod gba;
 pub use gba::GameBoyAdvance;
 pub mod dma;
+pub mod keypad;
 pub mod palette;
 
 use crate::debugger;

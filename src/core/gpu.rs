@@ -343,6 +343,19 @@ impl Gpu {
             _ => panic!("{:?} not supported", dispcnt.bg_mode),
         }
     }
+
+    pub fn render(&self) -> Vec<u32> {
+        let mut buffer = vec![0u32; Gpu::DISPLAY_WIDTH * Gpu::DISPLAY_WIDTH];
+        for y in 0..Gpu::DISPLAY_HEIGHT {
+            for x in 0..Gpu::DISPLAY_WIDTH {
+                let index = (x as usize) + (y as usize) * (512 as usize);
+                let (r, g, b) = self.pixeldata[index].get_rgb24();
+                buffer[x + Gpu::DISPLAY_WIDTH * y] =
+                    ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+            }
+        }
+        buffer
+    }
 }
 
 // *TODO* Running the Gpu step by step causes a massive performance impact, so for now not treat it as an emulated IO device.

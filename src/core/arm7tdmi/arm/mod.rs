@@ -352,7 +352,7 @@ impl ArmInstruction {
 mod tests {
     use super::*;
     use crate::core::arm7tdmi::*;
-    use crate::sysbus::BoxedMemory;
+    use crate::core::sysbus::BoxedMemory;
 
     #[test]
     fn swi() {
