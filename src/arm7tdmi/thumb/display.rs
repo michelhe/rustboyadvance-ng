@@ -209,21 +209,27 @@ impl ThumbInstruction {
         write!(f, "add\tsp, #{imm:x}", imm = self.sword7())
     }
 
+    fn fmt_register_list(&self, f: &mut fmt::Formatter, rlist: u8) -> fmt::Result {
+        let mut has_first = false;
+        for i in 0..8 {
+            if rlist.bit(i) {
+                if has_first {
+                    write!(f, ", {}", reg_string(i))?;
+                } else {
+                    write!(f, "{}", reg_string(i))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn fmt_thumb_push_pop(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}\t{{", if self.is_load() { "pop" } else { "push" })?;
-        let mut register_list = self.register_list().into_iter();
-        let mut has_reg = false;
-        if let Some(reg) = register_list.next() {
-            write!(f, "{}", reg_string(reg))?;
-            has_reg = true;
-        }
-        for reg in register_list {
-            has_reg = true;
-            write!(f, ", {}", reg_string(reg))?;
-        }
+        let rlist = self.register_list();
+        self.fmt_register_list(f, rlist)?;
         if self.flag(ThumbInstruction::FLAG_R) {
             let r = if self.is_load() { "pc" } else { "lr" };
-            if has_reg {
+            if rlist != 0 {
                 write!(f, ", {}", r)?;
             } else {
                 write!(f, "{}", r)?;
@@ -239,16 +245,7 @@ impl ThumbInstruction {
             op = if self.is_load() { "ldm" } else { "stm" },
             Rb = reg_string(self.rb()),
         )?;
-        let mut register_list = self.register_list().into_iter();
-        let mut has_reg = false;
-        if let Some(reg) = register_list.next() {
-            write!(f, "{}", reg_string(reg))?;
-            has_reg = true;
-        }
-        for reg in register_list {
-            has_reg = true;
-            write!(f, ", {}", reg_string(reg))?;
-        }
+        self.fmt_register_list(f, self.register_list())?;
         write!(f, "}}")
     }
 

@@ -313,14 +313,14 @@ impl Core {
 
     fn exec_thumb_push_pop(&mut self, bus: &mut Bus, insn: ThumbInstruction) -> CpuExecResult {
         // (From GBATEK) Execution Time: nS+1N+1I (POP), (n+1)S+2N+1I (POP PC), or (n-1)S+2N (PUSH).
-
         let is_pop = insn.is_load();
-
         let pc_lr_flag = insn.flag(ThumbInstruction::FLAG_R);
         let rlist = insn.register_list();
         if is_pop {
-            for r in rlist {
-                pop(self, bus, r);
+            for r in 0..8 {
+                if rlist.bit(r) {
+                    pop(self, bus, r);
+                }
             }
             if pc_lr_flag {
                 pop(self, bus, REG_PC);
@@ -332,8 +332,10 @@ impl Core {
             if pc_lr_flag {
                 push(self, bus, REG_LR);
             }
-            for r in rlist.into_iter().rev() {
-                push(self, bus, r);
+            for r in (0..8).rev() {
+                if rlist.bit(r) {
+                    push(self, bus, r);
+                }
             }
         }
 
@@ -349,16 +351,20 @@ impl Core {
         let mut addr = self.gpr[rb];
         let rlist = insn.register_list();
         if is_load {
-            for r in rlist {
-                let val = self.load_32(addr, bus);
-                addr += 4;
-                self.add_cycle();
-                self.set_reg(r, val);
+            for r in 0..8 {
+                if rlist.bit(r) {
+                    let val = self.load_32(addr, bus);
+                    addr += 4;
+                    self.add_cycle();
+                    self.set_reg(r, val);
+                }
             }
         } else {
-            for r in rlist {
-                self.store_32(addr, self.gpr[r], bus);
-                addr += 4;
+            for r in 0..8 {
+                if rlist.bit(r) {
+                    self.store_32(addr, self.gpr[r], bus);
+                    addr += 4;
+                }
             }
         }
 

@@ -158,7 +158,6 @@ impl Core {
     fn exec_data_processing(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
         // TODO handle carry flag
 
-
         let op1 = if insn.rn() == REG_PC {
             self.pc as i32 // prefething
         } else {
@@ -265,7 +264,6 @@ impl Core {
             return Err(CpuError::IllegalInstruction);
         }
 
-
         let mut addr = self.get_reg(insn.rn());
         if insn.rn() == REG_PC {
             addr = insn.pc + 8; // prefetching
@@ -330,54 +328,54 @@ impl Core {
         let mut addr = self.gpr[rn] as i32;
 
         let step: i32 = if ascending { 4 } else { -4 };
-        let rlist = if ascending {
-            insn.register_list()
-        } else {
-            let mut rlist = insn.register_list();
-            rlist.reverse();
-            rlist
-        };
+        let rlist = insn.register_list();
 
         if psr_user {
             unimplemented!("Too tired to implement the mode enforcement");
         }
 
         if is_load {
-            if rlist.contains(&rn) {
-                writeback = false;
-            }
-            for r in rlist {
-                if full {
-                    addr = addr.wrapping_add(step);
-                }
+            for r in 0..16 {
+                let r = if ascending { r } else { 15 - r };
+                if rlist.bit(r) {
+                    if r == rn {
+                        writeback = false;
+                    }
+                    if full {
+                        addr = addr.wrapping_add(step);
+                    }
 
-                self.add_cycle();
-                let val = self.load_32(addr as Addr, bus);
-                self.set_reg(r, val);
+                    self.add_cycle();
+                    let val = self.load_32(addr as Addr, bus);
+                    self.set_reg(r, val);
 
-                if r == REG_PC {
-                    self.flush_pipeline();
-                }
+                    if r == REG_PC {
+                        self.flush_pipeline();
+                    }
 
-                if !full {
-                    addr = addr.wrapping_add(step);
+                    if !full {
+                        addr = addr.wrapping_add(step);
+                    }
                 }
             }
         } else {
-            for r in rlist {
-                if full {
-                    addr = addr.wrapping_add(step);
-                }
+            for r in 0..16 {
+                let r = if ascending { r } else { 15 - r };
+                if rlist.bit(r) {
+                    if full {
+                        addr = addr.wrapping_add(step);
+                    }
 
-                let val = if r == REG_PC {
-                    insn.pc + 12
-                } else {
-                    self.get_reg(r)
-                };
-                self.store_32(addr as Addr, val, bus);
+                    let val = if r == REG_PC {
+                        insn.pc + 12
+                    } else {
+                        self.get_reg(r)
+                    };
+                    self.store_32(addr as Addr, val, bus);
 
-                if !full {
-                    addr = addr.wrapping_add(step);
+                    if !full {
+                        addr = addr.wrapping_add(step);
+                    }
                 }
             }
         }

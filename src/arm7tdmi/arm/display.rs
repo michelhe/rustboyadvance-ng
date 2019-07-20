@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::bit::BitIndex;
+
 use super::{AluOpCode, ArmCond, ArmFormat, ArmHalfwordTransferType, ArmInstruction};
 use crate::arm7tdmi::{
     psr::RegPSR, reg_string, Addr, BarrelShiftOpCode, BarrelShifterValue, ShiftedRegister, REG_PC,
@@ -253,13 +255,19 @@ impl ArmInstruction {
             auto_inc = if self.write_back_flag() { "!" } else { "" }
         )?;
 
-        let mut register_list = self.register_list().into_iter();
-        if let Some(reg) = register_list.next() {
-            write!(f, "{}", reg_string(reg))?;
+        let register_list = self.register_list();
+        let mut has_first = false;
+        for i in 0..16 {
+            if register_list.bit(i) {
+                if has_first {
+                    write!(f, ", {}", reg_string(i))?;
+                } else {
+                    write!(f, "{}", reg_string(i))?;
+                    has_first = true;
+                }
+            }
         }
-        for reg in register_list {
-            write!(f, ", {}", reg_string(reg))?;
-        }
+
         write!(
             f,
             "}}{}",

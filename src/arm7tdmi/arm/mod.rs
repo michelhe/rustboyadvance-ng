@@ -338,15 +338,8 @@ impl ArmInstruction {
         }
     }
 
-    pub fn register_list(&self) -> Vec<usize> {
-        let list_bits = self.raw & 0xffff;
-        let mut list = Vec::with_capacity(16);
-        for i in 0..16 {
-            if (list_bits & (1 << i)) != 0 {
-                list.push(i)
-            }
-        }
-        list
+    pub fn register_list(&self) -> u16 {
+        (self.raw & 0xffff) as u16
     }
 
     pub fn swi_comment(&self) -> u32 {

@@ -330,15 +330,8 @@ impl ThumbInstruction {
         self.raw.bit(bit)
     }
 
-    pub fn register_list(&self) -> Vec<usize> {
-        let list_bits = self.raw & 0xff;
-        let mut list = Vec::with_capacity(8);
-        for i in 0..8 {
-            if (list_bits & (1 << i)) != 0 {
-                list.push(i)
-            }
-        }
-        list
+    pub fn register_list(&self) -> u8 {
+        (self.raw & 0xff) as u8
     }
 
     pub fn sword7(&self) -> i32 {
