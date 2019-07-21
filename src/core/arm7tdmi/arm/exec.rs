@@ -180,10 +180,21 @@ impl Core {
         let rd = insn.rd();
 
         if let Some(result) = self.alu(opcode, op1, op2, set_flags) {
-            self.set_reg(rd, result as u32);
             if rd == REG_PC {
+                // TODO move this code into a function
+                let old_mode = self.cpsr.mode();
+                if let Some(index) = old_mode.spsr_index() {
+                    let new_psr = self.spsr[index];
+                    if old_mode != new_psr.mode() {
+                        self.change_mode(new_psr.mode());
+                    }
+                    self.cpsr = new_psr;
+                } else {
+                    panic!("tried to change spsr from invalid mode {}", old_mode)
+                }
                 self.flush_pipeline();
             }
+            self.set_reg(rd, result as u32);
         }
 
         Ok(())

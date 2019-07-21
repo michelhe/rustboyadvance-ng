@@ -1,5 +1,5 @@
+use super::REG_LR;
 use super::{cpu::Core, CpuMode, CpuState};
-
 use colored::*;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -35,10 +35,18 @@ impl Core {
         let vector = e as u32;
         let new_mode = CpuMode::from(e);
         if self.verbose {
-            println!("{}: {:?}, new_mode: {:?}", "Exception".cyan(), e, new_mode);
+            println!(
+                "{}: {:?}, pc: {:#x}, new_mode: {:?}",
+                "Exception".cyan(),
+                e,
+                self.pc,
+                new_mode
+            );
         }
 
         self.change_mode(new_mode);
+        self.gpr[REG_LR] = self.get_next_pc() + (self.word_size() as u32);
+
         // Set appropriate CPSR bits
         self.cpsr.set_state(CpuState::ARM);
         self.cpsr.set_mode(new_mode);

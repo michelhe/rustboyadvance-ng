@@ -121,11 +121,8 @@ impl Core {
             self.spsr[index] = self.cpsr;
         }
         self.map_banked_registers(curr_mode, new_mode);
-        let next_index = new_mode.bank_index();
-        self.gpr_banked_r14[next_index] = self
-            .pc
-            .wrapping_sub(self.word_size() as u32)
-            .wrapping_add(4);
+        // let next_index = new_mode.bank_index();
+        // self.gpr_banked_r14[next_index] = self.get_next_pc();
     }
 
     /// Resets the cpu
