@@ -309,6 +309,16 @@ impl Gpu {
         }
     }
 
+    fn scanline_mode3(&mut self, bg: u32, sb: &mut SysBus) {
+        let y = self.current_scanline;
+
+        for x in 0..Self::DISPLAY_WIDTH {
+            let pixel_index = x + y * Self::DISPLAY_WIDTH;
+            let pixel_addr = 0x0600_0000 + 2 * (pixel_index as u32);
+            self.pixeldata[x + y * 512] = sb.read_16(pixel_addr).into();
+        }
+    }
+
     fn scanline_mode4(&mut self, bg: u32, dispcnt: &DisplayControl, sysbus: &mut SysBus) {
         let page: u32 = match dispcnt.display_frame {
             0 => 0x0600_0000,
@@ -336,6 +346,9 @@ impl Gpu {
                         self.scanline_mode0(bg as u32, sysbus);
                     }
                 }
+            }
+            BGMode::BGMode3 => {
+                self.scanline_mode3(2, sysbus);
             }
             BGMode::BGMode4 => {
                 self.scanline_mode4(2, &dispcnt, sysbus);
