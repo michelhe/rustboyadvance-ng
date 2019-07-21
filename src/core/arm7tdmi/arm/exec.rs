@@ -3,7 +3,6 @@ use crate::bit::BitIndex;
 use crate::core::arm7tdmi::alu::*;
 use crate::core::arm7tdmi::bus::Bus;
 use crate::core::arm7tdmi::cpu::{Core, CpuExecResult};
-use crate::core::arm7tdmi::exception::Exception;
 use crate::core::arm7tdmi::psr::RegPSR;
 use crate::core::arm7tdmi::{
     Addr, CpuError, CpuMode, CpuResult, CpuState, DecodedInstruction, REG_PC,
@@ -20,7 +19,7 @@ impl Core {
             ArmFormat::BX => self.exec_bx(bus, insn),
             ArmFormat::B_BL => self.exec_b_bl(bus, insn),
             ArmFormat::DP => self.exec_data_processing(bus, insn),
-            ArmFormat::SWI => self.exec_swi(bus, insn),
+            ArmFormat::SWI => self.exec_swi(),
             ArmFormat::LDR_STR => self.exec_ldr_str(bus, insn),
             ArmFormat::LDR_STR_HS_IMM => self.exec_ldr_str_hs(bus, insn),
             ArmFormat::LDR_STR_HS_REG => self.exec_ldr_str_hs(bus, insn),
@@ -68,12 +67,6 @@ impl Core {
     /// Cycles 2S+1N
     fn exec_bx(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
         self.branch_exchange(self.get_reg(insn.rn()))
-    }
-
-    fn exec_swi(&mut self, _bus: &mut Bus, _insn: ArmInstruction) -> CpuExecResult {
-        self.exception(Exception::SoftwareInterrupt);
-        self.flush_pipeline();
-        Ok(())
     }
 
     fn exec_mrs(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {

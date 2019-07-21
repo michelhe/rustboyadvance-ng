@@ -261,6 +261,14 @@ impl ThumbInstruction {
         )
     }
 
+    fn fmt_thumb_swi(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "swi\t{value:#x}",
+            value = self.raw & 0xff,
+        )
+    }
+
     fn fmt_thumb_branch(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
@@ -304,6 +312,7 @@ impl fmt::Display for ThumbInstruction {
             ThumbFormat::PushPop => self.fmt_thumb_push_pop(f),
             ThumbFormat::LdmStm => self.fmt_thumb_ldm_stm(f),
             ThumbFormat::BranchConditional => self.fmt_thumb_branch_with_cond(f),
+            ThumbFormat::Swi => self.fmt_thumb_swi(f),
             ThumbFormat::Branch => self.fmt_thumb_branch(f),
             ThumbFormat::BranchLongWithLink => self.fmt_thumb_branch_long_with_link(f),
             _ => write!(f, "({:?})", self),

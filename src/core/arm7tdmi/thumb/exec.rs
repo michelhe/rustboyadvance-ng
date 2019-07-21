@@ -436,6 +436,7 @@ impl Core {
             ThumbFormat::PushPop => self.exec_thumb_push_pop(bus, insn),
             ThumbFormat::LdmStm => self.exec_thumb_ldm_stm(bus, insn),
             ThumbFormat::BranchConditional => self.exec_thumb_branch_with_cond(bus, insn),
+            ThumbFormat::Swi => self.exec_swi(),
             ThumbFormat::Branch => self.exec_thumb_branch(bus, insn),
             ThumbFormat::BranchLongWithLink => self.exec_thumb_branch_long_with_link(bus, insn),
             _ => unimplemented!("thumb not implemented {:#x?}", insn),

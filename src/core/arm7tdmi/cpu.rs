@@ -240,6 +240,12 @@ impl Core {
         }
     }
 
+    pub fn exec_swi(&mut self) -> CpuExecResult {
+        self.exception(Exception::SoftwareInterrupt);
+        self.flush_pipeline();
+        Ok(())
+    }
+
     fn step_arm_exec(&mut self, insn: u32, sb: &mut Bus) -> CpuResult<()> {
         let pc = self.pc;
         match self.pipeline_state {
