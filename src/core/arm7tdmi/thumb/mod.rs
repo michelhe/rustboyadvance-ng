@@ -124,10 +124,10 @@ impl InstructionDecoder for ThumbInstruction {
             Ok(PushPop)
         } else if raw & 0xf000 == 0xc000 {
             Ok(LdmStm)
-        } else if raw & 0xf000 == 0xd000 {
-            Ok(BranchConditional)
         } else if raw & 0xff00 == 0xdf00 {
             Ok(Swi)
+        } else if raw & 0xf000 == 0xd000 {
+            Ok(BranchConditional)
         } else if raw & 0xf800 == 0xe000 {
             Ok(Branch)
         } else if raw & 0xf000 == 0xf000 {
@@ -323,7 +323,7 @@ impl ThumbInstruction {
     }
 
     pub fn cond(&self) -> ArmCond {
-        ArmCond::from_u8(self.raw.bit_range(8..12) as u8).unwrap()
+        ArmCond::from_u8(self.raw.bit_range(8..12) as u8).expect("bad condition")
     }
 
     pub fn flag(&self, bit: usize) -> bool {
