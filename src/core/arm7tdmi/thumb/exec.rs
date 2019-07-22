@@ -169,7 +169,7 @@ impl Core {
             let data = if insn.is_transferring_bytes() {
                 self.load_8(addr, bus) as u32
             } else {
-                self.load_32(addr, bus)
+                self.ldr_word(addr, bus)
             };
 
             self.set_reg(insn.rd(), data);
@@ -216,7 +216,7 @@ impl Core {
             (false, true) =>
             /* ldrh */
             {
-                self.gpr[rd] = self.load_16(addr, bus) as u32
+                self.gpr[rd] = self.ldr_half(addr, bus)
             }
             (true, false) =>
             /* ldsb */
@@ -227,7 +227,7 @@ impl Core {
             (true, true) =>
             /* ldsh */
             {
-                let val = self.load_16(addr, bus) as i16 as i32 as u32;
+                let val = self.ldr_sign_half(addr, bus);
                 self.gpr[rd] = val;
             }
         }
@@ -257,7 +257,7 @@ impl Core {
         let base = self.gpr[insn.rb()] as i32;
         let addr = base.wrapping_add((insn.offset5() << 1) as i32) as Addr;
         if insn.is_load() {
-            let data = self.load_16(addr, bus);
+            let data = self.ldr_half(addr, bus);
             self.add_cycle();
             self.gpr[insn.rd()] = data as u32;
         } else {

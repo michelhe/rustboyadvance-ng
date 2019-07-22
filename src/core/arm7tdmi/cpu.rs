@@ -5,6 +5,7 @@ use num_traits::Num;
 
 pub use super::exception::Exception;
 use super::{
+    alu::*,
     arm::*,
     bus::{Bus, MemoryAccess, MemoryAccessType, MemoryAccessType::*, MemoryAccessWidth::*},
     psr::RegPSR,
@@ -75,7 +76,7 @@ impl Core {
         match r {
             0...14 => self.gpr[r],
             15 => self.pc,
-            _ => panic!("invalid register"),
+            _ => panic!("invalid register {}", r),
         }
     }
 
@@ -120,6 +121,48 @@ impl Core {
                 self.gpr_banked_r14[0] = val;
             }
             _ => panic!("invalid register"),
+        }
+    }
+
+    pub fn ror(&mut self, value: u32, rotation: u32) -> u32 {
+        let mut carry = false; // we don't need to update the carry flag
+        self.barrel_shift(
+            value as i32,
+            rotation,
+            BarrelShiftOpCode::ROR,
+            &mut carry,
+            false,
+        ) as u32
+    }
+
+    /// Helper function for "ldr" instruction that handles misaligned addresses
+    pub fn ldr_word(&mut self, addr: Addr, bus: &Bus) -> u32 {
+        if addr & 0x3 != 0 {
+            let rotation = (addr & 0x3) << 3;
+            let value = self.load_32(addr & !0x3, bus);
+            self.ror(value, rotation)
+        } else {
+            self.load_32(addr, bus)
+        }
+    }
+
+    /// Helper function for "ldrh" instruction that handles misaligned addresses
+    pub fn ldr_half(&mut self, addr: Addr, bus: &Bus) -> u32 {
+        if addr & 0x1 != 0 {
+            let rotation = (addr & 0x1) << 3;
+            let value = self.load_16(addr & !0x1, bus);
+            self.ror(value as u32, rotation)
+        } else {
+            self.load_16(addr, bus) as u32
+        }
+    }
+
+    /// Helper function for "ldrsh" instruction that handles misaligned addresses
+    pub fn ldr_sign_half(&mut self, addr: Addr, bus: &Bus) -> u32 {
+        if addr & 0x1 != 0 {
+            self.load_8(addr, bus) as i8 as i32 as u32
+        } else {
+            self.load_16(addr, bus) as i16 as i32 as u32
         }
     }
 
@@ -211,20 +254,20 @@ impl Core {
         }
     }
 
-    pub fn load_32(&mut self, addr: Addr, bus: &mut Bus) -> u32 {
+    pub fn load_32(&mut self, addr: Addr, bus: &Bus) -> u32 {
         self.add_cycles(addr, bus, self.cycle_type(addr) + MemoryAccess32);
         self.memreq = addr;
         bus.read_32(addr)
     }
 
-    pub fn load_16(&mut self, addr: Addr, bus: &mut Bus) -> u16 {
+    pub fn load_16(&mut self, addr: Addr, bus: &Bus) -> u16 {
         let cycle_type = self.cycle_type(addr);
         self.add_cycles(addr, bus, cycle_type + MemoryAccess16);
         self.memreq = addr;
         bus.read_16(addr)
     }
 
-    pub fn load_8(&mut self, addr: Addr, bus: &mut Bus) -> u8 {
+    pub fn load_8(&mut self, addr: Addr, bus: &Bus) -> u8 {
         let cycle_type = self.cycle_type(addr);
         self.add_cycles(addr, bus, cycle_type + MemoryAccess8);
         self.memreq = addr;

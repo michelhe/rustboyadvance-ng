@@ -232,7 +232,7 @@ impl Core {
             let data = if insn.transfer_size() == 1 {
                 self.load_8(addr, bus) as u32
             } else {
-                self.load_32(addr, bus)
+                self.ldr_word(addr, bus)
             };
 
             self.set_reg(insn.rd(), data);
@@ -287,10 +287,8 @@ impl Core {
         if insn.load_flag() {
             let data = match insn.halfword_data_transfer_type().unwrap() {
                 ArmHalfwordTransferType::SignedByte => self.load_8(addr, bus) as u8 as i8 as u32,
-                ArmHalfwordTransferType::SignedHalfwords => {
-                    self.load_16(addr, bus) as u16 as i16 as u32
-                }
-                ArmHalfwordTransferType::UnsignedHalfwords => self.load_16(addr, bus) as u16 as u32,
+                ArmHalfwordTransferType::SignedHalfwords => self.ldr_sign_half(addr, bus),
+                ArmHalfwordTransferType::UnsignedHalfwords => self.ldr_half(addr, bus),
             };
 
             self.set_reg(insn.rd(), data);
