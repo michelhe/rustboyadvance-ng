@@ -216,6 +216,7 @@ impl ThumbInstruction {
                 if has_first {
                     write!(f, ", {}", reg_string(i))?;
                 } else {
+                    has_first = true;
                     write!(f, "{}", reg_string(i))?;
                 }
             }
