@@ -71,18 +71,54 @@ impl Core {
         self.verbose = v;
     }
 
-    pub fn get_reg(&self, reg_num: usize) -> u32 {
-        match reg_num {
-            0...14 => self.gpr[reg_num],
+    pub fn get_reg(&self, r: usize) -> u32 {
+        match r {
+            0...14 => self.gpr[r],
             15 => self.pc,
             _ => panic!("invalid register"),
         }
     }
 
-    pub fn set_reg(&mut self, reg_num: usize, val: u32) {
-        match reg_num {
-            0...14 => self.gpr[reg_num] = val,
+    pub fn get_reg_user(&mut self, r: usize) -> u32 {
+        match r {
+            0..=7 => self.gpr[r],
+            8..=12 => {
+                if self.cpsr.mode() == CpuMode::Fiq {
+                    self.gpr[r]
+                } else {
+                    self.gpr_banked_old_r8_12[r - 8]
+                }
+            }
+            13 => self.gpr_banked_r13[0],
+            14 => self.gpr_banked_r14[0],
+            _ => panic!("invalid register"),
+        }
+    }
+
+    pub fn set_reg(&mut self, r: usize, val: u32) {
+        match r {
+            0...14 => self.gpr[r] = val,
             15 => self.pc = val & !1,
+            _ => panic!("invalid register"),
+        }
+    }
+
+    pub fn set_reg_user(&mut self, r: usize, val: u32) {
+        match r {
+            0..=7 => self.gpr[r] = val,
+            8..=12 => {
+                if self.cpsr.mode() == CpuMode::Fiq {
+                    self.gpr[r] = val;
+                } else {
+                    self.gpr_banked_old_r8_12[r - 8] = val;
+                }
+            }
+            13 => {
+                self.gpr_banked_r13[0] = val;
+            }
+            14 => {
+                self.gpr_banked_r14[0] = val;
+            }
             _ => panic!("invalid register"),
         }
     }

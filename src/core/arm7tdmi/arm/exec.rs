@@ -146,6 +146,17 @@ impl Core {
         }
     }
 
+    fn transfer_spsr_mode(&mut self) {
+        let old_mode = self.cpsr.mode();
+        if let Some(index) = old_mode.spsr_index() {
+            let new_psr = self.spsr[index];
+            if old_mode != new_psr.mode() {
+                self.change_mode(new_psr.mode());
+            }
+            self.cpsr = new_psr;
+        }
+    }
+
     /// Logical/Arithmetic ALU operations
     ///
     /// Cycles: 1S+x+y (from GBATEK)
@@ -179,17 +190,7 @@ impl Core {
 
         if let Some(result) = self.alu(opcode, op1, op2, set_flags) {
             if rd == REG_PC {
-                // TODO move this code into a function
-                let old_mode = self.cpsr.mode();
-                if let Some(index) = old_mode.spsr_index() {
-                    let new_psr = self.spsr[index];
-                    if old_mode != new_psr.mode() {
-                        self.change_mode(new_psr.mode());
-                    }
-                    self.cpsr = new_psr;
-                } else {
-                    panic!("tried to change spsr from invalid mode {}", old_mode)
-                }
+                self.transfer_spsr_mode();
                 self.flush_pipeline();
             }
             self.set_reg(rd, result as u32);
@@ -325,7 +326,7 @@ impl Core {
     fn exec_ldm_stm(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
         let full = insn.pre_index_flag();
         let ascending = insn.add_offset_flag();
-        let psr_user = insn.psr_and_force_user_flag();
+        let psr_user_flag = insn.psr_and_force_user_flag();
         let is_load = insn.load_flag();
         let mut writeback = insn.write_back_flag();
         let rn = insn.rn();
@@ -334,9 +335,26 @@ impl Core {
         let step: i32 = if ascending { 4 } else { -4 };
         let rlist = insn.register_list();
 
-        if psr_user {
-            unimplemented!("Too tired to implement the mode enforcement");
+        if psr_user_flag {
+            match self.cpsr.mode() {
+                CpuMode::User | CpuMode::System => {
+                    panic!("LDM/STM with S bit in unprivileged mode")
+                }
+                _ => {}
+            };
         }
+
+        let user_bank_transfer = if psr_user_flag {
+            if is_load {
+                !rlist.bit(REG_PC)
+            } else {
+                true
+            }
+        } else {
+            false
+        };
+
+        let psr_transfer = psr_user_flag & is_load & rlist.bit(REG_PC);
 
         if is_load {
             for r in 0..16 {
@@ -351,9 +369,16 @@ impl Core {
 
                     self.add_cycle();
                     let val = self.load_32(addr as Addr, bus);
-                    self.set_reg(r, val);
+                    if user_bank_transfer {
+                        self.set_reg_user(r, val);
+                    } else {
+                        self.set_reg(r, val);
+                    }
 
                     if r == REG_PC {
+                        if psr_transfer {
+                            self.transfer_spsr_mode();
+                        }
                         self.flush_pipeline();
                     }
 
@@ -373,7 +398,11 @@ impl Core {
                     let val = if r == REG_PC {
                         insn.pc + 12
                     } else {
-                        self.get_reg(r)
+                        if user_bank_transfer {
+                            self.get_reg_user(r)
+                        } else {
+                            self.get_reg(r)
+                        }
                     };
                     self.store_32(addr as Addr, val, bus);
 
