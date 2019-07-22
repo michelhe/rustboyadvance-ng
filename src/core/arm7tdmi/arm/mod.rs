@@ -285,12 +285,12 @@ impl ArmInstruction {
         let ofs = self.raw.bit_range(0..12);
         if self.raw.bit(25) {
             let rm = ofs & 0xf;
-            let shift = ShiftedRegister::from(ofs);
-            BarrelShifterValue::ShiftedRegister {
+            BarrelShifterValue::ShiftedRegister(ShiftedRegister {
                 reg: rm as usize,
-                shift: shift,
+                shift_by: self.get_shift_reg_by(ofs),
+                bs_op: self.get_bs_op(ofs),
                 added: Some(self.add_offset_flag()),
-            }
+            })
         } else {
             let ofs = if self.add_offset_flag() {
                 ofs as i32
@@ -298,6 +298,20 @@ impl ArmInstruction {
                 -(ofs as i32)
             };
             BarrelShifterValue::ImmediateValue(ofs)
+        }
+    }
+
+    fn get_bs_op(&self, shift_field: u32) -> BarrelShiftOpCode {
+        BarrelShiftOpCode::from_u8(shift_field.bit_range(5..7) as u8).unwrap()
+    }
+
+    fn get_shift_reg_by(&self, shift_field: u32) -> ShiftRegisterBy {
+        if shift_field.bit(4) {
+            let rs = shift_field.bit_range(8..12) as usize;
+            ShiftRegisterBy::ByRegister(rs)
+        } else {
+            let amount = shift_field.bit_range(7..12) as u32;
+            ShiftRegisterBy::ByAmount(amount)
         }
     }
 
@@ -312,11 +326,12 @@ impl ArmInstruction {
                 };
                 Ok(BarrelShifterValue::ImmediateValue(offset8))
             }
-            ArmFormat::LDR_STR_HS_REG => Ok(BarrelShifterValue::ShiftedRegister {
+            ArmFormat::LDR_STR_HS_REG => Ok(BarrelShifterValue::ShiftedRegister(ShiftedRegister {
                 reg: (self.raw & 0xf) as usize,
-                shift: ShiftedRegister::ByAmount(0, BarrelShiftOpCode::LSL),
+                shift_by: ShiftRegisterBy::ByAmount(0),
+                bs_op: BarrelShiftOpCode::LSL,
                 added: Some(self.add_offset_flag()),
-            }),
+            })),
             _ => Err(self.make_decode_error(DecodedPartDoesNotBelongToInstruction)),
         }
     }
@@ -329,12 +344,13 @@ impl ArmInstruction {
             Ok(BarrelShifterValue::RotatedImmediate(immediate, rotate))
         } else {
             let reg = op2 & 0xf;
-            let shift = ShiftedRegister::from(op2); // TODO error handling
-            Ok(BarrelShifterValue::ShiftedRegister {
+            let shifted_reg = ShiftedRegister {
                 reg: reg as usize,
-                shift: shift,
+                bs_op: self.get_bs_op(op2),
+                shift_by: self.get_shift_reg_by(op2),
                 added: None,
-            })
+            }; // TODO error handling
+            Ok(BarrelShifterValue::ShiftedRegister(shifted_reg))
         }
     }
 
@@ -433,11 +449,12 @@ mod tests {
         assert_eq!(decoded.rn(), 5);
         assert_eq!(
             decoded.ldr_str_offset(),
-            BarrelShifterValue::ShiftedRegister {
+            BarrelShifterValue::ShiftedRegister(ShiftedRegister {
                 reg: 6,
-                shift: ShiftedRegister::ByAmount(5, BarrelShiftOpCode::LSL),
+                shift_by: ShiftRegisterBy::ByAmount(5),
+                bs_op: BarrelShiftOpCode::LSL,
                 added: Some(false)
-            }
+            })
         );
 
         assert_eq!(format!("{}", decoded), "ldreq\tr2, [r5, -r6, lsl #5]");
@@ -474,13 +491,13 @@ mod tests {
         assert_eq!(decoded.rn(), 4);
         assert_eq!(
             decoded.ldr_str_offset(),
-            BarrelShifterValue::ShiftedRegister {
+            BarrelShifterValue::ShiftedRegister(ShiftedRegister {
                 reg: 7,
-                shift: ShiftedRegister::ByAmount(8, BarrelShiftOpCode::ASR),
+                shift_by: ShiftRegisterBy::ByAmount(8),
+                bs_op: BarrelShiftOpCode::ASR,
                 added: Some(false)
-            }
+            })
         );
-
         assert_eq!(format!("{}", decoded), "strteq\tr2, [r4], -r7, asr #8");
 
         let mut core = Core::new();

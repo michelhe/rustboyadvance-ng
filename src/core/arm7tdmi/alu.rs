@@ -57,33 +57,24 @@ pub enum BarrelShiftOpCode {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ShiftedRegister {
-    ByAmount(u32, BarrelShiftOpCode),
-    ByRegister(usize, BarrelShiftOpCode),
+pub enum ShiftRegisterBy {
+    ByAmount(u32),
+    ByRegister(usize),
 }
 
-impl From<u32> for ShiftedRegister {
-    fn from(v: u32) -> ShiftedRegister {
-        let typ = BarrelShiftOpCode::from_u8(v.bit_range(5..7) as u8).unwrap();
-        if v.bit(4) {
-            let rs = v.bit_range(8..12) as usize;
-            ShiftedRegister::ByRegister(rs, typ)
-        } else {
-            let amount = v.bit_range(7..12) as u32;
-            ShiftedRegister::ByAmount(amount, typ)
-        }
-    }
+#[derive(Debug, PartialEq)]
+pub struct ShiftedRegister {
+    pub reg: usize,
+    pub shift_by: ShiftRegisterBy,
+    pub bs_op: BarrelShiftOpCode,
+    pub added: Option<bool>,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum BarrelShifterValue {
     ImmediateValue(i32),
     RotatedImmediate(u32, u32),
-    ShiftedRegister {
-        reg: usize,
-        shift: ShiftedRegister,
-        added: Option<bool>,
-    },
+    ShiftedRegister(ShiftedRegister),
 }
 
 impl BarrelShifterValue {
@@ -97,15 +88,116 @@ impl BarrelShifterValue {
 }
 
 impl Core {
+    pub fn lsl(&mut self, val: u32, amount: u32, carry_in: bool) -> u32 {
+        match amount {
+            0 => {
+                self.bs_carry_out = carry_in;
+                val
+            }
+            x if x < 32 => {
+                self.bs_carry_out = val.wrapping_shr(32 - x) & 1 == 1;
+                val << x
+            }
+            32 => {
+                self.bs_carry_out = val & 1 == 1;
+                0
+            }
+            _ => {
+                self.bs_carry_out = false;
+                0
+            }
+        }
+    }
+
+    pub fn lsr(&mut self, val: u32, amount: u32, carry_in: bool, immediate: bool) -> u32 {
+        match amount {
+            0 | 32 => {
+                if immediate {
+                    self.bs_carry_out = val.bit(31);
+                    0
+                } else {
+                    val
+                }
+            }
+            x if x < 32 => {
+                self.bs_carry_out = val >> (amount - 1) & 1 == 1;
+                (val as u32) >> amount
+            }
+            _ => {
+                self.bs_carry_out = false;
+                0
+            }
+        }
+    }
+
+    pub fn asr(&mut self, val: u32, amount: u32, carry_in: bool, immediate: bool) -> u32 {
+        match amount {
+            0 => {
+                if immediate {
+                    let bit31 = (val as i32 as u32).bit(31);
+                    self.bs_carry_out = bit31;
+                    if bit31 {
+                        0xffffffff
+                    } else {
+                        0
+                    }
+                } else {
+                    val
+                }
+            }
+            x if x < 32 => {
+                self.bs_carry_out = val.wrapping_shr(amount - 1) & 1 == 1;
+                (val as i32).wrapping_shr(amount) as u32
+            }
+            _ => {
+                let bit31 = val.bit(31);
+                self.bs_carry_out = bit31;
+                if bit31 {
+                    0xffffffff
+                } else {
+                    0
+                }
+            }
+        }
+    }
+
+    pub fn rrx(&mut self, val: u32, carry_in: bool) -> u32 {
+        let old_c = carry_in as i32;
+        self.bs_carry_out = val & 0b1 != 0;
+        (((val as u32) >> 1) as i32 | (old_c << 31)) as u32
+    }
+
+    pub fn ror(&mut self, val: u32, amount: u32, carry_in: bool, immediate: bool, rrx: bool) -> u32 {
+        match amount {
+            0 => {
+                if immediate & rrx{
+                    self.rrx(val, carry_in)
+                } else {
+                    val
+                }
+            }
+            _ => {
+                let amount = amount % 32;
+                let val = if amount != 0 {
+                    val.rotate_right(amount)
+                } else {
+                    val
+                };
+                self.bs_carry_out = (val as u32).bit(31);
+                val
+            }
+        }
+    }
+
     /// Performs a generic barrel shifter operation
-    pub fn barrel_shift(
+    pub fn barrel_shift_op(
         &mut self,
-        val: i32,
-        amount: u32,
         shift: BarrelShiftOpCode,
-        carry: &mut bool,
+        val: u32,
+        amount: u32,
+        carry_in: bool,
         immediate: bool,
-    ) -> i32 {
+    ) -> u32 {
         //
         // From GBATEK:
         // Zero Shift Amount (Shift Register by Immediate, with Immediate=0)
@@ -126,108 +218,28 @@ impl Core {
         //   in the range 1 to 32 and see above.
         //
         match shift {
-            BarrelShiftOpCode::LSL => match amount {
-                0 => val,
-                x if x < 32 => {
-                    *carry = val.wrapping_shr(32 - x) & 1 == 1;
-                    val << x
-                }
-                32 => {
-                    *carry = val & 1 == 1;
-                    0
-                }
-                _ => {
-                    *carry = false;
-                    0
-                }
-            },
-            BarrelShiftOpCode::LSR => match amount {
-                0 | 32 => {
-                    if immediate {
-                        *carry = (val as u32).bit(31);
-                        0
-                    } else {
-                        val
-                    }
-                }
-                x if x < 32 => {
-                    *carry = val >> (amount - 1) & 1 == 1;
-                    ((val as u32) >> amount) as i32
-                }
-                _ => {
-                    *carry = false;
-                    0
-                }
-            },
-            BarrelShiftOpCode::ASR => match amount {
-                0 => {
-                    if immediate {
-                        let bit31 = (val as u32).bit(31);
-                        *carry = bit31;
-                        if bit31 {
-                            -1
-                        } else {
-                            0
-                        }
-                    } else {
-                        val
-                    }
-                }
-                x if x < 32 => {
-                    *carry = val.wrapping_shr(amount - 1) & 1 == 1;
-                    val.wrapping_shr(amount)
-                }
-                _ => {
-                    let bit31 = (val as u32).bit(31);
-                    *carry = bit31;
-                    if bit31 {
-                        -1
-                    } else {
-                        0
-                    }
-                }
-            },
-            BarrelShiftOpCode::ROR => {
-                match amount {
-                    0 => {
-                        if immediate {
-                            /* RRX */
-                            let old_c = self.cpsr.C() as i32;
-                            *carry = val & 0b1 != 0;
-                            ((val as u32) >> 1) as i32 | (old_c << 31)
-                        } else {
-                            val
-                        }
-                    }
-                    _ => {
-                        let amount = amount % 32;
-                        let val = if amount != 0 {
-                            val.rotate_right(amount)
-                        } else {
-                            val
-                        };
-                        *carry = (val as u32).bit(31);
-                        val
-                    }
-                }
-            }
+            BarrelShiftOpCode::LSL => self.lsl(val, amount, carry_in),
+            BarrelShiftOpCode::LSR => self.lsr(val, amount, carry_in, immediate),
+            BarrelShiftOpCode::ASR => self.asr(val, amount, carry_in, immediate),
+            BarrelShiftOpCode::ROR => self.ror(val, amount, carry_in, immediate, true),
         }
     }
 
-    pub fn register_shift(&mut self, reg: usize, shift: ShiftedRegister) -> CpuResult<i32> {
-        let val = self.get_reg(reg) as i32;
-        let mut carry = self.cpsr.C();
-        match shift {
-            ShiftedRegister::ByAmount(amount, shift) => {
-                let result = self.barrel_shift(val, amount, shift, &mut carry, true);
-                self.cpsr.set_C(carry);
+    pub fn register_shift(&mut self, shift: ShiftedRegister) -> CpuResult<u32> {
+        let mut val = self.get_reg(shift.reg);
+        let carry = self.cpsr.C();
+        match shift.shift_by {
+            ShiftRegisterBy::ByAmount(amount) => {
+                let result = self.barrel_shift_op(shift.bs_op, val, amount, carry, true);
                 Ok(result)
             }
-            ShiftedRegister::ByRegister(reg, shift) => {
-                if reg != REG_PC {
-                    let result =
-                        self.barrel_shift(val, self.get_reg(reg) & 0xff, shift, &mut carry, false);
-                    self.cpsr.set_C(carry);
+            ShiftRegisterBy::ByRegister(rs) => {
+                if shift.reg == REG_PC {
+                    val = val + 4; // PC prefetching
+                }
+                if rs != REG_PC {
+                    let amount = self.get_reg(rs) & 0xff;
+                    let result = self.barrel_shift_op(shift.bs_op, val, amount, carry, false);
                     Ok(result)
                 } else {
                     Err(CpuError::IllegalInstruction)
@@ -240,12 +252,9 @@ impl Core {
         // TODO decide if error handling or panic here
         match sval {
             BarrelShifterValue::ImmediateValue(offset) => offset,
-            BarrelShifterValue::ShiftedRegister {
-                reg,
-                shift,
-                added: Some(added),
-            } => {
-                let abs = self.register_shift(reg, shift).unwrap();
+            BarrelShifterValue::ShiftedRegister(shifted_reg) => {
+                let added = shifted_reg.added.unwrap_or(true);
+                let abs = self.register_shift(shifted_reg).unwrap() as i32;
                 if added {
                     abs
                 } else {
@@ -273,18 +282,32 @@ impl Core {
     }
 
     #[allow(non_snake_case)]
-    pub fn alu(
-        &mut self,
-        opcode: AluOpCode,
-        op1: i32,
-        op2: i32,
-        set_cond_flags: bool,
-    ) -> Option<i32> {
+    pub fn alu(&mut self, opcode: AluOpCode, op1: i32, op2: i32) -> i32 {
         use AluOpCode::*;
-
         let C = self.cpsr.C() as i32;
 
-        let mut carry = self.cpsr.C();
+        match opcode {
+            AND => op1 & op2,
+            EOR => op1 ^ op2,
+            SUB => op1.wrapping_sub(op2),
+            RSB => op2.wrapping_sub(op1),
+            ADD => op1.wrapping_add(op2),
+            ADC => op1.wrapping_add(op2).wrapping_add(C),
+            SBC => op1.wrapping_sub(op2).wrapping_sub(1 - C),
+            RSC => op2.wrapping_sub(op1).wrapping_sub(1 - C),
+            ORR => op1 | op2,
+            MOV => op2,
+            BIC => op1 & (!op2),
+            MVN => !op2,
+            _ => panic!("{} should be a PSR transfer", opcode),
+        }
+    }
+
+    #[allow(non_snake_case)]
+    pub fn alu_flags(&mut self, opcode: AluOpCode, op1: i32, op2: i32) -> Option<i32> {
+        use AluOpCode::*;
+        let mut carry = self.bs_carry_out;
+        let C = self.cpsr.C() as i32;
         let mut overflow = self.cpsr.V();
 
         let result = match opcode {
@@ -302,18 +325,17 @@ impl Core {
             MVN => !op2,
         };
 
-        if set_cond_flags {
-            self.cpsr.set_N(result < 0);
-            self.cpsr.set_Z(result == 0);
-            self.cpsr.set_C(carry);
-            if opcode.is_arithmetic() {
-                self.cpsr.set_V(overflow);
-            }
+        self.cpsr.set_N(result < 0);
+        self.cpsr.set_Z(result == 0);
+        self.cpsr.set_C(carry);
+        if opcode.is_arithmetic() {
+            self.cpsr.set_V(overflow);
         }
 
-        match opcode {
-            TST | TEQ | CMP | CMN => None,
-            _ => Some(result),
+        if opcode.is_setting_flags() {
+            None
+        } else {
+            Some(result)
         }
     }
 }

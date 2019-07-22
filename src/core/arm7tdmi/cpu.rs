@@ -41,6 +41,8 @@ pub struct Core {
     pub cpsr: RegPSR,
     pub spsr: [RegPSR; 5],
 
+    pub bs_carry_out: bool,
+
     pipeline_state: PipelineState,
     fetched_arm: u32,
     decoded_arm: u32,
@@ -124,23 +126,12 @@ impl Core {
         }
     }
 
-    pub fn ror(&mut self, value: u32, rotation: u32) -> u32 {
-        let mut carry = false; // we don't need to update the carry flag
-        self.barrel_shift(
-            value as i32,
-            rotation,
-            BarrelShiftOpCode::ROR,
-            &mut carry,
-            false,
-        ) as u32
-    }
-
     /// Helper function for "ldr" instruction that handles misaligned addresses
     pub fn ldr_word(&mut self, addr: Addr, bus: &Bus) -> u32 {
         if addr & 0x3 != 0 {
             let rotation = (addr & 0x3) << 3;
             let value = self.load_32(addr & !0x3, bus);
-            self.ror(value, rotation)
+            self.ror(value, rotation, self.cpsr.C(), false, false)
         } else {
             self.load_32(addr, bus)
         }
@@ -151,7 +142,7 @@ impl Core {
         if addr & 0x1 != 0 {
             let rotation = (addr & 0x1) << 3;
             let value = self.load_16(addr & !0x1, bus);
-            self.ror(value as u32, rotation)
+            self.ror(value as u32, rotation, self.cpsr.C(), false, false)
         } else {
             self.load_16(addr, bus) as u32
         }

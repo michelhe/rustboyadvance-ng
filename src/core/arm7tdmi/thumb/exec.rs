@@ -22,15 +22,18 @@ impl Core {
         insn: ThumbInstruction,
     ) -> CpuExecResult {
         let op2 = self
-            .register_shift(
-                insn.rs(),
-                ShiftedRegister::ByAmount(insn.offset5() as u8 as u32, insn.format1_op()),
-            )
-            .unwrap();
+            .register_shift(ShiftedRegister {
+                reg: insn.rs(),
+                shift_by: ShiftRegisterBy::ByAmount(insn.offset5() as u8 as u32),
+                bs_op: insn.format1_op(),
+                added: None,
+            })
+            .unwrap() as i32;
+        self.cpsr.set_C(self.bs_carry_out);
 
         let rd = insn.rd();
         let op1 = self.get_reg(rd) as i32;
-        let result = self.alu(AluOpCode::MOV, op1, op2, true);
+        let result = self.alu_flags(AluOpCode::MOV, op1, op2);
         if let Some(result) = result {
             self.set_reg(rd, result as u32);
         }
@@ -51,7 +54,7 @@ impl Core {
             AluOpCode::ADD
         };
 
-        let result = self.alu(arm_alu_op, op1, op2, true);
+        let result = self.alu_flags(arm_alu_op, op1, op2);
         if let Some(result) = result {
             self.set_reg(insn.rd(), result as u32);
         }
@@ -67,7 +70,7 @@ impl Core {
         let arm_alu_op: AluOpCode = insn.format3_op().into();
         let op1 = self.get_reg(insn.rd()) as i32;
         let op2 = insn.offset8() as u8 as i32;
-        let result = self.alu(arm_alu_op, op1, op2, true);
+        let result = self.alu_flags(arm_alu_op, op1, op2);
         if let Some(result) = result {
             self.set_reg(insn.rd(), result as u32);
         }
@@ -97,7 +100,7 @@ impl Core {
             self.get_reg(insn.rs()) as i32
         };
 
-        let result = self.alu(arm_alu_op, op1, op2, true);
+        let result = self.alu_flags(arm_alu_op, op1, op2);
         if let Some(result) = result {
             self.set_reg(rd, result as u32);
         }
@@ -137,8 +140,12 @@ impl Core {
             let set_flags = arm_alu_op.is_setting_flags();
             let op1 = self.get_reg(dst_reg) as i32;
             let op2 = self.get_reg(src_reg) as i32;
-            let result = self.alu(arm_alu_op, op1, op2, set_flags);
-            if let Some(result) = result {
+            let alu_res = if set_flags {
+                self.alu_flags(arm_alu_op, op1, op2)
+            } else {
+                Some(self.alu(arm_alu_op, op1, op2))
+            };
+            if let Some(result) = alu_res {
                 self.set_reg(dst_reg, result as u32);
                 if dst_reg == REG_PC {
                     self.flush_pipeline();
@@ -303,10 +310,7 @@ impl Core {
         let op2 = insn.sword7();
         let arm_alu_op = AluOpCode::ADD;
 
-        let result = self.alu(arm_alu_op, op1, op2, false);
-        if let Some(result) = result {
-            self.gpr[REG_SP] = result as u32;
-        }
+        self.gpr[REG_SP] = self.alu(arm_alu_op, op1, op2) as u32;
 
         Ok(())
     }

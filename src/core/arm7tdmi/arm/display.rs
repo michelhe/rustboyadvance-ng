@@ -3,9 +3,9 @@ use std::fmt;
 use crate::bit::BitIndex;
 
 use super::{AluOpCode, ArmCond, ArmFormat, ArmHalfwordTransferType, ArmInstruction};
-use crate::core::arm7tdmi::{
-    psr::RegPSR, reg_string, Addr, BarrelShiftOpCode, BarrelShifterValue, ShiftedRegister, REG_PC,
-};
+use crate::core::arm7tdmi::alu::*;
+use crate::core::arm7tdmi::psr::RegPSR;
+use crate::core::arm7tdmi::*;
 
 impl fmt::Display for ArmCond {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -77,26 +77,30 @@ impl fmt::Display for ArmHalfwordTransferType {
     }
 }
 
-fn is_shift(shift: &ShiftedRegister) -> bool {
-    if let ShiftedRegister::ByAmount(val, typ) = shift {
-        return !(*val == 0 && *typ == BarrelShiftOpCode::LSL);
+fn is_lsl0(shift: &ShiftedRegister) -> bool {
+    if let ShiftRegisterBy::ByAmount(val) = shift.shift_by {
+        return !(val == 0 && shift.bs_op == BarrelShiftOpCode::LSL);
     }
     true
 }
 
-impl ArmInstruction {
-    fn make_shifted_reg_string(&self, reg: usize, shift: ShiftedRegister) -> String {
-        let reg = reg_string(reg).to_string();
-        if !is_shift(&shift) {
-            return reg;
-        }
-
-        match shift {
-            ShiftedRegister::ByAmount(imm, typ) => format!("{}, {} #{}", reg, typ, imm),
-            ShiftedRegister::ByRegister(rs, typ) => format!("{}, {} {}", reg, typ, reg_string(rs)),
+impl fmt::Display for ShiftedRegister {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let reg = reg_string(self.reg).to_string();
+        if !is_lsl0(&self) {
+            write!(f, "{}", reg)
+        } else {
+            match self.shift_by {
+                ShiftRegisterBy::ByAmount(imm) => write!(f, "{}, {} #{}", reg, self.bs_op, imm),
+                ShiftRegisterBy::ByRegister(rs) => {
+                    write!(f, "{}, {} {}", reg, self.bs_op, reg_string(rs))
+                }
+            }
         }
     }
+}
 
+impl ArmInstruction {
     fn fmt_bx(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "bx\t{Rn}", Rn = reg_string(self.rn()))
     }
@@ -127,12 +131,8 @@ impl ArmInstruction {
                 write!(f, "#{}\t; {:#x}", value, value)?;
                 Ok(Some(value as u32))
             }
-            BarrelShifterValue::ShiftedRegister {
-                reg,
-                shift,
-                added: _,
-            } => {
-                write!(f, "{}", self.make_shifted_reg_string(reg, shift))?;
+            BarrelShifterValue::ShiftedRegister(shift) => {
+                write!(f, "{}", shift)?;
                 Ok(None)
             }
             _ => panic!("invalid operand2"),
@@ -197,15 +197,11 @@ impl ArmInstruction {
                     Some(format!("\t; {:#x}", value_for_commnet)),
                 )
             }
-            BarrelShifterValue::ShiftedRegister {
-                reg,
-                shift,
-                added: Some(added),
-            } => (
+            BarrelShifterValue::ShiftedRegister(shift) => (
                 format!(
                     "{}{}",
-                    if added { "" } else { "-" },
-                    self.make_shifted_reg_string(reg, shift)
+                    if shift.added.unwrap_or(true) { "" } else { "-" },
+                    shift
                 ),
                 None,
             ),
