@@ -24,7 +24,7 @@ impl Core {
             ArmFormat::LDR_STR_HS_IMM => self.exec_ldr_str_hs(bus, insn),
             ArmFormat::LDR_STR_HS_REG => self.exec_ldr_str_hs(bus, insn),
             ArmFormat::LDM_STM => self.exec_ldm_stm(bus, insn),
-            ArmFormat::MRS => self.exec_mrs(bus, insn),
+            ArmFormat::MRS => self.exec_mrs(insn),
             ArmFormat::MSR_REG => self.exec_msr_reg(bus, insn),
             ArmFormat::MSR_FLAGS => self.exec_msr_flags(bus, insn),
             ArmFormat::MUL_MLA => self.exec_mul_mla(bus, insn),
@@ -69,7 +69,7 @@ impl Core {
         self.branch_exchange(self.get_reg(insn.rn()))
     }
 
-    fn exec_mrs(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
+    fn exec_mrs(&mut self, insn: ArmInstruction) -> CpuExecResult {
         let mode = self.cpsr.mode();
         let result = if insn.spsr_flag() {
             if let Some(index) = mode.spsr_index() {
@@ -170,9 +170,7 @@ impl Core {
                 AluOpCode::TEQ | AluOpCode::CMN => {
                     return self.exec_msr(insn, op2 as u32);
                 }
-                AluOpCode::TST | AluOpCode::CMP => {
-                    unimplemented!("TODO implement MRS");
-                }
+                AluOpCode::TST | AluOpCode::CMP => return self.exec_mrs(insn),
                 _ => (),
             }
         }
