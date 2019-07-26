@@ -475,7 +475,9 @@ impl Core {
         self.add_cycle();
 
         if insn.accumulate_flag() {
-            result = result.wrapping_add(self.get_reg(rn) as u64);
+            let hi = self.get_reg(rd_hi) as u64;
+            let lo = self.get_reg(rd_lo) as u64;
+            result = result.wrapping_add(hi << 32 | lo);
             self.add_cycle();
         }
 
