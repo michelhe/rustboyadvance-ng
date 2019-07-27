@@ -356,7 +356,11 @@ impl ArmInstruction {
             f,
             "{sign}{mnem}{S}{cond}\t{RdLo}, {RdHi}, {Rm}, {Rs}",
             sign = self.sign_mark(),
-            mnem = if self.accumulate_flag() { "mlal" } else { "mull" },
+            mnem = if self.accumulate_flag() {
+                "mlal"
+            } else {
+                "mull"
+            },
             S = self.set_cond_mark(),
             cond = self.cond,
             RdLo = reg_string(self.rd_lo()),
@@ -390,6 +394,18 @@ impl ArmInstruction {
             comm = self.swi_comment()
         )
     }
+
+    fn fmt_swp(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "swp{B}{cond}\t{Rd}, {Rm}, [{Rn}]",
+            B = if self.transfer_size() == 1 { "b" } else { "" },
+            cond = self.cond,
+            Rd = reg_string(self.rd()),
+            Rm = reg_string(self.rm()),
+            Rn = reg_string(self.rn()),
+        )
+    }
 }
 
 impl fmt::Display for ArmInstruction {
@@ -409,6 +425,7 @@ impl fmt::Display for ArmInstruction {
             LDR_STR_HS_IMM => self.fmt_ldr_str_hs(f),
             LDR_STR_HS_REG => self.fmt_ldr_str_hs(f),
             SWI => self.fmt_swi(f),
+            SWP => self.fmt_swp(f),
             _ => write!(f, "({:?})", self),
         }
     }

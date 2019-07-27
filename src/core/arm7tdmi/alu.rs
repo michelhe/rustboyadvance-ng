@@ -167,10 +167,17 @@ impl Core {
         (((val as u32) >> 1) as i32 | (old_c << 31)) as u32
     }
 
-    pub fn ror(&mut self, val: u32, amount: u32, carry_in: bool, immediate: bool, rrx: bool) -> u32 {
+    pub fn ror(
+        &mut self,
+        val: u32,
+        amount: u32,
+        carry_in: bool,
+        immediate: bool,
+        rrx: bool,
+    ) -> u32 {
         match amount {
             0 => {
-                if immediate & rrx{
+                if immediate & rrx {
                     self.rrx(val, carry_in)
                 } else {
                     val

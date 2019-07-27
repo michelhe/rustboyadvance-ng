@@ -29,6 +29,7 @@ impl Core {
             ArmFormat::MSR_FLAGS => self.exec_msr_flags(bus, insn),
             ArmFormat::MUL_MLA => self.exec_mul_mla(bus, insn),
             ArmFormat::MULL_MLAL => self.exec_mull_mlal(bus, insn),
+            ArmFormat::SWP => self.exec_arm_swp(bus, insn),
             _ => Err(CpuError::UnimplementedCpuInstruction(
                 insn.pc,
                 insn.raw,
@@ -126,7 +127,7 @@ impl Core {
     fn decode_operand2(&mut self, op2: BarrelShifterValue, set_flags: bool) -> CpuResult<u32> {
         match op2 {
             BarrelShifterValue::RotatedImmediate(val, amount) => {
-                let result = self.ror(val, amount, self.cpsr.C(), false , true);
+                let result = self.ror(val, amount, self.cpsr.C(), false, true);
                 Ok(result)
             }
             BarrelShifterValue::ShiftedRegister(x) => {
@@ -494,6 +495,21 @@ impl Core {
             self.cpsr.set_Z(result == 0);
             self.cpsr.set_C(false);
             self.cpsr.set_V(false);
+        }
+
+        Ok(())
+    }
+
+    fn exec_arm_swp(&mut self, sb: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
+        let base_addr = self.get_reg(insn.rn());
+        if insn.transfer_size() == 1 {
+            let t = self.load_8(base_addr, sb);
+            self.store_8(base_addr, self.get_reg(insn.rm()) as u8, sb);
+            self.set_reg(insn.rd(), t as u32);
+        } else {
+            let t = self.load_32(base_addr, sb);
+            self.store_32(base_addr, self.get_reg(insn.rm()), sb);
+            self.set_reg(insn.rd(), t as u32);
         }
 
         Ok(())
