@@ -69,7 +69,7 @@ impl Core {
     ) -> CpuExecResult {
         let arm_alu_op: AluOpCode = insn.format3_op().into();
         let op1 = self.get_reg(insn.rd()) as i32;
-        let op2 = insn.offset8() as u8 as i32;
+        let op2 = ((insn.raw & 0xff) as i8) as u8 as i32;
         let result = self.alu_flags(arm_alu_op, op1, op2);
         if let Some(result) = result {
             self.set_reg(insn.rd(), result as u32);
@@ -388,7 +388,7 @@ impl Core {
         if !self.check_arm_cond(insn.cond()) {
             Ok(())
         } else {
-            let offset = ((insn.offset8() as i8) << 1) as i32;
+            let offset = insn.bcond_offset();
             self.pc = (self.pc as i32).wrapping_add(offset) as u32;
             self.flush_pipeline();
             Ok(())

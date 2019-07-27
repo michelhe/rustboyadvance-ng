@@ -23,7 +23,7 @@ impl ThumbInstruction {
             "{op}\t{Rd}, #{Offset8:#x}",
             op = self.format3_op(),
             Rd = reg_string(self.rd()),
-            Offset8 = self.offset8()
+            Offset8 = self.raw & 0xff
         )
     }
 
@@ -252,7 +252,7 @@ impl ThumbInstruction {
             "b{cond}\t{addr:#x}",
             cond = self.cond(),
             addr = {
-                let offset = ((self.offset8() as i8) << 1) as i32;
+                let offset = self.bcond_offset();
                 (self.pc as i32 + 4).wrapping_add(offset) as Addr
             }
         )

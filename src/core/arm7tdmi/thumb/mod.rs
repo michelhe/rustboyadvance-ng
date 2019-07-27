@@ -294,8 +294,8 @@ impl ThumbInstruction {
         self.raw.bit_range(6..11) as i8
     }
 
-    pub fn offset8(&self) -> i8 {
-        self.raw.bit_range(0..8) as i8
+    pub fn bcond_offset(&self) -> i32 {
+        ((((self.raw & 0xff) as u32) << 24) as i32) >> 23
     }
 
     pub fn offset11(&self) -> i32 {
@@ -303,7 +303,7 @@ impl ThumbInstruction {
     }
 
     pub fn word8(&self) -> u16 {
-        self.raw.bit_range(0..8) << 2
+        (self.raw & 0xff) << 2
     }
 
     pub fn is_transferring_bytes(&self) -> bool {
