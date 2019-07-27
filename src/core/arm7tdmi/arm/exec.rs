@@ -448,6 +448,8 @@ impl Core {
         if insn.set_cond_flag() {
             self.cpsr.set_N((result as i32) < 0);
             self.cpsr.set_Z(result == 0);
+            self.cpsr.set_C(false);
+            self.cpsr.set_V(false);
         }
 
         Ok(())

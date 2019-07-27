@@ -85,7 +85,10 @@ impl Core {
         for _ in 0..m {
             self.add_cycle();
         }
-        self.gpr[insn.rd()] = op1.wrapping_mul(op2) as u32;
+        let result = op1.wrapping_mul(op2) as u32;
+        self.cpsr.set_N((result as i32) < 0);
+        self.cpsr.set_Z(result == 0);
+        self.gpr[insn.rd()] = result;
         Ok(())
     }
 
