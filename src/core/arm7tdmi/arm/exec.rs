@@ -209,9 +209,6 @@ impl Core {
     /// For LDR, add y=1S+1N if Rd=R15.
     fn exec_ldr_str(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
         let mut writeback = insn.write_back_flag();
-        if writeback && insn.rd() == insn.rn() {
-            writeback = false;
-        }
 
         let mut addr = self.get_reg(insn.rn());
         if insn.rn() == REG_PC {
@@ -227,6 +224,9 @@ impl Core {
             writeback = true;
             addr
         };
+        if writeback && insn.rd() == insn.rn() {
+            writeback = false;
+        }
 
         if insn.load_flag() {
             let data = if insn.transfer_size() == 1 {
@@ -265,9 +265,6 @@ impl Core {
 
     fn exec_ldr_str_hs(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
         let mut writeback = insn.write_back_flag();
-        if writeback && insn.rd() == insn.rn() {
-            writeback = false;
-        }
 
         let mut addr = self.get_reg(insn.rn());
         if insn.rn() == REG_PC {
@@ -283,7 +280,9 @@ impl Core {
             writeback = true;
             addr
         };
-
+        if writeback && insn.rd() == insn.rn() {
+            writeback = false;
+        }
         if insn.load_flag() {
             let data = match insn.halfword_data_transfer_type().unwrap() {
                 ArmHalfwordTransferType::SignedByte => self.load_8(addr, bus) as u8 as i8 as u32,
