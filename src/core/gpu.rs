@@ -262,16 +262,16 @@ impl Gpu {
         let tilemap_base = bgcnt.screen_block();
         let (tile_size, pixel_format) = bgcnt.tile_format();
 
-        let tiles_per_row = bgcnt.screen_width / 8;
+        let tiles_per_row = (bgcnt.screen_width / 8) as u32;
 
         let mut px = 0;
-        let py = self.current_scanline;
-        let tile_y = py % 8;
+        let py = self.current_scanline as u32;
 
         for tile in 0..tiles_per_row {
             let tile_y = py % 8;
 
-            let map_addr = tilemap_base + (tile as u32) * 2;
+            let map_index = tile + (py / 8) * tiles_per_row;
+            let map_addr = tilemap_base + 2 * map_index;
             let entry = TileMapEntry::from(sysbus.read_16(map_addr));
             let tile_addr = tileset_base + entry.tile_index * tile_size;
 
@@ -300,7 +300,7 @@ impl Gpu {
                         self.get_palette_color(sysbus, index as u32, 0)
                     }
                 };
-                self.pixeldata[((px + tile_x) as usize) + py * 512] = color;
+                self.pixeldata[((px + tile_x) as usize) + (py as usize) * 512] = color;
             }
             px += 8;
             if px == bgcnt.screen_width as u32 {
