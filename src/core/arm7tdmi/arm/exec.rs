@@ -464,13 +464,13 @@ impl Core {
             return Err(CpuError::IllegalInstruction);
         }
 
-        let op1 = self.get_reg(rm) as u64;
-        let op2 = self.get_reg(rs) as u64;
+        let op1 = self.get_reg(rm);
+        let op2 = self.get_reg(rs);
         let mut result: u64 = if insn.u_flag() {
             // signed
-            (op1 as i64).wrapping_mul(op2 as i64) as u64
+            (op1 as i32 as i64).wrapping_mul(op2 as i32 as i64) as u64
         } else {
-            op1.wrapping_mul(op2)
+            (op1 as u64).wrapping_mul(op2 as u64)
         };
         self.add_cycle();
 
@@ -481,8 +481,8 @@ impl Core {
             self.add_cycle();
         }
 
-        self.set_reg(rd_hi, (result >> 32) as u32);
-        self.set_reg(rd_lo, (result & 0xffffffff) as u32);
+        self.set_reg(rd_hi, (result >> 32) as i32 as u32);
+        self.set_reg(rd_lo, (result & 0xffffffff) as i32 as u32);
 
         let m = self.get_required_multipiler_array_cycles(self.get_reg(rs) as i32);
         for _ in 0..m {
@@ -490,8 +490,10 @@ impl Core {
         }
 
         if insn.set_cond_flag() {
-            self.cpsr.set_N((result as i64) < 0);
+            self.cpsr.set_N(result.bit(63));
             self.cpsr.set_Z(result == 0);
+            self.cpsr.set_C(false);
+            self.cpsr.set_V(false);
         }
 
         Ok(())

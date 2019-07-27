@@ -352,30 +352,18 @@ impl ArmInstruction {
     }
 
     fn fmt_mull_mlal(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.accumulate_flag() {
-            write!(
-                f,
-                "{sign}mlal{S}{cond}\t{RdLo}, {RdHi}, {Rm}, {Rs}",
-                sign = self.sign_mark(),
-                S = self.set_cond_mark(),
-                cond = self.cond,
-                RdLo = reg_string(self.rd_lo()),
-                RdHi = reg_string(self.rd_hi()),
-                Rm = reg_string(self.rm()),
-                Rs = reg_string(self.rs()),
-            )
-        } else {
-            write!(
-                f,
-                "{sign}mull{S}{cond}\t{RdLo}, {RdHi}, {Rm}",
-                sign = self.sign_mark(),
-                S = self.set_cond_mark(),
-                cond = self.cond,
-                RdLo = reg_string(self.rd_lo()),
-                RdHi = reg_string(self.rd_hi()),
-                Rm = reg_string(self.rm())
-            )
-        }
+        write!(
+            f,
+            "{sign}{mnem}{S}{cond}\t{RdLo}, {RdHi}, {Rm}, {Rs}",
+            sign = self.sign_mark(),
+            mnem = if self.accumulate_flag() { "mlal" } else { "mull" },
+            S = self.set_cond_mark(),
+            cond = self.cond,
+            RdLo = reg_string(self.rd_lo()),
+            RdHi = reg_string(self.rd_hi()),
+            Rm = reg_string(self.rm()),
+            Rs = reg_string(self.rs()),
+        )
     }
 
     fn fmt_ldr_str_hs(&self, f: &mut fmt::Formatter) -> fmt::Result {
