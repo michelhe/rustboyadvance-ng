@@ -411,7 +411,7 @@ impl Core {
         if insn.flag(ThumbInstruction::FLAG_LOW_OFFSET) {
             off = off << 1;
             let next_pc = (self.pc - 2) | 1;
-            self.pc = (self.gpr[REG_LR] as i32).wrapping_add(off) as u32;
+            self.pc = ((self.gpr[REG_LR] & !1) as i32).wrapping_add(off) as u32;
             self.gpr[REG_LR] = next_pc;
 
             self.flush_pipeline();
