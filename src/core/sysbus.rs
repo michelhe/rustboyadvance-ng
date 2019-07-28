@@ -9,20 +9,32 @@ use super::arm7tdmi::Addr;
 
 const VIDEO_RAM_SIZE: usize = 128 * 1024;
 const WORK_RAM_SIZE: usize = 256 * 1024;
-const INTERNAL_RAM: usize = 32 * 1024;
+const INTERNAL_RAM_SIZE: usize = 32 * 1024;
 const PALETTE_RAM_SIZE: usize = 1 * 1024;
 const OAM_SIZE: usize = 1 * 1024;
 
 #[derive(Debug)]
-pub struct BoxedMemory(Box<[u8]>, WaitState);
+pub struct BoxedMemory {
+    mem: Box<[u8]>,
+    ws: WaitState,
+    mask: u32,
+}
 
 impl BoxedMemory {
-    pub fn new(boxed_slice: Box<[u8]>) -> BoxedMemory {
-        BoxedMemory(boxed_slice, Default::default())
+    pub fn new(boxed_slice: Box<[u8]>, mask: u32) -> BoxedMemory {
+        BoxedMemory {
+            mem: boxed_slice,
+            mask: mask,
+            ws: WaitState::default(),
+        }
     }
 
-    pub fn new_with_waitstate(boxed_slice: Box<[u8]>, ws: WaitState) -> BoxedMemory {
-        BoxedMemory(boxed_slice, ws)
+    pub fn new_with_waitstate(boxed_slice: Box<[u8]>, mask: u32, ws: WaitState) -> BoxedMemory {
+        BoxedMemory {
+            mem: boxed_slice,
+            mask: mask,
+            ws: ws,
+        }
     }
 }
 
@@ -51,50 +63,52 @@ impl Default for WaitState {
 
 impl Bus for BoxedMemory {
     fn read_32(&self, addr: Addr) -> u32 {
-        (&self.0[addr as usize..])
+        (&self.mem[(addr & self.mask) as usize..])
             .read_u32::<LittleEndian>()
             .unwrap()
     }
 
     fn read_16(&self, addr: Addr) -> u16 {
-        (&self.0[addr as usize..])
+        (&self.mem[(addr & self.mask) as usize..])
             .read_u16::<LittleEndian>()
             .unwrap()
     }
 
     fn read_8(&self, addr: Addr) -> u8 {
-        (&self.0[addr as usize..])[0]
+        (&self.mem[(addr & self.mask) as usize..])[0]
     }
 
     fn write_32(&mut self, addr: Addr, value: u32) {
-        (&mut self.0[addr as usize..])
+        (&mut self.mem[(addr & self.mask) as usize..])
             .write_u32::<LittleEndian>(value)
             .unwrap()
     }
 
     fn write_16(&mut self, addr: Addr, value: u16) {
-        (&mut self.0[addr as usize..])
+        (&mut self.mem[(addr & self.mask) as usize..])
             .write_u16::<LittleEndian>(value)
             .unwrap()
     }
 
     fn write_8(&mut self, addr: Addr, value: u8) {
-        (&mut self.0[addr as usize..]).write_u8(value).unwrap()
+        (&mut self.mem[(addr & self.mask) as usize..])
+            .write_u8(value)
+            .unwrap()
     }
 
     fn get_bytes(&self, addr: Addr) -> &[u8] {
-        &self.0[addr as usize..]
+        &self.mem[(addr & self.mask) as usize..]
     }
 
     fn get_bytes_mut(&mut self, addr: Addr) -> &mut [u8] {
-        &mut self.0[addr as usize..]
+        &mut self.mem[(addr & self.mask) as usize..]
     }
 
     fn get_cycles(&self, _addr: Addr, access: MemoryAccess) -> usize {
         match access.1 {
-            MemoryAccessWidth::MemoryAccess8 => self.1.access8,
-            MemoryAccessWidth::MemoryAccess16 => self.1.access16,
-            MemoryAccessWidth::MemoryAccess32 => self.1.access32,
+            MemoryAccessWidth::MemoryAccess8 => self.ws.access8,
+            MemoryAccessWidth::MemoryAccess16 => self.ws.access16,
+            MemoryAccessWidth::MemoryAccess32 => self.ws.access32,
         }
     }
 }
@@ -151,22 +165,28 @@ pub struct SysBus {
 impl SysBus {
     pub fn new(bios_rom: Vec<u8>, gamepak: Cartridge) -> SysBus {
         SysBus {
-            bios: BoxedMemory::new(bios_rom.into_boxed_slice()),
+            bios: BoxedMemory::new(bios_rom.into_boxed_slice(), 0xff_ffff),
             onboard_work_ram: BoxedMemory::new_with_waitstate(
                 vec![0; WORK_RAM_SIZE].into_boxed_slice(),
+                (WORK_RAM_SIZE as u32) - 1,
                 WaitState::new(3, 3, 6),
             ),
-            internal_work_ram: BoxedMemory::new(vec![0; INTERNAL_RAM].into_boxed_slice()),
+            internal_work_ram: BoxedMemory::new(
+                vec![0; INTERNAL_RAM_SIZE].into_boxed_slice(),
+                0x7fff,
+            ),
             ioregs: IoRegs::default(),
             palette_ram: BoxedMemory::new_with_waitstate(
                 vec![0; PALETTE_RAM_SIZE].into_boxed_slice(),
+                (PALETTE_RAM_SIZE as u32) - 1,
                 WaitState::new(1, 1, 2),
             ),
             vram: BoxedMemory::new_with_waitstate(
                 vec![0; VIDEO_RAM_SIZE].into_boxed_slice(),
+                (VIDEO_RAM_SIZE as u32) - 1,
                 WaitState::new(1, 1, 2),
             ),
-            oam: BoxedMemory::new(vec![0; OAM_SIZE].into_boxed_slice()),
+            oam: BoxedMemory::new(vec![0; OAM_SIZE].into_boxed_slice(), (OAM_SIZE as u32) - 1),
             gamepak: gamepak,
             dummy: DummyBus([0; 4]),
         }
@@ -175,11 +195,11 @@ impl SysBus {
     fn map(&self, addr: Addr) -> &Bus {
         match addr as usize {
             0x0000_0000...0x0000_3fff => &self.bios,
-            0x0200_0000...0x0203_ffff => &self.onboard_work_ram,
-            0x0300_0000...0x0300_7fff => &self.internal_work_ram,
+            0x0200_0000...0x02ff_ffff => &self.onboard_work_ram,
+            0x0300_0000...0x03ff_ffff => &self.internal_work_ram,
             0x0400_0000...0x0400_03fe => &self.ioregs,
-            0x0500_0000...0x0500_03ff => &self.palette_ram,
-            0x0600_0000...0x0601_7fff => &self.vram,
+            0x0500_0000...0x05ff_ffff => &self.palette_ram,
+            0x0600_0000...0x06ff_ffff => &self.vram,
             0x0700_0000...0x0700_03ff => &self.oam,
             0x0800_0000...0x09ff_ffff => &self.gamepak,
             _ => &self.dummy,
@@ -190,11 +210,11 @@ impl SysBus {
     fn map_mut(&mut self, addr: Addr) -> &mut Bus {
         match addr as usize {
             0x0000_0000...0x0000_3fff => &mut self.bios,
-            0x0200_0000...0x0203_ffff => &mut self.onboard_work_ram,
-            0x0300_0000...0x0300_7fff => &mut self.internal_work_ram,
+            0x0200_0000...0x02ff_ffff => &mut self.onboard_work_ram,
+            0x0300_0000...0x03ff_ffff => &mut self.internal_work_ram,
             0x0400_0000...0x0400_03fe => &mut self.ioregs,
-            0x0500_0000...0x0500_03ff => &mut self.palette_ram,
-            0x0600_0000...0x0601_7fff => &mut self.vram,
+            0x0500_0000...0x05ff_ffff => &mut self.palette_ram,
+            0x0600_0000...0x06ff_ffff => &mut self.vram,
             0x0700_0000...0x0700_03ff => &mut self.oam,
             0x0800_0000...0x09ff_ffff => &mut self.gamepak,
             _ => &mut self.dummy,

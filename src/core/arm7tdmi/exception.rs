@@ -36,11 +36,12 @@ impl Core {
         let new_mode = CpuMode::from(e);
         if self.verbose {
             println!(
-                "{}: {:?}, pc: {:#x}, new_mode: {:?}",
+                "{}: {:?}, pc: {:#x}, new_mode: {:?} old_mode: {:?}",
                 "Exception".cyan(),
                 e,
                 self.pc,
-                new_mode
+                new_mode,
+                self.cpsr.mode(),
             );
         }
 

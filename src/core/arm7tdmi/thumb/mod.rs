@@ -358,7 +358,7 @@ mod tests {
     #[test]
     fn mov_low_reg() {
         let bytes = vec![];
-        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice(), 0xffff_ffff);
         let mut core = Core::new();
         core.set_reg(0, 0);
 
@@ -390,7 +390,7 @@ mod tests {
             /* 8: */ 0x00, 0x00, 0x00, 0x00,
             /* c: */ 0x78, 0x56, 0x34, 0x12,
         ];
-        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice(), 0xffff_ffff);
         let mut core = Core::new();
         core.set_reg(0, 0);
 
@@ -420,7 +420,7 @@ mod tests {
             /* 0ch: */ 0xaa, 0xbb, 0xcc, 0xdd,
             /* 10h: */ 0xaa, 0xbb, 0xcc, 0xdd,
         ];
-        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice(), 0xffff_ffff);
 
         assert_eq!(format!("{}", str_insn), "str\tr0, [r4, r1]");
         assert_eq!(format!("{}", ldr_insn), "ldrb\tr2, [r4, r1]");
@@ -440,7 +440,7 @@ mod tests {
             /* 08h: */ 0xaa, 0xbb, 0xcc, 0xdd, 0xaa, 0xbb, 0xcc, 0xdd,
             /* 10h: */ 0xaa, 0xbb, 0xcc, 0xdd, 0xaa, 0xbb, 0xcc, 0xdd,
         ];
-        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice(), 0xffff_ffff);
 
         core.gpr[4] = 0x12345678;
         core.gpr[3] = 0x2;

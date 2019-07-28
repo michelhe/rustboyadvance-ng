@@ -375,7 +375,7 @@ mod tests {
         let mut core = Core::new();
 
         let bytes = vec![];
-        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice(), 0xffff_ffff);
 
         // swi #0x1337
         let decoded = ArmInstruction::decode(0xef001337, 0).unwrap();
@@ -406,7 +406,7 @@ mod tests {
         core.pc = 0x20 + 8;
 
         let bytes = vec![];
-        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice(), 0xffff_ffff);
 
         core.exec_arm(&mut mem, decoded).unwrap();
         assert_eq!(core.did_pipeline_flush(), true);
@@ -429,7 +429,7 @@ mod tests {
         core.pc = 0x20 + 8;
 
         let bytes = vec![];
-        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice(), 0xffff_ffff);
 
         core.exec_arm(&mut mem, decoded).unwrap();
         assert_eq!(core.did_pipeline_flush(), true);
@@ -472,7 +472,7 @@ mod tests {
             /* 20h: */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             /* 30h: */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ];
-        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice(), 0xffff_ffff);
 
         core.exec_arm(&mut mem, decoded).unwrap();
         assert_eq!(core.gpr[2], 0x1337);
@@ -513,7 +513,7 @@ mod tests {
             /* 20h: */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             /* 30h: */ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ];
-        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice(), 0xffff_ffff);
 
         core.exec_arm(&mut mem, decoded).unwrap();
         assert_eq!(mem.read_32(0), 0xabababab);
@@ -538,7 +538,7 @@ mod tests {
             /*  c: */ 0xaa, 0xbb, 0xcc, 0xdd,
             /* 10: */ 0xaa, 0xbb, 0xcc, 0xdd,
         ];
-        let mut mem = BoxedMemory::new(bytes.into_boxed_slice());
+        let mut mem = BoxedMemory::new(bytes.into_boxed_slice(), 0xffff_ffff);
 
         assert_ne!(mem.read_32(core.get_reg(REG_SP) + 0x10), 0x12345678);
         core.exec_arm(&mut mem, decoded).unwrap();

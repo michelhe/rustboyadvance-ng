@@ -11,6 +11,8 @@ use super::EmuIoDev;
 use super::{GBAError, GBAResult};
 use crate::backend::*;
 
+use crate::bit::BitIndex;
+
 pub struct GameBoyAdvance {
     backend: Box<EmulatorBackend>,
     pub cpu: Core,
@@ -86,23 +88,27 @@ impl GameBoyAdvance {
         let previous_cycles = self.cpu.cycles;
         self.cpu.step(&mut self.sysbus).unwrap();
         let cycles = self.cpu.cycles - previous_cycles;
-        self.gpu.step(cycles, &mut self.sysbus);
+        let (_, irq) = self.gpu.step(cycles, &mut self.sysbus);
+        if let Some(irq) = irq {
+            self.request_irq(irq);
+        }
     }
 
     fn interrupts_disabled(&self) -> bool {
-        self.sysbus.ioregs.read_reg(REG_IME) & 1 == 0
+        self.cpu.cpsr.irq_disabled() | (self.sysbus.ioregs.read_reg(REG_IME) & 1 == 0)
     }
 
     fn request_irq(&mut self, irq: Interrupt) {
-        // if self.interrupts_disabled() {
-        //     return;
-        // }
-        // let irq_bit = irq as usize;
-        // let reg_ie = self.sysbus.ioregs.read_reg(REG_IE);
-        // if reg_ie & (1 << irq_bit) != 0 {
-        //     println!("entering {:?}", irq);
-        //     self.cpu.exception(Exception::Irq);
-        // }
+        if self.interrupts_disabled() {
+            return;
+        }
+        let irq_bit_index = irq as usize;
+        let reg_ie = self.sysbus.ioregs.read_reg(REG_IE);
+        if reg_ie.bit(irq_bit_index) {
+            self.sysbus.ioregs.write_reg(REG_IF, (1 << irq_bit_index) as u16);
+            println!("entering {:?}", irq);
+            self.cpu.exception(Exception::Irq);
+        }
     }
 
     pub fn step(&mut self) -> GBAResult<DecodedInstruction> {
@@ -125,12 +131,10 @@ impl GameBoyAdvance {
         // let (dma_cycles, _) = self.dma3.step(cycles, &mut self.sysbus);
         // cycles += dma_cycles;
 
-        /* let (_, irq) = */
-        self.gpu.step(cycles, &mut self.sysbus);
-        // if let Some(irq) = irq {
-        //     self.request_irq(irq);
-        // }
-        // cycles += lcd_cycles;
+        let (_, irq) = self.gpu.step(cycles, &mut self.sysbus);
+        if let Some(irq) = irq {
+            self.request_irq(irq);
+        }
 
         Ok(executed_insn)
     }
