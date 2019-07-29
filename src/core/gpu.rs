@@ -232,11 +232,19 @@ impl Gpu {
         &self,
         sysbus: &SysBus,
         addr: Addr,
-        x: u32,
-        y: u32,
+        mut x: u32,
+        mut y: u32,
         width: u32,
         format: PixelFormat,
+        x_flip: bool,
+        y_flip: bool,
     ) -> usize {
+        if x_flip {
+            x = 7 - x;
+        }
+        if y_flip {
+            y = 7 - x;
+        }
         match format {
             PixelFormat::BPP4 => {
                 let byte = sysbus.read_8(addr + width * y + x / 2);
@@ -268,13 +276,11 @@ impl Gpu {
         let py = self.current_scanline as u32;
 
         for tile in 0..tiles_per_row {
-            let tile_y = py % 8;
-
             let map_index = tile + (py / 8) * tiles_per_row;
             let map_addr = tilemap_base + 2 * map_index;
             let entry = TileMapEntry::from(sysbus.read_16(map_addr));
             let tile_addr = tileset_base + entry.tile_index * tile_size;
-
+            let tile_y = py % 8;
             for tile_x in 0..=7 {
                 let color = match pixel_format {
                     PixelFormat::BPP4 => {
@@ -285,6 +291,8 @@ impl Gpu {
                             tile_y as u32,
                             4,
                             pixel_format,
+                            entry.x_flip,
+                            entry.y_flip,
                         );
                         self.get_palette_color(sysbus, index as u32, entry.palette_bank as u32)
                     }
@@ -296,11 +304,15 @@ impl Gpu {
                             tile_y as u32,
                             8,
                             pixel_format,
+                            entry.x_flip,
+                            entry.y_flip,
                         );
                         self.get_palette_color(sysbus, index as u32, 0)
                     }
                 };
-                self.pixeldata[((px + tile_x) as usize) + (py as usize) * 512] = color;
+                if color.get_rgb24() != (0, 0, 0) {
+                    self.pixeldata[((px + tile_x) as usize) + (py as usize) * 512] = color;
+                }
             }
             px += 8;
             if px == bgcnt.screen_width as u32 {
@@ -340,12 +352,16 @@ impl Gpu {
         let dispcnt = DisplayControl::from(sysbus.ioregs.read_reg(REG_DISPCNT));
 
         match dispcnt.bg_mode {
-            BGMode::BGMode0 | BGMode::BGMode2 => {
-                for bg in 0..3 {
+            BGMode::BGMode0 => {
+                for bg in (0..3).rev() {
                     if dispcnt.disp_bg[bg] {
                         self.scanline_mode0(bg as u32, sysbus);
                     }
                 }
+            }
+            BGMode::BGMode2 => {
+                self.scanline_mode0(2, sysbus);
+                self.scanline_mode0(3, sysbus);
             }
             BGMode::BGMode3 => {
                 self.scanline_mode3(2, sysbus);
@@ -439,10 +455,6 @@ impl EmuIoDev for Gpu {
             }
         }
 
-        // let mut dispcnt = DisplayControl::from(sysbus.ioregs.read_reg(REG_DISPCNT));
-        // let mut dispstat = DisplayStatus::from(sysbus.ioregs.read_reg(REG_DISPSTAT));
-
-        // TODO
         (0, None)
     }
 }
