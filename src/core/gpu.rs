@@ -85,32 +85,25 @@ pub struct BgControl {
     moasic: bool,
     palette256: bool, // 0=16/16, 1=256/1)
     screen_base_block: u8,
-    wraparound: bool,
-    screen_width: usize,
-    screen_height: usize,
+    affine_wraparound: bool,
+    bg_size: u32,
 }
 
 impl From<u16> for BgControl {
     fn from(v: u16) -> Self {
-        let (width, height) = match v.bit_range(14..16) {
-            0 => (256, 256),
-            1 => (512, 256),
-            2 => (256, 512),
-            3 => (512, 512),
-            _ => unreachable!(),
-        };
         BgControl {
             bg_priority: v.bit_range(0..2) as u8,
             character_base_block: v.bit_range(2..4) as u8,
             moasic: v.bit(6),
             palette256: v.bit(7),
             screen_base_block: v.bit_range(8..13) as u8,
-            wraparound: v.bit(13),
-            screen_width: width,
-            screen_height: height,
+            affine_wraparound: v.bit(13),
+            bg_size: v.bit_range(14..16) as u32,
         }
     }
 }
+
+const SCREEN_BLOCK_SIZE: u32 = 0x800;
 
 impl BgControl {
     pub fn char_block(&self) -> Addr {
@@ -118,7 +111,17 @@ impl BgControl {
     }
 
     pub fn screen_block(&self) -> Addr {
-        VRAM_ADDR + (self.screen_base_block as u32) * 0x800
+        VRAM_ADDR + (self.screen_base_block as u32) * SCREEN_BLOCK_SIZE
+    }
+
+    fn size_regular(&self) -> (u32, u32) {
+        match self.bg_size {
+            0b00 => (256, 256),
+            0b01 => (512, 256),
+            0b10 => (256, 512),
+            0b11 => (512, 512),
+            _ => unreachable!(),
+        }
     }
 
     pub fn tile_format(&self) -> (u32, PixelFormat) {
@@ -222,9 +225,9 @@ impl Gpu {
     }
 
     fn bgofs(&self, bg: u32, sysbus: &SysBus) -> (u32, u32) {
-        let hofs = (sysbus.ioregs.read_reg(REG_BG0HOFS + 4 * bg) & 0x1ff) as u32;
-        let vofs = (sysbus.ioregs.read_reg(REG_BG0VOFS + 4 * bg) & 0x1ff) as u32;
-        (hofs, vofs)
+        let hofs = sysbus.ioregs.read_reg(REG_BG0HOFS + 4 * bg) & 0x1ff;
+        let vofs = sysbus.ioregs.read_reg(REG_BG0VOFS + 4 * bg) & 0x1ff;
+        (hofs as u32, vofs as u32)
     }
 
     /// helper method that reads the palette index from a base address and x + y
@@ -232,29 +235,20 @@ impl Gpu {
         &self,
         sysbus: &SysBus,
         addr: Addr,
-        mut x: u32,
-        mut y: u32,
-        width: u32,
+        x: u32,
+        y: u32,
         format: PixelFormat,
-        x_flip: bool,
-        y_flip: bool,
     ) -> usize {
-        if x_flip {
-            x = 7 - x;
-        }
-        if y_flip {
-            y = 7 - x;
-        }
         match format {
             PixelFormat::BPP4 => {
-                let byte = sysbus.read_8(addr + width * y + x / 2);
+                let byte = sysbus.read_8(addr + index2d!(x / 2, y, 4));
                 if x & 1 != 0 {
                     (byte >> 4) as usize
                 } else {
                     (byte & 0xf) as usize
                 }
             }
-            PixelFormat::BPP8 => sysbus.read_8(addr + width * y + x) as usize,
+            PixelFormat::BPP8 => sysbus.read_8(addr + index2d!(x, y, 8)) as usize,
         }
     }
 
@@ -266,57 +260,75 @@ impl Gpu {
 
     fn scanline_mode0(&mut self, bg: u32, sysbus: &mut SysBus) {
         let bgcnt = self.bgcnt(bg, sysbus);
+        let (h_ofs, v_ofs) = self.bgofs(bg, sysbus);
         let tileset_base = bgcnt.char_block();
         let tilemap_base = bgcnt.screen_block();
         let (tile_size, pixel_format) = bgcnt.tile_format();
 
-        let tiles_per_row = (bgcnt.screen_width / 8) as u32;
+        let (bg_width, bg_height) = bgcnt.size_regular();
 
-        let mut px = 0;
-        let py = self.current_scanline as u32;
+        let screen_y = self.current_scanline as u32;
+        let mut screen_x = 0;
 
-        for tile in 0..tiles_per_row {
-            let map_index = tile + (py / 8) * tiles_per_row;
-            let map_addr = tilemap_base + 2 * map_index;
+        // calculate the bg coords at the top-left corner, including wraparound
+        let bg_x = (screen_x + h_ofs) % bg_width;
+        let bg_y = (screen_y + v_ofs) % bg_height;
+
+        // calculate the initial screen entry index
+        // | (256,256) | (512,256) |  (256,512)  | (512,512) |
+        // |-----------|-----------|-------------|-----------|
+        // |           |           |     [1]     |  [2][3]   |
+        // |    [0]    |  [0][1]   |     [0]     |  [0][1]   |
+        // |___________|___________|_____________|___________|
+        //
+        let mut screen_block = match (bg_width, bg_height) {
+            (256, 256) => 0,
+            (512, 256) => bg_x / 256,
+            (256, 512) => bg_y / 256,
+            (512, 512) => index2d!(bg_x / 256, bg_y / 256, 2),
+            _ => unreachable!(),
+        } as u32;
+
+        let se_row = (bg_x / 8) % 32;
+        let se_column = (bg_y / 8) % 32;
+
+        // this will be non-zero if the h-scroll lands in a middle of a tile
+        let mut start_tile_x = bg_x % 8;
+
+        for t in 0..32 {
+            let map_addr = tilemap_base
+                + SCREEN_BLOCK_SIZE * screen_block
+                + 2 * (index2d!((se_row + t) % 32, se_column, 32) as u32);
             let entry = TileMapEntry::from(sysbus.read_16(map_addr));
             let tile_addr = tileset_base + entry.tile_index * tile_size;
-            let tile_y = py % 8;
-            for tile_x in 0..=7 {
-                let color = match pixel_format {
-                    PixelFormat::BPP4 => {
-                        let index = self.read_pixel_index(
-                            sysbus,
-                            tile_addr,
-                            tile_x,
-                            tile_y as u32,
-                            4,
-                            pixel_format,
-                            entry.x_flip,
-                            entry.y_flip,
-                        );
-                        self.get_palette_color(sysbus, index as u32, entry.palette_bank as u32)
-                    }
-                    PixelFormat::BPP8 => {
-                        let index = self.read_pixel_index(
-                            sysbus,
-                            tile_addr,
-                            tile_x,
-                            tile_y as u32,
-                            8,
-                            pixel_format,
-                            entry.x_flip,
-                            entry.y_flip,
-                        );
-                        self.get_palette_color(sysbus, index as u32, 0)
-                    }
+
+            for tile_px in start_tile_x..=7 {
+                let tile_py = (bg_y % 8) as u32;
+                let index = self.read_pixel_index(
+                    sysbus,
+                    tile_addr,
+                    if entry.x_flip { 7 - tile_px } else { tile_px },
+                    if entry.y_flip { 7 - tile_py } else { tile_py },
+                    pixel_format,
+                );
+                let palette_bank = match pixel_format {
+                    PixelFormat::BPP4 => entry.palette_bank as u32,
+                    PixelFormat::BPP8 => 0u32,
                 };
+                let color = self.get_palette_color(sysbus, index as u32, palette_bank);
                 if color.get_rgb24() != (0, 0, 0) {
-                    self.pixeldata[((px + tile_x) as usize) + (py as usize) * 512] = color;
+                    self.pixeldata[index2d!(screen_x as usize, screen_y as usize, 512)] = color;
+                }
+                screen_x += 1;
+                if (Gpu::DISPLAY_WIDTH as u32) == screen_x {
+                    return;
                 }
             }
-            px += 8;
-            if px == bgcnt.screen_width as u32 {
-                return;
+            start_tile_x = 0;
+            if se_row + t == 31 {
+                if bg_width == 512 {
+                    screen_block = screen_block ^ 1;
+                }
             }
         }
     }
@@ -325,9 +337,9 @@ impl Gpu {
         let y = self.current_scanline;
 
         for x in 0..Self::DISPLAY_WIDTH {
-            let pixel_index = x + y * Self::DISPLAY_WIDTH;
+            let pixel_index = index2d!(x, y, Self::DISPLAY_WIDTH);
             let pixel_addr = 0x0600_0000 + 2 * (pixel_index as u32);
-            self.pixeldata[x + y * 512] = sb.read_16(pixel_addr).into();
+            self.pixeldata[index2d!(x, y, 512)] = sb.read_16(pixel_addr).into();
         }
     }
 
@@ -341,10 +353,10 @@ impl Gpu {
         let y = self.current_scanline;
 
         for x in 0..Self::DISPLAY_WIDTH {
-            let bitmap_index = x + y * Self::DISPLAY_WIDTH;
+            let bitmap_index = index2d!(x, y, Self::DISPLAY_WIDTH);
             let bitmap_addr = page + (bitmap_index as u32);
             let index = sysbus.read_8(bitmap_addr as Addr) as u32;
-            self.pixeldata[x + y * 512] = self.get_palette_color(sysbus, index, 0);
+            self.pixeldata[index2d!(x, y, 512)] = self.get_palette_color(sysbus, index, 0);
         }
     }
 
@@ -377,17 +389,14 @@ impl Gpu {
         let mut buffer = vec![0u32; Gpu::DISPLAY_WIDTH * Gpu::DISPLAY_WIDTH];
         for y in 0..Gpu::DISPLAY_HEIGHT {
             for x in 0..Gpu::DISPLAY_WIDTH {
-                let index = (x as usize) + (y as usize) * (512 as usize);
-                let (r, g, b) = self.pixeldata[index].get_rgb24();
-                buffer[x + Gpu::DISPLAY_WIDTH * y] =
+                let (r, g, b) = self.pixeldata[index2d!(x as usize, y as usize, 512)].get_rgb24();
+                buffer[index2d!(x, y, Gpu::DISPLAY_WIDTH)] =
                     ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
             }
         }
         buffer
     }
 }
-
-// *TODO* Running the Gpu step by step causes a massive performance impact, so for now not treat it as an emulated IO device.
 
 impl EmuIoDev for Gpu {
     fn step(&mut self, cycles: usize, sysbus: &mut SysBus) -> (usize, Option<Interrupt>) {
@@ -400,7 +409,7 @@ impl EmuIoDev for Gpu {
 
         dispstat.vcount_flag = dispstat.vcount_setting as usize == self.current_scanline;
         if dispstat.vcount_irq_enable {
-            panic!("VCOUNT IRQ NOT IMPL");
+            println!("VCOUNT IRQ NOT IMPL");
         }
 
         match self.state {
@@ -420,6 +429,7 @@ impl EmuIoDev for Gpu {
                         };
                         (HBlank, irq)
                     } else {
+                        self.scanline(sysbus);
                         dispstat.vblank_flag = true;
                         let irq = if dispstat.vblank_irq_enable {
                             Some(Interrupt::LCD_VBlank)

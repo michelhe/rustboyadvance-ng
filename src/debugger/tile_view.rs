@@ -28,34 +28,10 @@ fn draw_tile(
 ) {
     for y in 0..8 {
         for x in 0..8 {
-            let color = match pixel_format {
-                PixelFormat::BPP4 => {
-                    let index = gba.gpu.read_pixel_index(
-                        &gba.sysbus,
-                        tile_addr,
-                        x,
-                        y,
-                        4,
-                        pixel_format,
-                        false,
-                        false,
-                    );
-                    gba.gpu.get_palette_color(&gba.sysbus, index as u32, 0xf)
-                }
-                PixelFormat::BPP8 => {
-                    let index = gba.gpu.read_pixel_index(
-                        &gba.sysbus,
-                        tile_addr,
-                        x,
-                        y,
-                        8,
-                        pixel_format,
-                        false,
-                        false,
-                    );
-                    gba.gpu.get_palette_color(&gba.sysbus, index as u32, 0)
-                }
-            };
+            let index = gba
+                .gpu
+                .read_pixel_index(&gba.sysbus, tile_addr, x, y, pixel_format);
+            let color = gba.gpu.get_palette_color(&gba.sysbus, index as u32, 0);
             let (r, g, b) = color.get_rgb24();
 
             canvas.set_draw_color(Color::RGB(r, g, b));

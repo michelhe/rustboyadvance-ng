@@ -14,9 +14,10 @@ extern crate nom;
 extern crate ansi_term;
 extern crate colored; // not needed in Rust 2018
 
+#[macro_use]
+pub mod util;
 pub mod backend;
 pub mod core;
 pub mod debugger;
 pub mod disass;
 pub mod minifb_backend;
-pub mod util;

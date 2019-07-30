@@ -8,3 +8,10 @@ pub fn read_bin_file(filename: &str) -> io::Result<Vec<u8>> {
     file.read_to_end(&mut buf)?;
     Ok(buf)
 }
+
+#[macro_export]
+macro_rules! index2d {
+    ($x:expr, $y:expr, $w:expr) => {
+        $w * $y + $x
+    };
+}

@@ -52,31 +52,15 @@ impl GameBoyAdvance {
         }
     }
 
-    fn emulate_n_cycles(&mut self, mut n: usize) {
-        let mut cycles = 0;
-        loop {
-            let previous_cycles = self.cpu.cycles;
-            self.cpu.step_one(&mut self.sysbus).unwrap();
-            let new_cycles = self.cpu.cycles - previous_cycles;
-
-            self.gpu.step(new_cycles, &mut self.sysbus);
-            cycles += new_cycles;
-
-            if n <= cycles {
-                break;
-            }
-        }
-    }
-
     pub fn frame(&mut self) {
         self.update_key_state();
-        while self.gpu.state == GpuState::VBlank {
-            self.emulate();
-        }
         while self.gpu.state != GpuState::VBlank {
             self.emulate();
         }
         self.backend.render(self.gpu.render());
+        while self.gpu.state == GpuState::VBlank {
+            self.emulate();
+        }
     }
 
     fn update_key_state(&mut self) {
@@ -105,8 +89,9 @@ impl GameBoyAdvance {
         let irq_bit_index = irq as usize;
         let reg_ie = self.sysbus.ioregs.read_reg(REG_IE);
         if reg_ie.bit(irq_bit_index) {
-            self.sysbus.ioregs.write_reg(REG_IF, (1 << irq_bit_index) as u16);
-            println!("entering {:?}", irq);
+            self.sysbus
+                .ioregs
+                .write_reg(REG_IF, (1 << irq_bit_index) as u16);
             self.cpu.exception(Exception::Irq);
         }
     }

@@ -41,7 +41,6 @@ fn run_emulator(matches: &ArgMatches) -> GBAResult<()> {
 
     let mut core = Core::new();
     core.reset();
-    core.set_verbose(true);
     if skip_bios {
         core.gpr[13] = 0x0300_7f00;
         core.gpr_banked_r13[0] = 0x0300_7f00; // USR/SYS
@@ -59,6 +58,7 @@ fn run_emulator(matches: &ArgMatches) -> GBAResult<()> {
     let mut gba = GameBoyAdvance::new(core, bios_bin, gamepak, backend);
 
     if debug {
+        gba.cpu.set_verbose(true);
         let mut debugger = Debugger::new(gba);
         println!("starting debugger...");
         debugger.repl()?;
