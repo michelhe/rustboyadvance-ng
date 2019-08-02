@@ -15,7 +15,7 @@ const OAM_SIZE: usize = 1 * 1024;
 
 #[derive(Debug)]
 pub struct BoxedMemory {
-    mem: Box<[u8]>,
+    pub mem: Box<[u8]>,
     ws: WaitState,
     mask: u32,
 }
@@ -155,9 +155,9 @@ pub struct SysBus {
     internal_work_ram: BoxedMemory,
     /// Currently model the IOMem as regular buffer, later make it into something more sophisticated.
     pub ioregs: IoRegs,
-    palette_ram: BoxedMemory,
-    vram: BoxedMemory,
-    oam: BoxedMemory,
+    pub palette_ram: BoxedMemory,
+    pub vram: BoxedMemory,
+    pub oam: BoxedMemory,
     gamepak: Cartridge,
     dummy: DummyBus,
 }

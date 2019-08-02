@@ -1,3 +1,5 @@
+use std::fmt;
+
 use super::arm7tdmi::{Addr, Bus};
 use super::ioregs::consts::*;
 use super::palette::{Palette, PixelFormat, Rgb15};
@@ -146,9 +148,37 @@ impl Default for GpuState {
 }
 use GpuState::*;
 
+pub struct FrameBuffer([Rgb15; 512 * 512]);
+
+impl fmt::Debug for FrameBuffer {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "FrameBuffer: ")?;
+        for i in 0..6 {
+            let (r, g, b) = self.0[i].get_rgb24();
+            write!(f, "#{:x}{:x}{:x}, ", r, g, b)?;
+        }
+        write!(f, "...")
+    }
+}
+
+impl std::ops::Index<usize> for FrameBuffer {
+    type Output = Rgb15;
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+
+impl std::ops::IndexMut<usize> for FrameBuffer {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
+    }
+}
+
+#[derive(Debug)]
 pub struct Gpu {
     cycles: usize,
-    pub pixeldata: [Rgb15; 512 * 512],
+
+    pub pixeldata: FrameBuffer,
     pub state: GpuState,
     pub current_scanline: usize, // VCOUNT
 }
@@ -171,7 +201,7 @@ impl Gpu {
             state: HDraw,
             current_scanline: 0,
             cycles: 0,
-            pixeldata: [Rgb15::from(0); 512 * 512],
+            pixeldata: FrameBuffer([Rgb15::from(0); 512 * 512]),
         }
     }
 
@@ -233,36 +263,37 @@ impl Gpu {
     /// helper method that reads the palette index from a base address and x + y
     pub fn read_pixel_index(
         &self,
-        sysbus: &SysBus,
+        sb: &SysBus,
         addr: Addr,
         x: u32,
         y: u32,
         format: PixelFormat,
     ) -> usize {
+        let ofs = addr - VRAM_ADDR;
         match format {
             PixelFormat::BPP4 => {
-                let byte = sysbus.read_8(addr + index2d!(x / 2, y, 4));
+                let byte = sb.vram.read_8(ofs + index2d!(x / 2, y, 4));
                 if x & 1 != 0 {
                     (byte >> 4) as usize
                 } else {
                     (byte & 0xf) as usize
                 }
             }
-            PixelFormat::BPP8 => sysbus.read_8(addr + index2d!(x, y, 8)) as usize,
+            PixelFormat::BPP8 => sb.vram.read_8(ofs + index2d!(x, y, 8)) as usize,
         }
     }
 
-    pub fn get_palette_color(&self, sysbus: &SysBus, index: u32, palette_index: u32) -> Rgb15 {
-        sysbus
-            .read_16(0x0500_0000 + 2 * index + 0x20 * palette_index)
+    pub fn get_palette_color(&self, sb: &SysBus, index: u32, palette_index: u32) -> Rgb15 {
+        sb.palette_ram
+            .read_16(2 * index + 0x20 * palette_index)
             .into()
     }
 
-    fn scanline_mode0(&mut self, bg: u32, sysbus: &mut SysBus) {
-        let bgcnt = self.bgcnt(bg, sysbus);
-        let (h_ofs, v_ofs) = self.bgofs(bg, sysbus);
-        let tileset_base = bgcnt.char_block();
-        let tilemap_base = bgcnt.screen_block();
+    fn scanline_mode0(&mut self, bg: u32, sb: &mut SysBus) {
+        let bgcnt = self.bgcnt(bg, sb);
+        let (h_ofs, v_ofs) = self.bgofs(bg, sb);
+        let tileset_base = bgcnt.char_block() - VRAM_ADDR;
+        let tilemap_base = bgcnt.screen_block() - VRAM_ADDR;
         let (tile_size, pixel_format) = bgcnt.tile_format();
 
         let (bg_width, bg_height) = bgcnt.size_regular();
@@ -299,13 +330,13 @@ impl Gpu {
             let map_addr = tilemap_base
                 + SCREEN_BLOCK_SIZE * screen_block
                 + 2 * (index2d!((se_row + t) % 32, se_column, 32) as u32);
-            let entry = TileMapEntry::from(sysbus.read_16(map_addr));
+            let entry = TileMapEntry::from(sb.vram.read_16(map_addr - VRAM_ADDR));
             let tile_addr = tileset_base + entry.tile_index * tile_size;
 
             for tile_px in start_tile_x..=7 {
                 let tile_py = (bg_y % 8) as u32;
                 let index = self.read_pixel_index(
-                    sysbus,
+                    sb,
                     tile_addr,
                     if entry.x_flip { 7 - tile_px } else { tile_px },
                     if entry.y_flip { 7 - tile_py } else { tile_py },
@@ -315,7 +346,7 @@ impl Gpu {
                     PixelFormat::BPP4 => entry.palette_bank as u32,
                     PixelFormat::BPP8 => 0u32,
                 };
-                let color = self.get_palette_color(sysbus, index as u32, palette_bank);
+                let color = self.get_palette_color(sb, index as u32, palette_bank);
                 if color.get_rgb24() != (0, 0, 0) {
                     self.pixeldata[index2d!(screen_x as usize, screen_y as usize, 512)] = color;
                 }
@@ -338,15 +369,15 @@ impl Gpu {
 
         for x in 0..Self::DISPLAY_WIDTH {
             let pixel_index = index2d!(x, y, Self::DISPLAY_WIDTH);
-            let pixel_addr = 0x0600_0000 + 2 * (pixel_index as u32);
-            self.pixeldata[index2d!(x, y, 512)] = sb.read_16(pixel_addr).into();
+            let pixel_ofs = 2 * (pixel_index as u32);
+            self.pixeldata[index2d!(x, y, 512)] = sb.vram.read_16(pixel_ofs).into();
         }
     }
 
-    fn scanline_mode4(&mut self, bg: u32, dispcnt: &DisplayControl, sysbus: &mut SysBus) {
-        let page: u32 = match dispcnt.display_frame {
-            0 => 0x0600_0000,
-            1 => 0x0600_a000,
+    fn scanline_mode4(&mut self, bg: u32, dispcnt: &DisplayControl, sb: &mut SysBus) {
+        let page_ofs: u32 = match dispcnt.display_frame {
+            0 => 0x0600_0000 - VRAM_ADDR,
+            1 => 0x0600_a000 - VRAM_ADDR,
             _ => unreachable!(),
         };
 
@@ -354,9 +385,9 @@ impl Gpu {
 
         for x in 0..Self::DISPLAY_WIDTH {
             let bitmap_index = index2d!(x, y, Self::DISPLAY_WIDTH);
-            let bitmap_addr = page + (bitmap_index as u32);
-            let index = sysbus.read_8(bitmap_addr as Addr) as u32;
-            self.pixeldata[index2d!(x, y, 512)] = self.get_palette_color(sysbus, index, 0);
+            let bitmap_ofs = page_ofs + (bitmap_index as u32);
+            let index = sb.vram.read_8(bitmap_ofs as Addr) as u32;
+            self.pixeldata[index2d!(x, y, 512)] = self.get_palette_color(sb, index, 0);
         }
     }
 
