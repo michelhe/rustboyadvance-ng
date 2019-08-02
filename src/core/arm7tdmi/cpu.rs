@@ -1,11 +1,9 @@
 use std::fmt;
 
 use ansi_term::{Colour, Style};
-use num_traits::Num;
 
 pub use super::exception::Exception;
 use super::{
-    alu::*,
     arm::*,
     bus::{Bus, MemoryAccess, MemoryAccessType, MemoryAccessType::*, MemoryAccessWidth::*},
     psr::RegPSR,
@@ -205,10 +203,6 @@ impl Core {
             CpuState::ARM => 4,
             CpuState::THUMB => 2,
         }
-    }
-
-    fn advance_pc(&mut self) {
-        self.pc = self.pc.wrapping_add(self.word_size() as u32)
     }
 
     pub fn cycles(&self) -> usize {

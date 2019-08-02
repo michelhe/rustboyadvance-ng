@@ -1,16 +1,15 @@
 use std::fmt;
 
 use super::arm7tdmi::{Addr, Bus};
-use super::ioregs::consts::*;
-use super::palette::{Palette, PixelFormat, Rgb15};
+use super::palette::{PixelFormat, Rgb15};
 use super::*;
 
-use crate::bit::BitIndex;
+use crate::bitfield::Bit;
 use crate::num::FromPrimitive;
 
 const VRAM_ADDR: Addr = 0x0600_0000;
 
-#[derive(Debug, Primitive)]
+#[derive(Debug, Primitive, Clone, Copy)]
 enum BGMode {
     BGMode0 = 0,
     BGMode1 = 1,
@@ -20,104 +19,77 @@ enum BGMode {
     BGMode5 = 5,
 }
 
-#[derive(Debug)]
-pub struct DisplayControl {
-    bg_mode: BGMode,
-    display_frame: usize,
-    hblank_interval_free: bool,
-    obj_character_vram_mapping: bool, // true - 1 dimentional, false - 2 dimentional
-    forced_blank: bool,
-    disp_bg: [bool; 4],
-    disp_obj: bool,
-    disp_window0: bool,
-    disp_window1: bool,
-    disp_obj_window: bool,
-}
-
-impl From<u16> for DisplayControl {
-    fn from(v: u16) -> Self {
-        DisplayControl {
-            bg_mode: BGMode::from_u8(v.bit_range(0..3) as u8).unwrap(),
-            // bit 3 is unused
-            display_frame: v.bit(4) as usize,
-            hblank_interval_free: v.bit(5),
-            obj_character_vram_mapping: v.bit(6),
-            forced_blank: v.bit(7),
-            disp_bg: [v.bit(8), v.bit(9), v.bit(10), v.bit(11)],
-            disp_obj: v.bit(12),
-            disp_window0: v.bit(13),
-            disp_window1: v.bit(14),
-            disp_obj_window: v.bit(15),
-        }
+impl From<u16> for BGMode {
+    fn from(v: u16) -> BGMode {
+        BGMode::from_u16(v).unwrap()
     }
 }
 
-#[derive(Debug)]
-pub struct DisplayStatus {
-    vblank_flag: bool,
-    hblank_flag: bool,
-    vcount_flag: bool,
-    vblank_irq_enable: bool,
-    hblank_irq_enable: bool,
-    vcount_irq_enable: bool,
-    vcount_setting: u8,
-    raw_value: u16,
+bitfield! {
+    pub struct DisplayControl(u16);
+    impl Debug;
+    u16;
+    into BGMode, mode, set_mode: 2, 0;
+    display_frame, set_display_frame: 4, 4;
+    hblank_interval_free, _: 5;
+    obj_character_vram_mapping, _: 6;
+    forst_vblank, _: 7;
+    disp_bg0, _ : 8;
+    disp_bg1, _ : 9;
+    disp_bg2, _ : 10;
+    disp_bg3, _ : 11;
+    disp_obj, _ : 12;
+    disp_window0, _ : 13;
+    disp_window1, _ : 14;
+    disp_obj_window, _ : 15;
 }
 
-impl From<u16> for DisplayStatus {
-    fn from(v: u16) -> Self {
-        DisplayStatus {
-            vblank_flag: v.bit(0),
-            hblank_flag: v.bit(1),
-            vcount_flag: v.bit(2),
-            vblank_irq_enable: v.bit(3),
-            hblank_irq_enable: v.bit(4),
-            vcount_irq_enable: v.bit(5),
-            // bits 6-7 are unused in GBA
-            vcount_setting: v.bit_range(8..16) as u8,
-            raw_value: v,
-        }
+impl DisplayControl {
+    fn disp_bg(&self, bg: usize) -> bool {
+        self.0.bit(8 + bg)
     }
 }
 
-#[derive(Debug)]
-pub struct BgControl {
-    bg_priority: u8,
-    character_base_block: u8,
-    moasic: bool,
-    palette256: bool, // 0=16/16, 1=256/1)
-    screen_base_block: u8,
-    affine_wraparound: bool,
-    bg_size: u32,
+bitfield! {
+    pub struct DisplayStatus(u16);
+    impl Debug;
+    u16;
+    get_vblank, set_vblank: 0;
+    get_hblank, set_hblank: 1;
+    get_vcount, set_vcount: 2;
+    vblank_irq_enable, _ : 3;
+    hblank_irq_enable, _ : 4;
+    vcount_irq_enable, _ : 5;
+    vcount_setting, _ : 15, 8;
 }
 
-impl From<u16> for BgControl {
-    fn from(v: u16) -> Self {
-        BgControl {
-            bg_priority: v.bit_range(0..2) as u8,
-            character_base_block: v.bit_range(2..4) as u8,
-            moasic: v.bit(6),
-            palette256: v.bit(7),
-            screen_base_block: v.bit_range(8..13) as u8,
-            affine_wraparound: v.bit(13),
-            bg_size: v.bit_range(14..16) as u32,
-        }
-    }
+bitfield! {
+    #[derive(Copy, Clone)]
+    pub struct BgControl(u16);
+    impl Debug;
+    u16;
+    bg_priority, _: 1, 0;
+    character_base_block, _: 3, 2;
+    moasic, _ : 6;
+    palette256, _ : 7;
+    screen_base_block, _: 12, 8;
+    affine_wraparound, _: 13;
+    bg_size, _ : 15, 14;
 }
 
 const SCREEN_BLOCK_SIZE: u32 = 0x800;
 
 impl BgControl {
     pub fn char_block(&self) -> Addr {
-        VRAM_ADDR + (self.character_base_block as u32) * 0x4000
+        VRAM_ADDR + (self.character_base_block() as u32) * 0x4000
     }
 
     pub fn screen_block(&self) -> Addr {
-        VRAM_ADDR + (self.screen_base_block as u32) * SCREEN_BLOCK_SIZE
+        VRAM_ADDR + (self.screen_base_block() as u32) * SCREEN_BLOCK_SIZE
     }
 
     fn size_regular(&self) -> (u32, u32) {
-        match self.bg_size {
+        match self.bg_size() {
             0b00 => (256, 256),
             0b01 => (512, 256),
             0b10 => (256, 512),
@@ -127,7 +99,7 @@ impl BgControl {
     }
 
     pub fn tile_format(&self) -> (u32, PixelFormat) {
-        if self.palette256 {
+        if self.palette256() {
             (2 * Gpu::TILE_SIZE, PixelFormat::BPP8)
         } else {
             (Gpu::TILE_SIZE, PixelFormat::BPP4)
@@ -176,6 +148,23 @@ impl std::ops::IndexMut<usize> for FrameBuffer {
 
 #[derive(Debug)]
 pub struct Gpu {
+    // registers
+    pub dispcnt: DisplayControl,
+    pub dispstat: DisplayStatus,
+    pub bgcnt: [BgControl; 4],
+    pub bgvofs: [u16; 4],
+    pub bghofs: [u16; 4],
+    pub win0h: u16,
+    pub win1h: u16,
+    pub win0v: u16,
+    pub win1v: u16,
+    pub winin: u16,
+    pub winout: u16,
+    pub mosaic: u16,
+    pub bldcnt: u16,
+    pub bldalpha: u16,
+    pub bldy: u16,
+
     cycles: usize,
 
     pub pixeldata: FrameBuffer,
@@ -198,66 +187,27 @@ impl Gpu {
 
     pub fn new() -> Gpu {
         Gpu {
+            dispcnt: DisplayControl(0x80),
+            dispstat: DisplayStatus(0),
+            bgcnt: [BgControl(0), BgControl(0), BgControl(0), BgControl(0)],
+            bgvofs: [0; 4],
+            bghofs: [0; 4],
+            win0h: 0,
+            win1h: 0,
+            win0v: 0,
+            win1v: 0,
+            winin: 0,
+            winout: 0,
+            mosaic: 0,
+            bldcnt: 0,
+            bldalpha: 0,
+            bldy: 0,
+
             state: HDraw,
             current_scanline: 0,
             cycles: 0,
             pixeldata: FrameBuffer([Rgb15::from(0); 512 * 512]),
         }
-    }
-
-    fn palette(&self, sysbus: &SysBus) -> Palette {
-        Palette::from(sysbus.get_bytes(0x0500_0000))
-    }
-
-    fn update_regs(&self, dispstat: DisplayStatus, sysbus: &mut SysBus) {
-        let mut v = dispstat.raw_value;
-        v.set_bit(0, dispstat.vblank_flag);
-        v.set_bit(1, dispstat.hblank_flag);
-        v.set_bit(2, dispstat.vcount_flag);
-        sysbus.ioregs.write_reg(REG_DISPSTAT, v);
-    }
-
-    pub fn set_hblank(&mut self, sysbus: &mut SysBus) -> Option<Interrupt> {
-        let dispstat = DisplayStatus::from(sysbus.ioregs.read_reg(REG_DISPSTAT));
-        let mut v = dispstat.raw_value;
-        v.set_bit(1, true);
-        self.state = HBlank;
-        sysbus.ioregs.write_reg(REG_DISPSTAT, v);
-
-        if dispstat.hblank_irq_enable {
-            Some(Interrupt::LCD_HBlank)
-        } else {
-            None
-        }
-    }
-
-    pub fn set_vblank(&mut self, sysbus: &mut SysBus) -> Option<Interrupt> {
-        let dispstat = DisplayStatus::from(sysbus.ioregs.read_reg(REG_DISPSTAT));
-        let mut v = dispstat.raw_value;
-        v.set_bit(1, false);
-        v.set_bit(0, true);
-        self.state = VBlank;
-        sysbus.ioregs.write_reg(REG_DISPSTAT, v);
-
-        if dispstat.vblank_irq_enable {
-            Some(Interrupt::LCD_VBlank)
-        } else {
-            None
-        }
-    }
-
-    pub fn set_hdraw(&mut self) {
-        self.state = HDraw;
-    }
-
-    fn bgcnt(&self, bg: u32, sysbus: &SysBus) -> BgControl {
-        BgControl::from(sysbus.ioregs.read_reg(REG_BG0CNT + 2 * bg))
-    }
-
-    fn bgofs(&self, bg: u32, sysbus: &SysBus) -> (u32, u32) {
-        let hofs = sysbus.ioregs.read_reg(REG_BG0HOFS + 4 * bg) & 0x1ff;
-        let vofs = sysbus.ioregs.read_reg(REG_BG0VOFS + 4 * bg) & 0x1ff;
-        (hofs as u32, vofs as u32)
     }
 
     /// helper method that reads the palette index from a base address and x + y
@@ -289,14 +239,13 @@ impl Gpu {
             .into()
     }
 
-    fn scanline_mode0(&mut self, bg: u32, sb: &mut SysBus) {
-        let bgcnt = self.bgcnt(bg, sb);
-        let (h_ofs, v_ofs) = self.bgofs(bg, sb);
-        let tileset_base = bgcnt.char_block() - VRAM_ADDR;
-        let tilemap_base = bgcnt.screen_block() - VRAM_ADDR;
-        let (tile_size, pixel_format) = bgcnt.tile_format();
+    fn scanline_mode0(&mut self, bg: usize, sb: &mut SysBus) {
+        let (h_ofs, v_ofs) = (self.bghofs[bg] as u32, self.bgvofs[bg] as u32);
+        let tileset_base = self.bgcnt[bg].char_block() - VRAM_ADDR;
+        let tilemap_base = self.bgcnt[bg].screen_block() - VRAM_ADDR;
+        let (tile_size, pixel_format) = self.bgcnt[bg].tile_format();
 
-        let (bg_width, bg_height) = bgcnt.size_regular();
+        let (bg_width, bg_height) = self.bgcnt[bg].size_regular();
 
         let screen_y = self.current_scanline as u32;
         let mut screen_x = 0;
@@ -330,20 +279,20 @@ impl Gpu {
             let map_addr = tilemap_base
                 + SCREEN_BLOCK_SIZE * screen_block
                 + 2 * (index2d!((se_row + t) % 32, se_column, 32) as u32);
-            let entry = TileMapEntry::from(sb.vram.read_16(map_addr - VRAM_ADDR));
-            let tile_addr = tileset_base + entry.tile_index * tile_size;
+            let entry = TileMapEntry(sb.vram.read_16(map_addr - VRAM_ADDR));
+            let tile_addr = tileset_base + entry.tile_index() * tile_size;
 
             for tile_px in start_tile_x..=7 {
                 let tile_py = (bg_y % 8) as u32;
                 let index = self.read_pixel_index(
                     sb,
                     tile_addr,
-                    if entry.x_flip { 7 - tile_px } else { tile_px },
-                    if entry.y_flip { 7 - tile_py } else { tile_py },
+                    if entry.x_flip() { 7 - tile_px } else { tile_px },
+                    if entry.y_flip() { 7 - tile_py } else { tile_py },
                     pixel_format,
                 );
                 let palette_bank = match pixel_format {
-                    PixelFormat::BPP4 => entry.palette_bank as u32,
+                    PixelFormat::BPP4 => entry.palette_bank() as u32,
                     PixelFormat::BPP8 => 0u32,
                 };
                 let color = self.get_palette_color(sb, index as u32, palette_bank);
@@ -364,7 +313,7 @@ impl Gpu {
         }
     }
 
-    fn scanline_mode3(&mut self, bg: u32, sb: &mut SysBus) {
+    fn scanline_mode3(&mut self, _bg: u32, sb: &mut SysBus) {
         let y = self.current_scanline;
 
         for x in 0..Self::DISPLAY_WIDTH {
@@ -374,8 +323,8 @@ impl Gpu {
         }
     }
 
-    fn scanline_mode4(&mut self, bg: u32, dispcnt: &DisplayControl, sb: &mut SysBus) {
-        let page_ofs: u32 = match dispcnt.display_frame {
+    fn scanline_mode4(&mut self, _bg: u32, sb: &mut SysBus) {
+        let page_ofs: u32 = match self.dispcnt.display_frame() {
             0 => 0x0600_0000 - VRAM_ADDR,
             1 => 0x0600_a000 - VRAM_ADDR,
             _ => unreachable!(),
@@ -391,28 +340,26 @@ impl Gpu {
         }
     }
 
-    pub fn scanline(&mut self, sysbus: &mut SysBus) {
-        let dispcnt = DisplayControl::from(sysbus.ioregs.read_reg(REG_DISPCNT));
-
-        match dispcnt.bg_mode {
+    pub fn scanline(&mut self, sb: &mut SysBus) {
+        match self.dispcnt.mode() {
             BGMode::BGMode0 => {
                 for bg in (0..3).rev() {
-                    if dispcnt.disp_bg[bg] {
-                        self.scanline_mode0(bg as u32, sysbus);
+                    if self.dispcnt.disp_bg(bg) {
+                        self.scanline_mode0(bg, sb);
                     }
                 }
             }
             BGMode::BGMode2 => {
-                self.scanline_mode0(2, sysbus);
-                self.scanline_mode0(3, sysbus);
+                self.scanline_mode0(2, sb);
+                self.scanline_mode0(3, sb);
             }
             BGMode::BGMode3 => {
-                self.scanline_mode3(2, sysbus);
+                self.scanline_mode3(2, sb);
             }
             BGMode::BGMode4 => {
-                self.scanline_mode4(2, &dispcnt, sysbus);
+                self.scanline_mode4(2, sb);
             }
-            _ => panic!("{:?} not supported", dispcnt.bg_mode),
+            _ => panic!("{:?} not supported", self.dispcnt.mode()),
         }
     }
 
@@ -430,17 +377,15 @@ impl Gpu {
 }
 
 impl EmuIoDev for Gpu {
-    fn step(&mut self, cycles: usize, sysbus: &mut SysBus) -> (usize, Option<Interrupt>) {
+    fn step(&mut self, cycles: usize, sb: &mut SysBus) -> (usize, Option<Interrupt>) {
         self.cycles += cycles;
 
-        sysbus
-            .ioregs
-            .write_reg(REG_VCOUNT, self.current_scanline as u16);
-        let mut dispstat = DisplayStatus::from(sysbus.ioregs.read_reg(REG_DISPSTAT));
-
-        dispstat.vcount_flag = dispstat.vcount_setting as usize == self.current_scanline;
-        if dispstat.vcount_irq_enable {
-            println!("VCOUNT IRQ NOT IMPL");
+        if self.dispstat.vcount_setting() != 0 {
+            self.dispstat
+                .set_vcount(self.dispstat.vcount_setting() == self.current_scanline as u16);
+        }
+        if self.dispstat.vcount_irq_enable() && self.dispstat.get_vcount() {
+            return (0, Some(Interrupt::LCD_VCounterMatch));
         }
 
         match self.state {
@@ -450,19 +395,19 @@ impl EmuIoDev for Gpu {
                     self.cycles -= Gpu::CYCLES_HDRAW;
 
                     let (new_state, irq) = if self.current_scanline < Gpu::DISPLAY_HEIGHT {
-                        self.scanline(sysbus);
+                        self.scanline(sb);
                         // HBlank
-                        dispstat.hblank_flag = true;
-                        let irq = if dispstat.hblank_irq_enable {
+                        self.dispstat.set_hblank(true);
+                        let irq = if self.dispstat.hblank_irq_enable() {
                             Some(Interrupt::LCD_HBlank)
                         } else {
                             None
                         };
                         (HBlank, irq)
                     } else {
-                        self.scanline(sysbus);
-                        dispstat.vblank_flag = true;
-                        let irq = if dispstat.vblank_irq_enable {
+                        self.scanline(sb);
+                        self.dispstat.set_vblank(true);
+                        let irq = if self.dispstat.vblank_irq_enable() {
                             Some(Interrupt::LCD_VBlank)
                         } else {
                             None
@@ -470,7 +415,6 @@ impl EmuIoDev for Gpu {
                         (VBlank, irq)
                     };
                     self.state = new_state;
-                    self.update_regs(dispstat, sysbus);
                     return (0, irq);
                 }
             }
@@ -478,8 +422,8 @@ impl EmuIoDev for Gpu {
                 if self.cycles > Gpu::CYCLES_HBLANK {
                     self.cycles -= Gpu::CYCLES_HBLANK;
                     self.state = HDraw;
-                    dispstat.hblank_flag = false;
-                    self.update_regs(dispstat, sysbus);
+                    self.dispstat.set_hblank(false);
+                    self.dispstat.set_vblank(false);
                     return (0, None);
                 }
             }
@@ -487,10 +431,10 @@ impl EmuIoDev for Gpu {
                 if self.cycles > Gpu::CYCLES_VBLANK {
                     self.cycles -= Gpu::CYCLES_VBLANK;
                     self.state = HDraw;
-                    dispstat.vblank_flag = false;
+                    self.dispstat.set_hblank(false);
+                    self.dispstat.set_vblank(false);
                     self.current_scanline = 0;
-                    self.scanline(sysbus);
-                    self.update_regs(dispstat, sysbus);
+                    self.scanline(sb);
                     return (0, None);
                 }
             }
@@ -500,21 +444,11 @@ impl EmuIoDev for Gpu {
     }
 }
 
-#[derive(Debug)]
-struct TileMapEntry {
-    tile_index: u32,
-    x_flip: bool,
-    y_flip: bool,
-    palette_bank: usize,
-}
-
-impl From<u16> for TileMapEntry {
-    fn from(t: u16) -> TileMapEntry {
-        TileMapEntry {
-            tile_index: t.bit_range(0..10) as u32,
-            x_flip: t.bit(10),
-            y_flip: t.bit(11),
-            palette_bank: t.bit_range(12..16) as usize,
-        }
-    }
+bitfield! {
+    struct TileMapEntry(u16);
+    u16;
+    u32, tile_index, _: 9, 0;
+    x_flip, _ : 10;
+    y_flip, _ : 11;
+    palette_bank, _ : 15, 12;
 }

@@ -2,8 +2,6 @@ use crate::core::arm7tdmi::arm::ArmInstruction;
 use crate::core::arm7tdmi::bus::Bus;
 use crate::core::arm7tdmi::thumb::ThumbInstruction;
 use crate::core::arm7tdmi::{Addr, CpuState};
-use crate::core::gpu::*;
-use crate::core::ioregs::consts::*;
 use crate::core::GBAError;
 use crate::disass::Disassembler;
 
@@ -31,8 +29,8 @@ pub enum Command {
     Continue,
     Frame(usize),
     Render,
-    HexDump(Addr, usize),
-    Disass(DisassMode, Addr, usize),
+    HexDump(Addr, u32),
+    Disass(DisassMode, Addr, u32),
     AddBreakpoint(Addr),
     DelBreakpoint(Addr),
     PaletteView,
@@ -48,25 +46,7 @@ impl Command {
         use Command::*;
         match *self {
             Info => println!("{}", debugger.gba.cpu),
-            DisplayInfo => {
-                println!(
-                    "DISPCNT: {:#?}",
-                    DisplayControl::from(debugger.gba.sysbus.ioregs.read_reg(REG_DISPCNT))
-                );
-                println!(
-                    "DISPSTAT: {:#?}",
-                    DisplayStatus::from(debugger.gba.sysbus.ioregs.read_reg(REG_DISPSTAT))
-                );
-                println!(
-                    "VCOUNT: {:?}",
-                    debugger.gba.sysbus.ioregs.read_reg(REG_VCOUNT)
-                );
-                for bg in 0..4 {
-                    let bgcnt =
-                        BgControl::from(debugger.gba.sysbus.ioregs.read_reg(REG_BG0CNT + 2 * bg));
-                    println!("BG{}CNT: {:#?}", bg, bgcnt);
-                }
-            }
+            DisplayInfo => println!("GPU: {:#?}", debugger.gba.io.borrow().gpu),
             Step(count) => {
                 for _ in 0..count {
                     if let Some(bp) = debugger.check_breakpoint() {
@@ -135,21 +115,21 @@ impl Command {
             }
             Render => create_render_view(&debugger.gba),
             HexDump(addr, nbytes) => {
-                let bytes = debugger.gba.sysbus.get_bytes(addr);
-                hexdump::hexdump(&bytes[0..nbytes]);
+                let bytes = debugger.gba.sysbus.get_bytes(addr..addr + nbytes);
+                hexdump::hexdump(&bytes);
             }
             Disass(mode, addr, n) => {
-                let bytes = debugger.gba.sysbus.get_bytes(addr);
+                let bytes = debugger.gba.sysbus.get_bytes(addr..addr + n);
                 match mode {
                     DisassMode::ModeArm => {
-                        let disass = Disassembler::<ArmInstruction>::new(addr, bytes);
-                        for (_, line) in disass.take(n) {
+                        let disass = Disassembler::<ArmInstruction>::new(addr, &bytes);
+                        for (_, line) in disass.take(n as usize) {
                             println!("{}", line)
                         }
                     }
                     DisassMode::ModeThumb => {
-                        let disass = Disassembler::<ThumbInstruction>::new(addr, bytes);
-                        for (_, line) in disass.take(n) {
+                        let disass = Disassembler::<ThumbInstruction>::new(addr, &bytes);
+                        for (_, line) in disass.take(n as usize) {
                             println!("{}", line)
                         }
                     }
@@ -176,7 +156,7 @@ impl Command {
                     println!("[{}] 0x{:08x}", i, b)
                 }
             }
-            PaletteView => create_palette_view(debugger.gba.sysbus.get_bytes(0x0500_0000)),
+            PaletteView => create_palette_view(&debugger.gba.sysbus.palette_ram.mem),
             TileView(bg) => create_tile_view(bg, &debugger.gba),
             Reset => {
                 println!("resetting cpu...");
@@ -188,13 +168,13 @@ impl Command {
 }
 
 impl Debugger {
-    fn get_disassembler_args(&self, args: Vec<Value>) -> DebuggerResult<(Addr, usize)> {
+    fn get_disassembler_args(&self, args: Vec<Value>) -> DebuggerResult<(Addr, u32)> {
         match args.len() {
             2 => {
                 let addr = self.val_address(&args[0])?;
                 let n = self.val_number(&args[1])?;
 
-                Ok((addr, n as usize))
+                Ok((addr, n))
             }
             1 => {
                 let addr = self.val_address(&args[0])?;
@@ -258,7 +238,7 @@ impl Debugger {
                         let addr = self.val_address(&args[0])?;
                         let n = self.val_number(&args[1])?;
 
-                        (addr, n as usize)
+                        (addr, n)
                     }
                     1 => {
                         let addr = self.val_address(&args[0])?;

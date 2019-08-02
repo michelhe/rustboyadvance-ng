@@ -446,7 +446,6 @@ impl Core {
             ThumbFormat::Swi => self.exec_swi(),
             ThumbFormat::Branch => self.exec_thumb_branch(bus, insn),
             ThumbFormat::BranchLongWithLink => self.exec_thumb_branch_long_with_link(bus, insn),
-            _ => unimplemented!("thumb not implemented {:#x?}", insn),
         }
     }
 }

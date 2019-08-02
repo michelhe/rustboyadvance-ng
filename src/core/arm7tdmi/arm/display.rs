@@ -426,7 +426,6 @@ impl fmt::Display for ArmInstruction {
             LDR_STR_HS_REG => self.fmt_ldr_str_hs(f),
             SWI => self.fmt_swi(f),
             SWP => self.fmt_swp(f),
-            _ => write!(f, "({:?})", self),
         }
     }
 }

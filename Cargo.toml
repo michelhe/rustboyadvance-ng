@@ -19,6 +19,7 @@ hexdump = "0.1.0"
 sdl2 = "0.32.2"
 minifb = "0.11.2"
 time = "0.1.42"
+bitfield = "0.13.1"
 
 [profile.dev]
 opt-level = 1

@@ -4,6 +4,8 @@ extern crate num;
 extern crate num_traits;
 
 extern crate bit;
+#[macro_use]
+extern crate bitfield;
 
 extern crate byteorder;
 

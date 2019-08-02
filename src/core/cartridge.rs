@@ -126,14 +126,6 @@ impl Bus for Cartridge {
         (&mut self.bytes[addr as usize..]).write_u8(value).unwrap()
     }
 
-    fn get_bytes(&self, addr: Addr) -> &[u8] {
-        &self.bytes[addr as usize..]
-    }
-
-    fn get_bytes_mut(&mut self, addr: Addr) -> &mut [u8] {
-        &mut self.bytes[addr as usize..]
-    }
-
     fn get_cycles(&self, _addr: Addr, access: MemoryAccess) -> usize {
         match access.1 {
             MemoryAccessWidth::MemoryAccess8 => self.ws.access8,

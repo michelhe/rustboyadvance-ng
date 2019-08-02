@@ -4,9 +4,7 @@ use super::super::alu::*;
 use crate::core::arm7tdmi::bus::Bus;
 use crate::core::arm7tdmi::cpu::{Core, CpuExecResult};
 use crate::core::arm7tdmi::psr::RegPSR;
-use crate::core::arm7tdmi::{
-    Addr, CpuError, CpuMode, CpuResult, CpuState, DecodedInstruction, REG_PC,
-};
+use crate::core::arm7tdmi::{Addr, CpuError, CpuMode, CpuResult, CpuState, REG_PC};
 
 use super::*;
 
@@ -30,11 +28,6 @@ impl Core {
             ArmFormat::MUL_MLA => self.exec_mul_mla(bus, insn),
             ArmFormat::MULL_MLAL => self.exec_mull_mlal(bus, insn),
             ArmFormat::SWP => self.exec_arm_swp(bus, insn),
-            _ => Err(CpuError::UnimplementedCpuInstruction(
-                insn.pc,
-                insn.raw,
-                DecodedInstruction::Arm(insn),
-            )),
         }
     }
 
@@ -417,7 +410,7 @@ impl Core {
         Ok(())
     }
 
-    fn exec_mul_mla(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
+    fn exec_mul_mla(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
         let (rd, rn, rs, rm) = (insn.rd(), insn.rn(), insn.rs(), insn.rm());
 
         // check validity
@@ -454,7 +447,7 @@ impl Core {
         Ok(())
     }
 
-    fn exec_mull_mlal(&mut self, bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
+    fn exec_mull_mlal(&mut self, _bus: &mut Bus, insn: ArmInstruction) -> CpuExecResult {
         let (rd_hi, rd_lo, rn, rs, rm) =
             (insn.rd_hi(), insn.rd_lo(), insn.rn(), insn.rs(), insn.rm());
 

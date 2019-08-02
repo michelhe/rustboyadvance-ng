@@ -37,13 +37,16 @@ pub fn create_render_view(gba: &GameBoyAdvance) {
         canvas.set_draw_color(Color::RGB(0xfa, 0xfa, 0xfa));
         canvas.clear();
 
+        let io = gba.io.borrow();
         for y in 0..Gpu::DISPLAY_HEIGHT {
             for x in 0..Gpu::DISPLAY_WIDTH {
                 let index = (x as usize) + (y as usize) * (512 as usize);
-                let color = gba.gpu.pixeldata[index];
+                let color = io.gpu.pixeldata[index];
                 let rgb24: Color = color.into();
                 canvas.set_draw_color(rgb24);
-                canvas.draw_point(Point::from((x as i32, y as i32)));
+                canvas
+                    .draw_point(Point::from((x as i32, y as i32)))
+                    .unwrap();
             }
         }
 

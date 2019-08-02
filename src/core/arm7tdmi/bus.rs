@@ -1,5 +1,4 @@
 use std::fmt;
-use std::io;
 use std::ops::Add;
 
 use super::Addr;
@@ -54,12 +53,15 @@ pub trait Bus {
     fn write_32(&mut self, addr: Addr, value: u32);
     fn write_16(&mut self, addr: Addr, value: u16);
     fn write_8(&mut self, addr: Addr, value: u8);
-    /// Return a slice of bytes
-    fn get_bytes(&self, addr: Addr) -> &[u8];
-
-    /// Return a mutable slice of bytes
-    fn get_bytes_mut(&mut self, addr: Addr) -> &mut [u8];
 
     /// returns the number of cycles needed for this memory access
     fn get_cycles(&self, addr: Addr, access: MemoryAccess) -> usize;
+
+    fn get_bytes(&self, range: std::ops::Range<u32>) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for b in range {
+            bytes.push(self.read_8(b));
+        }
+        bytes
+    }
 }

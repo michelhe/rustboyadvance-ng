@@ -1,5 +1,4 @@
 use std::time;
-use std::time::Duration;
 
 #[macro_use]
 extern crate clap;
@@ -11,7 +10,6 @@ extern crate rustboyadvance_ng;
 use rustboyadvance_ng::backend::*;
 use rustboyadvance_ng::core::arm7tdmi::Core;
 use rustboyadvance_ng::core::cartridge::Cartridge;
-use rustboyadvance_ng::core::gpu;
 use rustboyadvance_ng::core::{GBAResult, GameBoyAdvance};
 use rustboyadvance_ng::debugger::Debugger;
 use rustboyadvance_ng::util::read_bin_file;
@@ -30,7 +28,7 @@ fn run_emulator(matches: &ArgMatches) -> GBAResult<()> {
         Some("sdl2") => panic!("sdl2 not implemented"),
         Some("minifb") => Box::new(MinifbBackend::new()),
         // None => DummyBackend::new(),
-        None => Box::new(DummyBackend {}),
+        None => Box::new(DummyBackend::new()),
         _ => unreachable!(),
     };
 

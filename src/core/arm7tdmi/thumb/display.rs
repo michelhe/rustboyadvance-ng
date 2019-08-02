@@ -37,7 +37,6 @@ impl ThumbInstruction {
     }
 
     fn fmt_thumb_alu_ops(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use ShiftRegisterBy::ByRegister;
         let (op, shft) = self.alu_opcode();
         if let Some(BarrelShifterValue::ShiftedRegister(x)) = shft {
             write!(f, "{}", x.bs_op)?;
@@ -308,7 +307,6 @@ impl fmt::Display for ThumbInstruction {
             ThumbFormat::Swi => self.fmt_thumb_swi(f),
             ThumbFormat::Branch => self.fmt_thumb_branch(f),
             ThumbFormat::BranchLongWithLink => self.fmt_thumb_branch_long_with_link(f),
-            _ => write!(f, "({:?})", self),
         }
     }
 }

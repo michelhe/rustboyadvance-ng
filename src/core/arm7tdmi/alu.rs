@@ -1,5 +1,4 @@
 use bit::BitIndex;
-use num::FromPrimitive;
 
 use super::{Core, CpuError, CpuResult, REG_PC};
 
@@ -109,7 +108,7 @@ impl Core {
         }
     }
 
-    pub fn lsr(&mut self, val: u32, amount: u32, carry_in: bool, immediate: bool) -> u32 {
+    pub fn lsr(&mut self, val: u32, amount: u32, _carry_in: bool, immediate: bool) -> u32 {
         match amount {
             0 | 32 => {
                 if immediate {
@@ -130,7 +129,7 @@ impl Core {
         }
     }
 
-    pub fn asr(&mut self, val: u32, amount: u32, carry_in: bool, immediate: bool) -> u32 {
+    pub fn asr(&mut self, val: u32, amount: u32, _carry_in: bool, immediate: bool) -> u32 {
         match amount {
             0 => {
                 if immediate {

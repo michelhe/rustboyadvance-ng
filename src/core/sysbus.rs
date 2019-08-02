@@ -1,5 +1,3 @@
-use std::io;
-
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use super::{cartridge::Cartridge, ioregs::IoRegs};
@@ -96,14 +94,6 @@ impl Bus for BoxedMemory {
             .unwrap()
     }
 
-    fn get_bytes(&self, addr: Addr) -> &[u8] {
-        &self.mem[(addr & self.mask) as usize..]
-    }
-
-    fn get_bytes_mut(&mut self, addr: Addr) -> &mut [u8] {
-        &mut self.mem[(addr & self.mask) as usize..]
-    }
-
     fn get_cycles(&self, _addr: Addr, access: MemoryAccess) -> usize {
         match access.1 {
             MemoryAccessWidth::MemoryAccess8 => self.ws.access8,
@@ -135,14 +125,6 @@ impl Bus for DummyBus {
 
     fn write_8(&mut self, _addr: Addr, _value: u8) {}
 
-    fn get_bytes(&self, _addr: Addr) -> &[u8] {
-        &self.0
-    }
-
-    fn get_bytes_mut(&mut self, _addr: Addr) -> &mut [u8] {
-        &mut self.0
-    }
-
     fn get_cycles(&self, _addr: Addr, _access: MemoryAccess) -> usize {
         1
     }
@@ -163,7 +145,7 @@ pub struct SysBus {
 }
 
 impl SysBus {
-    pub fn new(bios_rom: Vec<u8>, gamepak: Cartridge) -> SysBus {
+    pub fn new(bios_rom: Vec<u8>, gamepak: Cartridge, ioregs: IoRegs) -> SysBus {
         SysBus {
             bios: BoxedMemory::new(bios_rom.into_boxed_slice(), 0xff_ffff),
             onboard_work_ram: BoxedMemory::new_with_waitstate(
@@ -175,7 +157,7 @@ impl SysBus {
                 vec![0; INTERNAL_RAM_SIZE].into_boxed_slice(),
                 0x7fff,
             ),
-            ioregs: IoRegs::default(),
+            ioregs: ioregs,
             palette_ram: BoxedMemory::new_with_waitstate(
                 vec![0; PALETTE_RAM_SIZE].into_boxed_slice(),
                 (PALETTE_RAM_SIZE as u32) - 1,
@@ -193,30 +175,30 @@ impl SysBus {
     }
 
     fn map(&self, addr: Addr) -> &Bus {
-        match addr as usize {
-            0x0000_0000...0x0000_3fff => &self.bios,
-            0x0200_0000...0x02ff_ffff => &self.onboard_work_ram,
-            0x0300_0000...0x03ff_ffff => &self.internal_work_ram,
-            0x0400_0000...0x0400_03fe => &self.ioregs,
-            0x0500_0000...0x05ff_ffff => &self.palette_ram,
-            0x0600_0000...0x06ff_ffff => &self.vram,
-            0x0700_0000...0x0700_03ff => &self.oam,
-            0x0800_0000...0x09ff_ffff => &self.gamepak,
+        match (addr & 0xff000000) as usize {
+            0x00000000 => &self.bios,
+            0x02000000 => &self.onboard_work_ram,
+            0x03000000 => &self.internal_work_ram,
+            0x04000000 => &self.ioregs,
+            0x05000000 => &self.palette_ram,
+            0x06000000 => &self.vram,
+            0x07000000 => &self.oam,
+            0x08000000 => &self.gamepak,
             _ => &self.dummy,
         }
     }
 
     /// TODO proc-macro for generating this function
     fn map_mut(&mut self, addr: Addr) -> &mut Bus {
-        match addr as usize {
-            0x0000_0000...0x0000_3fff => &mut self.bios,
-            0x0200_0000...0x02ff_ffff => &mut self.onboard_work_ram,
-            0x0300_0000...0x03ff_ffff => &mut self.internal_work_ram,
-            0x0400_0000...0x0400_03fe => &mut self.ioregs,
-            0x0500_0000...0x05ff_ffff => &mut self.palette_ram,
-            0x0600_0000...0x06ff_ffff => &mut self.vram,
-            0x0700_0000...0x0700_03ff => &mut self.oam,
-            0x0800_0000...0x09ff_ffff => &mut self.gamepak,
+        match (addr & 0xff000000) as usize {
+            0x00000000 => &mut self.bios,
+            0x02000000 => &mut self.onboard_work_ram,
+            0x03000000 => &mut self.internal_work_ram,
+            0x04000000 => &mut self.ioregs,
+            0x05000000 => &mut self.palette_ram,
+            0x06000000 => &mut self.vram,
+            0x07000000 => &mut self.oam,
+            0x08000000 => &mut self.gamepak,
             _ => &mut self.dummy,
         }
     }
@@ -245,14 +227,6 @@ impl Bus for SysBus {
 
     fn write_8(&mut self, addr: Addr, value: u8) {
         self.map_mut(addr).write_8(addr & 0xff_ffff, value)
-    }
-
-    fn get_bytes(&self, addr: Addr) -> &[u8] {
-        self.map(addr).get_bytes(addr & 0xff_ffff)
-    }
-
-    fn get_bytes_mut(&mut self, addr: Addr) -> &mut [u8] {
-        self.map_mut(addr).get_bytes_mut(addr & 0xff_ffff)
     }
 
     fn get_cycles(&self, addr: Addr, access: MemoryAccess) -> usize {

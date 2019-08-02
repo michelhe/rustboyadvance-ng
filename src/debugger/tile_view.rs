@@ -5,12 +5,8 @@ use sdl2::pixels::Color;
 use sdl2::rect::{Point, Rect};
 use sdl2::render::Canvas;
 
-use crate::core::arm7tdmi::bus::Bus;
 use crate::core::gba::GameBoyAdvance;
-use crate::core::gpu::*;
-use crate::core::ioregs::consts::*;
 use crate::core::palette::*;
-use crate::core::sysbus::SysBus;
 
 impl Into<Color> for Rgb15 {
     fn into(self) -> Color {
@@ -26,12 +22,13 @@ fn draw_tile(
     p: Point,
     canvas: &mut Canvas<sdl2::video::Window>,
 ) {
+    let io = gba.io.borrow();
     for y in 0..8 {
         for x in 0..8 {
-            let index = gba
+            let index = io
                 .gpu
                 .read_pixel_index(&gba.sysbus, tile_addr, x, y, pixel_format);
-            let color = gba.gpu.get_palette_color(&gba.sysbus, index as u32, 0);
+            let color = io.gpu.get_palette_color(&gba.sysbus, index as u32, 0);
             let (r, g, b) = color.get_rgb24();
 
             canvas.set_draw_color(Color::RGB(r, g, b));
@@ -55,9 +52,8 @@ pub fn create_tile_view(bg: u32, gba: &GameBoyAdvance) {
 
     let mut canvas = window.into_canvas().build().unwrap();
 
-    let bgcnt = BgControl::from(gba.sysbus.ioregs.read_reg(REG_BG0CNT + 2 * bg));
+    let bgcnt = gba.io.borrow().gpu.bgcnt[bg as usize].clone();
 
-    let palette = Palette::from(gba.sysbus.get_bytes(0x0500_0000));
     let (tile_size, pixel_format) = bgcnt.tile_format();
     let tileset_addr = bgcnt.char_block();
     let tilemap_addr = bgcnt.screen_block();

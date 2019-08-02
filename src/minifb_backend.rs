@@ -1,7 +1,6 @@
 use std::time;
 
 use crate::bit::BitIndex;
-use std::thread;
 
 extern crate minifb;
 

@@ -1,3 +1,7 @@
+use super::arm7tdmi::{exception::Exception, Core};
+
+use crate::bit::BitIndex;
+
 #[derive(Debug, Primitive, Copy, Clone, PartialEq)]
 #[allow(non_camel_case_types)]
 pub enum Interrupt {
@@ -17,4 +21,34 @@ pub enum Interrupt {
     GamePak = 13,
 }
 
-pub struct InterruptController;
+#[derive(Debug)]
+pub struct InterruptController {
+    pub interrupt_master_enable: bool,
+    pub interrupt_enable: u16,
+    pub interrupt_flags: u16,
+}
+
+impl InterruptController {
+    pub fn new() -> InterruptController {
+        InterruptController {
+            interrupt_master_enable: false,
+            interrupt_enable: 0,
+            interrupt_flags: 0,
+        }
+    }
+
+    pub fn interrupts_disabled(&self, cpu: &Core) -> bool {
+        cpu.cpsr.irq_disabled() | (self.interrupt_master_enable)
+    }
+
+    pub fn request_irq(&mut self, cpu: &mut Core, irq: Interrupt) {
+        if self.interrupts_disabled(cpu) {
+            return;
+        }
+        let irq_bit_index = irq as usize;
+        if self.interrupt_enable.bit(irq_bit_index) {
+            self.interrupt_flags = 1 << irq_bit_index;
+            cpu.exception(Exception::Irq);
+        }
+    }
+}

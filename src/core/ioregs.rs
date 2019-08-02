@@ -1,8 +1,9 @@
-use std::io;
+use std::cell::RefCell;
+use std::rc::Rc;
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-
-use crate::core::arm7tdmi::{Addr, Bus, MemoryAccess};
+use super::arm7tdmi::{Addr, Bus, MemoryAccess};
+use super::gba::IoDevices;
+use super::keypad;
 
 pub mod consts {
     use super::*;
@@ -123,74 +124,113 @@ use consts::*;
 
 #[derive(Debug)]
 pub struct IoRegs {
-    bytes: Box<[u8]>,
-}
-
-impl Default for IoRegs {
-    fn default() -> IoRegs {
-        let mut ioregs = IoRegs {
-            bytes: vec![0; 4096].into_boxed_slice(),
-        };
-
-        // init default values
-        ioregs.write_reg(REG_DISPCNT, 0x0080);
-
-        ioregs
-    }
+    pub io: Rc<RefCell<IoDevices>>,
+    pub keyinput: u16,
+    pub post_boot_flag: bool,
 }
 
 impl IoRegs {
-    pub fn read_reg(&self, addr: Addr) -> u16 {
-        let result = self
-            .get_bytes(addr - IO_BASE)
-            .read_u16::<LittleEndian>()
-            .unwrap();
-        result
-    }
-
-    pub fn write_reg(&mut self, addr: Addr, value: u16) {
-        self.get_bytes_mut(addr - IO_BASE)
-            .write_u16::<LittleEndian>(value)
-            .unwrap();
+    pub fn new(io: Rc<RefCell<IoDevices>>) -> IoRegs {
+        IoRegs {
+            io: io,
+            post_boot_flag: false,
+            keyinput: keypad::KEYINPUT_ALL_RELEASED,
+        }
     }
 }
 
 impl Bus for IoRegs {
     fn read_32(&self, addr: Addr) -> u32 {
-        self.get_bytes(addr).read_u32::<LittleEndian>().unwrap()
+        (self.read_16(addr + 2) as u32) << 16 | (self.read_16(addr) as u32)
     }
 
     fn read_16(&self, addr: Addr) -> u16 {
-        self.read_reg(IO_BASE + addr)
+        let io = self.io.borrow();
+        match addr + IO_BASE {
+            REG_DISPCNT => io.gpu.dispcnt.0,
+            REG_DISPSTAT => io.gpu.dispstat.0,
+            REG_VCOUNT => io.gpu.current_scanline as u16,
+            REG_BG0CNT => io.gpu.bgcnt[0].0,
+            REG_BG1CNT => io.gpu.bgcnt[1].0,
+            REG_BG2CNT => io.gpu.bgcnt[2].0,
+            REG_BG3CNT => io.gpu.bgcnt[3].0,
+            REG_WIN0H => io.gpu.win0h,
+            REG_WIN1H => io.gpu.win1h,
+            REG_WIN0V => io.gpu.win0v,
+            REG_WIN1V => io.gpu.win1v,
+            REG_WININ => io.gpu.winin,
+            REG_WINOUT => io.gpu.winout,
+            REG_MOSAIC => io.gpu.mosaic,
+            REG_BLDCNT => io.gpu.bldcnt,
+            REG_BLDALPHA => io.gpu.bldalpha,
+            REG_BLDY => io.gpu.bldy,
+
+            REG_IME => io.intc.interrupt_master_enable as u16,
+            REG_IE => io.intc.interrupt_enable as u16,
+            REG_IF => io.intc.interrupt_flags as u16,
+
+            REG_POSTFLG => self.post_boot_flag as u16,
+            REG_HALTCNT => 0,
+            REG_KEYINPUT => self.keyinput as u16,
+            _ => {
+                println!("tried to read register {:#x}", addr + IO_BASE);
+                0
+            }
+        }
     }
 
     fn read_8(&self, addr: Addr) -> u8 {
-        self.read_reg(IO_BASE + addr) as u8
+        self.read_16(addr) as u8
     }
 
     fn write_32(&mut self, addr: Addr, value: u32) {
-        self.get_bytes_mut(addr)
-            .write_u32::<LittleEndian>(value)
-            .unwrap()
+        self.write_16(addr, (value & 0xffff) as u16);
+        self.write_16(addr, (value >> 16) as u16);
     }
 
     fn write_16(&mut self, addr: Addr, value: u16) {
-        self.write_reg(IO_BASE + addr, value);
+        let mut io = self.io.borrow_mut();
+        match addr + IO_BASE {
+            REG_DISPCNT => io.gpu.dispcnt.0 |= value,
+            REG_DISPSTAT => io.gpu.dispstat.0 |= value,
+            REG_BG0CNT => io.gpu.bgcnt[0].0 |= value,
+            REG_BG1CNT => io.gpu.bgcnt[1].0 |= value,
+            REG_BG2CNT => io.gpu.bgcnt[2].0 |= value,
+            REG_BG3CNT => io.gpu.bgcnt[3].0 |= value,
+            REG_BG0HOFS => io.gpu.bghofs[0] = value,
+            REG_BG0VOFS => io.gpu.bgvofs[0] = value,
+            REG_BG1HOFS => io.gpu.bghofs[1] = value,
+            REG_BG1VOFS => io.gpu.bgvofs[1] = value,
+            REG_BG2HOFS => io.gpu.bghofs[2] = value,
+            REG_BG2VOFS => io.gpu.bgvofs[2] = value,
+            REG_BG3HOFS => io.gpu.bghofs[3] = value,
+            REG_BG3VOFS => io.gpu.bgvofs[3] = value,
+            REG_WIN0H => io.gpu.win0h = value,
+            REG_WIN1H => io.gpu.win1h = value,
+            REG_WIN0V => io.gpu.win0v = value,
+            REG_WIN1V => io.gpu.win1v = value,
+            REG_WININ => io.gpu.winin = value,
+            REG_WINOUT => io.gpu.winout = value,
+            REG_MOSAIC => io.gpu.mosaic = value,
+            REG_BLDCNT => io.gpu.bldcnt = value,
+            REG_BLDALPHA => io.gpu.bldalpha = value,
+            REG_BLDY => io.gpu.bldy = value,
+
+            REG_IME => io.intc.interrupt_master_enable = value == 1,
+            REG_IE => io.intc.interrupt_enable = value,
+            REG_IF => io.intc.interrupt_flags &= !value,
+
+            REG_POSTFLG => self.post_boot_flag = value != 0,
+            REG_HALTCNT => {}
+            _ => {
+                println!("tried to write register {:#x}", addr + IO_BASE);
+            }
+        }
     }
 
     fn write_8(&mut self, addr: Addr, value: u8) {
-        let new_value = self.read_reg(IO_BASE + addr) & 0xff00 | (value as u16);
-        self.write_reg(IO_BASE + addr, new_value);
-    }
-
-    /// Return a slice of bytes
-    fn get_bytes(&self, addr: Addr) -> &[u8] {
-        &self.bytes[addr as usize..]
-    }
-
-    /// Return a mutable slice of bytes
-    fn get_bytes_mut(&mut self, addr: Addr) -> &mut [u8] {
-        &mut self.bytes[addr as usize..]
+        let t = self.read_16(addr);
+        self.write_16(addr, (t & 0xff) | ((value as u16) << 8));
     }
 
     /// returns the number of cycles needed for this memory access
