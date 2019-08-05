@@ -166,8 +166,17 @@ impl Bus for IoRegs {
             REG_BLDY => io.gpu.bldy,
 
             REG_IME => io.intc.interrupt_master_enable as u16,
-            REG_IE => io.intc.interrupt_enable as u16,
-            REG_IF => io.intc.interrupt_flags as u16,
+            REG_IE => io.intc.interrupt_enable.0 as u16,
+            REG_IF => io.intc.interrupt_flags.0 as u16,
+
+            REG_TM0CNT_L => io.timers[0].timer_data,
+            REG_TM0CNT_H => io.timers[0].timer_ctl.0,
+            REG_TM1CNT_L => io.timers[1].timer_data,
+            REG_TM1CNT_H => io.timers[1].timer_ctl.0,
+            REG_TM2CNT_L => io.timers[2].timer_data,
+            REG_TM2CNT_H => io.timers[2].timer_ctl.0,
+            REG_TM3CNT_L => io.timers[3].timer_data,
+            REG_TM3CNT_H => io.timers[3].timer_ctl.0,
 
             REG_POSTFLG => self.post_boot_flag as u16,
             REG_HALTCNT => 0,
@@ -216,9 +225,33 @@ impl Bus for IoRegs {
             REG_BLDALPHA => io.gpu.bldalpha = value,
             REG_BLDY => io.gpu.bldy = value,
 
-            REG_IME => io.intc.interrupt_master_enable = value == 1,
-            REG_IE => io.intc.interrupt_enable = value,
-            REG_IF => io.intc.interrupt_flags &= !value,
+            REG_IME => io.intc.interrupt_master_enable = value != 0,
+            REG_IE => io.intc.interrupt_enable.0 = value,
+            REG_IF => io.intc.interrupt_flags.0 &= !value,
+
+            REG_TM0CNT_L => {
+                io.timers[0].timer_data = value;
+                io.timers[0].initial_data = value;
+            }
+            REG_TM0CNT_H => io.timers[0].timer_ctl.0 = value,
+
+            REG_TM1CNT_L => {
+                io.timers[1].timer_data = value;
+                io.timers[0].initial_data = value;
+            }
+            REG_TM1CNT_H => io.timers[1].timer_ctl.0 = value,
+
+            REG_TM2CNT_L => {
+                io.timers[2].timer_data = value;
+                io.timers[0].initial_data = value;
+            }
+            REG_TM2CNT_H => io.timers[2].timer_ctl.0 = value,
+
+            REG_TM3CNT_L => {
+                io.timers[3].timer_data = value;
+                io.timers[0].initial_data = value;
+            }
+            REG_TM3CNT_H => io.timers[3].timer_ctl.0 = value,
 
             REG_POSTFLG => self.post_boot_flag = value != 0,
             REG_HALTCNT => {}

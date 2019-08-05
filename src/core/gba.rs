@@ -3,20 +3,22 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use super::arm7tdmi::{Core, DecodedInstruction};
+use super::arm7tdmi::{exception::Exception, Core, DecodedInstruction};
 use super::cartridge::Cartridge;
 use super::gpu::*;
 use super::interrupt::*;
 use super::ioregs::IoRegs;
 use super::sysbus::SysBus;
-use super::EmuIoDev;
+use super::timer::Timers;
 use super::GBAResult;
+use super::SyncedIoDevice;
 use crate::backend::*;
 
 #[derive(Debug)]
 pub struct IoDevices {
     pub intc: InterruptController,
     pub gpu: Gpu,
+    pub timers: Timers,
 }
 
 impl IoDevices {
@@ -24,6 +26,7 @@ impl IoDevices {
         IoDevices {
             intc: InterruptController::new(),
             gpu: Gpu::new(),
+            timers: Timers::new(),
         }
     }
 }
@@ -46,7 +49,7 @@ impl GameBoyAdvance {
         let io = Rc::new(RefCell::new(IoDevices::new()));
 
         let ioregs = IoRegs::new(io.clone());
-        let sysbus = SysBus::new(bios_rom, gamepak, ioregs);
+        let sysbus = SysBus::new(io.clone(), bios_rom, gamepak, ioregs);
 
         GameBoyAdvance {
             backend: backend,
@@ -81,10 +84,17 @@ impl GameBoyAdvance {
     }
 
     pub fn emulate_peripherals(&mut self, cycles: usize) {
+        let mut irqs = IrqBitmask(0);
         let mut io = self.io.borrow_mut();
-        let (_, irq) = io.gpu.step(cycles, &mut self.sysbus);
-        if let Some(irq) = irq {
-            io.intc.request_irq(&mut self.cpu, irq);
+
+        io.timers.step(cycles, &mut self.sysbus, &mut irqs);
+        io.gpu.step(cycles, &mut self.sysbus, &mut irqs);
+
+        if !self.cpu.cpsr.irq_disabled() {
+            io.intc.request_irqs(irqs);
+            if io.intc.irq_pending() {
+                self.cpu.exception(Exception::Irq);
+            }
         }
     }
 

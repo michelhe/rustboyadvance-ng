@@ -376,8 +376,8 @@ impl Gpu {
     }
 }
 
-impl EmuIoDev for Gpu {
-    fn step(&mut self, cycles: usize, sb: &mut SysBus) -> (usize, Option<Interrupt>) {
+impl SyncedIoDevice for Gpu {
+    fn step(&mut self, cycles: usize, sb: &mut SysBus, irqs: &mut IrqBitmask) {
         self.cycles += cycles;
 
         if self.dispstat.vcount_setting() != 0 {
@@ -385,7 +385,7 @@ impl EmuIoDev for Gpu {
                 .set_vcount(self.dispstat.vcount_setting() == self.current_scanline as u16);
         }
         if self.dispstat.vcount_irq_enable() && self.dispstat.get_vcount() {
-            return (0, Some(Interrupt::LCD_VCounterMatch));
+            irqs.set_LCD_VCounterMatch(true);;
         }
 
         match self.state {
@@ -394,28 +394,22 @@ impl EmuIoDev for Gpu {
                     self.current_scanline += 1;
                     self.cycles -= Gpu::CYCLES_HDRAW;
 
-                    let (new_state, irq) = if self.current_scanline < Gpu::DISPLAY_HEIGHT {
+                    if self.current_scanline < Gpu::DISPLAY_HEIGHT {
                         self.scanline(sb);
                         // HBlank
                         self.dispstat.set_hblank(true);
-                        let irq = if self.dispstat.hblank_irq_enable() {
-                            Some(Interrupt::LCD_HBlank)
-                        } else {
-                            None
+                        if self.dispstat.hblank_irq_enable() {
+                            irqs.set_LCD_HBlank(true);
                         };
-                        (HBlank, irq)
+                        self.state = HBlank;
                     } else {
                         self.scanline(sb);
                         self.dispstat.set_vblank(true);
-                        let irq = if self.dispstat.vblank_irq_enable() {
-                            Some(Interrupt::LCD_VBlank)
-                        } else {
-                            None
+                        if self.dispstat.vblank_irq_enable() {
+                            irqs.set_LCD_VBlank(true);
                         };
-                        (VBlank, irq)
+                        self.state = VBlank;
                     };
-                    self.state = new_state;
-                    return (0, irq);
                 }
             }
             HBlank => {
@@ -424,7 +418,6 @@ impl EmuIoDev for Gpu {
                     self.state = HDraw;
                     self.dispstat.set_hblank(false);
                     self.dispstat.set_vblank(false);
-                    return (0, None);
                 }
             }
             VBlank => {
@@ -435,12 +428,9 @@ impl EmuIoDev for Gpu {
                     self.dispstat.set_vblank(false);
                     self.current_scanline = 0;
                     self.scanline(sb);
-                    return (0, None);
                 }
             }
         }
-
-        (0, None)
     }
 }
 

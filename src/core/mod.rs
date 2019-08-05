@@ -6,16 +6,18 @@ pub use sysbus::SysBus;
 pub mod interrupt;
 pub mod ioregs;
 pub use interrupt::Interrupt;
+pub use interrupt::IrqBitmask;
 pub mod gba;
 pub use gba::GameBoyAdvance;
 pub mod dma;
 pub mod keypad;
 pub mod palette;
+pub mod timer;
 
 use crate::debugger;
 
-pub trait EmuIoDev {
-    fn step(&mut self, cycles: usize, sysbus: &mut SysBus) -> (usize, Option<Interrupt>);
+pub trait SyncedIoDevice {
+    fn step(&mut self, cycles: usize, sb: &mut SysBus, irqs: &mut IrqBitmask);
 }
 
 #[derive(Debug)]

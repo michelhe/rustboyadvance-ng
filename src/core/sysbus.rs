@@ -1,9 +1,12 @@
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use std::cell::RefCell;
+use std::rc::Rc;
 
-use super::{cartridge::Cartridge, ioregs::IoRegs};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use super::arm7tdmi::bus::{Bus, MemoryAccess, MemoryAccessWidth};
 use super::arm7tdmi::Addr;
+use super::gba::IoDevices;
+use super::{cartridge::Cartridge, ioregs::IoRegs};
 
 const VIDEO_RAM_SIZE: usize = 128 * 1024;
 const WORK_RAM_SIZE: usize = 256 * 1024;
@@ -132,6 +135,8 @@ impl Bus for DummyBus {
 
 #[derive(Debug)]
 pub struct SysBus {
+    pub io: Rc<RefCell<IoDevices>>,
+
     bios: BoxedMemory,
     onboard_work_ram: BoxedMemory,
     internal_work_ram: BoxedMemory,
@@ -145,8 +150,15 @@ pub struct SysBus {
 }
 
 impl SysBus {
-    pub fn new(bios_rom: Vec<u8>, gamepak: Cartridge, ioregs: IoRegs) -> SysBus {
+    pub fn new(
+        io: Rc<RefCell<IoDevices>>,
+        bios_rom: Vec<u8>,
+        gamepak: Cartridge,
+        ioregs: IoRegs,
+    ) -> SysBus {
         SysBus {
+            io: io,
+
             bios: BoxedMemory::new(bios_rom.into_boxed_slice(), 0xff_ffff),
             onboard_work_ram: BoxedMemory::new_with_waitstate(
                 vec![0; WORK_RAM_SIZE].into_boxed_slice(),

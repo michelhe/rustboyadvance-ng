@@ -1,6 +1,4 @@
-use super::arm7tdmi::{exception::Exception, Core};
-
-use crate::bit::BitIndex;
+use super::arm7tdmi::Core;
 
 #[derive(Debug, Primitive, Copy, Clone, PartialEq)]
 #[allow(non_camel_case_types)]
@@ -21,34 +19,57 @@ pub enum Interrupt {
     GamePak = 13,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct InterruptController {
     pub interrupt_master_enable: bool,
-    pub interrupt_enable: u16,
-    pub interrupt_flags: u16,
+    pub interrupt_enable: IrqBitmask,
+    pub interrupt_flags: IrqBitmask,
 }
 
 impl InterruptController {
     pub fn new() -> InterruptController {
         InterruptController {
             interrupt_master_enable: false,
-            interrupt_enable: 0,
-            interrupt_flags: 0,
+            ..Default::default()
         }
     }
 
-    pub fn interrupts_disabled(&self, cpu: &Core) -> bool {
-        cpu.cpsr.irq_disabled() | (self.interrupt_master_enable)
-    }
-
-    pub fn request_irq(&mut self, cpu: &mut Core, irq: Interrupt) {
-        if self.interrupts_disabled(cpu) {
+    pub fn request_irqs(&mut self, flags: IrqBitmask) {
+        if !self.interrupt_master_enable {
             return;
         }
-        let irq_bit_index = irq as usize;
-        if self.interrupt_enable.bit(irq_bit_index) {
-            self.interrupt_flags = 1 << irq_bit_index;
-            cpu.exception(Exception::Irq);
-        }
+        self.interrupt_flags.0 |= flags.0 & self.interrupt_enable.0;
     }
+
+    pub fn irq_pending(&self) -> bool {
+        self.interrupt_master_enable & (self.interrupt_flags.0 != 0)
+    }
+}
+
+impl IrqBitmask {
+    pub fn add_irq(&mut self, i: Interrupt) {
+        self.0 |= 1 << (i as usize);
+    }
+}
+
+bitfield! {
+    #[derive(Default, Copy, Clone, PartialEq)]
+    #[allow(non_snake_case)]
+    pub struct IrqBitmask(u16);
+    impl Debug;
+    u16;
+    pub LCD_VBlank, set_LCD_VBlank: 0;
+    pub LCD_HBlank, set_LCD_HBlank: 1;
+    pub LCD_VCounterMatch, set_LCD_VCounterMatch: 2;
+    pub Timer0_Overflow, set_Timer0_Overflow: 3;
+    pub Timer1_Overflow, set_Timer1_Overflow: 4;
+    pub Timer2_Overflow, set_Timer2_Overflow: 5;
+    pub Timer3_Overflow, set_Timer3_Overflow: 6;
+    pub SerialCommunication, set_SerialCommunication: 7;
+    pub DMA0, set_DMA0: 8;
+    pub DMA1, set_DMA1: 9;
+    pub DMA2, set_DMA2: 10;
+    pub DMA3, set_DMA3: 11;
+    pub Keypad, set_Keypad: 12;
+    pub GamePak, set_GamePak: 13;
 }
