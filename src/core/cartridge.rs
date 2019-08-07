@@ -2,11 +2,8 @@ use std::str::from_utf8;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-use super::arm7tdmi::{
-    bus::{Bus, MemoryAccess, MemoryAccessWidth},
-    Addr,
-};
-use super::sysbus::WaitState;
+use super::arm7tdmi::{bus::Bus, Addr};
+
 use crate::util::read_bin_file;
 
 /// From GBATEK
@@ -72,7 +69,6 @@ impl CartridgeHeader {
 pub struct Cartridge {
     pub header: CartridgeHeader,
     bytes: Box<[u8]>,
-    ws: WaitState,
 }
 
 impl Cartridge {
@@ -88,7 +84,6 @@ impl Cartridge {
         Ok(Cartridge {
             header: header,
             bytes: rom_bin.into_boxed_slice(),
-            ws: WaitState::new(5, 5, 8),
         })
     }
 }
@@ -124,13 +119,5 @@ impl Bus for Cartridge {
 
     fn write_8(&mut self, addr: Addr, value: u8) {
         (&mut self.bytes[addr as usize..]).write_u8(value).unwrap()
-    }
-
-    fn get_cycles(&self, _addr: Addr, access: MemoryAccess) -> usize {
-        match access.1 {
-            MemoryAccessWidth::MemoryAccess8 => self.ws.access8,
-            MemoryAccessWidth::MemoryAccess16 => self.ws.access16,
-            MemoryAccessWidth::MemoryAccess32 => self.ws.access32,
-        }
     }
 }

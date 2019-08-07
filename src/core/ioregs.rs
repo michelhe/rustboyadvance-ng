@@ -1,8 +1,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use super::arm7tdmi::{Addr, Bus, MemoryAccess};
+use super::arm7tdmi::{Addr, Bus};
 use super::gba::IoDevices;
+use super::sysbus::BoxedMemory;
 use super::keypad;
 
 pub mod consts {
@@ -124,17 +125,21 @@ use consts::*;
 
 #[derive(Debug)]
 pub struct IoRegs {
+    mem: BoxedMemory,
     pub io: Rc<RefCell<IoDevices>>,
     pub keyinput: u16,
     pub post_boot_flag: bool,
+    pub waitcnt: WaitControl, // TODO also implement 4000800
 }
 
 impl IoRegs {
     pub fn new(io: Rc<RefCell<IoDevices>>) -> IoRegs {
         IoRegs {
+            mem: BoxedMemory::new(vec![0; 0x400].into_boxed_slice(), 0x3ff),
             io: io,
             post_boot_flag: false,
             keyinput: keypad::KEYINPUT_ALL_RELEASED,
+            waitcnt: WaitControl(0),
         }
     }
 }
@@ -178,12 +183,13 @@ impl Bus for IoRegs {
             REG_TM3CNT_L => io.timers[3].timer_data,
             REG_TM3CNT_H => io.timers[3].timer_ctl.0,
 
+            REG_WAITCNT => self.waitcnt.0,
+
             REG_POSTFLG => self.post_boot_flag as u16,
             REG_HALTCNT => 0,
             REG_KEYINPUT => self.keyinput as u16,
             _ => {
-                println!("tried to read register {:#x}", addr + IO_BASE);
-                0
+                self.mem.read_16(addr)
             }
         }
     }
@@ -253,10 +259,12 @@ impl Bus for IoRegs {
             }
             REG_TM3CNT_H => io.timers[3].timer_ctl.0 = value,
 
+            REG_WAITCNT => self.waitcnt.0 = value,
+
             REG_POSTFLG => self.post_boot_flag = value != 0,
             REG_HALTCNT => {}
             _ => {
-                println!("tried to write register {:#x}", addr + IO_BASE);
+                self.mem.write_16(addr, value);
             }
         }
     }
@@ -265,9 +273,21 @@ impl Bus for IoRegs {
         let t = self.read_16(addr);
         self.write_16(addr, (t & 0xff) | ((value as u16) << 8));
     }
+}
 
-    /// returns the number of cycles needed for this memory access
-    fn get_cycles(&self, _addr: Addr, _access: MemoryAccess) -> usize {
-        1
-    }
+bitfield! {
+    #[derive(Default, Copy, Clone, PartialEq)]
+    pub struct WaitControl(u16);
+    impl Debug;
+    u16;
+    sram_wait_control, _:      1, 0;
+    pub ws0_first_access, _:       3, 2;
+    pub ws0_second_access, _:      4, 4;
+    pub ws1_first_access, _:       6, 5;
+    pub ws1_second_access, _:      7, 7;
+    pub ws2_first_access, _:       9, 8;
+    pub ws2_second_access, _:      10, 10;
+    #[allow(non_snake_case)]
+    PHI_terminal_output, _:    12, 11;
+    prefetch, _:               14;
 }
