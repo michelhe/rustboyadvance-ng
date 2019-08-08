@@ -4,12 +4,12 @@ use ansi_term::{Colour, Style};
 
 pub use super::exception::Exception;
 use super::{
-    arm::*,
-    bus::{Bus, MemoryAccess, MemoryAccessType, MemoryAccessType::*, MemoryAccessWidth::*},
-    psr::RegPSR,
-    reg_string,
-    thumb::ThumbInstruction,
-    Addr, CpuMode, CpuResult, CpuState, DecodedInstruction, InstructionDecoder,
+    arm::*, bus::Bus, psr::RegPSR, reg_string, thumb::ThumbInstruction, Addr, CpuMode, CpuResult,
+    CpuState, DecodedInstruction, InstructionDecoder,
+};
+
+use super::super::sysbus::{
+    MemoryAccess, MemoryAccessType, MemoryAccessType::*, MemoryAccessWidth::*, SysBus,
 };
 
 #[derive(Debug, PartialEq)]
@@ -125,33 +125,33 @@ impl Core {
     }
 
     /// Helper function for "ldr" instruction that handles misaligned addresses
-    pub fn ldr_word(&mut self, addr: Addr, bus: &Bus) -> u32 {
+    pub fn ldr_word(&mut self, addr: Addr, bus: &SysBus) -> u32 {
         if addr & 0x3 != 0 {
             let rotation = (addr & 0x3) << 3;
-            let value = self.load_32(addr & !0x3, bus);
+            let value = bus.read_32(addr & !0x3);
             self.ror(value, rotation, self.cpsr.C(), false, false)
         } else {
-            self.load_32(addr, bus)
+            bus.read_32(addr)
         }
     }
 
     /// Helper function for "ldrh" instruction that handles misaligned addresses
-    pub fn ldr_half(&mut self, addr: Addr, bus: &Bus) -> u32 {
+    pub fn ldr_half(&mut self, addr: Addr, bus: &SysBus) -> u32 {
         if addr & 0x1 != 0 {
             let rotation = (addr & 0x1) << 3;
-            let value = self.load_16(addr & !0x1, bus);
+            let value = bus.read_16(addr & !0x1);
             self.ror(value as u32, rotation, self.cpsr.C(), false, false)
         } else {
-            self.load_16(addr, bus) as u32
+            bus.read_16(addr) as u32
         }
     }
 
     /// Helper function for "ldrsh" instruction that handles misaligned addresses
-    pub fn ldr_sign_half(&mut self, addr: Addr, bus: &Bus) -> u32 {
+    pub fn ldr_sign_half(&mut self, addr: Addr, bus: &SysBus) -> u32 {
         if addr & 0x1 != 0 {
-            self.load_8(addr, bus) as i8 as i32 as u32
+            bus.read_8(addr) as i8 as i32 as u32
         } else {
-            self.load_16(addr, bus) as i16 as i32 as u32
+            bus.read_16(addr) as i16 as i32 as u32
         }
     }
 
@@ -194,8 +194,8 @@ impl Core {
     }
 
     /// Resets the cpu
-    pub fn reset(&mut self) {
-        self.exception(Exception::Reset);
+    pub fn reset(&mut self, sb: &mut SysBus) {
+        self.exception(sb, Exception::Reset);
     }
 
     pub fn word_size(&self) -> usize {
@@ -214,9 +214,10 @@ impl Core {
         self.cycles += 1;
     }
 
-    pub fn add_cycles(&mut self, addr: Addr, bus: &Bus, access: MemoryAccess) {
-        // println!("<cycle {:#x} {}> total: {}", addr, access, self.cycles);
-        self.cycles += bus.get_cycles(addr, access);
+    pub fn add_cycles(&mut self, addr: Addr, bus: &SysBus, access: MemoryAccess) {
+        let cycles_to_add = 1 + bus.get_cycles(addr, access);
+        // println!("<cycle {:#x} {}> took: {}", addr, access, cycles_to_add);
+        self.cycles += cycles_to_add;
     }
 
     pub fn cycle_type(&self, addr: Addr) -> MemoryAccessType {
@@ -239,45 +240,40 @@ impl Core {
         }
     }
 
-    pub fn load_32(&mut self, addr: Addr, bus: &Bus) -> u32 {
-        self.add_cycles(addr, bus, self.cycle_type(addr) + MemoryAccess32);
-        self.memreq = addr;
-        bus.read_32(addr)
+    #[allow(non_snake_case)]
+    pub fn S_cycle32(&mut self, sb: &SysBus, addr: u32) {
+        self.cycles += 1;
+        self.cycles += sb.get_cycles(addr, Seq + MemoryAccess32);
     }
 
-    pub fn load_16(&mut self, addr: Addr, bus: &Bus) -> u16 {
-        let cycle_type = self.cycle_type(addr);
-        self.add_cycles(addr, bus, cycle_type + MemoryAccess16);
-        self.memreq = addr;
-        bus.read_16(addr)
+    #[allow(non_snake_case)]
+    pub fn S_cycle16(&mut self, sb: &SysBus, addr: u32) {
+        self.cycles += 1;
+        self.cycles += sb.get_cycles(addr, Seq + MemoryAccess16);
     }
 
-    pub fn load_8(&mut self, addr: Addr, bus: &Bus) -> u8 {
-        let cycle_type = self.cycle_type(addr);
-        self.add_cycles(addr, bus, cycle_type + MemoryAccess8);
-        self.memreq = addr;
-        bus.read_8(addr)
+    #[allow(non_snake_case)]
+    pub fn S_cycle8(&mut self, sb: &SysBus, addr: u32) {
+        self.cycles += 1;
+        self.cycles += sb.get_cycles(addr, Seq + MemoryAccess8);
     }
 
-    pub fn store_32(&mut self, addr: Addr, value: u32, bus: &mut Bus) {
-        let cycle_type = self.cycle_type(addr);
-        self.add_cycles(addr, bus, cycle_type + MemoryAccess32);
-        self.memreq = addr;
-        bus.write_32(addr, value);
+    #[allow(non_snake_case)]
+    pub fn N_cycle32(&mut self, sb: &SysBus, addr: u32) {
+        self.cycles += 1;
+        self.cycles += sb.get_cycles(addr, NonSeq + MemoryAccess32);
     }
 
-    pub fn store_16(&mut self, addr: Addr, value: u16, bus: &mut Bus) {
-        let cycle_type = self.cycle_type(addr);
-        self.add_cycles(addr, bus, cycle_type + MemoryAccess16);
-        self.memreq = addr;
-        bus.write_16(addr, value);
+    #[allow(non_snake_case)]
+    pub fn N_cycle16(&mut self, sb: &SysBus, addr: u32) {
+        self.cycles += 1;
+        self.cycles += sb.get_cycles(addr, NonSeq + MemoryAccess16);
     }
 
-    pub fn store_8(&mut self, addr: Addr, value: u8, bus: &mut Bus) {
-        let cycle_type = self.cycle_type(addr);
-        self.add_cycles(addr, bus, cycle_type + MemoryAccess8);
-        self.memreq = addr;
-        bus.write_8(addr, value);
+    #[allow(non_snake_case)]
+    pub fn N_cycle8(&mut self, sb: &SysBus, addr: u32) {
+        self.cycles += 1;
+        self.cycles += sb.get_cycles(addr, NonSeq + MemoryAccess8);
     }
 
     pub fn check_arm_cond(&self, cond: ArmCond) -> bool {
@@ -301,13 +297,16 @@ impl Core {
         }
     }
 
-    pub fn exec_swi(&mut self) -> CpuExecResult {
-        self.exception(Exception::SoftwareInterrupt);
-        self.flush_pipeline();
+    pub fn exec_swi(&mut self, sb: &mut SysBus) -> CpuExecResult {
+        match self.cpsr.state() {
+            CpuState::ARM => self.N_cycle32(sb, self.pc),
+            CpuState::THUMB => self.N_cycle16(sb, self.pc),
+        };
+        self.exception(sb, Exception::SoftwareInterrupt);
         Ok(())
     }
 
-    fn step_arm_exec(&mut self, insn: u32, sb: &mut Bus) -> CpuResult<()> {
+    fn step_arm_exec(&mut self, insn: u32, sb: &mut SysBus) -> CpuResult<()> {
         let pc = self.pc;
         match self.pipeline_state {
             PipelineState::Refill1 => {
@@ -331,11 +330,11 @@ impl Core {
         Ok(())
     }
 
-    fn arm(&mut self, sb: &mut Bus) -> CpuResult<()> {
+    fn arm(&mut self, sb: &mut SysBus) -> CpuResult<()> {
         let pc = self.pc;
 
         // fetch
-        let fetched_now = self.load_32(pc, sb);
+        let fetched_now = sb.read_32(pc);
         let executed_now = self.decoded_arm;
 
         // decode
@@ -351,7 +350,7 @@ impl Core {
         self.pipeline_state == PipelineState::Refill1
     }
 
-    fn step_thumb_exec(&mut self, insn: u16, sb: &mut Bus) -> CpuResult<()> {
+    fn step_thumb_exec(&mut self, insn: u16, sb: &mut SysBus) -> CpuResult<()> {
         let pc = self.pc;
         match self.pipeline_state {
             PipelineState::Refill1 => {
@@ -375,11 +374,11 @@ impl Core {
         Ok(())
     }
 
-    fn thumb(&mut self, sb: &mut Bus) -> CpuResult<()> {
+    fn thumb(&mut self, sb: &mut SysBus) -> CpuResult<()> {
         let pc = self.pc;
 
         // fetch
-        let fetched_now = self.load_16(pc, sb);
+        let fetched_now = sb.read_16(pc);
         let executed_now = self.decoded_thumb;
 
         // decode
@@ -391,13 +390,23 @@ impl Core {
         Ok(())
     }
 
-    pub fn flush_pipeline(&mut self) {
+    pub fn flush_pipeline(&mut self, sb: &mut SysBus) {
         self.pipeline_state = PipelineState::Refill1;
+        match self.cpsr.state() {
+            CpuState::ARM => {
+                self.N_cycle32(sb, self.pc);
+                self.S_cycle32(sb, self.pc + 4);
+            }
+            CpuState::THUMB => {
+                self.N_cycle16(sb, self.pc);
+                self.S_cycle16(sb, self.pc + 2);
+            }
+        }
     }
 
     /// Perform a pipeline step
     /// If an instruction was executed in this step, return it.
-    pub fn step(&mut self, bus: &mut Bus) -> CpuResult<()> {
+    pub fn step(&mut self, bus: &mut SysBus) -> CpuResult<()> {
         match self.cpsr.state() {
             CpuState::ARM => self.arm(bus),
             CpuState::THUMB => self.thumb(bus),
@@ -417,7 +426,7 @@ impl Core {
     /// A step that returns only once an instruction was executed.
     /// Returns the address of PC before executing an instruction,
     /// and the address of the next instruction to be executed;
-    pub fn step_one(&mut self, bus: &mut Bus) -> CpuResult<DecodedInstruction> {
+    pub fn step_one(&mut self, bus: &mut SysBus) -> CpuResult<DecodedInstruction> {
         loop {
             match self.pipeline_state {
                 PipelineState::Execute => {

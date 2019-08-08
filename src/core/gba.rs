@@ -93,7 +93,7 @@ impl GameBoyAdvance {
         if !self.cpu.cpsr.irq_disabled() {
             io.intc.request_irqs(irqs);
             if io.intc.irq_pending() {
-                self.cpu.exception(Exception::Irq);
+                self.cpu.exception(&mut self.sysbus, Exception::Irq);
             }
         }
     }
@@ -105,7 +105,7 @@ impl GameBoyAdvance {
 
         self.emulate_peripherals(cycles);
 
-        if self.io.borrow().gpu.state == GpuState::HBlank {
+        if self.io.borrow().gpu.state == GpuState::VBlank {
             self.backend.render(self.io.borrow().gpu.render());
         }
 

@@ -3,8 +3,8 @@ use std::rc::Rc;
 
 use super::arm7tdmi::{Addr, Bus};
 use super::gba::IoDevices;
-use super::sysbus::BoxedMemory;
 use super::keypad;
+use super::sysbus::BoxedMemory;
 
 pub mod consts {
     use super::*;
@@ -188,9 +188,7 @@ impl Bus for IoRegs {
             REG_POSTFLG => self.post_boot_flag as u16,
             REG_HALTCNT => 0,
             REG_KEYINPUT => self.keyinput as u16,
-            _ => {
-                self.mem.read_16(addr)
-            }
+            _ => self.mem.read_16(addr),
         }
     }
 

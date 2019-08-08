@@ -232,39 +232,33 @@ impl SysBus {
 
         // TODO handle EWRAM accesses
         match addr & 0xff000000 {
-            EWRAM_ADDR => {
-                match access.1 {
-                    MemoryAccessWidth::MemoryAccess32 => cycles += 6,
-                    _ => cycles += 3
-                }
-            }
+            EWRAM_ADDR => match access.1 {
+                MemoryAccessWidth::MemoryAccess32 => cycles += 6,
+                _ => cycles += 3,
+            },
             OAM_ADDR | VRAM_ADDR | PALRAM_ADDR => {
                 match access.1 {
                     MemoryAccessWidth::MemoryAccess32 => cycles += 2,
-                    _ => cycles += 1
+                    _ => cycles += 1,
                 }
                 if self.io.borrow().gpu.state == GpuState::HDraw {
                     cycles += 1;
                 }
             }
-            GAMEPAK_WS0_ADDR => {
-                match access.0 {
-                    MemoryAccessType::NonSeq => {
-                        match access.1 {
-                            MemoryAccessWidth::MemoryAccess32 => {
-                                cycles += nonseq_cycles[self.ioregs.waitcnt.ws0_first_access() as usize];
-                                cycles += seq_cycles[self.ioregs.waitcnt.ws0_second_access() as usize];
-                            }
-                            _ => {
-                                cycles += nonseq_cycles[self.ioregs.waitcnt.ws0_first_access() as usize];
-                            }
-                        }
-                    }
-                    MemoryAccessType::Seq => {
+            GAMEPAK_WS0_ADDR => match access.0 {
+                MemoryAccessType::NonSeq => match access.1 {
+                    MemoryAccessWidth::MemoryAccess32 => {
+                        cycles += nonseq_cycles[self.ioregs.waitcnt.ws0_first_access() as usize];
                         cycles += seq_cycles[self.ioregs.waitcnt.ws0_second_access() as usize];
-                        if access.1 == MemoryAccessWidth::MemoryAccess32 {
-                            cycles += seq_cycles[self.ioregs.waitcnt.ws0_second_access() as usize];
-                        }
+                    }
+                    _ => {
+                        cycles += nonseq_cycles[self.ioregs.waitcnt.ws0_first_access() as usize];
+                    }
+                },
+                MemoryAccessType::Seq => {
+                    cycles += seq_cycles[self.ioregs.waitcnt.ws0_second_access() as usize];
+                    if access.1 == MemoryAccessWidth::MemoryAccess32 {
+                        cycles += seq_cycles[self.ioregs.waitcnt.ws0_second_access() as usize];
                     }
                 }
             },

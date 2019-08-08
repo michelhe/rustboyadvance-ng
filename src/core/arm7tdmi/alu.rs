@@ -240,6 +240,7 @@ impl Core {
                 Ok(result)
             }
             ShiftRegisterBy::ByRegister(rs) => {
+                self.add_cycle(); // +1I
                 if shift.reg == REG_PC {
                     val = val + 4; // PC prefetching
                 }

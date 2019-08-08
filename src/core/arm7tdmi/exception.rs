@@ -1,5 +1,7 @@
+use super::super::sysbus::SysBus;
+use super::cpu::Core;
 use super::REG_LR;
-use super::{cpu::Core, CpuMode, CpuState};
+use super::{CpuMode, CpuState};
 use colored::*;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -31,7 +33,7 @@ impl From<Exception> for CpuMode {
 }
 
 impl Core {
-    pub fn exception(&mut self, e: Exception) {
+    pub fn exception(&mut self, sb: &mut SysBus, e: Exception) {
         let vector = e as u32;
         let new_mode = CpuMode::from(e);
         if self.verbose {
@@ -58,6 +60,6 @@ impl Core {
 
         // Set PC to vector address
         self.pc = vector;
-        self.flush_pipeline();
+        self.flush_pipeline(sb);
     }
 }

@@ -49,61 +49,61 @@ impl Command {
             DisplayInfo => println!("GPU: {:#?}", debugger.gba.io.borrow().gpu),
             Step(count) => {
                 for _ in 0..count {
-                    if let Some(bp) = debugger.check_breakpoint() {
-                        println!("hit breakpoint #0x{:08x}!", bp);
-                        debugger.delete_breakpoint(bp);
-                    } else {
-                        match debugger.gba.step() {
-                            Ok(insn) => {
-                                print!(
-                                    "{}\t{}",
-                                    Colour::Black
-                                        .bold()
-                                        .italic()
-                                        .on(Colour::White)
-                                        .paint(format!("Executed at @0x{:08x}:", insn.get_pc(),)),
-                                    insn
-                                );
-                                println!(
-                                    "{}",
-                                    Colour::Purple.dimmed().italic().paint(format!(
-                                        "\t\t/// Next instruction at @0x{:08x}",
-                                        debugger.gba.cpu.get_next_pc()
-                                    ))
-                                )
-                            }
-                            Err(GBAError::CpuError(e)) => {
-                                println!("{}: {}", "cpu encountered an error".red(), e);
-                                println!("cpu: {:x?}", debugger.gba.cpu)
-                            }
-                            _ => unreachable!(),
+                    match debugger.gba.step() {
+                        Ok(insn) => {
+                            print!(
+                                "{}\t{}",
+                                Colour::Black
+                                    .bold()
+                                    .italic()
+                                    .on(Colour::White)
+                                    .paint(format!("Executed at @0x{:08x}:", insn.get_pc(),)),
+                                insn
+                            );
+                            println!(
+                                "{}",
+                                Colour::Purple.dimmed().italic().paint(format!(
+                                    "\t\t/// Next instruction at @0x{:08x}",
+                                    debugger.gba.cpu.get_next_pc()
+                                ))
+                            )
                         }
+                        Err(GBAError::CpuError(e)) => {
+                            println!("{}: {}", "cpu encountered an error".red(), e);
+                            println!("cpu: {:x?}", debugger.gba.cpu)
+                        }
+                        _ => unreachable!(),
                     }
                 }
                 println!("{}\n", debugger.gba.cpu);
             }
-            Continue => loop {
-                if let Some(bp) = debugger.check_breakpoint() {
-                    println!("hit breakpoint #0x{:08x}!", bp);
-                    debugger.delete_breakpoint(bp);
-                    break;
-                }
-                match debugger.gba.step() {
-                    // Ok(insn) => {
-                    //     println!(
-                    //         "@0x{:08x}:\t{}",
-                    //         insn.get_pc(),
-                    //         Colour::Yellow.italic().paint(format!("{} ", insn))
-                    //     );
-                    // }
-                    Err(GBAError::CpuError(e)) => {
-                        println!("{}: {}", "cpu encountered an error".red(), e);
-                        println!("cpu: {:x?}", debugger.gba.cpu);
+            Continue => {
+                let start_cycles = debugger.gba.cpu.cycles();
+                loop {
+                    if let Some(bp) = debugger.check_breakpoint() {
+                        match debugger.gba.step() {
+                            Err(GBAError::CpuError(e)) => {
+                                println!("{}: {}", "cpu encountered an error".red(), e);
+                                println!("cpu: {:x?}", debugger.gba.cpu);
+                                break;
+                            }
+                            _ => (),
+                        };
+                        let num_cycles = debugger.gba.cpu.cycles() - start_cycles;
+                        println!("hit breakpoint #0x{:08x} after {} cycles !", bp, num_cycles);
                         break;
+                    } else {
+                        match debugger.gba.step() {
+                            Err(GBAError::CpuError(e)) => {
+                                println!("{}: {}", "cpu encountered an error".red(), e);
+                                println!("cpu: {:x?}", debugger.gba.cpu);
+                                break;
+                            }
+                            _ => (),
+                        };
                     }
-                    _ => (),
-                };
-            },
+                }
+            }
             Frame(count) => {
                 use super::time::PreciseTime;
                 let start = PreciseTime::now();
@@ -160,7 +160,7 @@ impl Command {
             TileView(bg) => create_tile_view(bg, &debugger.gba),
             Reset => {
                 println!("resetting cpu...");
-                debugger.gba.cpu.reset();
+                debugger.gba.cpu.reset(&mut debugger.gba.sysbus);
                 println!("cpu is restarted!")
             }
         }

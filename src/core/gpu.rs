@@ -350,8 +350,8 @@ impl Gpu {
                 }
             }
             BGMode::BGMode2 => {
-                self.scanline_mode0(2, sb);
                 self.scanline_mode0(3, sb);
+                self.scanline_mode0(2, sb);
             }
             BGMode::BGMode3 => {
                 self.scanline_mode3(2, sb);

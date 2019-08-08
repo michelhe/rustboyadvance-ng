@@ -38,7 +38,6 @@ fn run_emulator(matches: &ArgMatches) -> GBAResult<()> {
     println!("loaded rom: {:#?}", gamepak.header);
 
     let mut core = Core::new();
-    core.reset();
     if skip_bios {
         core.gpr[13] = 0x0300_7f00;
         core.gpr_banked_r13[0] = 0x0300_7f00; // USR/SYS
