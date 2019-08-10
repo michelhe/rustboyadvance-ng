@@ -168,7 +168,7 @@ impl Debugger {
         println!("Welcome to rustboyadvance-NG debugger 😎!\n");
         self.running = true;
         let mut rl = Editor::<()>::new();
-        rl.load_history(".rustboyadvance_history").unwrap();
+        let _ = rl.load_history(".rustboyadvance_history");
         while self.running {
             let readline = rl.readline(&format!("({}) ᐅ ", "rustboyadvance-dbg".bold().cyan()));
             match readline {
