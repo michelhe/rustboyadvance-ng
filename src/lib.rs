@@ -22,4 +22,3 @@ pub mod backend;
 pub mod core;
 pub mod debugger;
 pub mod disass;
-pub mod minifb_backend;

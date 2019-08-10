@@ -25,7 +25,7 @@ fn run_emulator(matches: &ArgMatches) -> GBAResult<()> {
     };
 
     let backend: Box<EmulatorBackend> = match matches.value_of("backend") {
-        Some("sdl2") => panic!("sdl2 not implemented"),
+        Some("sdl2") => Box::new(Sdl2Backend::new()),
         Some("minifb") => Box::new(MinifbBackend::new()),
         // None => DummyBackend::new(),
         None => Box::new(DummyBackend::new()),
