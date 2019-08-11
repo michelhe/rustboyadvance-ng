@@ -198,7 +198,7 @@ impl Bus for IoRegs {
 
     fn write_32(&mut self, addr: Addr, value: u32) {
         self.write_16(addr, (value & 0xffff) as u16);
-        self.write_16(addr, (value >> 16) as u16);
+        self.write_16(addr + 2, (value >> 16) as u16);
     }
 
     fn write_16(&mut self, addr: Addr, value: u16) {
