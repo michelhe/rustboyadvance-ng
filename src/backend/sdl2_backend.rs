@@ -1,5 +1,5 @@
-use std::time;
 use std::convert::TryFrom;
+use std::time;
 
 use crate::bit::BitIndex;
 
@@ -119,7 +119,6 @@ impl EmulatorBackend for Sdl2Backend {
         self.keyinput
     }
 }
-
 
 fn keycode_to_keypad(keycode: Keycode) -> Option<keypad::Keys> {
     match keycode {

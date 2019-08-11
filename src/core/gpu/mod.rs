@@ -1,16 +1,19 @@
 use std::fmt;
 
 use super::arm7tdmi::{Addr, Bus};
-use super::palette::{PixelFormat, Rgb15};
+pub use super::palette::{PixelFormat, Rgb15};
 use super::*;
 
 use crate::bitfield::Bit;
 use crate::num::FromPrimitive;
 
-const VRAM_ADDR: Addr = 0x0600_0000;
+mod regs;
+pub use regs::*;
+
+pub const VRAM_ADDR: Addr = 0x0600_0000;
 
 #[derive(Debug, Primitive, Clone, Copy)]
-enum BGMode {
+pub enum BGMode {
     BGMode0 = 0,
     BGMode1 = 1,
     BGMode2 = 2,
@@ -22,88 +25,6 @@ enum BGMode {
 impl From<u16> for BGMode {
     fn from(v: u16) -> BGMode {
         BGMode::from_u16(v).unwrap()
-    }
-}
-
-bitfield! {
-    pub struct DisplayControl(u16);
-    impl Debug;
-    u16;
-    into BGMode, mode, set_mode: 2, 0;
-    display_frame, set_display_frame: 4, 4;
-    hblank_interval_free, _: 5;
-    obj_character_vram_mapping, _: 6;
-    forst_vblank, _: 7;
-    disp_bg0, _ : 8;
-    disp_bg1, _ : 9;
-    disp_bg2, _ : 10;
-    disp_bg3, _ : 11;
-    disp_obj, _ : 12;
-    disp_window0, _ : 13;
-    disp_window1, _ : 14;
-    disp_obj_window, _ : 15;
-}
-
-impl DisplayControl {
-    fn disp_bg(&self, bg: usize) -> bool {
-        self.0.bit(8 + bg)
-    }
-}
-
-bitfield! {
-    pub struct DisplayStatus(u16);
-    impl Debug;
-    u16;
-    get_vblank, set_vblank: 0;
-    get_hblank, set_hblank: 1;
-    get_vcount, set_vcount: 2;
-    vblank_irq_enable, _ : 3;
-    hblank_irq_enable, _ : 4;
-    vcount_irq_enable, _ : 5;
-    vcount_setting, _ : 15, 8;
-}
-
-bitfield! {
-    #[derive(Copy, Clone)]
-    pub struct BgControl(u16);
-    impl Debug;
-    u16;
-    bg_priority, _: 1, 0;
-    character_base_block, _: 3, 2;
-    moasic, _ : 6;
-    palette256, _ : 7;
-    screen_base_block, _: 12, 8;
-    affine_wraparound, _: 13;
-    bg_size, _ : 15, 14;
-}
-
-const SCREEN_BLOCK_SIZE: u32 = 0x800;
-
-impl BgControl {
-    pub fn char_block(&self) -> Addr {
-        VRAM_ADDR + (self.character_base_block() as u32) * 0x4000
-    }
-
-    pub fn screen_block(&self) -> Addr {
-        VRAM_ADDR + (self.screen_base_block() as u32) * SCREEN_BLOCK_SIZE
-    }
-
-    fn size_regular(&self) -> (u32, u32) {
-        match self.bg_size() {
-            0b00 => (256, 256),
-            0b01 => (512, 256),
-            0b10 => (256, 512),
-            0b11 => (512, 512),
-            _ => unreachable!(),
-        }
-    }
-
-    pub fn tile_format(&self) -> (u32, PixelFormat) {
-        if self.palette256() {
-            (2 * Gpu::TILE_SIZE, PixelFormat::BPP8)
-        } else {
-            (Gpu::TILE_SIZE, PixelFormat::BPP4)
-        }
     }
 }
 
