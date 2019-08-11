@@ -6,7 +6,6 @@ use crate::core::GBAError;
 use crate::disass::Disassembler;
 
 use super::palette_view::create_palette_view;
-use super::render_view::create_render_view;
 use super::tile_view::create_tile_view;
 use super::{parser::Value, Debugger, DebuggerError, DebuggerResult};
 
@@ -28,7 +27,6 @@ pub enum Command {
     Step(usize),
     Continue,
     Frame(usize),
-    Render,
     HexDump(Addr, u32),
     Disass(DisassMode, Addr, u32),
     AddBreakpoint(Addr),
@@ -113,7 +111,6 @@ impl Command {
                 let end = PreciseTime::now();
                 println!("that took {} seconds", start.to(end));
             }
-            Render => create_render_view(&debugger.gba),
             HexDump(addr, nbytes) => {
                 let bytes = debugger.gba.sysbus.get_bytes(addr..addr + nbytes);
                 hexdump::hexdump(&bytes);
@@ -310,7 +307,6 @@ impl Debugger {
             "bl" => Ok(Command::ListBreakpoints),
             "q" | "quit" => Ok(Command::Quit),
             "r" | "reset" => Ok(Command::Reset),
-            "rd" | "render" => Ok(Command::Render),
             _ => Err(DebuggerError::InvalidCommand(command)),
         }
     }

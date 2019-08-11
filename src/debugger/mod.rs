@@ -13,7 +13,6 @@ mod command;
 use command::Command;
 
 mod palette_view;
-mod render_view;
 mod tile_view;
 extern crate time;
 
