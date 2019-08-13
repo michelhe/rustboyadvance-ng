@@ -1,4 +1,3 @@
-use std::convert::TryFrom;
 use std::time;
 
 use crate::bit::BitIndex;
@@ -6,13 +5,13 @@ use crate::bit::BitIndex;
 extern crate sdl2;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use sdl2::pixels::{Color, PixelFormat, PixelFormatEnum};
+use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::rect::{Point, Rect};
-use sdl2::render::{Texture, TextureCreator, WindowCanvas};
-use sdl2::video::{Window, WindowContext};
+use sdl2::render::{TextureCreator, WindowCanvas};
+use sdl2::video::WindowContext;
 
 use super::EmulatorBackend;
-use crate::core::gpu::Gpu;
+use crate::core::gpu::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use crate::core::keypad;
 
 pub struct Sdl2Backend {
@@ -24,8 +23,8 @@ pub struct Sdl2Backend {
     keyinput: u16,
 }
 
-const SCREEN_WIDTH: u32 = Gpu::DISPLAY_WIDTH as u32;
-const SCREEN_HEIGHT: u32 = Gpu::DISPLAY_HEIGHT as u32;
+const SCREEN_WIDTH: u32 = DISPLAY_WIDTH as u32;
+const SCREEN_HEIGHT: u32 = DISPLAY_HEIGHT as u32;
 
 impl Sdl2Backend {
     pub fn new() -> Sdl2Backend {
@@ -57,7 +56,7 @@ impl Sdl2Backend {
 }
 
 impl EmulatorBackend for Sdl2Backend {
-    fn render(&mut self, buffer: Vec<u32>) {
+    fn render(&mut self, buffer: &[u32]) {
         let mut texture = self
             .tc
             .create_texture_target(PixelFormatEnum::RGB24, SCREEN_WIDTH, SCREEN_HEIGHT)

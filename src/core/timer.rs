@@ -114,7 +114,6 @@ impl SyncedIoDevice for Timers {
                         }
                     }
                     TimerAction::Increment => {}
-                    _ => {}
                 }
             }
         }

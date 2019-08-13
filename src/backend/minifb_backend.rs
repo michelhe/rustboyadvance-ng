@@ -7,7 +7,7 @@ extern crate minifb;
 use minifb::{Key, Window, WindowOptions};
 
 use super::EmulatorBackend;
-use crate::core::gpu::Gpu;
+use crate::core::gpu::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use crate::core::keypad;
 
 pub struct MinifbBackend {
@@ -20,8 +20,8 @@ impl MinifbBackend {
     pub fn new() -> MinifbBackend {
         let window = Window::new(
             "rustboyadvance-ng",
-            Gpu::DISPLAY_WIDTH,
-            Gpu::DISPLAY_HEIGHT,
+            DISPLAY_WIDTH,
+            DISPLAY_HEIGHT,
             WindowOptions {
                 borderless: true,
                 scale: minifb::Scale::X4,
@@ -39,7 +39,7 @@ impl MinifbBackend {
 }
 
 impl EmulatorBackend for MinifbBackend {
-    fn render(&mut self, buffer: Vec<u32>) {
+    fn render(&mut self, buffer: &[u32]) {
         self.frames_rendered += 1;
         if self.first_frame_start.elapsed() >= time::Duration::from_secs(1) {
             let title = format!("rustboyadvance-ng ({} fps)", self.frames_rendered);
@@ -47,7 +47,7 @@ impl EmulatorBackend for MinifbBackend {
             self.first_frame_start = time::Instant::now();
             self.frames_rendered = 0;
         }
-        self.window.update_with_buffer(&buffer).unwrap();
+        self.window.update_with_buffer(buffer).unwrap();
     }
 
     fn get_key_state(&mut self) -> u16 {

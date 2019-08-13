@@ -65,10 +65,9 @@ fn run_emulator(matches: &ArgMatches) -> GBAResult<()> {
         loop {
             let start_time = time::Instant::now();
             gba.frame();
-            let time_passed = time::Instant::now() - start_time;
+            let time_passed = start_time.elapsed();
             if time_passed <= frame_time {
-                let duration = frame_time - time_passed;
-                ::std::thread::sleep(duration);
+                ::std::thread::sleep(frame_time - time_passed);
             }
         }
     }

@@ -1,5 +1,3 @@
-use super::arm7tdmi::Core;
-
 #[derive(Debug, Primitive, Copy, Clone, PartialEq)]
 #[allow(non_camel_case_types)]
 pub enum Interrupt {
@@ -54,22 +52,35 @@ impl IrqBitmask {
 
 bitfield! {
     #[derive(Default, Copy, Clone, PartialEq)]
-    #[allow(non_snake_case)]
     pub struct IrqBitmask(u16);
     impl Debug;
     u16;
+    #[allow(non_snake_case)]
     pub LCD_VBlank, set_LCD_VBlank: 0;
+    #[allow(non_snake_case)]
     pub LCD_HBlank, set_LCD_HBlank: 1;
+    #[allow(non_snake_case)]
     pub LCD_VCounterMatch, set_LCD_VCounterMatch: 2;
+    #[allow(non_snake_case)]
     pub Timer0_Overflow, set_Timer0_Overflow: 3;
+    #[allow(non_snake_case)]
     pub Timer1_Overflow, set_Timer1_Overflow: 4;
+    #[allow(non_snake_case)]
     pub Timer2_Overflow, set_Timer2_Overflow: 5;
+    #[allow(non_snake_case)]
     pub Timer3_Overflow, set_Timer3_Overflow: 6;
+    #[allow(non_snake_case)]
     pub SerialCommunication, set_SerialCommunication: 7;
+    #[allow(non_snake_case)]
     pub DMA0, set_DMA0: 8;
+    #[allow(non_snake_case)]
     pub DMA1, set_DMA1: 9;
+    #[allow(non_snake_case)]
     pub DMA2, set_DMA2: 10;
+    #[allow(non_snake_case)]
     pub DMA3, set_DMA3: 11;
+    #[allow(non_snake_case)]
     pub Keypad, set_Keypad: 12;
+    #[allow(non_snake_case)]
     pub GamePak, set_GamePak: 13;
 }

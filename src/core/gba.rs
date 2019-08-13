@@ -66,7 +66,7 @@ impl GameBoyAdvance {
             let cycles = self.emulate_cpu();
             self.emulate_peripherals(cycles);
         }
-        self.backend.render(self.io.borrow().gpu.render());
+        self.backend.render(self.io.borrow().gpu.get_framebuffer());
         while self.io.borrow().gpu.state == GpuState::VBlank {
             let cycles = self.emulate_cpu();
             self.emulate_peripherals(cycles);
@@ -106,7 +106,7 @@ impl GameBoyAdvance {
         self.emulate_peripherals(cycles);
 
         if self.io.borrow().gpu.state == GpuState::VBlank {
-            self.backend.render(self.io.borrow().gpu.render());
+            self.backend.render(self.io.borrow().gpu.get_framebuffer());
         }
 
         Ok(executed_insn)

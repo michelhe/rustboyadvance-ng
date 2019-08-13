@@ -31,14 +31,18 @@ pub mod consts {
     pub const REG_BG2PB: Addr = IO_BASE + 0x_0022; //  2    W         BG2 Rotation/Scaling Parameter B (dmx)
     pub const REG_BG2PC: Addr = IO_BASE + 0x_0024; //  2    W         BG2 Rotation/Scaling Parameter C (dy)
     pub const REG_BG2PD: Addr = IO_BASE + 0x_0026; //  2    W         BG2 Rotation/Scaling Parameter D (dmy)
-    pub const REG_BG2X: Addr = IO_BASE + 0x_0028; //  4    W          BG2 Reference Point X-Coordinate
-    pub const REG_BG2Y: Addr = IO_BASE + 0x_002C; //  4    W          BG2 Reference Point Y-Coordinate
+    pub const REG_BG2X_L: Addr = IO_BASE + 0x_0028; //  4    W          BG2 Reference Point X-Coordinate, lower 16 bit
+    pub const REG_BG2X_H: Addr = IO_BASE + 0x_002A; //  4    W          BG2 Reference Point X-Coordinate, upper 16 bit
+    pub const REG_BG2Y_L: Addr = IO_BASE + 0x_002C; //  4    W          BG2 Reference Point Y-Coordinate, lower 16 bit
+    pub const REG_BG2Y_H: Addr = IO_BASE + 0x_002E; //  4    W          BG2 Reference Point Y-Coordinate, upper 16 bit
     pub const REG_BG3PA: Addr = IO_BASE + 0x_0030; //  2    W         BG3 Rotation/Scaling Parameter A (dx)
     pub const REG_BG3PB: Addr = IO_BASE + 0x_0032; //  2    W         BG3 Rotation/Scaling Parameter B (dmx)
     pub const REG_BG3PC: Addr = IO_BASE + 0x_0034; //  2    W         BG3 Rotation/Scaling Parameter C (dy)
     pub const REG_BG3PD: Addr = IO_BASE + 0x_0036; //  2    W         BG3 Rotation/Scaling Parameter D (dmy)
-    pub const REG_BG3X: Addr = IO_BASE + 0x_0038; //  4    W          BG3 Reference Point X-Coordinate
-    pub const REG_BG3Y: Addr = IO_BASE + 0x_003C; //  4    W          BG3 Reference Point Y-Coordinate
+    pub const REG_BG3X_L: Addr = IO_BASE + 0x_0038; //  4    W          BG3 Reference Point X-Coordinate, lower 16 bit
+    pub const REG_BG3X_H: Addr = IO_BASE + 0x_003A; //  4    W          BG3 Reference Point X-Coordinate, upper 16 bit
+    pub const REG_BG3Y_L: Addr = IO_BASE + 0x_003C; //  4    W          BG3 Reference Point Y-Coordinate, lower 16 bit
+    pub const REG_BG3Y_H: Addr = IO_BASE + 0x_003E; //  4    W          BG3 Reference Point Y-Coordinate, upper 16 bit
     pub const REG_WIN0H: Addr = IO_BASE + 0x_0040; //  2    W         Window 0 Horizontal Dimensions
     pub const REG_WIN1H: Addr = IO_BASE + 0x_0042; //  2    W         Window 1 Horizontal Dimensions
     pub const REG_WIN0V: Addr = IO_BASE + 0x_0044; //  2    W         Window 0 Vertical Dimensions
@@ -155,20 +159,18 @@ impl Bus for IoRegs {
             REG_DISPCNT => io.gpu.dispcnt.0,
             REG_DISPSTAT => io.gpu.dispstat.0,
             REG_VCOUNT => io.gpu.current_scanline as u16,
-            REG_BG0CNT => io.gpu.bgcnt[0].0,
-            REG_BG1CNT => io.gpu.bgcnt[1].0,
-            REG_BG2CNT => io.gpu.bgcnt[2].0,
-            REG_BG3CNT => io.gpu.bgcnt[3].0,
+            REG_BG0CNT => io.gpu.bg[0].bgcnt.0,
+            REG_BG1CNT => io.gpu.bg[1].bgcnt.0,
+            REG_BG2CNT => io.gpu.bg[2].bgcnt.0,
+            REG_BG3CNT => io.gpu.bg[3].bgcnt.0,
             REG_WIN0H => io.gpu.win0h,
             REG_WIN1H => io.gpu.win1h,
             REG_WIN0V => io.gpu.win0v,
             REG_WIN1V => io.gpu.win1v,
             REG_WININ => io.gpu.winin,
             REG_WINOUT => io.gpu.winout,
-            REG_MOSAIC => io.gpu.mosaic,
-            REG_BLDCNT => io.gpu.bldcnt,
-            REG_BLDALPHA => io.gpu.bldalpha,
-            REG_BLDY => io.gpu.bldy,
+            REG_BLDCNT => io.gpu.bldcnt.0,
+            REG_BLDALPHA => io.gpu.bldalpha.0,
 
             REG_IME => io.intc.interrupt_master_enable as u16,
             REG_IE => io.intc.interrupt_enable.0 as u16,
@@ -206,28 +208,44 @@ impl Bus for IoRegs {
         match addr + IO_BASE {
             REG_DISPCNT => io.gpu.dispcnt.0 |= value,
             REG_DISPSTAT => io.gpu.dispstat.0 |= value,
-            REG_BG0CNT => io.gpu.bgcnt[0].0 |= value,
-            REG_BG1CNT => io.gpu.bgcnt[1].0 |= value,
-            REG_BG2CNT => io.gpu.bgcnt[2].0 |= value,
-            REG_BG3CNT => io.gpu.bgcnt[3].0 |= value,
-            REG_BG0HOFS => io.gpu.bghofs[0] = value,
-            REG_BG0VOFS => io.gpu.bgvofs[0] = value,
-            REG_BG1HOFS => io.gpu.bghofs[1] = value,
-            REG_BG1VOFS => io.gpu.bgvofs[1] = value,
-            REG_BG2HOFS => io.gpu.bghofs[2] = value,
-            REG_BG2VOFS => io.gpu.bgvofs[2] = value,
-            REG_BG3HOFS => io.gpu.bghofs[3] = value,
-            REG_BG3VOFS => io.gpu.bgvofs[3] = value,
+            REG_BG0CNT => io.gpu.bg[0].bgcnt.0 |= value,
+            REG_BG1CNT => io.gpu.bg[1].bgcnt.0 |= value,
+            REG_BG2CNT => io.gpu.bg[2].bgcnt.0 |= value,
+            REG_BG3CNT => io.gpu.bg[3].bgcnt.0 |= value,
+            REG_BG0HOFS => io.gpu.bg[0].bghofs = value & 0x1ff,
+            REG_BG0VOFS => io.gpu.bg[0].bgvofs = value & 0x1ff,
+            REG_BG1HOFS => io.gpu.bg[1].bghofs = value & 0x1ff,
+            REG_BG1VOFS => io.gpu.bg[1].bgvofs = value & 0x1ff,
+            REG_BG2HOFS => io.gpu.bg[2].bghofs = value & 0x1ff,
+            REG_BG2VOFS => io.gpu.bg[2].bgvofs = value & 0x1ff,
+            REG_BG3HOFS => io.gpu.bg[3].bghofs = value & 0x1ff,
+            REG_BG3VOFS => io.gpu.bg[3].bgvofs = value & 0x1ff,
+            REG_BG2X_L => io.gpu.bg_aff[0].x |= (value as u32) as i32,
+            REG_BG2X_H => io.gpu.bg_aff[0].x |= ((value as u32) << 16) as i32,
+            REG_BG2Y_L => io.gpu.bg_aff[0].y |= (value as u32) as i32,
+            REG_BG2Y_H => io.gpu.bg_aff[0].y |= ((value as u32) << 16) as i32,
+            REG_BG3X_L => io.gpu.bg_aff[1].x |= (value as u32) as i32,
+            REG_BG3X_H => io.gpu.bg_aff[1].x |= ((value as u32) << 16) as i32,
+            REG_BG3Y_L => io.gpu.bg_aff[1].y |= (value as u32) as i32,
+            REG_BG3Y_H => io.gpu.bg_aff[1].y |= ((value as u32) << 16) as i32,
+            REG_BG2PA => io.gpu.bg_aff[0].pa = value as i16,
+            REG_BG2PB => io.gpu.bg_aff[0].pb = value as i16,
+            REG_BG2PC => io.gpu.bg_aff[0].pc = value as i16,
+            REG_BG2PD => io.gpu.bg_aff[0].pd = value as i16,
+            REG_BG3PA => io.gpu.bg_aff[1].pa = value as i16,
+            REG_BG3PB => io.gpu.bg_aff[1].pb = value as i16,
+            REG_BG3PC => io.gpu.bg_aff[1].pc = value as i16,
+            REG_BG3PD => io.gpu.bg_aff[1].pd = value as i16,
             REG_WIN0H => io.gpu.win0h = value,
             REG_WIN1H => io.gpu.win1h = value,
             REG_WIN0V => io.gpu.win0v = value,
             REG_WIN1V => io.gpu.win1v = value,
             REG_WININ => io.gpu.winin = value,
             REG_WINOUT => io.gpu.winout = value,
-            REG_MOSAIC => io.gpu.mosaic = value,
-            REG_BLDCNT => io.gpu.bldcnt = value,
-            REG_BLDALPHA => io.gpu.bldalpha = value,
-            REG_BLDY => io.gpu.bldy = value,
+            REG_MOSAIC => io.gpu.mosaic.0 = value,
+            REG_BLDCNT => io.gpu.bldcnt.0 = value,
+            REG_BLDALPHA => io.gpu.bldalpha.0 = value,
+            REG_BLDY => io.gpu.bldy = value & 0b11111,
 
             REG_IME => io.intc.interrupt_master_enable = value != 0,
             REG_IE => io.intc.interrupt_enable.0 = value,
