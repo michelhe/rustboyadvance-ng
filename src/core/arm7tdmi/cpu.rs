@@ -413,7 +413,7 @@ impl Core {
         }
     }
 
-    /// Get's the address of the next instruction that is going to be executed
+    /// Gets the address of the next instruction that is going to be executed
     pub fn get_next_pc(&self) -> Addr {
         let insn_size = self.word_size() as u32;
         match self.pipeline_state {
