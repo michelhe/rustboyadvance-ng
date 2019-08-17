@@ -33,7 +33,6 @@ bitfield! {
     pub r, set_r: 4, 0;
     pub g, set_g: 9, 5;
     pub b, set_b: 14, 10;
-    pub is_transparent, _ : 15;
 }
 
 impl Rgb15 {
@@ -55,6 +54,10 @@ impl Rgb15 {
 
     pub fn get_rgb(&self) -> (u16, u16, u16) {
         (self.r(), self.g(), self.b())
+    }
+
+    pub fn is_transparent(&self) -> bool {
+        self.0 == 0x8000
     }
 }
 
