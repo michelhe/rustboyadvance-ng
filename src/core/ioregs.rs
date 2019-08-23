@@ -286,8 +286,18 @@ impl Bus for IoRegs {
     }
 
     fn write_8(&mut self, addr: Addr, value: u8) {
-        let t = self.read_16(addr);
-        self.write_16(addr, (t & 0xff) | ((value as u16) << 8));
+        if addr & 1 != 0 {
+            let addr = addr & !1;
+            let t = self.read_16(addr);
+            let upper = (value as u16);
+            let lower = t & 0xff;
+            self.write_16(addr, (upper << 8) | lower);
+        } else {
+            let t = self.read_16(addr);
+            let upper = t << 8;
+            let lower = (value as u16);
+            self.write_16(addr, (upper << 8) | lower);
+        }
     }
 }
 
