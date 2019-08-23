@@ -125,6 +125,12 @@ fn keycode_to_keypad(keycode: Keycode) -> Option<keypad::Keys> {
         Keycode::Down => Some(keypad::Keys::Down),
         Keycode::Left => Some(keypad::Keys::Left),
         Keycode::Right => Some(keypad::Keys::Right),
+        Keycode::Z => Some(keypad::Keys::ButtonB),
+        Keycode::X => Some(keypad::Keys::ButtonA),
+        Keycode::Return => Some(keypad::Keys::Start),
+        Keycode::Space => Some(keypad::Keys::Select),
+        Keycode::A => Some(keypad::Keys::ButtonL),
+        Keycode::S => Some(keypad::Keys::ButtonR),
         _ => None,
     }
 }
