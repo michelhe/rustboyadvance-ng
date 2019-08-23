@@ -6,10 +6,10 @@ use super::*;
 use crate::bitfield::Bit;
 use crate::num::FromPrimitive;
 
-mod blend;
 mod mosaic;
+mod sfx;
 
-mod regs;
+pub mod regs;
 pub use regs::*;
 
 pub const VRAM_ADDR: Addr = 0x0600_0000;
@@ -164,6 +164,42 @@ pub struct Bg {
     mosaic_first_row: Scanline,
 }
 
+#[derive(Debug, Default)]
+pub struct Window {
+    pub left: u8,
+    pub right: u8,
+    pub top: u8,
+    pub bottom: u8,
+    pub flags: WindowFlags,
+}
+
+impl Window {
+    pub fn inside(&self, x: usize, y: usize) -> bool {
+        let left = self.left as usize;
+        let mut right = self.right as usize;
+        let top = self.top as usize;
+        let mut bottom = self.bottom as usize;
+
+        if right > DISPLAY_WIDTH || right < left {
+            right = DISPLAY_WIDTH;
+        }
+        if bottom > DISPLAY_HEIGHT || bottom < top {
+            bottom = DISPLAY_HEIGHT;
+        }
+
+        (x >= left && x < right) && (y >= top && y < bottom)
+    }
+}
+
+#[derive(Debug)]
+pub enum WindowType {
+    Win0,
+    Win1,
+    WinObj,
+    WinOut,
+    WinNone,
+}
+
 #[derive(Debug, Default, Copy, Clone)]
 pub struct BgAffine {
     pub pa: i16, // dx
@@ -176,29 +212,28 @@ pub struct BgAffine {
 
 #[derive(Debug)]
 pub struct Gpu {
+    pub state: GpuState,
+    cycles: usize,
+
     // registers
+    pub current_scanline: usize, // VCOUNT
     pub dispcnt: DisplayControl,
     pub dispstat: DisplayStatus,
 
     pub bg: [Bg; 4],
     pub bg_aff: [BgAffine; 2],
 
-    pub win0h: u16,
-    pub win1h: u16,
-    pub win0v: u16,
-    pub win1v: u16,
-    pub winin: u16,
-    pub winout: u16,
+    pub win0: Window,
+    pub win1: Window,
+    pub winout_flags: WindowFlags,
+    pub winobj_flags: WindowFlags,
+
     pub mosaic: RegMosaic,
     pub bldcnt: BlendControl,
     pub bldalpha: BlendAlpha,
     pub bldy: u16,
 
-    cycles: usize,
-
     pub frame_buffer: FrameBuffer,
-    pub state: GpuState,
-    pub current_scanline: usize, // VCOUNT
 }
 
 impl Gpu {
@@ -208,12 +243,10 @@ impl Gpu {
             dispstat: DisplayStatus(0),
             bg: [Bg::default(); 4],
             bg_aff: [BgAffine::default(); 2],
-            win0h: 0,
-            win1h: 0,
-            win0v: 0,
-            win1v: 0,
-            winin: 0,
-            winout: 0,
+            win0: Window::default(),
+            win1: Window::default(),
+            winout_flags: WindowFlags::from(0),
+            winobj_flags: WindowFlags::from(0),
             mosaic: RegMosaic(0),
             bldcnt: BlendControl(0),
             bldalpha: BlendAlpha(0),
@@ -405,10 +438,10 @@ impl Gpu {
             _ => panic!("{:?} not supported", self.dispcnt.mode()),
         }
         self.mosaic_sfx();
-        let post_blend_line = self.blend_line(sb);
+        let post_sfx_line = self.composite_sfx(sb);
         for x in 0..DISPLAY_WIDTH {
             self.frame_buffer.0[x + self.current_scanline * DISPLAY_WIDTH] =
-                post_blend_line[x].to_rgb24();
+                post_sfx_line[x].to_rgb24();
         }
     }
 

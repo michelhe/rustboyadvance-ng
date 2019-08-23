@@ -3,6 +3,7 @@ use std::rc::Rc;
 
 use super::arm7tdmi::{Addr, Bus};
 use super::gba::IoDevices;
+use super::gpu::regs::WindowFlags;
 use super::keypad;
 use super::sysbus::BoxedMemory;
 
@@ -163,12 +164,16 @@ impl Bus for IoRegs {
             REG_BG1CNT => io.gpu.bg[1].bgcnt.0,
             REG_BG2CNT => io.gpu.bg[2].bgcnt.0,
             REG_BG3CNT => io.gpu.bg[3].bgcnt.0,
-            REG_WIN0H => io.gpu.win0h,
-            REG_WIN1H => io.gpu.win1h,
-            REG_WIN0V => io.gpu.win0v,
-            REG_WIN1V => io.gpu.win1v,
-            REG_WININ => io.gpu.winin,
-            REG_WINOUT => io.gpu.winout,
+            REG_WIN0H => ((io.gpu.win0.left as u16) << 8 | (io.gpu.win0.right as u16)),
+            REG_WIN1H => ((io.gpu.win1.left as u16) << 8 | (io.gpu.win1.right as u16)),
+            REG_WIN0V => ((io.gpu.win0.top as u16) << 8 | (io.gpu.win0.bottom as u16)),
+            REG_WIN1V => ((io.gpu.win1.top as u16) << 8 | (io.gpu.win1.bottom as u16)),
+            REG_WININ => {
+                ((io.gpu.win1.flags.bits() as u16) << 8) | (io.gpu.win0.flags.bits() as u16)
+            }
+            REG_WINOUT => {
+                ((io.gpu.winobj_flags.bits() as u16) << 8) | (io.gpu.winout_flags.bits() as u16)
+            }
             REG_BLDCNT => io.gpu.bldcnt.0,
             REG_BLDALPHA => io.gpu.bldalpha.0,
 
@@ -236,12 +241,38 @@ impl Bus for IoRegs {
             REG_BG3PB => io.gpu.bg_aff[1].pb = value as i16,
             REG_BG3PC => io.gpu.bg_aff[1].pc = value as i16,
             REG_BG3PD => io.gpu.bg_aff[1].pd = value as i16,
-            REG_WIN0H => io.gpu.win0h = value,
-            REG_WIN1H => io.gpu.win1h = value,
-            REG_WIN0V => io.gpu.win0v = value,
-            REG_WIN1V => io.gpu.win1v = value,
-            REG_WININ => io.gpu.winin = value,
-            REG_WINOUT => io.gpu.winout = value,
+            REG_WIN0H => {
+                let right = value & 0xff;
+                let left = value >> 8;
+                io.gpu.win0.right = right as u8;
+                io.gpu.win0.left = left as u8;
+            }
+            REG_WIN1H => {
+                let right = value & 0xff;
+                let left = value >> 8;
+                io.gpu.win1.right = right as u8;
+                io.gpu.win1.left = left as u8;
+            }
+            REG_WIN0V => {
+                let bottom = value & 0xff;
+                let top = value >> 8;
+                io.gpu.win0.bottom = bottom as u8;
+                io.gpu.win0.top = top as u8;
+            }
+            REG_WIN1V => {
+                let bottom = value & 0xff;
+                let top = value >> 8;
+                io.gpu.win1.bottom = bottom as u8;
+                io.gpu.win1.top = top as u8;
+            }
+            REG_WININ => {
+                io.gpu.win0.flags = WindowFlags::from(value & 0xff);
+                io.gpu.win1.flags = WindowFlags::from(value >> 8);
+            }
+            REG_WINOUT => {
+                io.gpu.winout_flags = WindowFlags::from(value & 0xff);
+                io.gpu.winobj_flags = WindowFlags::from(value >> 8);
+            }
             REG_MOSAIC => io.gpu.mosaic.0 = value,
             REG_BLDCNT => io.gpu.bldcnt.0 = value,
             REG_BLDALPHA => io.gpu.bldalpha.0 = value,

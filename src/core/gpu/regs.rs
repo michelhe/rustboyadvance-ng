@@ -1,4 +1,4 @@
-use super::blend::BldMode;
+use super::sfx::BldMode;
 use super::*;
 
 pub const SCREEN_BLOCK_SIZE: u32 = 0x800;
@@ -6,6 +6,9 @@ pub const SCREEN_BLOCK_SIZE: u32 = 0x800;
 impl DisplayControl {
     pub fn disp_bg(&self, bg: usize) -> bool {
         self.0.bit(8 + bg)
+    }
+    pub fn is_using_windows(&self) -> bool {
+        self.disp_window0() || self.disp_window1() || self.disp_obj_window()
     }
 }
 
@@ -106,6 +109,7 @@ bitfield! {
 }
 
 bitflags! {
+    #[derive(Default)]
     pub struct BlendFlags: u32 {
         const BG0 = 0b00000001;
         const BG1 = 0b00000010;
@@ -122,12 +126,18 @@ impl From<u16> for BlendFlags {
     }
 }
 
-pub const BG_LAYER_FLAG: [BlendFlags; 4] = [
-    BlendFlags::BG0,
-    BlendFlags::BG1,
-    BlendFlags::BG2,
-    BlendFlags::BG3,
-];
+impl BlendFlags {
+    const BG_LAYER_FLAG: [BlendFlags; 4] = [
+        BlendFlags::BG0,
+        BlendFlags::BG1,
+        BlendFlags::BG2,
+        BlendFlags::BG3,
+    ];
+
+    pub fn from_bg(bg: usize) -> BlendFlags {
+        Self::BG_LAYER_FLAG[bg]
+    }
+}
 
 bitfield! {
     #[derive(Default, Copy, Clone)]
@@ -145,4 +155,47 @@ bitfield! {
     u16;
     pub eva, _: 5, 0;
     pub evb, _: 12, 8;
+}
+
+bitflags! {
+    #[derive(Default)]
+    pub struct WindowFlags: u32 {
+        const BG0 = 0b00000001;
+        const BG1 = 0b00000010;
+        const BG2 = 0b00000100;
+        const BG3 = 0b00001000;
+        const OBJ = 0b00010000;
+        const SFX = 0b00100000;
+    }
+}
+
+impl From<u16> for WindowFlags {
+    fn from(v: u16) -> WindowFlags {
+        WindowFlags::from_bits(v as u32).unwrap()
+    }
+}
+
+impl WindowFlags {
+    pub fn sfx_enabled(&self) -> bool {
+        self.contains(WindowFlags::SFX)
+    }
+    pub fn bg_enabled(&self, bg: usize) -> bool {
+        self.contains(BG_WIN_FLAG[bg])
+    }
+}
+
+const BG_WIN_FLAG: [WindowFlags; 4] = [
+    WindowFlags::BG0,
+    WindowFlags::BG1,
+    WindowFlags::BG2,
+    WindowFlags::BG3,
+];
+
+bitfield! {
+    #[derive(Default, Copy, Clone)]
+    pub struct WindowReg(u16);
+    impl Debug;
+    u16;
+    pub into WindowFlags, lower, _: 5, 0;
+    pub into WindowFlags, upper, _: 13, 8;
 }
