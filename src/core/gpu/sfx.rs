@@ -50,6 +50,15 @@ impl Gpu {
         // TODO - only BGs are supported, don't forget OBJs
         // priorities are 0-4 when 0 is the highest
         'outer: for priority in 0..4 {
+            if bflags.contains(BlendFlags::OBJ)
+                && wflags.contains(WindowFlags::OBJ)
+                && !self.obj_line[screen_x].is_transparent()
+            {
+                return Some(Layer {
+                    color: self.obj_line[screen_x],
+                    blend_flag: BlendFlags::OBJ,
+                });
+            }
             for bg in 0..4 {
                 let c = self.bg[bg].line[screen_x];
                 let bflag = BlendFlags::from_bg(bg);
@@ -138,8 +147,8 @@ impl Gpu {
         None
     }
 
-    pub fn composite_sfx(&self, sb: &SysBus) -> Scanline {
-        let mut line = Scanline::default();
+    pub fn composite_sfx(&self, sb: &SysBus) -> Scanline<Rgb15> {
+        let mut line: Scanline<Rgb15> = Scanline::default();
         let y = self.current_scanline;
         for x in 0..DISPLAY_WIDTH {
             let window = self.get_active_window_type(x, y);

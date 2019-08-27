@@ -3,12 +3,25 @@ use super::*;
 
 pub const SCREEN_BLOCK_SIZE: u32 = 0x800;
 
+#[derive(Debug, PartialEq)]
+pub enum ObjMapping {
+    TwoDimension,
+    OneDimension,
+}
+
 impl DisplayControl {
     pub fn disp_bg(&self, bg: usize) -> bool {
         self.0.bit(8 + bg)
     }
     pub fn is_using_windows(&self) -> bool {
         self.disp_window0() || self.disp_window1() || self.disp_obj_window()
+    }
+    pub fn obj_mapping(&self) -> ObjMapping {
+        if self.obj_character_vram_mapping() {
+            ObjMapping::OneDimension
+        } else {
+            ObjMapping::TwoDimension
+        }
     }
 }
 
@@ -55,7 +68,7 @@ bitfield! {
     pub struct DisplayControl(u16);
     impl Debug;
     u16;
-    pub into BGMode, mode, set_mode: 2, 0;
+    pub mode, set_mode: 2, 0;
     pub display_frame, set_display_frame: 4, 4;
     pub hblank_interval_free, _: 5;
     pub obj_character_vram_mapping, _: 6;

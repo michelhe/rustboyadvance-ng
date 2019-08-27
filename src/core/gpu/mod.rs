@@ -7,6 +7,7 @@ use crate::bitfield::Bit;
 use crate::num::FromPrimitive;
 
 mod mosaic;
+mod obj;
 mod sfx;
 
 pub mod regs;
@@ -23,11 +24,11 @@ const CYCLES_SCANLINE: usize = 1232;
 const CYCLES_VDRAW: usize = 197120;
 const CYCLES_VBLANK: usize = 83776;
 
-const TILE_SIZE: u32 = 0x20;
+pub const TILE_SIZE: u32 = 0x20;
 
 // TODO - remove the one in palette.rs
 bitfield! {
-    #[derive(Copy, Clone, Default)]
+    #[derive(Copy, Clone, Default, PartialEq)]
     pub struct Rgb15(u16);
     impl Debug;
     pub r, set_r: 4, 0;
@@ -65,22 +66,6 @@ impl Rgb15 {
 pub enum PixelFormat {
     BPP4 = 0,
     BPP8 = 1,
-}
-
-#[derive(Debug, Primitive, Clone, Copy)]
-pub enum BGMode {
-    BGMode0 = 0,
-    BGMode1 = 1,
-    BGMode2 = 2,
-    BGMode3 = 3,
-    BGMode4 = 4,
-    BGMode5 = 5,
-}
-
-impl From<u16> for BGMode {
-    fn from(v: u16) -> BGMode {
-        BGMode::from_u16(v).unwrap()
-    }
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -122,32 +107,28 @@ impl std::ops::IndexMut<usize> for FrameBuffer {
 }
 
 #[derive(Copy, Clone)]
-pub struct Scanline([Rgb15; DISPLAY_WIDTH]);
+pub struct Scanline<T>([T; DISPLAY_WIDTH]);
 
-impl Default for Scanline {
-    fn default() -> Scanline {
-        Scanline([Rgb15(0); DISPLAY_WIDTH])
+impl Default for Scanline<Rgb15> {
+    fn default() -> Scanline<Rgb15> {
+        Scanline([Rgb15::TRANSPARENT; DISPLAY_WIDTH])
     }
 }
 
-impl fmt::Debug for Scanline {
+impl<T> fmt::Debug for Scanline<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Scanline: ")?;
-        for i in 0..6 {
-            write!(f, "#{:06x}, ", self[i].0)?;
-        }
         write!(f, "...")
     }
 }
 
-impl std::ops::Index<usize> for Scanline {
-    type Output = Rgb15;
+impl<T> std::ops::Index<usize> for Scanline<T> {
+    type Output = T;
     fn index(&self, index: usize) -> &Self::Output {
         &self.0[index]
     }
 }
 
-impl std::ops::IndexMut<usize> for Scanline {
+impl<T> std::ops::IndexMut<usize> for Scanline<T> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.0[index]
     }
@@ -158,10 +139,10 @@ pub struct Bg {
     pub bgcnt: BgControl,
     pub bgvofs: u16,
     pub bghofs: u16,
-    line: Scanline,
+    line: Scanline<Rgb15>,
 
     // for mosaic
-    mosaic_first_row: Scanline,
+    mosaic_first_row: Scanline<Rgb15>,
 }
 
 #[derive(Debug, Default)]
@@ -233,6 +214,7 @@ pub struct Gpu {
     pub bldalpha: BlendAlpha,
     pub bldy: u16,
 
+    pub obj_line: Scanline<Rgb15>,
     pub frame_buffer: FrameBuffer,
 }
 
@@ -255,6 +237,7 @@ impl Gpu {
             state: HDraw,
             current_scanline: 0,
             cycles: 0,
+            obj_line: Scanline::default(),
             frame_buffer: FrameBuffer([0; DISPLAY_WIDTH * DISPLAY_HEIGHT]),
         }
     }
@@ -282,11 +265,20 @@ impl Gpu {
         }
     }
 
-    pub fn get_palette_color(&self, sb: &SysBus, index: u32, palette_index: u32) -> Rgb15 {
+    pub fn get_palette_color(
+        &self,
+        sb: &SysBus,
+        index: u32,
+        palette_index: u32,
+        offset: u32,
+    ) -> Rgb15 {
         if index == 0 || (palette_index != 0 && index % 16 == 0) {
             return Rgb15::TRANSPARENT;
         }
-        Rgb15(sb.palette_ram.read_16(2 * index + 0x20 * palette_index))
+        Rgb15(
+            sb.palette_ram
+                .read_16(offset + 2 * index + 0x20 * palette_index),
+        )
     }
 
     fn render_pixel(&mut self, x: i32, y: i32, p: Rgb15) {
@@ -315,7 +307,7 @@ impl Gpu {
         // |    [0]    |  [0][1]   |     [0]     |  [0][1]   |
         // |___________|___________|_____________|___________|
         //
-        let mut screen_block = match (bg_width, bg_height) {
+        let mut sbb = match (bg_width, bg_height) {
             (256, 256) => 0,
             (512, 256) => bg_x / 256,
             (256, 512) => bg_y / 256,
@@ -331,14 +323,13 @@ impl Gpu {
         let tile_py = (bg_y % 8) as u32;
 
         loop {
-            let mut map_addr = tilemap_base
-                + SCREEN_BLOCK_SIZE * screen_block
-                + 2 * index2d!(u32, se_row, se_column, 32);
+            let mut map_addr =
+                tilemap_base + SCREEN_BLOCK_SIZE * sbb + 2 * index2d!(u32, se_row, se_column, 32);
             for _ in se_row..32 {
                 let entry = TileMapEntry(sb.vram.read_16(map_addr - VRAM_ADDR));
                 let tile_addr = tileset_base + entry.tile_index() * tile_size;
 
-                for tile_px in start_tile_x..=7 {
+                for tile_px in start_tile_x..8 {
                     let index = self.read_pixel_index(
                         sb,
                         tile_addr,
@@ -350,7 +341,7 @@ impl Gpu {
                         PixelFormat::BPP4 => entry.palette_bank() as u32,
                         PixelFormat::BPP8 => 0u32,
                     };
-                    let color = self.get_palette_color(sb, index as u32, palette_bank);
+                    let color = self.get_palette_color(sb, index as u32, palette_bank, 0);
                     self.bg[bg].line[screen_x as usize] = color;
                     screen_x += 1;
                     if (DISPLAY_WIDTH as u32) == screen_x {
@@ -362,7 +353,7 @@ impl Gpu {
             }
             se_row = 0;
             if bg_width == 512 {
-                screen_block = screen_block ^ 1;
+                sbb = sbb ^ 1;
             }
         }
     }
@@ -395,7 +386,7 @@ impl Gpu {
             let bitmap_index = index2d!(x, y, DISPLAY_WIDTH);
             let bitmap_ofs = page_ofs + (bitmap_index as u32);
             let index = sb.vram.read_8(bitmap_ofs as Addr) as u32;
-            let color = self.get_palette_color(sb, index, 0);
+            let color = self.get_palette_color(sb, index, 0, 0);
             self.bg[bg].line[x] = color;
         }
     }
@@ -403,14 +394,14 @@ impl Gpu {
     pub fn render_scanline(&mut self, sb: &mut SysBus) {
         // TODO - also render objs
         match self.dispcnt.mode() {
-            BGMode::BGMode0 => {
+            0 => {
                 for bg in 0..3 {
                     if self.dispcnt.disp_bg(bg) {
                         self.scanline_reg_bg(bg, sb);
                     }
                 }
             }
-            BGMode::BGMode1 => {
+            1 => {
                 if self.dispcnt.disp_bg(2) {
                     self.scanline_aff_bg(2, sb);
                 }
@@ -421,7 +412,7 @@ impl Gpu {
                     self.scanline_reg_bg(0, sb);
                 }
             }
-            BGMode::BGMode2 => {
+            2 => {
                 if self.dispcnt.disp_bg(3) {
                     self.scanline_aff_bg(3, sb);
                 }
@@ -429,13 +420,16 @@ impl Gpu {
                     self.scanline_aff_bg(2, sb);
                 }
             }
-            BGMode::BGMode3 => {
+            3 => {
                 self.scanline_mode3(2, sb);
             }
-            BGMode::BGMode4 => {
+            4 => {
                 self.scanline_mode4(2, sb);
             }
             _ => panic!("{:?} not supported", self.dispcnt.mode()),
+        }
+        if self.dispcnt.disp_obj() {
+            self.render_objs(sb);
         }
         self.mosaic_sfx();
         let post_sfx_line = self.composite_sfx(sb);
