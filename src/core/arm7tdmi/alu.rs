@@ -324,8 +324,8 @@ impl Core {
             RSB => Self::alu_sub_flags(op2, op1, &mut carry, &mut overflow),
             ADD | CMN => Self::alu_add_flags(op1, op2, &mut carry, &mut overflow),
             ADC => Self::alu_add_flags(op1, op2.wrapping_add(C), &mut carry, &mut overflow),
-            SBC => Self::alu_sub_flags(op1, op2, &mut carry, &mut overflow).wrapping_sub(1 - C),
-            RSC => Self::alu_sub_flags(op2, op1, &mut carry, &mut overflow).wrapping_sub(1 - C),
+            SBC => Self::alu_sub_flags(op1, op2.wrapping_add(1 - C), &mut carry, &mut overflow),
+            RSC => Self::alu_sub_flags(op2, op1.wrapping_add(1 - C), &mut carry, &mut overflow),
             ORR => op1 | op2,
             MOV => op2,
             BIC => op1 & (!op2),
@@ -334,9 +334,11 @@ impl Core {
 
         self.cpsr.set_N(result < 0);
         self.cpsr.set_Z(result == 0);
-        self.cpsr.set_C(carry);
         if opcode.is_arithmetic() {
+            self.cpsr.set_C(carry);
             self.cpsr.set_V(overflow);
+        } else {
+            self.cpsr.set_C(self.bs_carry_out)
         }
 
         if opcode.is_setting_flags() {
