@@ -47,12 +47,12 @@ impl Gpu {
         bflags: BlendFlags,
         wflags: WindowFlags,
     ) -> Option<Layer> {
-        // TODO - only BGs are supported, don't forget OBJs
         // priorities are 0-4 when 0 is the highest
         'outer: for priority in 0..4 {
             if bflags.contains(BlendFlags::OBJ)
                 && wflags.contains(WindowFlags::OBJ)
                 && !self.obj_line[screen_x].is_transparent()
+                && self.obj_line_priorities[screen_x] == priority
             {
                 return Some(Layer {
                     color: self.obj_line[screen_x],

@@ -96,6 +96,7 @@ impl Gpu {
         let screen_y = self.current_scanline;
         // reset the scanline
         self.obj_line = Scanline::default();
+        self.obj_line_priorities = Scanline([3; DISPLAY_WIDTH]);
         for obj_num in (0..128).rev() {
             let obj = read_obj_attrs(sb, obj_num);
             if obj.is_hidden() {
@@ -140,6 +141,9 @@ impl Gpu {
                 if screen_x > DISPLAY_WIDTH {
                     break;
                 }
+                if self.obj_line_priorities[screen_x] < obj.2.priority() {
+                    continue;
+                }
                 let mut sprite_y = screen_y - obj_y;
                 let mut sprite_x = screen_x - obj_x;
                 if (!is_affine) {
@@ -169,8 +173,8 @@ impl Gpu {
                 let pixel_color =
                     self.get_palette_color(sb, pixel_index as u32, palette_bank, PALRAM_OFS_FG);
                 if pixel_color != Rgb15::TRANSPARENT {
-                    // TODO - handle priority
                     self.obj_line[screen_x] = pixel_color;
+                    self.obj_line_priorities[screen_x] = obj.2.priority();
                 }
             }
         }

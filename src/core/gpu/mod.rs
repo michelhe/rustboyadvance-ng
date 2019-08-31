@@ -215,6 +215,7 @@ pub struct Gpu {
     pub bldy: u16,
 
     pub obj_line: Scanline<Rgb15>,
+    pub obj_line_priorities: Scanline<u16>,
     pub frame_buffer: FrameBuffer,
 }
 
@@ -238,6 +239,7 @@ impl Gpu {
             current_scanline: 0,
             cycles: 0,
             obj_line: Scanline::default(),
+            obj_line_priorities: Scanline([3; DISPLAY_WIDTH]),
             frame_buffer: FrameBuffer([0; DISPLAY_WIDTH * DISPLAY_HEIGHT]),
         }
     }
