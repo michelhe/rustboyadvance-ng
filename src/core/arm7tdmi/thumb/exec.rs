@@ -1,5 +1,6 @@
 use crate::core::arm7tdmi::bus::Bus;
 use crate::core::arm7tdmi::cpu::{Core, CpuExecResult};
+use crate::core::arm7tdmi::alu::AluOpCode;
 use crate::core::arm7tdmi::*;
 use crate::core::sysbus::SysBus;
 
@@ -98,7 +99,11 @@ impl Core {
         let rd = insn.rd();
 
         let (arm_alu_op, shft) = insn.alu_opcode();
-        let op1 = self.get_reg(rd) as i32;
+        let op1 = if arm_alu_op == AluOpCode::RSB {
+            self.get_reg(insn.rs()) as i32
+        } else {
+            self.get_reg(rd) as i32
+        };
         let op2 = if let Some(shft) = shft {
             self.get_barrel_shifted_value(shft)
         } else {
