@@ -101,13 +101,11 @@ impl SyncedIoDevice for Timers {
             if self[i].timer_ctl.enabled() && !self[i].timer_ctl.cascade() {
                 match self[i].add_cycles(cycles, irqs) {
                     TimerAction::Overflow(num_overflows) => {
-                        println!("timer{} overflowed {} times", i, num_overflows);
                         match i {
                             3 => {}
                             _ => {
                                 let next_i = i + 1;
                                 if self[next_i].timer_ctl.cascade() {
-                                    println!("cascading into timer{}", next_i);
                                     self[next_i].add_cycles(num_overflows, irqs);
                                 }
                             }
