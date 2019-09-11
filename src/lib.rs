@@ -18,6 +18,8 @@ extern crate nom;
 extern crate ansi_term;
 extern crate colored; // not needed in Rust 2018
 
+extern crate zip;
+
 #[macro_use]
 pub mod util;
 pub mod backend;

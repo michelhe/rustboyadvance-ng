@@ -4,8 +4,6 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use super::arm7tdmi::{bus::Bus, Addr};
 
-use crate::util::read_bin_file;
-
 /// From GBATEK
 ///
 /// The first 192 bytes at 8000000h-80000BFh in ROM are used as cartridge header. The same header is also used for Multiboot images at 2000000h-20000BFh (plus some additional multiboot entries at 20000C0h and up).
@@ -74,17 +72,16 @@ pub struct Cartridge {
 impl Cartridge {
     const MIN_SIZE: usize = 4 * 1024 * 1024;
 
-    pub fn load(path: &str) -> Result<Cartridge, ::std::io::Error> {
-        let mut rom_bin = read_bin_file(path)?;
+    pub fn new(mut rom_bin: Vec<u8>) -> Cartridge {
         if rom_bin.len() < Cartridge::MIN_SIZE {
             rom_bin.resize_with(Cartridge::MIN_SIZE, Default::default);
         }
 
         let header = CartridgeHeader::parse(&rom_bin);
-        Ok(Cartridge {
+        Cartridge {
             header: header,
             bytes: rom_bin.into_boxed_slice(),
-        })
+        }
     }
 }
 

@@ -1,7 +1,13 @@
 use std::time;
+use std::fs::File;
+use std::path::Path;
+use std::ffi::OsStr;
+use std::io::prelude::*;
 
 #[macro_use]
 extern crate clap;
+
+extern crate zip;
 
 use clap::{App, ArgMatches};
 
@@ -10,19 +16,35 @@ extern crate rustboyadvance_ng;
 use rustboyadvance_ng::backend::*;
 use rustboyadvance_ng::core::arm7tdmi::Core;
 use rustboyadvance_ng::core::cartridge::Cartridge;
-use rustboyadvance_ng::core::{GBAResult, GameBoyAdvance};
+use rustboyadvance_ng::core::{GBAError, GBAResult, GameBoyAdvance};
 use rustboyadvance_ng::debugger::Debugger;
 use rustboyadvance_ng::util::read_bin_file;
 
+
+fn load_rom(path: &str) -> GBAResult<Vec<u8>> {
+    if path.ends_with(".zip") {
+        let zipfile = File::open(path)?;
+        let mut archive = zip::ZipArchive::new(zipfile)?;
+        for i in 0..archive.len()
+        {
+            let mut file = archive.by_index(i)?;
+            if file.name().ends_with(".gba") {
+                let mut buf = Vec::new();
+                file.read_to_end(&mut buf)?;
+                return Ok(buf);
+            }
+        }
+        panic!("no .gba file contained in the zip file");
+    } else {
+        let buf = read_bin_file(path)?;
+        Ok(buf)
+    }
+}
+
 fn run_emulator(matches: &ArgMatches) -> GBAResult<()> {
-    let skip_bios = match matches.occurrences_of("skip_bios") {
-        0 => false,
-        _ => true,
-    };
-    let debug = match matches.occurrences_of("debug") {
-        0 => false,
-        _ => true,
-    };
+    let skip_bios = matches.occurrences_of("skip_bios") != 0;
+    let no_framerate_limit = matches.occurrences_of("no_framerate_limit") != 0;
+    let debug = matches.occurrences_of("debug") != 0;
 
     let backend: Box<EmulatorBackend> = match matches.value_of("backend") {
         Some("sdl2") => Box::new(Sdl2Backend::new()),
@@ -34,8 +56,9 @@ fn run_emulator(matches: &ArgMatches) -> GBAResult<()> {
 
     let bios_bin = read_bin_file(matches.value_of("bios").unwrap_or_default())?;
 
-    let gamepak = Cartridge::load(matches.value_of("game_rom").unwrap())?;
-    println!("loaded rom: {:#?}", gamepak.header);
+    let rom_bin = load_rom(matches.value_of("game_rom").unwrap())?;
+    let cart = Cartridge::new(rom_bin);
+    println!("loaded rom: {:#?}", cart.header);
 
     let mut core = Core::new();
     if skip_bios {
@@ -52,7 +75,7 @@ fn run_emulator(matches: &ArgMatches) -> GBAResult<()> {
         core.cpsr.set(0x5f);
     }
 
-    let mut gba = GameBoyAdvance::new(core, bios_bin, gamepak, backend);
+    let mut gba = GameBoyAdvance::new(core, bios_bin, cart, backend);
 
     if debug {
         gba.cpu.set_verbose(true);
@@ -67,7 +90,9 @@ fn run_emulator(matches: &ArgMatches) -> GBAResult<()> {
             gba.frame();
             let time_passed = start_time.elapsed();
             if time_passed <= frame_time {
-                ::std::thread::sleep(frame_time - time_passed);
+                if !no_framerate_limit {
+                    ::std::thread::sleep(frame_time - time_passed);
+                }
             }
         }
     }

@@ -16,6 +16,8 @@ pub mod timer;
 
 use crate::debugger;
 
+use zip;
+
 pub trait SyncedIoDevice {
     fn step(&mut self, cycles: usize, sb: &mut SysBus, irqs: &mut IrqBitmask);
 }
@@ -44,5 +46,11 @@ impl From<arm7tdmi::CpuError> for GBAError {
 impl From<debugger::DebuggerError> for GBAError {
     fn from(err: debugger::DebuggerError) -> GBAError {
         GBAError::DebuggerError(err)
+    }
+}
+
+impl From<zip::result::ZipError> for GBAError {
+    fn from(err: zip::result::ZipError) -> GBAError {
+        GBAError::IO(::std::io::Error::from(::std::io::ErrorKind::InvalidInput))
     }
 }

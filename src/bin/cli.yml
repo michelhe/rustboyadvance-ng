@@ -16,6 +16,9 @@ args:
     - skip_bios:
         long: skip-bios
         help: Skip running bios and start from the ROM instead
+    - no_framerate_limit:
+        long: no-framerate-limit
+        help: Run without frame limiter
     - backend:
         long: backend
         takes_value: true
