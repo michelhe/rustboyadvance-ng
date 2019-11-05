@@ -41,3 +41,6 @@ You know what they say, *third time's a charm*.
 - [GBATEK](http://problemkaputt.de/gbatek.htm)
     A single webpage written by *no$gba* developer  Martin Korth.
     This page has pretty much everything. Seriously, it's the best.
+- [NanoboyAdvance](https://github.com/fleroviux/NanoboyAdvance)]
+    A GameBoy Advance emulator written in C++17 by a nice person called fleroviux.
+    I've used this emulator to search for a tough bug in mine.
