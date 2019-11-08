@@ -43,8 +43,6 @@ pub enum ThumbFormat {
     AddSub,
     /// Format 3
     DataProcessImm,
-    /// Belongs to Format 4, but decoded seperatly because AluOpCode doesn't have MUL
-    Mul,
     /// Format 4
     AluOps,
     /// Format 5
@@ -98,8 +96,6 @@ impl InstructionDecoder for ThumbInstruction {
             Ok(MoveShiftedReg)
         } else if raw & 0xe000 == 0x2000 {
             Ok(DataProcessImm)
-        } else if raw & 0xffc0 == 0x4340 {
-            Ok(Mul)
         } else if raw & 0xfc00 == 0x4000 {
             Ok(AluOps)
         } else if raw & 0xfc00 == 0x4400 {
@@ -183,6 +179,43 @@ pub enum OpFormat5 {
     BX = 3,
 }
 
+#[derive(Debug, Primitive, PartialEq)]
+pub enum ThumbAluOps {
+    AND = 0b0000,
+    EOR = 0b0001,
+    LSL = 0b0010,
+    LSR = 0b0011,
+    ASR = 0b0100,
+    ADC = 0b0101,
+    SBC = 0b0110,
+    ROR = 0b0111,
+    TST = 0b1000,
+    NEG = 0b1001,
+    CMP = 0b1010,
+    CMN = 0b1011,
+    ORR = 0b1100,
+    MUL = 0b1101,
+    BIC = 0b1110,
+    MVN = 0b1111,
+}
+
+impl ThumbAluOps {
+    pub fn is_setting_flags(&self) -> bool {
+        use ThumbAluOps::*;
+        match self {
+            TST | CMP | CMN => true,
+            _ => false,
+        }
+    }
+    pub fn is_arithmetic(&self) -> bool {
+        use ThumbAluOps::*;
+        match self {
+            ADC | SBC | NEG | CMP | CMN => true,
+            _ => false,
+        }
+    }
+}
+
 impl From<OpFormat5> for AluOpCode {
     fn from(op: OpFormat5) -> AluOpCode {
         match op {
@@ -245,49 +278,8 @@ impl ThumbInstruction {
         OpFormat5::from_u8(self.raw.bit_range(8..10) as u8).unwrap()
     }
 
-    pub fn alu_opcode(&self) -> (AluOpCode, Option<BarrelShifterValue>) {
-        use ShiftRegisterBy::*;
-        match self.raw.bit_range(6..10) {
-            0b0010 => (
-                AluOpCode::MOV,
-                Some(BarrelShifterValue::ShiftedRegister(ShiftedRegister {
-                    reg: self.rd(),
-                    shift_by: ByRegister(self.rs()),
-                    bs_op: BarrelShiftOpCode::LSL,
-                    added: Some(true),
-                })),
-            ),
-            0b0011 => (
-                AluOpCode::MOV,
-                Some(BarrelShifterValue::ShiftedRegister(ShiftedRegister {
-                    reg: self.rd(),
-                    shift_by: ByRegister(self.rs()),
-                    bs_op: BarrelShiftOpCode::LSR,
-                    added: Some(true),
-                })),
-            ),
-            0b0100 => (
-                AluOpCode::MOV,
-                Some(BarrelShifterValue::ShiftedRegister(ShiftedRegister {
-                    reg: self.rd(),
-                    shift_by: ByRegister(self.rs()),
-                    bs_op: BarrelShiftOpCode::ASR,
-                    added: Some(true),
-                })),
-            ),
-            0b0111 => (
-                AluOpCode::MOV,
-                Some(BarrelShifterValue::ShiftedRegister(ShiftedRegister {
-                    reg: self.rd(),
-                    shift_by: ByRegister(self.rs()),
-                    bs_op: BarrelShiftOpCode::ROR,
-                    added: Some(true),
-                })),
-            ),
-            0b1001 => (AluOpCode::RSB, Some(BarrelShifterValue::ImmediateValue(0))),
-            0b1101 => panic!("tried to decode MUL"),
-            op => (AluOpCode::from_u16(op).unwrap(), None),
-        }
+    pub fn format4_alu_op(&self) -> ThumbAluOps {
+        ThumbAluOps::from_u16(self.raw.bit_range(6..10)).unwrap()
     }
 
     pub fn offset5(&self) -> i8 {

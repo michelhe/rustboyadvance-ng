@@ -84,6 +84,20 @@ impl BarrelShifterValue {
         }
         None
     }
+    pub fn shifted_register(
+        reg: usize,
+        shift_by: ShiftRegisterBy,
+        bs_op: BarrelShiftOpCode,
+        added: Option<bool>,
+    ) -> BarrelShifterValue {
+        let shft_reg = ShiftedRegister {
+            reg,
+            shift_by,
+            bs_op,
+            added,
+        };
+        BarrelShifterValue::ShiftedRegister(shft_reg)
+    }
 }
 
 impl Core {
@@ -272,7 +286,7 @@ impl Core {
         }
     }
 
-    fn alu_sub_flags(a: i32, b: i32, carry: &mut bool, overflow: &mut bool) -> i32 {
+    pub fn alu_sub_flags(a: i32, b: i32, carry: &mut bool, overflow: &mut bool) -> i32 {
         let res = a.wrapping_sub(b);
         *carry = (b as u32) <= (a as u32);
         let (_, would_overflow) = a.overflowing_sub(b);
@@ -280,7 +294,7 @@ impl Core {
         res
     }
 
-    fn alu_add_flags(a: i32, b: i32, carry: &mut bool, overflow: &mut bool) -> i32 {
+    pub fn alu_add_flags(a: i32, b: i32, carry: &mut bool, overflow: &mut bool) -> i32 {
         let res = a.wrapping_add(b) as u32;
         *carry = res < a as u32 || res < b as u32;
         let (_, would_overflow) = a.overflowing_add(b);
@@ -288,63 +302,10 @@ impl Core {
         res as i32
     }
 
-    #[allow(non_snake_case)]
-    pub fn alu(&mut self, opcode: AluOpCode, op1: i32, op2: i32) -> i32 {
-        use AluOpCode::*;
-        let C = self.cpsr.C() as i32;
-
-        match opcode {
-            AND => op1 & op2,
-            EOR => op1 ^ op2,
-            SUB => op1.wrapping_sub(op2),
-            RSB => op2.wrapping_sub(op1),
-            ADD => op1.wrapping_add(op2),
-            ADC => op1.wrapping_add(op2).wrapping_add(C),
-            SBC => op1.wrapping_sub(op2.wrapping_add(1 - C)),
-            RSC => op2.wrapping_sub(op1.wrapping_add(1 - C)),
-            ORR => op1 | op2,
-            MOV => op2,
-            BIC => op1 & (!op2),
-            MVN => !op2,
-            _ => panic!("{} should be a PSR transfer", opcode),
-        }
-    }
-
-    #[allow(non_snake_case)]
-    pub fn alu_flags(&mut self, opcode: AluOpCode, op1: i32, op2: i32) -> Option<i32> {
-        use AluOpCode::*;
-        let mut carry = self.bs_carry_out;
-        let C = self.cpsr.C() as i32;
-        let mut overflow = self.cpsr.V();
-
-        let result = match opcode {
-            AND | TST => op1 & op2,
-            EOR | TEQ => op1 ^ op2,
-            SUB | CMP => Self::alu_sub_flags(op1, op2, &mut carry, &mut overflow),
-            RSB => Self::alu_sub_flags(op2, op1, &mut carry, &mut overflow),
-            ADD | CMN => Self::alu_add_flags(op1, op2, &mut carry, &mut overflow),
-            ADC => Self::alu_add_flags(op1, op2.wrapping_add(C), &mut carry, &mut overflow),
-            SBC => Self::alu_sub_flags(op1, op2.wrapping_add(1 - C), &mut carry, &mut overflow),
-            RSC => Self::alu_sub_flags(op2, op1.wrapping_add(1 - C), &mut carry, &mut overflow),
-            ORR => op1 | op2,
-            MOV => op2,
-            BIC => op1 & (!op2),
-            MVN => !op2,
-        };
-
+    pub fn alu_update_flags(&mut self, result: i32, is_arithmetic: bool, c: bool, v: bool) {
         self.cpsr.set_N(result < 0);
         self.cpsr.set_Z(result == 0);
-        if opcode.is_arithmetic() {
-            self.cpsr.set_C(carry);
-            self.cpsr.set_V(overflow);
-        } else {
-            self.cpsr.set_C(self.bs_carry_out)
-        }
-
-        if opcode.is_setting_flags() {
-            None
-        } else {
-            Some(result)
-        }
+        self.cpsr.set_C(c);
+        self.cpsr.set_V(v);
     }
 }

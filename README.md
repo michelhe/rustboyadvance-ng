@@ -2,19 +2,15 @@
 
 [![Build Status](https://travis-ci.com/michelhe/rustboyadvance-ng.svg?branch=master)](https://travis-ci.com/michelhe/rustboyadvance-ng)
 
-RustBoyAdvance-NG aims to be a Nintendo GameBoy Advance emulator and debugger, written in the rust programming language.
+RustBoyAdvance-NG Nintendo GameBoy Advance emulator and debugger, written in the rust programming language.
 
-RustBoyAdvance-NG currently has implemented
-  - Dumbed-down ARM/THUMB mode disassembling
-  - Some ARM/THUMB instruction are implemented, but not all of them.
-  - A neat debugger REPL
+Currently passing armwrestler tests, and displays some of TONC's Demos.
 
-But the way for full emulation is way far ahead, because most of the ARM/THUMB instructions are not yet implemented.
+![TONC bigmap.gba demo ](img/tonc_bigmap_demo.gif)
 
 # Using the REPL
 
 You need to have rust installed, and somehow legally obtain a gba bios binary.
-Currently to test the debugger, any binary file containing arm mode instructions will do.
 
 ```bash
 $ cargo run -- debug
@@ -41,6 +37,11 @@ You know what they say, *third time's a charm*.
 - [GBATEK](http://problemkaputt.de/gbatek.htm)
     A single webpage written by *no$gba* developer  Martin Korth.
     This page has pretty much everything. Seriously, it's the best.
-- [NanoboyAdvance](https://github.com/fleroviux/NanoboyAdvance)]
+- [TONC](https://www.coranac.com/tonc/text/)
+    A comprehensive GBA dev guide that I used a-lot in order to understand the GBA system.
+    Comes with neat demo roms that really helped me during development and debugging.
+- [NanoboyAdvance](https://github.com/fleroviux/NanoboyAdvance)
     A GameBoy Advance emulator written in C++17 by a nice person called fleroviux.
     I've used this emulator to search for a tough bug in mine.
+- [Eggvance](https://github.com/jsmolka/eggvance/tree/master/tests)
+    A GameBoy Advance emulator written in C++, with really useful CPU test roms.

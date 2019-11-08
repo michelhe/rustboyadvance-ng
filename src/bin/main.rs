@@ -1,8 +1,8 @@
-use std::time;
-use std::fs::File;
-use std::path::Path;
 use std::ffi::OsStr;
+use std::fs::File;
 use std::io::prelude::*;
+use std::path::Path;
+use std::time;
 
 #[macro_use]
 extern crate clap;
@@ -20,13 +20,11 @@ use rustboyadvance_ng::core::{GBAError, GBAResult, GameBoyAdvance};
 use rustboyadvance_ng::debugger::Debugger;
 use rustboyadvance_ng::util::read_bin_file;
 
-
 fn load_rom(path: &str) -> GBAResult<Vec<u8>> {
     if path.ends_with(".zip") {
         let zipfile = File::open(path)?;
         let mut archive = zip::ZipArchive::new(zipfile)?;
-        for i in 0..archive.len()
-        {
+        for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
             if file.name().ends_with(".gba") {
                 let mut buf = Vec::new();
@@ -88,11 +86,15 @@ fn run_emulator(matches: &ArgMatches) -> GBAResult<()> {
         loop {
             let start_time = time::Instant::now();
             gba.frame();
-            let time_passed = start_time.elapsed();
-            if time_passed <= frame_time {
-                if !no_framerate_limit {
-                    ::std::thread::sleep(frame_time - time_passed);
-                }
+            if !no_framerate_limit {
+                let time_passed = start_time.elapsed();
+                let delay = frame_time.checked_sub(time_passed);
+                match delay {
+                    None => {}
+                    Some(delay) => {
+                        ::std::thread::sleep(delay);
+                    }
+                };
             }
         }
     }

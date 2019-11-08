@@ -455,7 +455,7 @@ impl SyncedIoDevice for Gpu {
                 .set_vcount(self.dispstat.vcount_setting() == self.current_scanline as u16);
         }
         if self.dispstat.vcount_irq_enable() && self.dispstat.get_vcount() {
-            irqs.set_LCD_VCounterMatch(true);;
+            irqs.set_LCD_VCounterMatch(true);
         }
 
         match self.state {

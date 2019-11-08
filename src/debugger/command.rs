@@ -137,19 +137,19 @@ impl Command {
                 debugger.stop();
             }
             AddBreakpoint(addr) => {
-                if !debugger.breakpoints.contains(&addr) {
-                    let new_index = debugger.breakpoints.len();
-                    debugger.breakpoints.push(addr);
+                if !debugger.gba.cpu.breakpoints.contains(&addr) {
+                    let new_index = debugger.gba.cpu.breakpoints.len();
+                    debugger.gba.cpu.breakpoints.push(addr);
                     println!("added breakpoint [{}] 0x{:08x}", new_index, addr);
                 } else {
                     println!("breakpoint already exists!")
                 }
             }
             DelBreakpoint(addr) => debugger.delete_breakpoint(addr),
-            ClearBreakpoints => debugger.breakpoints.clear(),
+            ClearBreakpoints => debugger.gba.cpu.breakpoints.clear(),
             ListBreakpoints => {
                 println!("breakpoint list:");
-                for (i, b) in debugger.breakpoints.iter().enumerate() {
+                for (i, b) in debugger.gba.cpu.breakpoints.iter().enumerate() {
                     println!("[{}] 0x{:08x}", i, b)
                 }
             }

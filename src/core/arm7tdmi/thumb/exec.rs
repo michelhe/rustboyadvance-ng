@@ -1,18 +1,20 @@
+use crate::core::arm7tdmi::alu::AluOpCode;
 use crate::core::arm7tdmi::bus::Bus;
 use crate::core::arm7tdmi::cpu::{Core, CpuExecResult};
-use crate::core::arm7tdmi::alu::AluOpCode;
 use crate::core::arm7tdmi::*;
 use crate::core::sysbus::SysBus;
+
+use crate::bit::BitIndex;
 
 use super::*;
 fn push(cpu: &mut Core, bus: &mut SysBus, r: usize) {
     cpu.gpr[REG_SP] -= 4;
-    let stack_addr = cpu.gpr[REG_SP];
+    let stack_addr = cpu.gpr[REG_SP] & !3;
     bus.write_32(stack_addr, cpu.get_reg(r))
 }
 fn pop(cpu: &mut Core, bus: &mut SysBus, r: usize) {
-    let stack_addr = cpu.gpr[REG_SP];
-    let val = bus.read_32(stack_addr);
+    let stack_addr = cpu.gpr[REG_SP] & !3;
+    let val = cpu.ldr_word(stack_addr, bus);
     cpu.set_reg(r, val);
     cpu.gpr[REG_SP] = stack_addr + 4;
 }
@@ -31,14 +33,10 @@ impl Core {
                 added: None,
             })
             .unwrap() as i32;
-        self.cpsr.set_C(self.bs_carry_out);
 
-        let rd = insn.rd();
-        let op1 = self.get_reg(rd) as i32;
-        let result = self.alu_flags(AluOpCode::MOV, op1, op2);
-        if let Some(result) = result {
-            self.set_reg(rd, result as u32);
-        }
+        self.set_reg(insn.rd(), op2 as u32);
+        self.alu_update_flags(op2, false, self.bs_carry_out, self.cpsr.V());
+
         self.S_cycle16(sb, self.pc + 2);
         Ok(())
     }
@@ -50,16 +48,17 @@ impl Core {
         } else {
             self.get_reg(insn.rn()) as i32
         };
-        let arm_alu_op = if insn.is_subtract() {
-            AluOpCode::SUB
-        } else {
-            AluOpCode::ADD
-        };
 
-        let result = self.alu_flags(arm_alu_op, op1, op2);
-        if let Some(result) = result {
-            self.set_reg(insn.rd(), result as u32);
-        }
+        let mut carry = self.cpsr.C();
+        let mut overflow = self.cpsr.V();
+        let result = if insn.is_subtract() {
+            Self::alu_sub_flags(op1, op2, &mut carry, &mut overflow)
+        } else {
+            Self::alu_add_flags(op1, op2, &mut carry, &mut overflow)
+        };
+        self.alu_update_flags(result, true, carry, overflow);
+        self.set_reg(insn.rd(), result as u32);
+
         self.S_cycle16(sb, self.pc + 2);
         Ok(())
     }
@@ -69,49 +68,82 @@ impl Core {
         sb: &mut SysBus,
         insn: ThumbInstruction,
     ) -> CpuExecResult {
-        let arm_alu_op: AluOpCode = insn.format3_op().into();
+        use OpFormat3::*;
+        let op = insn.format3_op();
         let op1 = self.get_reg(insn.rd()) as i32;
-        let op2 = ((insn.raw & 0xff) as i8) as u8 as i32;
-        let result = self.alu_flags(arm_alu_op, op1, op2);
-        if let Some(result) = result {
+        let op2_imm = (insn.raw & 0xff) as i32;
+        let mut carry = self.cpsr.C();
+        let mut overflow = self.cpsr.V();
+        let result = match op {
+            MOV => op2_imm,
+            CMP | SUB => Self::alu_sub_flags(op1, op2_imm, &mut carry, &mut overflow),
+            ADD => Self::alu_add_flags(op1, op2_imm, &mut carry, &mut overflow),
+        };
+        let arithmetic = op == ADD || op == SUB;
+        self.alu_update_flags(result, arithmetic, carry, overflow);
+        if op != CMP {
             self.set_reg(insn.rd(), result as u32);
         }
         self.S_cycle16(sb, self.pc + 2);
         Ok(())
     }
 
-    fn exec_thumb_mul(&mut self, sb: &mut SysBus, insn: ThumbInstruction) -> CpuExecResult {
-        let op1 = self.get_reg(insn.rd()) as i32;
-        let op2 = self.get_reg(insn.rs()) as i32;
-        let m = self.get_required_multipiler_array_cycles(op2);
-        for _ in 0..m {
-            self.add_cycle();
-        }
-        let result = op1.wrapping_mul(op2) as u32;
-        self.cpsr.set_N((result as i32) < 0);
-        self.cpsr.set_Z(result == 0);
-        self.gpr[insn.rd()] = result;
-        self.S_cycle16(sb, self.pc + 2);
-        Ok(())
-    }
-
     fn exec_thumb_alu_ops(&mut self, sb: &mut SysBus, insn: ThumbInstruction) -> CpuExecResult {
         let rd = insn.rd();
+        let rs = insn.rs();
+        let dst = self.get_reg(rd) as i32;
+        let src = self.get_reg(rs) as i32;
 
-        let (arm_alu_op, shft) = insn.alu_opcode();
-        let op1 = if arm_alu_op == AluOpCode::RSB {
-            self.get_reg(insn.rs()) as i32
-        } else {
-            self.get_reg(rd) as i32
-        };
-        let op2 = if let Some(shft) = shft {
-            self.get_barrel_shifted_value(shft)
-        } else {
-            self.get_reg(insn.rs()) as i32
-        };
+        let mut carry = self.cpsr.C();
+        let c = self.cpsr.C() as i32;
+        let mut overflow = self.cpsr.V();
 
-        let result = self.alu_flags(arm_alu_op, op1, op2);
-        if let Some(result) = result {
+        use ThumbAluOps::*;
+        let op = insn.format4_alu_op();
+        let result = match op {
+            AND | TST => dst & src,
+            EOR => dst ^ src,
+            LSL | LSR | ASR | ROR => {
+                // TODO optimize this second match, keeping it here for code clearity
+                let bs_op = match op {
+                    LSL => BarrelShiftOpCode::LSL,
+                    LSR => BarrelShiftOpCode::LSR,
+                    ASR => BarrelShiftOpCode::ASR,
+                    ROR => BarrelShiftOpCode::ROR,
+                    _ => unreachable!(),
+                };
+                let shft = BarrelShifterValue::shifted_register(
+                    rd,
+                    ShiftRegisterBy::ByRegister(rs),
+                    bs_op,
+                    Some(true),
+                );
+                let result = self.get_barrel_shifted_value(shft) as i32;
+                carry = self.bs_carry_out;
+                result
+            }
+            ADC => Self::alu_add_flags(dst, src, &mut carry, &mut overflow).wrapping_add(c),
+            SBC => Self::alu_sub_flags(dst, src, &mut carry, &mut overflow).wrapping_sub(1 - c),
+            NEG => Self::alu_sub_flags(0, src, &mut carry, &mut overflow),
+            CMP => Self::alu_sub_flags(dst, src, &mut carry, &mut overflow),
+            CMN => Self::alu_add_flags(dst, src, &mut carry, &mut overflow),
+            ORR => dst | src,
+            MUL => {
+                let m = self.get_required_multipiler_array_cycles(src);
+                for _ in 0..m {
+                    self.add_cycle();
+                }
+                // TODO - meaningless values?
+                carry = false;
+                overflow = false;
+                dst.wrapping_mul(src)
+            }
+            BIC => dst & (!src),
+            MVN => !src,
+        };
+        self.alu_update_flags(result, op.is_arithmetic(), carry, overflow);
+
+        if !op.is_setting_flags() {
             self.set_reg(rd, result as u32);
         }
         self.S_cycle16(sb, self.pc + 2);
@@ -133,43 +165,49 @@ impl Core {
         sb: &mut SysBus,
         insn: ThumbInstruction,
     ) -> CpuExecResult {
-        if OpFormat5::BX == insn.format5_op() {
-            self.exec_thumb_bx(sb, insn)
+        let op = insn.format5_op();
+        let dst_reg = if insn.flag(ThumbInstruction::FLAG_H1) {
+            insn.rd() + 8
         } else {
-            let dst_reg = if insn.flag(ThumbInstruction::FLAG_H1) {
-                insn.rd() + 8
-            } else {
-                insn.rd()
-            };
-            let src_reg = if insn.flag(ThumbInstruction::FLAG_H2) {
-                insn.rs() + 8
-            } else {
-                insn.rs()
-            };
-            let arm_alu_op: AluOpCode = insn.format5_op().into();
-            let set_flags = arm_alu_op.is_setting_flags();
-            let op1 = self.get_reg(dst_reg) as i32;
-            let op2 = self.get_reg(src_reg) as i32;
-            let alu_res = if set_flags {
-                self.alu_flags(arm_alu_op, op1, op2)
-            } else {
-                Some(self.alu(arm_alu_op, op1, op2))
-            };
-            if let Some(result) = alu_res {
-                self.set_reg(dst_reg, result as u32);
+            insn.rd()
+        };
+        let src_reg = if insn.flag(ThumbInstruction::FLAG_H2) {
+            insn.rs() + 8
+        } else {
+            insn.rs()
+        };
+        let op1 = self.get_reg(dst_reg) as i32;
+        let op2 = self.get_reg(src_reg) as i32;
+
+        match op {
+            OpFormat5::BX => return self.exec_thumb_bx(sb, insn),
+            OpFormat5::ADD => {
+                self.set_reg(dst_reg, op1.wrapping_add(op2) as u32);
                 if dst_reg == REG_PC {
                     self.flush_pipeline(sb);
                 }
             }
-            self.S_cycle16(sb, self.pc + 2);
-            Ok(())
+            OpFormat5::CMP => {
+                let mut carry = self.cpsr.C();
+                let mut overflow = self.cpsr.V();
+                let result = Self::alu_sub_flags(op1, op2, &mut carry, &mut overflow);
+                self.alu_update_flags(result, true, carry, overflow);
+            }
+            OpFormat5::MOV => {
+                self.set_reg(dst_reg, op2 as u32);
+                if dst_reg == REG_PC {
+                    self.flush_pipeline(sb);
+                }
+            }
         }
+        self.S_cycle16(sb, self.pc + 2);
+        Ok(())
     }
 
     fn exec_thumb_ldr_pc(&mut self, sb: &mut SysBus, insn: ThumbInstruction) -> CpuExecResult {
         let addr = (insn.pc & !0b10) + 4 + (insn.word8() as Addr);
         self.S_cycle16(sb, self.pc + 2);
-        let data = sb.read_32(addr);
+        let data = self.ldr_word(addr, sb);
         self.N_cycle16(sb, addr);
 
         self.set_reg(insn.rd(), data);
@@ -202,10 +240,10 @@ impl Core {
             let value = self.get_reg(insn.rd());
             if insn.is_transferring_bytes() {
                 self.N_cycle8(sb, addr);
-                sb.write_8(addr, value as u8);
+                self.write_8(addr, value as u8, sb);
             } else {
                 self.N_cycle32(sb, addr);
-                sb.write_32(addr, value);
+                self.write_32(addr, value, sb);
             };
         }
 
@@ -236,7 +274,7 @@ impl Core {
             (false, false) =>
             /* strh */
             {
-                sb.write_16(addr, self.gpr[rd] as u16);
+                self.write_16(addr, self.gpr[rd] as u16, sb);
                 self.N_cycle16(sb, addr);
             }
             (false, true) =>
@@ -273,7 +311,7 @@ impl Core {
         sb: &mut SysBus,
         insn: ThumbInstruction,
     ) -> CpuExecResult {
-        let offset = if insn.is_transferring_bytes() {
+        let offset = if insn.raw.bit(12) {
             insn.offset5()
         } else {
             (insn.offset5() << 3) >> 1
@@ -295,7 +333,7 @@ impl Core {
             self.add_cycle();
             self.gpr[insn.rd()] = data as u32;
         } else {
-            sb.write_16(addr, self.gpr[insn.rd()] as u16);
+            self.write_16(addr, self.gpr[insn.rd()] as u16, sb);
             self.N_cycle16(sb, addr);
         }
         self.N_cycle16(sb, self.pc + 2);
@@ -329,12 +367,12 @@ impl Core {
         addr: Addr,
     ) -> CpuExecResult {
         if insn.is_load() {
-            let data = sb.read_32(addr);
+            let data = self.ldr_word(addr, sb);
             self.S_cycle16(sb, addr);
             self.add_cycle();
             self.gpr[insn.rd()] = data;
         } else {
-            sb.write_32(addr, self.gpr[insn.rd()]);
+            self.write_32(addr, self.gpr[insn.rd()], sb);
             self.N_cycle16(sb, addr);
         }
         self.N_cycle16(sb, self.pc + 2);
@@ -344,9 +382,8 @@ impl Core {
     fn exec_thumb_add_sp(&mut self, sb: &mut SysBus, insn: ThumbInstruction) -> CpuExecResult {
         let op1 = self.gpr[REG_SP] as i32;
         let op2 = insn.sword7();
-        let arm_alu_op = AluOpCode::ADD;
 
-        self.gpr[REG_SP] = self.alu(arm_alu_op, op1, op2) as u32;
+        self.gpr[REG_SP] = op1.wrapping_add(op2) as u32;
         self.S_cycle16(sb, self.pc + 2);
         Ok(())
     }
@@ -401,41 +438,60 @@ impl Core {
         let is_load = insn.is_load();
         let rb = insn.rb();
 
-        let mut addr = self.gpr[rb];
+        let mut addr = self.gpr[rb] & !3;
         let rlist = insn.register_list();
         self.N_cycle16(sb, self.pc);
         let mut first = true;
-        if is_load {
-            for r in 0..8 {
-                if rlist.bit(r) {
-                    let val = sb.read_32(addr);
-                    if first {
-                        first = false;
+        let mut writeback = true;
+
+        if rlist != 0 {
+            if is_load {
+                for r in 0..8 {
+                    if rlist.bit(r) {
+                        if r == rb {
+                            writeback = false;
+                        }
+                        let val = self.ldr_word(addr, sb);
+                        if first {
+                            first = false;
+                            self.add_cycle();
+                        } else {
+                            self.S_cycle16(sb, addr);
+                        }
+                        addr += 4;
                         self.add_cycle();
-                    } else {
-                        self.S_cycle16(sb, addr);
+                        self.set_reg(r, val);
                     }
-                    addr += 4;
-                    self.add_cycle();
-                    self.set_reg(r, val);
+                }
+                self.S_cycle16(sb, self.pc + 2);
+            } else {
+                for r in 0..8 {
+                    if rlist.bit(r) {
+                        if first {
+                            first = false;
+                        } else {
+                            self.S_cycle16(sb, addr);
+                        }
+                        self.write_32(addr, self.gpr[r], sb);
+                        addr += 4;
+                    }
                 }
             }
-            self.S_cycle16(sb, self.pc + 2);
         } else {
-            for r in 0..8 {
-                if rlist.bit(r) {
-                    if first {
-                        first = false;
-                    } else {
-                        self.S_cycle16(sb, addr);
-                    }
-                    sb.write_32(addr, self.gpr[r]);
-                    addr += 4;
-                }
+            // From gbatek.htm: Empty Rlist: R15 loaded/stored (ARMv4 only), and Rb=Rb+40h (ARMv4-v5).
+            if is_load {
+                let val = self.ldr_word(addr, sb);
+                self.set_reg(REG_PC, val & !1);
+                self.flush_pipeline(sb);
+            } else {
+                self.write_32(addr, self.pc + 2, sb);
             }
+            addr += 0x40;
         }
 
-        self.gpr[rb] = addr as u32;
+        if writeback {
+            self.gpr[rb] = addr;
+        }
 
         Ok(())
     }
@@ -493,7 +549,6 @@ impl Core {
             ThumbFormat::MoveShiftedReg => self.exec_thumb_move_shifted_reg(bus, insn),
             ThumbFormat::AddSub => self.exec_thumb_add_sub(bus, insn),
             ThumbFormat::DataProcessImm => self.exec_thumb_data_process_imm(bus, insn),
-            ThumbFormat::Mul => self.exec_thumb_mul(bus, insn),
             ThumbFormat::AluOps => self.exec_thumb_alu_ops(bus, insn),
             ThumbFormat::HiRegOpOrBranchExchange => self.exec_thumb_hi_reg_op_or_bx(bus, insn),
             ThumbFormat::LdrPc => self.exec_thumb_ldr_pc(bus, insn),

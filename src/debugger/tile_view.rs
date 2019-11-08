@@ -21,7 +21,7 @@ fn draw_tile(
             let index = io
                 .gpu
                 .read_pixel_index(&gba.sysbus, tile_addr, x, y, pixel_format);
-            let color = io.gpu.get_palette_color(&gba.sysbus, index as u32, 0);
+            let color = io.gpu.get_palette_color(&gba.sysbus, index as u32, 0, 0);
             canvas.set_draw_color(Color::RGB(
                 (color.r() as u8) << 3,
                 (color.g() as u8) << 3,

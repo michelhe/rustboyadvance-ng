@@ -54,6 +54,7 @@ pub struct Core {
     gpr_previous: [u32; 15],
 
     memreq: Addr,
+    pub breakpoints: Vec<u32>,
 
     pub verbose: bool,
 }
@@ -74,7 +75,7 @@ impl Core {
 
     pub fn get_reg(&self, r: usize) -> u32 {
         match r {
-            0...14 => self.gpr[r],
+            0..=14 => self.gpr[r],
             15 => self.pc,
             _ => panic!("invalid register {}", r),
         }
@@ -122,6 +123,18 @@ impl Core {
             }
             _ => panic!("invalid register"),
         }
+    }
+
+    pub fn write_32(&mut self, addr: Addr, value: u32, bus: &mut SysBus) {
+        bus.write_32(addr & !0x3, value);
+    }
+
+    pub fn write_16(&mut self, addr: Addr, value: u16, bus: &mut SysBus) {
+        bus.write_16(addr & !0x1, value);
+    }
+
+    pub fn write_8(&mut self, addr: Addr, value: u8, bus: &mut SysBus) {
+        bus.write_8(addr, value);
     }
 
     /// Helper function for "ldr" instruction that handles misaligned addresses

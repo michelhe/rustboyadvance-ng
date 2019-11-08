@@ -36,7 +36,6 @@ type DebuggerResult<T> = Result<T, DebuggerError>;
 pub struct Debugger {
     pub gba: GameBoyAdvance,
     running: bool,
-    breakpoints: Vec<u32>,
     pub previous_command: Option<Command>,
 }
 
@@ -44,7 +43,6 @@ impl Debugger {
     pub fn new(gba: GameBoyAdvance) -> Debugger {
         Debugger {
             gba: gba,
-            breakpoints: Vec::new(),
             running: false,
             previous_command: None,
         }
@@ -52,7 +50,7 @@ impl Debugger {
 
     pub fn check_breakpoint(&self) -> Option<u32> {
         let next_pc = self.gba.cpu.get_next_pc();
-        for bp in &self.breakpoints {
+        for bp in &self.gba.cpu.breakpoints {
             if *bp == next_pc {
                 return Some(next_pc);
             }
@@ -62,7 +60,7 @@ impl Debugger {
     }
 
     pub fn delete_breakpoint(&mut self, addr: u32) {
-        self.breakpoints.retain(|&a| a != addr);
+        self.gba.cpu.breakpoints.retain(|&a| a != addr);
     }
 
     fn decode_reg(&self, s: &str) -> DebuggerResult<usize> {

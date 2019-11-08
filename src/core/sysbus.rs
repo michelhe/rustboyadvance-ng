@@ -74,51 +74,45 @@ impl fmt::Display for MemoryAccess {
 #[derive(Debug)]
 pub struct BoxedMemory {
     pub mem: Box<[u8]>,
-    mask: u32,
 }
 
 impl BoxedMemory {
-    pub fn new(boxed_slice: Box<[u8]>, mask: u32) -> BoxedMemory {
-        BoxedMemory {
-            mem: boxed_slice,
-            mask: mask,
-        }
+    pub fn new(boxed_slice: Box<[u8]>) -> BoxedMemory {
+        BoxedMemory { mem: boxed_slice }
     }
 }
 
 impl Bus for BoxedMemory {
     fn read_32(&self, addr: Addr) -> u32 {
-        (&self.mem[(addr & self.mask) as usize..])
+        (&self.mem[addr as usize..])
             .read_u32::<LittleEndian>()
             .unwrap()
     }
 
     fn read_16(&self, addr: Addr) -> u16 {
-        (&self.mem[(addr & self.mask) as usize..])
+        (&self.mem[addr as usize..])
             .read_u16::<LittleEndian>()
             .unwrap()
     }
 
     fn read_8(&self, addr: Addr) -> u8 {
-        (&self.mem[(addr & self.mask) as usize..])[0]
+        (&self.mem[addr as usize..])[0]
     }
 
     fn write_32(&mut self, addr: Addr, value: u32) {
-        (&mut self.mem[(addr & self.mask) as usize..])
+        (&mut self.mem[addr as usize..])
             .write_u32::<LittleEndian>(value)
             .unwrap()
     }
 
     fn write_16(&mut self, addr: Addr, value: u16) {
-        (&mut self.mem[(addr & self.mask) as usize..])
+        (&mut self.mem[addr as usize..])
             .write_u16::<LittleEndian>(value)
             .unwrap()
     }
 
     fn write_8(&mut self, addr: Addr, value: u8) {
-        (&mut self.mem[(addr & self.mask) as usize..])
-            .write_u8(value)
-            .unwrap()
+        (&mut self.mem[addr as usize..]).write_u8(value).unwrap()
     }
 }
 
@@ -171,56 +165,70 @@ impl SysBus {
         SysBus {
             io: io,
 
-            bios: BoxedMemory::new(bios_rom.into_boxed_slice(), 0xff_ffff),
-            onboard_work_ram: BoxedMemory::new(
-                vec![0; WORK_RAM_SIZE].into_boxed_slice(),
-                (WORK_RAM_SIZE as u32) - 1,
-            ),
-            internal_work_ram: BoxedMemory::new(
-                vec![0; INTERNAL_RAM_SIZE].into_boxed_slice(),
-                0x7fff,
-            ),
+            bios: BoxedMemory::new(bios_rom.into_boxed_slice()),
+            onboard_work_ram: BoxedMemory::new(vec![0; WORK_RAM_SIZE].into_boxed_slice()),
+            internal_work_ram: BoxedMemory::new(vec![0; INTERNAL_RAM_SIZE].into_boxed_slice()),
             ioregs: ioregs,
-            palette_ram: BoxedMemory::new(
-                vec![0; PALETTE_RAM_SIZE].into_boxed_slice(),
-                (PALETTE_RAM_SIZE as u32) - 1,
-            ),
-            vram: BoxedMemory::new(
-                vec![0; VIDEO_RAM_SIZE].into_boxed_slice(),
-                (VIDEO_RAM_SIZE as u32) - 1,
-            ),
-            oam: BoxedMemory::new(vec![0; OAM_SIZE].into_boxed_slice(), (OAM_SIZE as u32) - 1),
+            palette_ram: BoxedMemory::new(vec![0; PALETTE_RAM_SIZE].into_boxed_slice()),
+            vram: BoxedMemory::new(vec![0; VIDEO_RAM_SIZE].into_boxed_slice()),
+            oam: BoxedMemory::new(vec![0; OAM_SIZE].into_boxed_slice()),
             gamepak: gamepak,
             dummy: DummyBus([0; 4]),
         }
     }
 
-    fn map(&self, addr: Addr) -> &Bus {
+    fn map(&self, addr: Addr) -> (&Bus, Addr) {
+        let ofs = addr & 0x00ff_ffff;
         match addr & 0xff000000 {
-            BIOS_ADDR => &self.bios,
-            EWRAM_ADDR => &self.onboard_work_ram,
-            IWRAM_ADDR => &self.internal_work_ram,
-            IOMEM_ADDR => &self.ioregs,
-            PALRAM_ADDR => &self.palette_ram,
-            VRAM_ADDR => &self.vram,
-            OAM_ADDR => &self.oam,
-            GAMEPAK_WS0_ADDR | GAMEPAK_WS1_ADDR | GAMEPAK_WS2_ADDR => &self.gamepak,
-            _ => &self.dummy,
+            BIOS_ADDR => (&self.bios, ofs),
+            EWRAM_ADDR => (&self.onboard_work_ram, ofs & 0x3_ffff),
+            IWRAM_ADDR => (&self.internal_work_ram, ofs & 0x7fff),
+            IOMEM_ADDR => (&self.ioregs, {
+                if ofs & 0xffff == 0x8000 {
+                    0x800
+                } else {
+                    ofs & 0x7ff
+                }
+            }),
+            PALRAM_ADDR => (&self.palette_ram, ofs & 0x3ff),
+            VRAM_ADDR => (&self.vram, {
+                let mut ofs = ofs & ((VIDEO_RAM_SIZE as u32) - 1);
+                if ofs > 0x18000 {
+                    ofs -= 0x8000;
+                }
+                ofs
+            }),
+            OAM_ADDR => (&self.oam, ofs & 0x3ff),
+            GAMEPAK_WS0_ADDR | GAMEPAK_WS1_ADDR | GAMEPAK_WS2_ADDR => (&self.gamepak, ofs),
+            _ => (&self.dummy, ofs),
         }
     }
 
     /// TODO proc-macro for generating this function
-    fn map_mut(&mut self, addr: Addr) -> &mut Bus {
+    fn map_mut(&mut self, addr: Addr) -> (&mut Bus, Addr) {
+        let ofs = addr & 0x00ff_ffff;
         match addr & 0xff000000 {
-            BIOS_ADDR => &mut self.bios,
-            EWRAM_ADDR => &mut self.onboard_work_ram,
-            IWRAM_ADDR => &mut self.internal_work_ram,
-            IOMEM_ADDR => &mut self.ioregs,
-            PALRAM_ADDR => &mut self.palette_ram,
-            VRAM_ADDR => &mut self.vram,
-            OAM_ADDR => &mut self.oam,
-            GAMEPAK_WS0_ADDR | GAMEPAK_WS1_ADDR | GAMEPAK_WS2_ADDR => &mut self.gamepak,
-            _ => &mut self.dummy,
+            BIOS_ADDR => (&mut self.bios, ofs),
+            EWRAM_ADDR => (&mut self.onboard_work_ram, ofs & 0x3_ffff),
+            IWRAM_ADDR => (&mut self.internal_work_ram, ofs & 0x7fff),
+            IOMEM_ADDR => (&mut self.ioregs, {
+                if ofs & 0xffff == 0x8000 {
+                    0x800
+                } else {
+                    ofs & 0x7ff
+                }
+            }),
+            PALRAM_ADDR => (&mut self.palette_ram, ofs & 0x3ff),
+            VRAM_ADDR => (&mut self.vram, {
+                let mut ofs = ofs & ((VIDEO_RAM_SIZE as u32) - 1);
+                if ofs > 0x18000 {
+                    ofs -= 0x8000;
+                }
+                ofs
+            }),
+            OAM_ADDR => (&mut self.oam, ofs & 0x3ff),
+            GAMEPAK_WS0_ADDR | GAMEPAK_WS1_ADDR | GAMEPAK_WS2_ADDR => (&mut self.gamepak, ofs),
+            _ => (&mut self.dummy, ofs),
         }
     }
 
@@ -274,26 +282,32 @@ impl SysBus {
 
 impl Bus for SysBus {
     fn read_32(&self, addr: Addr) -> u32 {
-        self.map(addr).read_32(addr & 0xff_ffff)
+        let (dev, addr) = self.map(addr);
+        dev.read_32(addr & 0xff_fffc)
     }
 
     fn read_16(&self, addr: Addr) -> u16 {
-        self.map(addr).read_16(addr & 0xff_ffff)
+        let (dev, addr) = self.map(addr);
+        dev.read_16(addr & 0xff_fffe)
     }
 
     fn read_8(&self, addr: Addr) -> u8 {
-        self.map(addr).read_8(addr & 0xff_ffff)
+        let (dev, addr) = self.map(addr);
+        dev.read_8(addr & 0xff_ffff)
     }
 
     fn write_32(&mut self, addr: Addr, value: u32) {
-        self.map_mut(addr).write_32(addr & 0xff_ffff, value)
+        let (dev, addr) = self.map_mut(addr);
+        dev.write_32(addr & 0xff_fffc, value);
     }
 
     fn write_16(&mut self, addr: Addr, value: u16) {
-        self.map_mut(addr).write_16(addr & 0xff_ffff, value)
+        let (dev, addr) = self.map_mut(addr);
+        dev.write_16(addr & 0xff_fffe, value);
     }
 
     fn write_8(&mut self, addr: Addr, value: u8) {
-        self.map_mut(addr).write_8(addr & 0xff_ffff, value)
+        let (dev, addr) = self.map_mut(addr);
+        dev.write_8(addr & 0xff_ffff, value);
     }
 }

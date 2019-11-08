@@ -161,8 +161,8 @@ impl Core {
     ///         Add x=1I cycles if Op2 shifted-by-register. Add y=1S+1N cycles if Rd=R15.
     fn exec_data_processing(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
         self.S_cycle32(sb, self.pc);
-        let op1 = if insn.rn() == REG_PC {
-            self.pc as i32
+        let mut op1 = if insn.rn() == REG_PC {
+            (insn.pc + 8) as i32
         } else {
             self.get_reg(insn.rn()) as i32
         };
@@ -171,6 +171,14 @@ impl Core {
         let opcode = insn.opcode().unwrap();
 
         let op2 = insn.operand2()?;
+        match op2 {
+            BarrelShifterValue::ShiftedRegister(_) => {
+                if insn.rn() == REG_PC {
+                    op1 += 4;
+                }
+            }
+            _ => {}
+        }
         let op2 = self.decode_operand2(op2, s_flag)? as i32;
 
         if !s_flag {
@@ -185,10 +193,49 @@ impl Core {
 
         let rd = insn.rd();
 
+        use AluOpCode::*;
+        let C = self.cpsr.C() as i32;
         let alu_res = if s_flag {
-            self.alu_flags(opcode, op1, op2)
+            let mut carry = self.bs_carry_out;
+            let mut overflow = self.cpsr.V();
+            let result = match opcode {
+                AND | TST => op1 & op2,
+                EOR | TEQ => op1 ^ op2,
+                SUB | CMP => Self::alu_sub_flags(op1, op2, &mut carry, &mut overflow),
+                RSB => Self::alu_sub_flags(op2, op1, &mut carry, &mut overflow),
+                ADD | CMN => Self::alu_add_flags(op1, op2, &mut carry, &mut overflow),
+                ADC => Self::alu_add_flags(op1, op2.wrapping_add(C), &mut carry, &mut overflow),
+                SBC => Self::alu_sub_flags(op1, op2.wrapping_add(1 - C), &mut carry, &mut overflow),
+                RSC => Self::alu_sub_flags(op2, op1.wrapping_add(1 - C), &mut carry, &mut overflow),
+                ORR => op1 | op2,
+                MOV => op2,
+                BIC => op1 & (!op2),
+                MVN => !op2,
+            };
+
+            self.alu_update_flags(result, opcode.is_arithmetic(), carry, overflow);
+
+            if opcode.is_setting_flags() {
+                None
+            } else {
+                Some(result)
+            }
         } else {
-            Some(self.alu(opcode, op1, op2))
+            Some(match opcode {
+                AND => op1 & op2,
+                EOR => op1 ^ op2,
+                SUB => op1.wrapping_sub(op2),
+                RSB => op2.wrapping_sub(op1),
+                ADD => op1.wrapping_add(op2),
+                ADC => op1.wrapping_add(op2).wrapping_add(C),
+                SBC => op1.wrapping_sub(op2.wrapping_add(1 - C)),
+                RSC => op2.wrapping_sub(op1.wrapping_add(1 - C)),
+                ORR => op1 | op2,
+                MOV => op2,
+                BIC => op1 & (!op2),
+                MVN => !op2,
+                _ => panic!("{} should be a PSR transfer", opcode),
+            })
         };
 
         if let Some(result) = alu_res {
@@ -252,10 +299,10 @@ impl Core {
             };
             if insn.transfer_size() == 1 {
                 self.N_cycle8(sb, addr);
-                sb.write_8(addr, value as u8);
+                self.write_8(addr, value as u8, sb);
             } else {
                 self.N_cycle32(sb, addr);
-                sb.write_32(addr & !0x3, value);
+                self.write_32(addr & !0x3, value, sb);
             };
             self.N_cycle32(sb, self.pc);
         }
@@ -322,7 +369,7 @@ impl Core {
             match insn.halfword_data_transfer_type().unwrap() {
                 ArmHalfwordTransferType::UnsignedHalfwords => {
                     self.N_cycle32(sb, addr);
-                    sb.write_16(addr, value as u16);
+                    self.write_16(addr, value as u16, sb);
                     self.N_cycle32(sb, self.pc);
                 }
                 _ => panic!("invalid HS flags for L=0"),
@@ -369,71 +416,82 @@ impl Core {
 
         let psr_transfer = psr_user_flag & is_load & rlist.bit(REG_PC);
 
-        if is_load {
-            self.add_cycle();
-            self.N_cycle32(sb, self.pc);
-            for r in 0..16 {
-                let r = if ascending { r } else { 15 - r };
-                if rlist.bit(r) {
-                    if r == rn {
-                        writeback = false;
-                    }
-                    if full {
-                        addr = addr.wrapping_add(step);
-                    }
-
-                    let val = sb.read_32(addr as Addr);
-                    self.S_cycle32(sb, self.pc);
-                    if user_bank_transfer {
-                        self.set_reg_user(r, val);
-                    } else {
-                        self.set_reg(r, val);
-                    }
-
-                    if r == REG_PC {
-                        if psr_transfer {
-                            self.transfer_spsr_mode();
+        if rlist != 0 {
+            if is_load {
+                self.add_cycle();
+                self.N_cycle32(sb, self.pc);
+                for r in 0..16 {
+                    let r = if ascending { r } else { 15 - r };
+                    if rlist.bit(r) {
+                        if r == rn {
+                            writeback = false;
                         }
-                        self.flush_pipeline(sb);
-                    }
+                        if full {
+                            addr = addr.wrapping_add(step);
+                        }
 
-                    if !full {
-                        addr = addr.wrapping_add(step);
+                        let val = sb.read_32(addr as Addr);
+                        self.S_cycle32(sb, self.pc);
+                        if user_bank_transfer {
+                            self.set_reg_user(r, val);
+                        } else {
+                            self.set_reg(r, val);
+                        }
+
+                        if r == REG_PC {
+                            if psr_transfer {
+                                self.transfer_spsr_mode();
+                            }
+                            self.flush_pipeline(sb);
+                        }
+
+                        if !full {
+                            addr = addr.wrapping_add(step);
+                        }
                     }
                 }
+            } else {
+                let mut first = true;
+                for r in 0..16 {
+                    let r = if ascending { r } else { 15 - r };
+                    if rlist.bit(r) {
+                        if full {
+                            addr = addr.wrapping_add(step);
+                        }
+
+                        let val = if r == REG_PC {
+                            insn.pc + 12
+                        } else {
+                            if user_bank_transfer {
+                                self.get_reg_user(r)
+                            } else {
+                                self.get_reg(r)
+                            }
+                        };
+                        if first {
+                            self.N_cycle32(sb, addr as u32);
+                            first = false;
+                        } else {
+                            self.S_cycle32(sb, addr as u32);
+                        }
+                        self.write_32(addr as Addr, val, sb);
+
+                        if !full {
+                            addr = addr.wrapping_add(step);
+                        }
+                    }
+                }
+                self.N_cycle32(sb, self.pc);
             }
         } else {
-            let mut first = true;
-            for r in 0..16 {
-                let r = if ascending { r } else { 15 - r };
-                if rlist.bit(r) {
-                    if full {
-                        addr = addr.wrapping_add(step);
-                    }
-
-                    let val = if r == REG_PC {
-                        insn.pc + 12
-                    } else {
-                        if user_bank_transfer {
-                            self.get_reg_user(r)
-                        } else {
-                            self.get_reg(r)
-                        }
-                    };
-                    if first {
-                        self.N_cycle32(sb, addr as u32);
-                        first = false;
-                    } else {
-                        self.S_cycle32(sb, addr as u32);
-                    }
-                    sb.write_32(addr as Addr, val);
-
-                    if !full {
-                        addr = addr.wrapping_add(step);
-                    }
-                }
+            if is_load {
+                let val = self.ldr_word(addr as u32, sb);
+                self.set_reg(REG_PC, val & !3);
+                self.flush_pipeline(sb);
+            } else {
+                self.write_32(addr as u32, self.pc + 4, sb);
             }
-            self.N_cycle32(sb, self.pc);
+            addr = addr.wrapping_add(step * 0x10);
         }
 
         if writeback {
@@ -456,7 +514,7 @@ impl Core {
 
         let op1 = self.get_reg(rm) as i32;
         let op2 = self.get_reg(rs) as i32;
-        let mut result = (op1 * op2) as u32;
+        let mut result = op1.wrapping_mul(op2) as u32;
 
         if insn.accumulate_flag() {
             result = result.wrapping_add(self.get_reg(rn));

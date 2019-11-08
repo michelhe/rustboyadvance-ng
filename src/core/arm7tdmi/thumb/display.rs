@@ -27,27 +27,11 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_thumb_mul(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "mul\t{Rd}, {Rs}",
-            Rd = reg_string(self.rd()),
-            Rs = reg_string(self.rs())
-        )
-    }
-
     fn fmt_thumb_alu_ops(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let (op, shft) = self.alu_opcode();
-        if let Some(BarrelShifterValue::ShiftedRegister(x)) = shft {
-            write!(f, "{}", x.bs_op)?;
-        } else if op == AluOpCode::RSB {
-            write!(f, "neg")?;
-        } else {
-            write!(f, "{}", op)?;
-        }
         write!(
             f,
-            "\t{Rd}, {Rs}",
+            "{op}\t{Rd}, {Rs}",
+            op = self.format4_alu_op(),
             Rd = reg_string(self.rd()),
             Rs = reg_string(self.rs())
         )
@@ -290,7 +274,6 @@ impl fmt::Display for ThumbInstruction {
             ThumbFormat::MoveShiftedReg => self.fmt_thumb_move_shifted_reg(f),
             ThumbFormat::AddSub => self.fmt_thumb_add_sub(f),
             ThumbFormat::DataProcessImm => self.fmt_thumb_data_process_imm(f),
-            ThumbFormat::Mul => self.fmt_thumb_mul(f),
             ThumbFormat::AluOps => self.fmt_thumb_alu_ops(f),
             ThumbFormat::HiRegOpOrBranchExchange => self.fmt_thumb_high_reg_op_or_bx(f),
             ThumbFormat::LdrPc => self.fmt_thumb_ldr_pc(f),
@@ -329,6 +312,30 @@ impl fmt::Display for OpFormat5 {
             OpFormat5::CMP => write!(f, "cmp"),
             OpFormat5::MOV => write!(f, "mov"),
             OpFormat5::BX => write!(f, "bx"),
+        }
+    }
+}
+
+impl fmt::Display for ThumbAluOps {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use ThumbAluOps::*;
+        match self {
+            AND => write!(f, "and"),
+            EOR => write!(f, "eor"),
+            LSL => write!(f, "lsl"),
+            LSR => write!(f, "lsr"),
+            ASR => write!(f, "asr"),
+            ADC => write!(f, "adc"),
+            SBC => write!(f, "sbc"),
+            ROR => write!(f, "ror"),
+            TST => write!(f, "tst"),
+            NEG => write!(f, "neg"),
+            CMP => write!(f, "cmp"),
+            CMN => write!(f, "cmn"),
+            ORR => write!(f, "orr"),
+            MUL => write!(f, "mul"),
+            BIC => write!(f, "bic"),
+            MVN => write!(f, "mvn"),
         }
     }
 }

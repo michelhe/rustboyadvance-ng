@@ -100,17 +100,15 @@ impl SyncedIoDevice for Timers {
         for i in 0..4 {
             if self[i].timer_ctl.enabled() && !self[i].timer_ctl.cascade() {
                 match self[i].add_cycles(cycles, irqs) {
-                    TimerAction::Overflow(num_overflows) => {
-                        match i {
-                            3 => {}
-                            _ => {
-                                let next_i = i + 1;
-                                if self[next_i].timer_ctl.cascade() {
-                                    self[next_i].add_cycles(num_overflows, irqs);
-                                }
+                    TimerAction::Overflow(num_overflows) => match i {
+                        3 => {}
+                        _ => {
+                            let next_i = i + 1;
+                            if self[next_i].timer_ctl.cascade() {
+                                self[next_i].add_cycles(num_overflows, irqs);
                             }
                         }
-                    }
+                    },
                     TimerAction::Increment => {}
                 }
             }
