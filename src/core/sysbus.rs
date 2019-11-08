@@ -1,15 +1,13 @@
-use std::cell::RefCell;
 use std::fmt;
 use std::ops::Add;
-use std::rc::Rc;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
 use super::arm7tdmi::bus::Bus;
 use super::arm7tdmi::Addr;
-use super::gba::IoDevices;
+use super::cartridge::Cartridge;
 use super::gpu::GpuState;
-use super::{cartridge::Cartridge, ioregs::IoRegs};
+use super::iodev::IoDevices;
 
 const VIDEO_RAM_SIZE: usize = 128 * 1024;
 const WORK_RAM_SIZE: usize = 256 * 1024;
@@ -141,13 +139,11 @@ impl Bus for DummyBus {
 
 #[derive(Debug)]
 pub struct SysBus {
-    pub io: Rc<RefCell<IoDevices>>,
+    pub io: IoDevices,
 
     bios: BoxedMemory,
     onboard_work_ram: BoxedMemory,
     internal_work_ram: BoxedMemory,
-    /// Currently model the IOMem as regular buffer, later make it into something more sophisticated.
-    pub ioregs: IoRegs,
     pub palette_ram: BoxedMemory,
     pub vram: BoxedMemory,
     pub oam: BoxedMemory,
@@ -156,19 +152,13 @@ pub struct SysBus {
 }
 
 impl SysBus {
-    pub fn new(
-        io: Rc<RefCell<IoDevices>>,
-        bios_rom: Vec<u8>,
-        gamepak: Cartridge,
-        ioregs: IoRegs,
-    ) -> SysBus {
+    pub fn new(io: IoDevices, bios_rom: Vec<u8>, gamepak: Cartridge) -> SysBus {
         SysBus {
             io: io,
 
             bios: BoxedMemory::new(bios_rom.into_boxed_slice()),
             onboard_work_ram: BoxedMemory::new(vec![0; WORK_RAM_SIZE].into_boxed_slice()),
             internal_work_ram: BoxedMemory::new(vec![0; INTERNAL_RAM_SIZE].into_boxed_slice()),
-            ioregs: ioregs,
             palette_ram: BoxedMemory::new(vec![0; PALETTE_RAM_SIZE].into_boxed_slice()),
             vram: BoxedMemory::new(vec![0; VIDEO_RAM_SIZE].into_boxed_slice()),
             oam: BoxedMemory::new(vec![0; OAM_SIZE].into_boxed_slice()),
@@ -177,13 +167,13 @@ impl SysBus {
         }
     }
 
-    fn map(&self, addr: Addr) -> (&Bus, Addr) {
+    fn map(&self, addr: Addr) -> (&dyn Bus, Addr) {
         let ofs = addr & 0x00ff_ffff;
         match addr & 0xff000000 {
             BIOS_ADDR => (&self.bios, ofs),
             EWRAM_ADDR => (&self.onboard_work_ram, ofs & 0x3_ffff),
             IWRAM_ADDR => (&self.internal_work_ram, ofs & 0x7fff),
-            IOMEM_ADDR => (&self.ioregs, {
+            IOMEM_ADDR => (&self.io, {
                 if ofs & 0xffff == 0x8000 {
                     0x800
                 } else {
@@ -205,13 +195,13 @@ impl SysBus {
     }
 
     /// TODO proc-macro for generating this function
-    fn map_mut(&mut self, addr: Addr) -> (&mut Bus, Addr) {
+    fn map_mut(&mut self, addr: Addr) -> (&mut dyn Bus, Addr) {
         let ofs = addr & 0x00ff_ffff;
         match addr & 0xff000000 {
             BIOS_ADDR => (&mut self.bios, ofs),
             EWRAM_ADDR => (&mut self.onboard_work_ram, ofs & 0x3_ffff),
             IWRAM_ADDR => (&mut self.internal_work_ram, ofs & 0x7fff),
-            IOMEM_ADDR => (&mut self.ioregs, {
+            IOMEM_ADDR => (&mut self.io, {
                 if ofs & 0xffff == 0x8000 {
                     0x800
                 } else {
@@ -249,24 +239,24 @@ impl SysBus {
                     MemoryAccessWidth::MemoryAccess32 => cycles += 2,
                     _ => cycles += 1,
                 }
-                if self.io.borrow().gpu.state == GpuState::HDraw {
+                if self.io.gpu.state == GpuState::HDraw {
                     cycles += 1;
                 }
             }
             GAMEPAK_WS0_ADDR => match access.0 {
                 MemoryAccessType::NonSeq => match access.1 {
                     MemoryAccessWidth::MemoryAccess32 => {
-                        cycles += nonseq_cycles[self.ioregs.waitcnt.ws0_first_access() as usize];
-                        cycles += seq_cycles[self.ioregs.waitcnt.ws0_second_access() as usize];
+                        cycles += nonseq_cycles[self.io.waitcnt.ws0_first_access() as usize];
+                        cycles += seq_cycles[self.io.waitcnt.ws0_second_access() as usize];
                     }
                     _ => {
-                        cycles += nonseq_cycles[self.ioregs.waitcnt.ws0_first_access() as usize];
+                        cycles += nonseq_cycles[self.io.waitcnt.ws0_first_access() as usize];
                     }
                 },
                 MemoryAccessType::Seq => {
-                    cycles += seq_cycles[self.ioregs.waitcnt.ws0_second_access() as usize];
+                    cycles += seq_cycles[self.io.waitcnt.ws0_second_access() as usize];
                     if access.1 == MemoryAccessWidth::MemoryAccess32 {
-                        cycles += seq_cycles[self.ioregs.waitcnt.ws0_second_access() as usize];
+                        cycles += seq_cycles[self.io.waitcnt.ws0_second_access() as usize];
                     }
                 }
             },

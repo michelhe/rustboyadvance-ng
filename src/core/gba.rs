@@ -1,42 +1,19 @@
 /// Struct containing everything
-///
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use super::arm7tdmi::{exception::Exception, Core, DecodedInstruction};
 use super::cartridge::Cartridge;
 use super::gpu::*;
 use super::interrupt::*;
-use super::ioregs::IoRegs;
+use super::iodev::*;
 use super::sysbus::SysBus;
-use super::timer::Timers;
+
 use super::GBAResult;
 use super::SyncedIoDevice;
 use crate::backend::*;
 
-#[derive(Debug)]
-pub struct IoDevices {
-    pub intc: InterruptController,
-    pub gpu: Gpu,
-    pub timers: Timers,
-}
-
-impl IoDevices {
-    pub fn new() -> IoDevices {
-        IoDevices {
-            intc: InterruptController::new(),
-            gpu: Gpu::new(),
-            timers: Timers::new(),
-        }
-    }
-}
-
 pub struct GameBoyAdvance {
-    backend: Box<EmulatorBackend>,
+    backend: Box<dyn EmulatorBackend>,
     pub cpu: Core,
-    pub sysbus: SysBus,
-
-    pub io: Rc<RefCell<IoDevices>>,
+    pub sysbus: Box<SysBus>,
 }
 
 impl GameBoyAdvance {
@@ -44,51 +21,63 @@ impl GameBoyAdvance {
         cpu: Core,
         bios_rom: Vec<u8>,
         gamepak: Cartridge,
-        backend: Box<EmulatorBackend>,
+        backend: Box<dyn EmulatorBackend>,
     ) -> GameBoyAdvance {
-        let io = Rc::new(RefCell::new(IoDevices::new()));
-
-        let ioregs = IoRegs::new(io.clone());
-        let sysbus = SysBus::new(io.clone(), bios_rom, gamepak, ioregs);
-
+        let io = IoDevices::new();
         GameBoyAdvance {
             backend: backend,
             cpu: cpu,
-            sysbus: sysbus,
-
-            io: io.clone(),
+            sysbus: Box::new(SysBus::new(io, bios_rom, gamepak)),
         }
     }
 
     pub fn frame(&mut self) {
         self.update_key_state();
-        while self.io.borrow().gpu.state != GpuState::VBlank {
-            let cycles = self.emulate_cpu();
-            self.emulate_peripherals(cycles);
+        while self.sysbus.io.gpu.state != GpuState::VBlank {
+            self.step_new();
         }
-        self.backend.render(self.io.borrow().gpu.get_framebuffer());
-        while self.io.borrow().gpu.state == GpuState::VBlank {
-            let cycles = self.emulate_cpu();
-            self.emulate_peripherals(cycles);
+        self.backend.render(self.sysbus.io.gpu.get_framebuffer());
+        while self.sysbus.io.gpu.state == GpuState::VBlank {
+            self.step_new();
         }
     }
 
     fn update_key_state(&mut self) {
-        self.sysbus.ioregs.keyinput = self.backend.get_key_state();
+        self.sysbus.io.keyinput = self.backend.get_key_state();
     }
 
-    pub fn emulate_cpu(&mut self) -> usize {
+    // TODO deprecate
+    pub fn step(&mut self) -> GBAResult<DecodedInstruction> {
         let previous_cycles = self.cpu.cycles;
-        self.cpu.step(&mut self.sysbus).unwrap();
-        self.cpu.cycles - previous_cycles
+        let executed_insn = self.cpu.step_one(&mut self.sysbus)?;
+        let cycles = self.cpu.cycles - previous_cycles;
+        Ok(executed_insn)
     }
 
-    pub fn emulate_peripherals(&mut self, cycles: usize) {
+    pub fn step_new(&mut self) {
         let mut irqs = IrqBitmask(0);
-        let mut io = self.io.borrow_mut();
+        let previous_cycles = self.cpu.cycles;
+
+        // // I hate myself for doing this, but rust left me no choice.
+        let io = unsafe {
+            let ptr = &mut *self.sysbus as *mut SysBus;
+            &mut (*ptr).io as &mut IoDevices
+        };
+
+        if !io.dmac.perform_work(&mut self.sysbus, &mut irqs) {
+            self.cpu.step(&mut self.sysbus).unwrap();
+        }
+
+        let cycles = self.cpu.cycles - previous_cycles;
 
         io.timers.step(cycles, &mut self.sysbus, &mut irqs);
-        io.gpu.step(cycles, &mut self.sysbus, &mut irqs);
+        if let Some(new_gpu_state) = io.gpu.step(cycles, &mut self.sysbus, &mut irqs) {
+            match new_gpu_state {
+                GpuState::VBlank => io.dmac.notify_vblank(),
+                GpuState::HBlank => io.dmac.notify_hblank(),
+                _ => {}
+            }
+        }
 
         if !self.cpu.cpsr.irq_disabled() {
             io.intc.request_irqs(irqs);
@@ -96,19 +85,5 @@ impl GameBoyAdvance {
                 self.cpu.exception(&mut self.sysbus, Exception::Irq);
             }
         }
-    }
-
-    pub fn step(&mut self) -> GBAResult<DecodedInstruction> {
-        let previous_cycles = self.cpu.cycles;
-        let executed_insn = self.cpu.step_one(&mut self.sysbus)?;
-        let cycles = self.cpu.cycles - previous_cycles;
-
-        self.emulate_peripherals(cycles);
-
-        if self.io.borrow().gpu.state == GpuState::VBlank {
-            self.backend.render(self.io.borrow().gpu.get_framebuffer());
-        }
-
-        Ok(executed_insn)
     }
 }

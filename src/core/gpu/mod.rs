@@ -361,7 +361,7 @@ impl Gpu {
     }
 
     fn scanline_aff_bg(&mut self, bg: usize, sb: &mut SysBus) {
-      // TODO
+        // TODO
     }
 
     fn scanline_mode3(&mut self, bg: usize, sb: &mut SysBus) {
@@ -444,10 +444,14 @@ impl Gpu {
     pub fn get_framebuffer(&self) -> &[u32] {
         &self.frame_buffer.0
     }
-}
 
-impl SyncedIoDevice for Gpu {
-    fn step(&mut self, cycles: usize, sb: &mut SysBus, irqs: &mut IrqBitmask) {
+    // Returns the new gpu state
+    pub fn step(
+        &mut self,
+        cycles: usize,
+        sb: &mut SysBus,
+        irqs: &mut IrqBitmask,
+    ) -> Option<GpuState> {
         self.cycles += cycles;
 
         if self.dispstat.vcount_setting() != 0 {
@@ -472,12 +476,14 @@ impl SyncedIoDevice for Gpu {
                             irqs.set_LCD_HBlank(true);
                         };
                         self.state = HBlank;
+                        return Some(HBlank);
                     } else {
                         self.dispstat.set_vblank(true);
                         if self.dispstat.vblank_irq_enable() {
                             irqs.set_LCD_VBlank(true);
                         };
                         self.state = VBlank;
+                        return Some(VBlank);
                     };
                 }
             }
@@ -487,6 +493,7 @@ impl SyncedIoDevice for Gpu {
                     self.state = HDraw;
                     self.dispstat.set_hblank(false);
                     self.dispstat.set_vblank(false);
+                    return Some(HDraw);
                 }
             }
             VBlank => {
@@ -497,9 +504,12 @@ impl SyncedIoDevice for Gpu {
                     self.dispstat.set_vblank(false);
                     self.current_scanline = 0;
                     self.render_scanline(sb);
+                    return Some(HDraw);
                 }
             }
         }
+
+        return None;
     }
 }
 

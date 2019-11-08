@@ -1,74 +1,210 @@
-// use super::arm7tdmi::{Addr, Bus};
-// use super::ioregs::consts::*;
-// use super::sysbus::SysBus;
-// use super::{EmuIoDev, Interrupt};
+use std::collections::VecDeque;
 
-// #[allow(non_camel_case_types)]
-// #[derive(Debug)]
-// pub struct DmaChannel {
-//     src_ioreg: Addr, /* Source Address register */
-//     dst_ioreg: Addr, /* Destination Address register */
-//     wc_ioreg: Addr,  /* Word Count 14bit */
-// }
+use super::arm7tdmi::{Addr, Bus};
+use super::sysbus::SysBus;
+use super::{Interrupt, IrqBitmask, SyncedIoDevice};
 
-// #[derive(Debug, Primitive)]
-// enum DmaAddrControl {
-//     Increment = 0,
-//     Decrement = 1,
-//     Fixed = 2,
-//     IncrementReloadProhibited = 3,
-// }
+use num::FromPrimitive;
 
-// #[derive(Debug)]
-// enum DmaTransferType {
-//     Xfer16bit,
-//     Xfer32bit,
-// }
+#[derive(Debug)]
+enum DmaTransferType {
+    Xfer16bit,
+    Xfer32bit,
+}
 
-// #[derive(Debug, Primitive)]
-// enum DmaStartTiming {
-//     Immediately = 0,
-//     VBlank = 1,
-//     HBlank = 2,
-//     Special = 3,
-// }
+#[derive(Debug)]
+pub struct DmaChannel {
+    id: usize,
 
-// #[derive(Debug)]
-// struct DmaControl {
-//     dst_addr_ctl: DmaAddrControl,
-//     src_addr_ctl: DmaAddrControl,
-//     repeat: bool,
-//     xfer: DmaTransferType,
-//     start_timing: DmaStartTiming,
-//     irq_upon_end_of_wc: bool,
-//     enable: bool,
-// }
+    pub src: u32,
+    pub dst: u32,
+    pub wc: u32,
+    pub ctrl: DmaChannelCtrl,
 
-// impl DmaChannel {
-//     pub fn new(src_ioreg: Addr, dst_ioreg: Addr, wc_ioreg: Addr) -> DmaChannel {
-//         DmaChannel {
-//             src_ioreg,
-//             dst_ioreg,
-//             wc_ioreg,
-//         }
-//     }
+    running: bool,
+    cycles: usize,
+    start_cycles: usize,
+    irq: Interrupt,
+}
 
-//     // fn src_addr(&self, sysbus: &SysBus) -> Addr {
-//     //     sysbus.ioregs.read_32(self.src_ioreg - IO_BASE) as Addr
-//     // }
+impl DmaChannel {
+    pub fn new(id: usize) -> DmaChannel {
+        if id > 3 {
+            panic!("invalid dma id {}", id);
+        }
+        DmaChannel {
+            id: id,
+            irq: Interrupt::from_usize(id + 8).unwrap(),
+            running: false,
+            src: 0,
+            dst: 0,
+            wc: 0,
+            ctrl: DmaChannelCtrl(0),
+            cycles: 0,
+            start_cycles: 0,
+        }
+    }
 
-//     // fn dst_addr(&self, sysbus: &SysBus) -> Addr {
-//     //     sysbus.ioregs.read_32(self.dst_ioreg - IO_BASE) as Addr
-//     // }
+    pub fn is_running(&self) -> bool {
+        self.running
+    }
 
-//     // fn word_count(&self, sysbus: &SysBus) -> usize {
-//     //     sysbus.ioregs.read_reg(self.wc_ioreg) as usize
-//     // }
-// }
+    pub fn write_src_low(&mut self, low: u16) {
+        let src = self.src;
+        self.src = (src & 0xffff0000) | (low as u32);
+    }
 
-// impl EmuIoDev for DmaChannel {
-//     fn step(&mut self, cycles: usize, sysbus: &mut SysBus) -> (usize, Option<Interrupt>) {
-//         // TODO
-//         (0, None)
-//     }
-// }
+    pub fn write_src_high(&mut self, high: u16) {
+        let src = self.src;
+        let high = high as u32;
+        self.src = (src & 0xffff) | (high << 16);
+    }
+
+    pub fn write_dst_low(&mut self, low: u16) {
+        let dst = self.dst;
+        self.dst = (dst & 0xffff0000) | (low as u32);
+    }
+
+    pub fn write_dst_high(&mut self, high: u16) {
+        let dst = self.dst;
+        let high = high as u32;
+        self.dst = (dst & 0xffff) | (high << 16);
+    }
+
+    pub fn write_word_count(&mut self, value: u16) {
+        self.wc = value as u32;
+    }
+
+    pub fn write_dma_ctrl(&mut self, value: u16) -> bool {
+        let ctrl = DmaChannelCtrl(value);
+        let mut start_immediately = false;
+        if ctrl.is_enabled() {
+            self.start_cycles = self.cycles;
+            self.running = true;
+            if ctrl.timing() == 0 {
+                start_immediately = true;
+            }
+        }
+        self.ctrl = ctrl;
+        return start_immediately;
+    }
+
+    fn xfer(&mut self, sb: &mut SysBus, irqs: &mut IrqBitmask) {
+        let word_size = if self.ctrl.is_32bit() { 4 } else { 2 };
+        let dst_rld = self.dst;
+        for word in 0..self.wc {
+            if word_size == 4 {
+                let w = sb.read_32(self.src);
+                sb.write_32(self.dst, w)
+            } else {
+                let hw = sb.read_16(self.src);
+                // println!("src {:x} dst {:x}", self.src, self.dst);
+                sb.write_16(self.dst, hw)
+            }
+            match self.ctrl.src_adj() {
+                /* Increment */ 0 => self.src += word_size,
+                /* Decrement */ 1 => self.src -= word_size,
+                /* Fixed */ 2 => {}
+                _ => panic!("forbidden DMA source address adjustment"),
+            }
+            match self.ctrl.dst_adj() {
+                /* Increment[+Reload] */ 0 | 3 => self.dst += word_size,
+                /* Decrement */ 1 => self.dst -= word_size,
+                /* Fixed */ 2 => {}
+                _ => panic!("forbidden DMA dest address adjustment"),
+            }
+        }
+        if self.ctrl.is_triggering_irq() {
+            irqs.add_irq(self.irq);
+        }
+        if self.ctrl.repeat() {
+            self.start_cycles = self.cycles;
+            /* reload */
+            if 3 == self.ctrl.dst_adj() {
+                self.dst = dst_rld;
+            }
+        } else {
+            self.running = false;
+            self.ctrl.set_enabled(false);
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct DmaController {
+    pub channels: [DmaChannel; 4],
+    xfers_queue: VecDeque<usize>,
+    cycles: usize,
+}
+
+impl DmaController {
+    pub fn new() -> DmaController {
+        DmaController {
+            channels: [
+                DmaChannel::new(0),
+                DmaChannel::new(1),
+                DmaChannel::new(2),
+                DmaChannel::new(3),
+            ],
+            xfers_queue: VecDeque::new(),
+            cycles: 0,
+        }
+    }
+
+    pub fn perform_work(&mut self, sb: &mut SysBus, irqs: &mut IrqBitmask) -> bool {
+        if self.xfers_queue.is_empty() {
+            false
+        } else {
+            while let Some(id) = self.xfers_queue.pop_front() {
+                self.channels[id].xfer(sb, irqs)
+            }
+            true
+        }
+    }
+
+    pub fn write_16(&mut self, channel_id: usize, ofs: u32, value: u16) {
+        match ofs {
+            0 => self.channels[channel_id].write_src_low(value),
+            2 => self.channels[channel_id].write_src_high(value),
+            4 => self.channels[channel_id].write_dst_low(value),
+            6 => self.channels[channel_id].write_dst_high(value),
+            8 => self.channels[channel_id].write_word_count(value),
+            10 => {
+                if self.channels[channel_id].write_dma_ctrl(value) {
+                    self.xfers_queue.push_back(channel_id)
+                }
+            }
+            _ => panic!("Invalid dma offset"),
+        }
+    }
+
+    pub fn notify_vblank(&mut self) {
+        for i in 0..4 {
+            if self.channels[i].ctrl.is_enabled() && self.channels[i].ctrl.timing() == 1 {
+                self.xfers_queue.push_back(i);
+            }
+        }
+    }
+
+    pub fn notify_hblank(&mut self) {
+        for i in 0..4 {
+            if self.channels[i].ctrl.is_enabled() && self.channels[i].ctrl.timing() == 2 {
+                self.xfers_queue.push_back(i);
+            }
+        }
+    }
+}
+
+bitfield! {
+    #[derive(Default)]
+    pub struct DmaChannelCtrl(u16);
+    impl Debug;
+    u16;
+    dst_adj, _ : 6, 5;
+    src_adj, _ : 8, 7;
+    repeat, _ : 9;
+    is_32bit, _: 10;
+    timing, _: 13, 12;
+    is_triggering_irq, _: 14;
+    is_enabled, set_enabled: 15;
+}

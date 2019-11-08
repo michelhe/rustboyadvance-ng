@@ -6,7 +6,7 @@ use crate::core::GBAError;
 use crate::disass::Disassembler;
 
 use super::palette_view::create_palette_view;
-use super::tile_view::create_tile_view;
+// use super::tile_view::create_tile_view;
 use super::{parser::Value, Debugger, DebuggerError, DebuggerResult};
 
 use ansi_term::Colour;
@@ -32,7 +32,7 @@ pub enum Command {
     AddBreakpoint(Addr),
     DelBreakpoint(Addr),
     PaletteView,
-    TileView(u32),
+    // TileView(u32),
     ClearBreakpoints,
     ListBreakpoints,
     Reset,
@@ -44,7 +44,7 @@ impl Command {
         use Command::*;
         match *self {
             Info => println!("{}", debugger.gba.cpu),
-            DisplayInfo => println!("GPU: {:#?}", debugger.gba.io.borrow().gpu),
+            DisplayInfo => { /*println!("GPU: {:#?}", debugger.gba.sysbus.io.gpu)*/ }
             Step(count) => {
                 for _ in 0..count {
                     match debugger.gba.step() {
@@ -154,7 +154,7 @@ impl Command {
                 }
             }
             PaletteView => create_palette_view(&debugger.gba.sysbus.palette_ram.mem),
-            TileView(bg) => create_tile_view(bg, &debugger.gba),
+            // TileView(bg) => create_tile_view(bg, &debugger.gba),
             Reset => {
                 println!("resetting cpu...");
                 debugger.gba.cpu.reset(&mut debugger.gba.sysbus);
@@ -297,13 +297,13 @@ impl Debugger {
                 ))),
             },
             "palette-view" => Ok(Command::PaletteView),
-            "tiles" => {
-                if args.len() != 1 {
-                    return Err(DebuggerError::InvalidCommandFormat("tile <bg>".to_string()));
-                }
-                let bg = self.val_number(&args[0])?;
-                Ok(Command::TileView(bg))
-            }
+            // "tiles" => {
+            //     if args.len() != 1 {
+            //         return Err(DebuggerError::InvalidCommandFormat("tile <bg>".to_string()));
+            //     }
+            //     let bg = self.val_number(&args[0])?;
+            //     Ok(Command::TileView(bg))
+            // }
             "bl" => Ok(Command::ListBreakpoints),
             "q" | "quit" => Ok(Command::Quit),
             "r" | "reset" => Ok(Command::Reset),

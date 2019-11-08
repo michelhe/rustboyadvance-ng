@@ -1,28 +1,35 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use super::arm7tdmi::{Addr, Bus};
-use super::gba::IoDevices;
+use super::dma::DmaController;
 use super::gpu::regs::WindowFlags;
+use super::gpu::*;
+use super::interrupt::InterruptController;
 use super::keypad;
 use super::sysbus::BoxedMemory;
+use super::timer::Timers;
 
 use consts::*;
 
 #[derive(Debug)]
-pub struct IoRegs {
-    mem: BoxedMemory,
-    pub io: Rc<RefCell<IoDevices>>,
+pub struct IoDevices {
+    pub intc: InterruptController,
+    pub gpu: Gpu,
+    pub timers: Timers,
+    pub dmac: DmaController,
     pub keyinput: u16,
     pub post_boot_flag: bool,
     pub waitcnt: WaitControl, // TODO also implement 4000800
+
+    mem: BoxedMemory,
 }
 
-impl IoRegs {
-    pub fn new(io: Rc<RefCell<IoDevices>>) -> IoRegs {
-        IoRegs {
+impl IoDevices {
+    pub fn new() -> IoDevices {
+        IoDevices {
+            gpu: Gpu::new(),
+            timers: Timers::new(),
+            dmac: DmaController::new(),
+            intc: InterruptController::new(),
             mem: BoxedMemory::new(vec![0; 0x800].into_boxed_slice()),
-            io: io,
             post_boot_flag: false,
             keyinput: keypad::KEYINPUT_ALL_RELEASED,
             waitcnt: WaitControl(0),
@@ -30,14 +37,15 @@ impl IoRegs {
     }
 }
 
-impl Bus for IoRegs {
+impl Bus for IoDevices {
     fn read_32(&self, addr: Addr) -> u32 {
         (self.read_16(addr + 2) as u32) << 16 | (self.read_16(addr) as u32)
     }
 
     fn read_16(&self, addr: Addr) -> u16 {
-        let io = self.io.borrow();
-        match addr + IO_BASE {
+        let io = self;
+        let io_addr = addr + IO_BASE;
+        match io_addr {
             REG_DISPCNT => io.gpu.dispcnt.0,
             REG_DISPSTAT => io.gpu.dispstat.0,
             REG_VCOUNT => io.gpu.current_scanline as u16,
@@ -71,12 +79,24 @@ impl Bus for IoRegs {
             REG_TM3CNT_L => io.timers[3].timer_data,
             REG_TM3CNT_H => io.timers[3].timer_ctl.0,
 
-            REG_WAITCNT => self.waitcnt.0,
+            REG_DMA0CNT_H => io.dmac.channels[0].ctrl.0,
+            REG_DMA1CNT_H => io.dmac.channels[1].ctrl.0,
+            REG_DMA2CNT_H => io.dmac.channels[2].ctrl.0,
+            REG_DMA3CNT_H => io.dmac.channels[3].ctrl.0,
 
-            REG_POSTFLG => self.post_boot_flag as u16,
+            REG_WAITCNT => io.waitcnt.0,
+
+            REG_POSTFLG => io.post_boot_flag as u16,
             REG_HALTCNT => 0,
-            REG_KEYINPUT => self.keyinput as u16,
-            _ => self.mem.read_16(addr),
+            REG_KEYINPUT => io.keyinput as u16,
+            _ => {
+                println!(
+                    "Unimplemented read from {:x} {}",
+                    io_addr,
+                    io_reg_string(io_addr)
+                );
+                io.mem.read_16(addr)
+            }
         }
     }
 
@@ -95,8 +115,10 @@ impl Bus for IoRegs {
     }
 
     fn write_16(&mut self, addr: Addr, value: u16) {
-        let mut io = self.io.borrow_mut();
-        match addr + IO_BASE {
+        let mut io = self;
+        io.mem.write_16(addr, value);
+        let io_addr = addr + IO_BASE;
+        match io_addr {
             REG_DISPCNT => io.gpu.dispcnt.0 = value,
             REG_DISPSTAT => io.gpu.dispstat.0 |= value & !3,
             REG_BG0CNT => io.gpu.bg[0].bgcnt.0 = value,
@@ -192,18 +214,22 @@ impl Bus for IoRegs {
             }
             REG_TM3CNT_H => io.timers[3].timer_ctl.0 = value,
 
-            REG_WAITCNT => self.waitcnt.0 = value,
+            DMA_BASE..=REG_DMA3CNT_H => {
+                let ofs = io_addr - DMA_BASE;
+                let channel_id = (ofs / 12) as usize;
+                io.dmac.write_16(channel_id, ofs % 12, value)
+            }
 
-            REG_POSTFLG => self.post_boot_flag = value != 0,
+            REG_WAITCNT => io.waitcnt.0 = value,
+
+            REG_POSTFLG => io.post_boot_flag = value != 0,
             REG_HALTCNT => {}
             _ => {
-                let ioreg_addr = IO_BASE + addr;
                 println!(
                     "Unimplemented write to {:x} {}",
-                    ioreg_addr,
-                    io_reg_string(ioreg_addr)
+                    io_addr,
+                    io_reg_string(io_addr)
                 );
-                self.mem.write_16(addr, value);
             }
         }
     }
@@ -301,6 +327,7 @@ pub mod consts {
     pub const REG_WAVE_RAM: Addr = 0x0400_0090;     //              Channel 3 Wave Pattern RAM (2 banks!!)
     pub const REG_FIFO_A: Addr = 0x0400_00A0;       //  4    W      Channel A FIFO, Data 0-3
     pub const REG_FIFO_B: Addr = 0x0400_00A4;       //  4    W      Channel B FIFO, Data 0-3
+    pub const DMA_BASE: Addr = REG_DMA0SAD;
     pub const REG_DMA0SAD: Addr = 0x0400_00B0;      //  4    W      DMA 0 Source Address
     pub const REG_DMA0DAD: Addr = 0x0400_00B4;      //  4    W      DMA 0 Destination Address
     pub const REG_DMA0CNT_L: Addr = 0x0400_00B8;    //  2    W      DMA 0 Word Count

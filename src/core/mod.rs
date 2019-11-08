@@ -4,7 +4,7 @@ pub mod gpu;
 pub mod sysbus;
 pub use sysbus::SysBus;
 pub mod interrupt;
-pub mod ioregs;
+pub mod iodev;
 pub use interrupt::Interrupt;
 pub use interrupt::IrqBitmask;
 pub mod gba;
