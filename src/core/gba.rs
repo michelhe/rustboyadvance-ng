@@ -36,7 +36,6 @@ impl GameBoyAdvance {
         while self.sysbus.io.gpu.state != GpuState::VBlank {
             self.step_new();
         }
-        self.backend.render(self.sysbus.io.gpu.get_framebuffer());
         while self.sysbus.io.gpu.state == GpuState::VBlank {
             self.step_new();
         }
@@ -73,7 +72,10 @@ impl GameBoyAdvance {
         io.timers.step(cycles, &mut self.sysbus, &mut irqs);
         if let Some(new_gpu_state) = io.gpu.step(cycles, &mut self.sysbus, &mut irqs) {
             match new_gpu_state {
-                GpuState::VBlank => io.dmac.notify_vblank(),
+                GpuState::VBlank => {
+                    self.backend.render(io.gpu.get_framebuffer());
+                    io.dmac.notify_vblank();
+                }
                 GpuState::HBlank => io.dmac.notify_hblank(),
                 _ => {}
             }

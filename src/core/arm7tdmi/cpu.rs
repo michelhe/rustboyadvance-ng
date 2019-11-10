@@ -46,7 +46,7 @@ pub struct Core {
     decoded_arm: u32,
     fetched_thumb: u16,
     decoded_thumb: u16,
-    last_executed: Option<DecodedInstruction>,
+    pub last_executed: Option<DecodedInstruction>,
 
     pub cycles: usize,
 
@@ -325,10 +325,12 @@ impl Core {
             PipelineState::Refill1 => {
                 self.pc = pc.wrapping_add(4);
                 self.pipeline_state = PipelineState::Refill2;
+                self.last_executed = None;
             }
             PipelineState::Refill2 => {
                 self.pc = pc.wrapping_add(4);
                 self.pipeline_state = PipelineState::Execute;
+                self.last_executed = None;
             }
             PipelineState::Execute => {
                 let insn = ArmInstruction::decode(insn, self.pc.wrapping_sub(8))?;

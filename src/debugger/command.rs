@@ -1,3 +1,7 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time;
+
 use crate::core::arm7tdmi::arm::ArmInstruction;
 use crate::core::arm7tdmi::bus::Bus;
 use crate::core::arm7tdmi::thumb::ThumbInstruction;
@@ -20,6 +24,13 @@ pub enum DisassMode {
     ModeThumb,
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum MemWriteCommandSize {
+    Byte,
+    Half,
+    Word,
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Command {
     Info,
@@ -28,6 +39,7 @@ pub enum Command {
     Continue,
     Frame(usize),
     HexDump(Addr, u32),
+    MemWrite(MemWriteCommandSize, Addr, u32),
     Disass(DisassMode, Addr, u32),
     AddBreakpoint(Addr),
     DelBreakpoint(Addr),
@@ -46,61 +58,101 @@ impl Command {
             Info => println!("{}", debugger.gba.cpu),
             DisplayInfo => { /*println!("GPU: {:#?}", debugger.gba.sysbus.io.gpu)*/ }
             Step(count) => {
+                debugger.ctrlc_flag.store(true, Ordering::SeqCst);
                 for _ in 0..count {
-                    match debugger.gba.step() {
-                        Ok(insn) => {
-                            print!(
-                                "{}\t{}",
-                                Colour::Black
-                                    .bold()
-                                    .italic()
-                                    .on(Colour::White)
-                                    .paint(format!("Executed at @0x{:08x}:", insn.get_pc(),)),
-                                insn
-                            );
-                            println!(
-                                "{}",
-                                Colour::Purple.dimmed().italic().paint(format!(
-                                    "\t\t/// Next instruction at @0x{:08x}",
-                                    debugger.gba.cpu.get_next_pc()
-                                ))
-                            )
-                        }
-                        Err(GBAError::CpuError(e)) => {
-                            println!("{}: {}", "cpu encountered an error".red(), e);
-                            println!("cpu: {:x?}", debugger.gba.cpu)
-                        }
-                        _ => unreachable!(),
+                    if !debugger.ctrlc_flag.load(Ordering::SeqCst) {
+                        break;
                     }
+                    debugger.gba.step_new();
+                    while debugger.gba.cpu.last_executed.is_none() {
+                        debugger.gba.step_new();
+                    }
+                    let last_executed = debugger.gba.cpu.last_executed.unwrap();
+                    print!(
+                        "{}\t{}",
+                        Colour::Black
+                            .bold()
+                            .italic()
+                            .on(Colour::White)
+                            .paint(format!("Executed at @0x{:08x}:", last_executed.get_pc(),)),
+                        last_executed
+                    );
+                    println!(
+                        "{}",
+                        Colour::Purple.dimmed().italic().paint(format!(
+                            "\t\t/// Next instruction at @0x{:08x}",
+                            debugger.gba.cpu.get_next_pc()
+                        ))
+                    );
                 }
                 println!("{}\n", debugger.gba.cpu);
+                // match debugger.gba.step() {
+                //     Ok(insn) => {
+                //         print!(
+                //             "{}\t{}",
+                //             Colour::Black
+                //                 .bold()
+                //                 .italic()
+                //                 .on(Colour::White)
+                //                 .paint(format!("Executed at @0x{:08x}:", insn.get_pc(),)),
+                //             insn
+                //         );
+                //         println!(
+                //             "{}",
+                //             Colour::Purple.dimmed().italic().paint(format!(
+                //                 "\t\t/// Next instruction at @0x{:08x}",
+                //                 debugger.gba.cpu.get_next_pc()
+                //             ))
+                //         )
+                //     }
+                //     Err(GBAError::CpuError(e)) => {
+                //         println!("{}: {}", "cpu encountered an error".red(), e);
+                //         println!("cpu: {:x?}", debugger.gba.cpu)
+                //     }
+                //     _ => unreachable!(),
+                // }
             }
             Continue => {
-                let start_cycles = debugger.gba.cpu.cycles();
-                loop {
-                    if let Some(bp) = debugger.check_breakpoint() {
-                        match debugger.gba.step() {
-                            Err(GBAError::CpuError(e)) => {
-                                println!("{}: {}", "cpu encountered an error".red(), e);
-                                println!("cpu: {:x?}", debugger.gba.cpu);
-                                break;
-                            }
-                            _ => (),
-                        };
-                        let num_cycles = debugger.gba.cpu.cycles() - start_cycles;
-                        println!("hit breakpoint #0x{:08x} after {} cycles !", bp, num_cycles);
-                        break;
-                    } else {
-                        match debugger.gba.step() {
-                            Err(GBAError::CpuError(e)) => {
-                                println!("{}: {}", "cpu encountered an error".red(), e);
-                                println!("cpu: {:x?}", debugger.gba.cpu);
-                                break;
-                            }
-                            _ => (),
-                        };
-                    }
+                let frame_time = time::Duration::new(0, 1_000_000_000u32 / 60);
+                debugger.ctrlc_flag.store(true, Ordering::SeqCst);
+                while debugger.ctrlc_flag.load(Ordering::SeqCst) {
+                    let start_time = time::Instant::now();
+                    debugger.gba.frame();
+
+                    let time_passed = start_time.elapsed();
+                    let delay = frame_time.checked_sub(time_passed);
+                    match delay {
+                        None => {}
+                        Some(delay) => {
+                            ::std::thread::sleep(delay);
+                        }
+                    };
                 }
+                // let start_cycles = debugger.gba.cpu.cycles();
+                // loop {
+                //     if let Some(bp) = debugger.check_breakpoint() {
+                //         match debugger.gba.step() {
+                //             Err(GBAError::CpuError(e)) => {
+                //                 println!("{}: {}", "cpu encountered an error".red(), e);
+                //                 println!("cpu: {:x?}", debugger.gba.cpu);
+                //                 break;
+                //             }
+                //             _ => (),
+                //         };
+                //         let num_cycles = debugger.gba.cpu.cycles() - start_cycles;
+                //         println!("hit breakpoint #0x{:08x} after {} cycles !", bp, num_cycles);
+                //         break;
+                //     } else {
+                //         match debugger.gba.step() {
+                //             Err(GBAError::CpuError(e)) => {
+                //                 println!("{}: {}", "cpu encountered an error".red(), e);
+                //                 println!("cpu: {:x?}", debugger.gba.cpu);
+                //                 break;
+                //             }
+                //             _ => (),
+                //         };
+                //     }
+                // }
             }
             Frame(count) => {
                 use super::time::PreciseTime;
@@ -115,6 +167,11 @@ impl Command {
                 let bytes = debugger.gba.sysbus.get_bytes(addr..addr + nbytes);
                 hexdump::hexdump(&bytes);
             }
+            MemWrite(size, addr, val) => match size {
+                MemWriteCommandSize::Byte => debugger.gba.sysbus.write_8(addr, val as u8),
+                MemWriteCommandSize::Half => debugger.gba.sysbus.write_16(addr, val as u16),
+                MemWriteCommandSize::Word => debugger.gba.sysbus.write_32(addr, val as u32),
+            },
             Disass(mode, addr, n) => {
                 let bytes = debugger.gba.sysbus.get_bytes(addr..addr + n);
                 match mode {
@@ -256,6 +313,66 @@ impl Debugger {
                     }
                 };
                 Ok(Command::HexDump(addr, n))
+            }
+            "mwb" => {
+                let (addr, val) = match args.len() {
+                    2 => {
+                        let addr = self.val_address(&args[0])?;
+                        let val = self.val_number(&args[1])? as u8;
+
+                        (addr, val)
+                    }
+                    _ => {
+                        return Err(DebuggerError::InvalidCommandFormat(
+                            "mwb [addr] [n]".to_string(),
+                        ))
+                    }
+                };
+                Ok(Command::MemWrite(
+                    MemWriteCommandSize::Byte,
+                    addr,
+                    val as u32,
+                ))
+            }
+            "mwh" => {
+                let (addr, val) = match args.len() {
+                    2 => {
+                        let addr = self.val_address(&args[0])?;
+                        let val = self.val_number(&args[1])? as u16;
+
+                        (addr, val)
+                    }
+                    _ => {
+                        return Err(DebuggerError::InvalidCommandFormat(
+                            "mwb [addr] [n]".to_string(),
+                        ))
+                    }
+                };
+                Ok(Command::MemWrite(
+                    MemWriteCommandSize::Half,
+                    addr,
+                    val as u32,
+                ))
+            }
+            "mww" => {
+                let (addr, val) = match args.len() {
+                    2 => {
+                        let addr = self.val_address(&args[0])?;
+                        let val = self.val_number(&args[1])? as u32;
+
+                        (addr, val)
+                    }
+                    _ => {
+                        return Err(DebuggerError::InvalidCommandFormat(
+                            "mwb [addr] [n]".to_string(),
+                        ))
+                    }
+                };
+                Ok(Command::MemWrite(
+                    MemWriteCommandSize::Half,
+                    addr,
+                    val as u32,
+                ))
             }
             "d" | "disass" => {
                 let (addr, n) = self.get_disassembler_args(args)?;

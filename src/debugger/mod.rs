@@ -1,3 +1,7 @@
+extern crate ctrlc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
@@ -36,14 +40,23 @@ type DebuggerResult<T> = Result<T, DebuggerError>;
 pub struct Debugger {
     pub gba: GameBoyAdvance,
     running: bool,
+    pub ctrlc_flag: Arc<AtomicBool>,
     pub previous_command: Option<Command>,
 }
 
 impl Debugger {
     pub fn new(gba: GameBoyAdvance) -> Debugger {
+        let ctrlc_flag = Arc::new(AtomicBool::new(true));
+        let r = ctrlc_flag.clone();
+        ctrlc::set_handler(move || {
+            println!("Stopping, Ctrl-C detected!");
+            r.store(false, Ordering::SeqCst);
+        })
+        .expect("Error setting Ctrl-C handler");
         Debugger {
             gba: gba,
             running: false,
+            ctrlc_flag: ctrlc_flag,
             previous_command: None,
         }
     }
