@@ -377,7 +377,7 @@ impl Debugger {
             "d" | "disass" => {
                 let (addr, n) = self.get_disassembler_args(args)?;
 
-                let m = match self.gba.cpu.cpsr.state() {
+                let m = match self.gba.cpu.get_cpu_state() {
                     CpuState::ARM => DisassMode::ModeArm,
                     CpuState::THUMB => DisassMode::ModeThumb,
                 };

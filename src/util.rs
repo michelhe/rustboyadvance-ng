@@ -18,3 +18,12 @@ macro_rules! index2d {
         (($w as $t) * ($y as $t) + ($x as $t)) as $t
     };
 }
+
+macro_rules! host_breakpoint {
+    () => {
+        #[cfg(debug_assertions)]
+        unsafe {
+            ::std::intrinsics::breakpoint()
+        }
+    };
+}

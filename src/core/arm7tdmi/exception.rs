@@ -18,24 +18,19 @@ pub enum Exception {
     Fiq = 0x1c,
 }
 
-impl From<Exception> for CpuMode {
-    /// Return cpu mode upon entry
-    fn from(e: Exception) -> CpuMode {
-        use Exception::*;
-        match e {
-            Reset | SoftwareInterrupt | Reserved => CpuMode::Supervisor,
-            PrefatchAbort | DataAbort => CpuMode::Abort,
-            UndefinedInstruction => CpuMode::Undefined,
-            Irq => CpuMode::Irq,
-            Fiq => CpuMode::Fiq,
-        }
-    }
-}
-
 impl Core {
-    pub fn exception(&mut self, sb: &mut SysBus, e: Exception) {
-        let vector = e as u32;
-        let new_mode = CpuMode::from(e);
+    pub fn exception(&mut self, sb: &mut SysBus, e: Exception, lr: u32) {
+        use Exception::*;
+        let (new_mode, irq_disable, fiq_disable) = match e {
+            Reset => (CpuMode::Supervisor, true, true),
+            UndefinedInstruction => (CpuMode::Undefined, false, false),
+            SoftwareInterrupt => (CpuMode::Supervisor, true, false),
+            DataAbort => (CpuMode::Abort, false, false),
+            PrefatchAbort => (CpuMode::Abort, false, false),
+            Reserved => panic!("Cpu reserved exception"),
+            Irq => (CpuMode::Irq, true, false),
+            Fiq => (CpuMode::Fiq, true, true),
+        };
         if self.verbose {
             println!(
                 "{}: {:?}, pc: {:#x}, new_mode: {:?} old_mode: {:?}",
@@ -47,19 +42,46 @@ impl Core {
             );
         }
 
-        self.change_mode(new_mode);
-        self.gpr[REG_LR] = self.get_next_pc() + (self.word_size() as u32);
+        let new_bank = new_mode.bank_index();
+        self.spsr_bank[new_bank] = self.cpsr;
+        self.gpr_banked_r14[new_bank] = lr;
+        self.change_mode(self.cpsr.mode(), new_mode);
 
         // Set appropriate CPSR bits
         self.cpsr.set_state(CpuState::ARM);
         self.cpsr.set_mode(new_mode);
-        self.cpsr.set_irq_disabled(true);
-        if e == Exception::Reset || e == Exception::Fiq {
+        if irq_disable {
+            self.cpsr.set_irq_disabled(true);
+        }
+        if fiq_disable {
             self.cpsr.set_fiq_disabled(true);
         }
 
         // Set PC to vector address
-        self.pc = vector;
+        self.pc = e as u32;
         self.flush_pipeline(sb);
+    }
+
+    pub fn irq(&mut self, sb: &mut SysBus) {
+        if !self.cpsr.irq_disabled() {
+            let lr = self.get_next_pc() + 4;
+            self.exception(sb, Exception::Irq, lr)
+        }
+    }
+
+    pub fn software_interrupt(&mut self, sb: &mut SysBus, lr: u32, cmt: u32) {
+        match self.cpsr.state() {
+            CpuState::ARM => self.N_cycle32(sb, self.pc),
+            CpuState::THUMB => self.N_cycle16(sb, self.pc),
+        };
+        if cmt == 0x55 {
+            #[cfg(debug_assertions)]
+            {
+                println!("Special breakpoint detected!");
+                host_breakpoint!();
+            }
+        } else {
+            self.exception(sb, Exception::SoftwareInterrupt, lr);
+        }
     }
 }

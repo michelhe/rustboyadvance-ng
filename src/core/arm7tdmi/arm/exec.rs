@@ -19,12 +19,15 @@ impl Core {
             ArmFormat::BX => self.exec_bx(bus, insn),
             ArmFormat::B_BL => self.exec_b_bl(bus, insn),
             ArmFormat::DP => self.exec_data_processing(bus, insn),
-            ArmFormat::SWI => self.exec_swi(bus),
+            ArmFormat::SWI => {
+                self.software_interrupt(bus, insn.pc + 4, insn.swi_comment());
+                Ok(())
+            }
             ArmFormat::LDR_STR => self.exec_ldr_str(bus, insn),
             ArmFormat::LDR_STR_HS_IMM => self.exec_ldr_str_hs(bus, insn),
             ArmFormat::LDR_STR_HS_REG => self.exec_ldr_str_hs(bus, insn),
             ArmFormat::LDM_STM => self.exec_ldm_stm(bus, insn),
-            ArmFormat::MRS => self.exec_mrs(bus, insn),
+            ArmFormat::MRS => self.move_from_status_register(bus, insn.rd(), insn.spsr_flag()),
             ArmFormat::MSR_REG => self.exec_msr_reg(bus, insn),
             ArmFormat::MSR_FLAGS => self.exec_msr_flags(bus, insn),
             ArmFormat::MUL_MLA => self.exec_mul_mla(bus, insn),
@@ -70,40 +73,56 @@ impl Core {
         self.branch_exchange(sb, self.get_reg(insn.rn()))
     }
 
-    fn exec_mrs(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
-        let mode = self.cpsr.mode();
-        let result = if insn.spsr_flag() {
-            if let Some(index) = mode.spsr_index() {
-                self.spsr[index].get()
-            } else {
-                panic!("tried to get spsr from invalid mode {}", mode)
-            }
+    fn move_from_status_register(
+        &mut self,
+        sb: &mut SysBus,
+        rd: usize,
+        is_spsr: bool,
+    ) -> CpuExecResult {
+        let result = if is_spsr {
+            self.spsr.get()
         } else {
             self.cpsr.get()
         };
-        self.set_reg(insn.rd(), result);
+        self.set_reg(rd, result);
         self.S_cycle32(sb, self.pc);
         Ok(())
     }
 
     fn exec_msr_reg(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
-        self.exec_msr(sb, insn, self.get_reg(insn.rm()))
+        self.write_status_register(sb, insn.spsr_flag(), self.get_reg(insn.rm()))
     }
 
-    fn exec_msr(&mut self, sb: &mut SysBus, insn: ArmInstruction, value: u32) -> CpuExecResult {
-        let new_psr = RegPSR::new(value);
-        let old_mode = self.cpsr.mode();
-        if insn.spsr_flag() {
-            if let Some(index) = old_mode.spsr_index() {
-                self.spsr[index] = new_psr;
-            } else {
-                panic!("tried to change spsr from invalid mode {}", old_mode)
+    fn write_status_register(
+        &mut self,
+        sb: &mut SysBus,
+        is_spsr: bool,
+        value: u32,
+    ) -> CpuExecResult {
+        let new_status_reg = RegPSR::new(value);
+        match self.cpsr.mode() {
+            CpuMode::User => {
+                if is_spsr {
+                    panic!("User mode can't access SPSR")
+                }
+                self.cpsr.set_flag_bits(value);
             }
-        } else {
-            if old_mode != new_psr.mode() {
-                self.change_mode(new_psr.mode());
+            _ => {
+                if is_spsr {
+                    self.spsr.set(value);
+                } else {
+                    let t_bit = self.cpsr.state();
+                    let old_mode = self.cpsr.mode();
+                    self.cpsr.set(value);
+                    if t_bit != self.cpsr.state() {
+                        panic!("T bit changed from MSR");
+                    }
+                    let new_mode = new_status_reg.mode();
+                    if old_mode != new_mode {
+                        self.change_mode(old_mode, new_mode);
+                    }
+                }
             }
-            self.cpsr = new_psr;
         }
         self.S_cycle32(sb, self.pc);
         Ok(())
@@ -112,22 +131,18 @@ impl Core {
     fn exec_msr_flags(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
         self.S_cycle32(sb, self.pc);
         let op = insn.operand2()?;
-        let op = self.decode_operand2(op, false)?;
+        let op = self.decode_operand2(op)?;
 
         let old_mode = self.cpsr.mode();
         if insn.spsr_flag() {
-            if let Some(index) = old_mode.spsr_index() {
-                self.spsr[index].set_flag_bits(op);
-            } else {
-                panic!("tried to change spsr from invalid mode {}", old_mode)
-            }
+            self.spsr.set_flag_bits(op);
         } else {
             self.cpsr.set_flag_bits(op);
         }
         Ok(())
     }
 
-    fn decode_operand2(&mut self, op2: BarrelShifterValue, set_flags: bool) -> CpuResult<u32> {
+    fn decode_operand2(&mut self, op2: BarrelShifterValue) -> CpuResult<u32> {
         match op2 {
             BarrelShifterValue::RotatedImmediate(val, amount) => {
                 let result = self.ror(val, amount, self.cpsr.C(), false, true);
@@ -135,24 +150,18 @@ impl Core {
             }
             BarrelShifterValue::ShiftedRegister(x) => {
                 let result = self.register_shift(x)?;
-                if set_flags {
-                    self.cpsr.set_C(self.bs_carry_out);
-                }
-                Ok(result as u32)
+                Ok(result)
             }
             _ => unreachable!(),
         }
     }
 
     fn transfer_spsr_mode(&mut self) {
-        let old_mode = self.cpsr.mode();
-        if let Some(index) = old_mode.spsr_index() {
-            let new_psr = self.spsr[index];
-            if old_mode != new_psr.mode() {
-                self.change_mode(new_psr.mode());
-            }
-            self.cpsr = new_psr;
+        let spsr = self.spsr;
+        if self.cpsr.mode() != spsr.mode() {
+            self.change_mode(self.cpsr.mode(), spsr.mode());
         }
+        self.cpsr = spsr;
     }
 
     /// Logical/Arithmetic ALU operations
@@ -160,6 +169,8 @@ impl Core {
     /// Cycles: 1S+x+y (from GBATEK)
     ///         Add x=1I cycles if Op2 shifted-by-register. Add y=1S+1N cycles if Rd=R15.
     fn exec_data_processing(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
+        use AluOpCode::*;
+
         self.S_cycle32(sb, self.pc);
         let mut op1 = if insn.rn() == REG_PC {
             (insn.pc + 8) as i32
@@ -167,7 +178,7 @@ impl Core {
             self.get_reg(insn.rn()) as i32
         };
 
-        let s_flag = insn.set_cond_flag();
+        let mut s_flag = insn.set_cond_flag();
         let opcode = insn.opcode().unwrap();
 
         let op2 = insn.operand2()?;
@@ -179,21 +190,28 @@ impl Core {
             }
             _ => {}
         }
-        let op2 = self.decode_operand2(op2, s_flag)? as i32;
+        let op2 = self.decode_operand2(op2)? as i32;
 
+        let reg_rd = insn.rd();
         if !s_flag {
             match opcode {
-                AluOpCode::TEQ | AluOpCode::CMN => {
-                    return self.exec_msr(sb, insn, op2 as u32);
+                TEQ => {
+                    return self.write_status_register(sb, false, op2 as u32);
                 }
-                AluOpCode::TST | AluOpCode::CMP => return self.exec_mrs(sb, insn),
+                CMN => {
+                    return self.write_status_register(sb, true, op2 as u32);
+                }
+                TST => return self.move_from_status_register(sb, reg_rd, false),
+                CMP => return self.move_from_status_register(sb, reg_rd, true),
                 _ => (),
             }
         }
 
-        let rd = insn.rd();
+        if reg_rd == REG_PC && s_flag {
+            self.transfer_spsr_mode();
+            s_flag = false;
+        }
 
-        use AluOpCode::*;
         let C = self.cpsr.C() as i32;
         let alu_res = if s_flag {
             let mut carry = self.bs_carry_out;
@@ -239,11 +257,10 @@ impl Core {
         };
 
         if let Some(result) = alu_res {
-            if rd == REG_PC {
-                self.transfer_spsr_mode();
+            if reg_rd == REG_PC {
                 self.flush_pipeline(sb);
             }
-            self.set_reg(rd, result as u32);
+            self.set_reg(reg_rd, result as u32);
         }
 
         Ok(())

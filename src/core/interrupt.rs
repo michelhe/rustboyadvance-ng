@@ -33,14 +33,11 @@ impl InterruptController {
     }
 
     pub fn request_irqs(&mut self, flags: IrqBitmask) {
-        if !self.interrupt_master_enable {
-            return;
-        }
-        self.interrupt_flags.0 |= flags.0 & self.interrupt_enable.0;
+        self.interrupt_flags.0 |= flags.0;
     }
 
     pub fn irq_pending(&self) -> bool {
-        self.interrupt_master_enable & (self.interrupt_flags.0 != 0)
+        self.interrupt_master_enable & ((self.interrupt_flags.0 & self.interrupt_enable.0) != 0)
     }
 }
 

@@ -1,5 +1,5 @@
 /// Struct containing everything
-use super::arm7tdmi::{exception::Exception, Core, DecodedInstruction};
+use super::arm7tdmi::{exception::Exception, Core, CpuState, DecodedInstruction};
 use super::cartridge::Cartridge;
 use super::gpu::*;
 use super::interrupt::*;
@@ -64,6 +64,9 @@ impl GameBoyAdvance {
         };
 
         if !io.dmac.perform_work(&mut self.sysbus, &mut irqs) {
+            if io.intc.irq_pending() {
+                self.cpu.irq(&mut self.sysbus);
+            }
             self.cpu.step(&mut self.sysbus).unwrap();
         }
 
@@ -81,11 +84,6 @@ impl GameBoyAdvance {
             }
         }
 
-        if !self.cpu.cpsr.irq_disabled() {
-            io.intc.request_irqs(irqs);
-            if io.intc.irq_pending() {
-                self.cpu.exception(&mut self.sysbus, Exception::Irq);
-            }
-        }
+        io.intc.request_irqs(irqs);
     }
 }

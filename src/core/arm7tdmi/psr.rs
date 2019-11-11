@@ -27,7 +27,7 @@ impl From<bool> for CpuState {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct RegPSR {
     raw: u32,
 }
@@ -37,13 +37,6 @@ fn clear_reserved(n: u32) -> u32 {
     n & !RESERVED_BIT_MASK
 }
 
-impl Default for RegPSR {
-    fn default() -> RegPSR {
-        let mut psr = RegPSR::new(0);
-        psr.set_mode(CpuMode::Supervisor);
-        psr
-    }
-}
 impl RegPSR {
     pub const FLAG_BITMASK: u32 = 0xf000_0000;
 

@@ -30,18 +30,21 @@ pub struct Core {
     pub pc: u32,
     pub gpr: [u32; 15],
     // r13 and r14 are banked for all modes. System&User mode share them
-    pub gpr_banked_r13: [u32; 6],
-    pub gpr_banked_r14: [u32; 6],
+    pub(super) gpr_banked_r13: [u32; 6],
+    pub(super) gpr_banked_r14: [u32; 6],
     // r8-r12 are banked for fiq mode
-    pub gpr_banked_old_r8_12: [u32; 5],
-    pub gpr_banked_fiq_r8_12: [u32; 5],
+    pub(super) gpr_banked_old_r8_12: [u32; 5],
+    pub(super) gpr_banked_fiq_r8_12: [u32; 5],
 
     pub cpsr: RegPSR,
-    pub spsr: [RegPSR; 5],
+    pub(super) spsr: RegPSR,
+    pub(super) spsr_bank: [RegPSR; 6],
 
-    pub bs_carry_out: bool,
+    pub(super) bs_carry_out: bool,
 
     pipeline_state: PipelineState,
+    pipeline: [u32; 2],
+
     fetched_arm: u32,
     decoded_arm: u32,
     fetched_thumb: u16,
@@ -63,8 +66,10 @@ pub type CpuExecResult = CpuResult<()>;
 
 impl Core {
     pub fn new() -> Core {
+        let mut cpsr = RegPSR::new(0x0000_00D3);
         Core {
             memreq: 0xffff_0000, // set memreq to an invalid addr so the first load cycle will be non-sequential
+            cpsr: cpsr,
             ..Default::default()
         }
     }
@@ -125,20 +130,20 @@ impl Core {
         }
     }
 
-    pub fn write_32(&mut self, addr: Addr, value: u32, bus: &mut SysBus) {
+    pub(super) fn write_32(&mut self, addr: Addr, value: u32, bus: &mut SysBus) {
         bus.write_32(addr & !0x3, value);
     }
 
-    pub fn write_16(&mut self, addr: Addr, value: u16, bus: &mut SysBus) {
+    pub(super) fn write_16(&mut self, addr: Addr, value: u16, bus: &mut SysBus) {
         bus.write_16(addr & !0x1, value);
     }
 
-    pub fn write_8(&mut self, addr: Addr, value: u8, bus: &mut SysBus) {
+    pub(super) fn write_8(&mut self, addr: Addr, value: u8, bus: &mut SysBus) {
         bus.write_8(addr, value);
     }
 
     /// Helper function for "ldr" instruction that handles misaligned addresses
-    pub fn ldr_word(&mut self, addr: Addr, bus: &SysBus) -> u32 {
+    pub(super) fn ldr_word(&mut self, addr: Addr, bus: &SysBus) -> u32 {
         if addr & 0x3 != 0 {
             let rotation = (addr & 0x3) << 3;
             let value = bus.read_32(addr & !0x3);
@@ -149,7 +154,7 @@ impl Core {
     }
 
     /// Helper function for "ldrh" instruction that handles misaligned addresses
-    pub fn ldr_half(&mut self, addr: Addr, bus: &SysBus) -> u32 {
+    pub(super) fn ldr_half(&mut self, addr: Addr, bus: &SysBus) -> u32 {
         if addr & 0x1 != 0 {
             let rotation = (addr & 0x1) << 3;
             let value = bus.read_16(addr & !0x1);
@@ -160,7 +165,7 @@ impl Core {
     }
 
     /// Helper function for "ldrsh" instruction that handles misaligned addresses
-    pub fn ldr_sign_half(&mut self, addr: Addr, bus: &SysBus) -> u32 {
+    pub(super) fn ldr_sign_half(&mut self, addr: Addr, bus: &SysBus) -> u32 {
         if addr & 0x1 != 0 {
             bus.read_8(addr) as i8 as i32 as u32
         } else {
@@ -172,43 +177,39 @@ impl Core {
         self.gpr.clone()
     }
 
-    fn map_banked_registers(&mut self, curr_mode: CpuMode, new_mode: CpuMode) {
-        let next_index = new_mode.bank_index();
-        let curr_index = curr_mode.bank_index();
+    pub(super) fn change_mode(&mut self, old_mode: CpuMode, new_mode: CpuMode) {
+        let new_index = new_mode.bank_index();
+        let old_index = old_mode.bank_index();
 
-        self.gpr_banked_r13[curr_index] = self.gpr[13];
-        self.gpr_banked_r14[curr_index] = self.gpr[14];
+        if new_index == old_index {
+            return;
+        }
 
-        self.gpr[13] = self.gpr_banked_r13[next_index];
-        self.gpr[14] = self.gpr_banked_r14[next_index];
+        self.spsr_bank[old_index] = self.spsr;
+        self.gpr_banked_r13[old_index] = self.gpr[13];
+        self.gpr_banked_r14[old_index] = self.gpr[14];
+
+        self.spsr = self.spsr_bank[new_index];
+        self.gpr[13] = self.gpr_banked_r13[new_index];
+        self.gpr[14] = self.gpr_banked_r14[new_index];
 
         if new_mode == CpuMode::Fiq {
             for r in 0..5 {
                 self.gpr_banked_old_r8_12[r] = self.gpr[r + 8];
                 self.gpr[r + 8] = self.gpr_banked_fiq_r8_12[r];
             }
-        } else if curr_mode == CpuMode::Fiq {
+        } else if old_mode == CpuMode::Fiq {
             for r in 0..5 {
                 self.gpr_banked_fiq_r8_12[r] = self.gpr[r + 8];
                 self.gpr[r + 8] = self.gpr_banked_old_r8_12[r];
             }
         }
-    }
-
-    pub fn change_mode(&mut self, new_mode: CpuMode) {
-        let curr_mode = self.cpsr.mode();
-        // Copy CPSR to SPSR_mode
-        if let Some(index) = new_mode.spsr_index() {
-            self.spsr[index] = self.cpsr;
-        }
-        self.map_banked_registers(curr_mode, new_mode);
-        // let next_index = new_mode.bank_index();
-        // self.gpr_banked_r14[next_index] = self.get_next_pc();
+        self.cpsr.set_mode(new_mode);
     }
 
     /// Resets the cpu
     pub fn reset(&mut self, sb: &mut SysBus) {
-        self.exception(sb, Exception::Reset);
+        self.exception(sb, Exception::Reset, 0);
     }
 
     pub fn word_size(&self) -> usize {
@@ -222,18 +223,18 @@ impl Core {
         self.cycles
     }
 
-    pub fn add_cycle(&mut self) {
+    pub(super) fn add_cycle(&mut self) {
         // println!("<cycle I-Cyclel> total: {}", self.cycles);
         self.cycles += 1;
     }
 
-    pub fn add_cycles(&mut self, addr: Addr, bus: &SysBus, access: MemoryAccess) {
+    pub(super) fn add_cycles(&mut self, addr: Addr, bus: &SysBus, access: MemoryAccess) {
         let cycles_to_add = 1 + bus.get_cycles(addr, access);
         // println!("<cycle {:#x} {}> took: {}", addr, access, cycles_to_add);
         self.cycles += cycles_to_add;
     }
 
-    pub fn cycle_type(&self, addr: Addr) -> MemoryAccessType {
+    pub(super) fn cycle_type(&self, addr: Addr) -> MemoryAccessType {
         if addr == self.memreq || addr == self.memreq.wrapping_add(self.word_size() as Addr) {
             Seq
         } else {
@@ -241,7 +242,7 @@ impl Core {
         }
     }
 
-    pub fn get_required_multipiler_array_cycles(&self, rs: i32) -> usize {
+    pub(super) fn get_required_multipiler_array_cycles(&self, rs: i32) -> usize {
         if rs & 0xff == rs {
             1
         } else if rs & 0xffff == rs {
@@ -254,42 +255,42 @@ impl Core {
     }
 
     #[allow(non_snake_case)]
-    pub fn S_cycle32(&mut self, sb: &SysBus, addr: u32) {
+    pub(super) fn S_cycle32(&mut self, sb: &SysBus, addr: u32) {
         self.cycles += 1;
         self.cycles += sb.get_cycles(addr, Seq + MemoryAccess32);
     }
 
     #[allow(non_snake_case)]
-    pub fn S_cycle16(&mut self, sb: &SysBus, addr: u32) {
+    pub(super) fn S_cycle16(&mut self, sb: &SysBus, addr: u32) {
         self.cycles += 1;
         self.cycles += sb.get_cycles(addr, Seq + MemoryAccess16);
     }
 
     #[allow(non_snake_case)]
-    pub fn S_cycle8(&mut self, sb: &SysBus, addr: u32) {
+    pub(super) fn S_cycle8(&mut self, sb: &SysBus, addr: u32) {
         self.cycles += 1;
         self.cycles += sb.get_cycles(addr, Seq + MemoryAccess8);
     }
 
     #[allow(non_snake_case)]
-    pub fn N_cycle32(&mut self, sb: &SysBus, addr: u32) {
+    pub(super) fn N_cycle32(&mut self, sb: &SysBus, addr: u32) {
         self.cycles += 1;
         self.cycles += sb.get_cycles(addr, NonSeq + MemoryAccess32);
     }
 
     #[allow(non_snake_case)]
-    pub fn N_cycle16(&mut self, sb: &SysBus, addr: u32) {
+    pub(super) fn N_cycle16(&mut self, sb: &SysBus, addr: u32) {
         self.cycles += 1;
         self.cycles += sb.get_cycles(addr, NonSeq + MemoryAccess16);
     }
 
     #[allow(non_snake_case)]
-    pub fn N_cycle8(&mut self, sb: &SysBus, addr: u32) {
+    pub(super) fn N_cycle8(&mut self, sb: &SysBus, addr: u32) {
         self.cycles += 1;
         self.cycles += sb.get_cycles(addr, NonSeq + MemoryAccess8);
     }
 
-    pub fn check_arm_cond(&self, cond: ArmCond) -> bool {
+    pub(super) fn check_arm_cond(&self, cond: ArmCond) -> bool {
         use ArmCond::*;
         match cond {
             EQ => self.cpsr.Z(),
@@ -310,13 +311,8 @@ impl Core {
         }
     }
 
-    pub fn exec_swi(&mut self, sb: &mut SysBus) -> CpuExecResult {
-        match self.cpsr.state() {
-            CpuState::ARM => self.N_cycle32(sb, self.pc),
-            CpuState::THUMB => self.N_cycle16(sb, self.pc),
-        };
-        self.exception(sb, Exception::SoftwareInterrupt);
-        Ok(())
+    pub(super) fn did_pipeline_flush(&self) -> bool {
+        self.pipeline_state == PipelineState::Refill1
     }
 
     fn step_arm_exec(&mut self, insn: u32, sb: &mut SysBus) -> CpuResult<()> {
@@ -333,36 +329,16 @@ impl Core {
                 self.last_executed = None;
             }
             PipelineState::Execute => {
-                let insn = ArmInstruction::decode(insn, self.pc.wrapping_sub(8))?;
+                let decoded_arm = ArmInstruction::decode(insn, self.pc.wrapping_sub(8))?;
                 self.gpr_previous = self.get_registers();
-                self.exec_arm(sb, insn)?;
+                self.exec_arm(sb, decoded_arm)?;
                 if !self.did_pipeline_flush() {
                     self.pc = pc.wrapping_add(4);
                 }
-                self.last_executed = Some(DecodedInstruction::Arm(insn));
+                self.last_executed = Some(DecodedInstruction::Arm(decoded_arm));
             }
         }
         Ok(())
-    }
-
-    fn arm(&mut self, sb: &mut SysBus) -> CpuResult<()> {
-        let pc = self.pc;
-
-        // fetch
-        let fetched_now = sb.read_32(pc);
-        let executed_now = self.decoded_arm;
-
-        // decode
-        self.decoded_arm = self.fetched_arm;
-        self.fetched_arm = fetched_now;
-
-        // execute
-        self.step_arm_exec(executed_now, sb)?;
-        Ok(())
-    }
-
-    pub fn did_pipeline_flush(&self) -> bool {
-        self.pipeline_state == PipelineState::Refill1
     }
 
     fn step_thumb_exec(&mut self, insn: u16, sb: &mut SysBus) -> CpuResult<()> {
@@ -371,10 +347,12 @@ impl Core {
             PipelineState::Refill1 => {
                 self.pc = pc.wrapping_add(2);
                 self.pipeline_state = PipelineState::Refill2;
+                self.last_executed = None;
             }
             PipelineState::Refill2 => {
                 self.pc = pc.wrapping_add(2);
                 self.pipeline_state = PipelineState::Execute;
+                self.last_executed = None;
             }
             PipelineState::Execute => {
                 let insn = ThumbInstruction::decode(insn, self.pc.wrapping_sub(4))?;
@@ -389,23 +367,7 @@ impl Core {
         Ok(())
     }
 
-    fn thumb(&mut self, sb: &mut SysBus) -> CpuResult<()> {
-        let pc = self.pc;
-
-        // fetch
-        let fetched_now = sb.read_16(pc);
-        let executed_now = self.decoded_thumb;
-
-        // decode
-        self.decoded_thumb = self.fetched_thumb;
-        self.fetched_thumb = fetched_now;
-
-        // execute
-        self.step_thumb_exec(executed_now, sb)?;
-        Ok(())
-    }
-
-    pub fn flush_pipeline(&mut self, sb: &mut SysBus) {
+    pub(super) fn flush_pipeline(&mut self, sb: &mut SysBus) {
         self.pipeline_state = PipelineState::Refill1;
         match self.cpsr.state() {
             CpuState::ARM => {
@@ -422,9 +384,20 @@ impl Core {
     /// Perform a pipeline step
     /// If an instruction was executed in this step, return it.
     pub fn step(&mut self, bus: &mut SysBus) -> CpuResult<()> {
+        let pc = self.pc;
+
+        let fetched_now = match self.cpsr.state() {
+            CpuState::ARM => bus.read_32(pc),
+            CpuState::THUMB => bus.read_16(pc) as u32,
+        };
+
+        let insn = self.pipeline[0];
+        self.pipeline[0] = self.pipeline[1];
+        self.pipeline[1] = fetched_now;
+
         match self.cpsr.state() {
-            CpuState::ARM => self.arm(bus),
-            CpuState::THUMB => self.thumb(bus),
+            CpuState::ARM => self.step_arm_exec(insn, bus),
+            CpuState::THUMB => self.step_thumb_exec(insn as u16, bus),
         }
     }
 
@@ -453,6 +426,25 @@ impl Core {
                 }
             }
         }
+    }
+
+    pub fn get_cpu_state(&self) -> CpuState {
+        self.cpsr.state()
+    }
+
+    pub fn skip_bios(&mut self) {
+        self.gpr_banked_r13[0] = 0x0300_7f00; // USR/SYS
+        self.gpr_banked_r13[1] = 0x0300_7f00; // FIQ
+        self.gpr_banked_r13[2] = 0x0300_7fa0; // IRQ
+        self.gpr_banked_r13[3] = 0x0300_7fe0; // SVC
+        self.gpr_banked_r13[4] = 0x0300_7f00; // ABT
+        self.gpr_banked_r13[5] = 0x0300_7f00; // UND
+
+        self.gpr[13] = 0x0300_7f00;
+        self.gpr[14] = 0x0800_0000;
+        self.pc = 0x0800_0000;
+
+        self.cpsr.set(0x5f);
     }
 }
 
