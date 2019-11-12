@@ -1,0 +1,102 @@
+// Available variables which can be used inside of strings.
+// ${workspaceRoot}: the root folder of the team
+// ${file}: the current opened file
+// ${fileBasename}: the current opened file's basename
+// ${fileDirname}: the current opened file's dirname
+// ${fileExtname}: the current opened file's extension
+// ${cwd}: the current working directory of the spawned process
+{
+    "version": "0.1.0",
+    "command": "cargo",
+    "isShellCommand": true,
+    "suppressTaskName": true,
+    "tasks": [
+        {
+            "taskName": "build",
+            "args": [ "build", "-v" ],
+            "isBuildCommand": true,
+            "showOutput": "always",
+            "problemMatcher": [
+                {
+                    "owner": "rust",
+                    "fileLocation": [ "relative", "${workspaceRoot}" ],
+                    "pattern": {
+                        "regexp": "^(.*):(\\d+):(\\d+):\\s+(\\d+):(\\d+)\\s+(warning|error):\\s+(.*)$",
+                        "file": 1, "line": 2, "column": 3, "endLine": 4, "endColumn": 5, "severity": 6, "message": 7
+                    }
+                }
+            ]
+        },
+        {
+            "taskName": "clean",
+            "args": [ "clean" ],
+            "showOutput": "never"
+        },
+        {
+            "taskName": "run",
+            "args": [ "run", "-v" ],
+            "showOutput": "always",
+            "isBuildCommand": true,
+            "problemMatcher": [
+                {
+                    "owner": "rust",
+                    "fileLocation": [ "relative", "${workspaceRoot}" ],
+                    "pattern": {
+                        "regexp": "^(.*):(\\d+):(\\d+):\\s+(\\d+):(\\d+)\\s+(warning|error):\\s+(.*)$",
+                        "file": 1, "line": 2, "column": 3, "endLine": 4, "endColumn": 5, "severity": 6, "message": 7
+                    }
+                }
+            ]
+        },
+        {
+            "taskName": "test",
+            "args": [ "test" ],
+            "showOutput": "always",
+            "isTestCommand": true,
+            "problemMatcher": [
+                {
+                    "owner": "rust",
+                    "fileLocation": [ "relative", "${workspaceRoot}" ],
+                    "pattern": {
+                        "regexp": "^(.*):(\\d+):(\\d+):\\s+(\\d+):(\\d+)\\s+(warning|error):\\s+(.*)$",
+                        "file": 1, "line": 2, "column": 3, "endLine": 4, "endColumn": 5, "severity": 6, "message": 7
+                    }
+                },
+                {
+                    "owner": "rust",
+                    "fileLocation": [ "relative", "${workspaceRoot}" ],
+                    "severity": "error",
+                    "pattern": {
+                        "regexp": "^.*panicked\\s+at\\s+'(.*)',\\s+(.*):(\\d+)$",
+                        "message": 1, "file": 2, "line": 3
+                    }
+                }
+            ]
+        },
+        {
+            "taskName": "bench",
+            "args": [ "bench" ],
+            "showOutput": "always",
+            "isTestCommand": true,
+            "problemMatcher": [
+                {
+                    "owner": "rust",
+                    "fileLocation": [ "relative", "${workspaceRoot}" ],
+                    "pattern": {
+                        "regexp": "^(.*):(\\d+):(\\d+):\\s+(\\d+):(\\d+)\\s+(warning|error):\\s+(.*)$",
+                        "file": 1, "line": 2, "column": 3, "endLine": 4, "endColumn": 5, "severity": 6, "message": 7
+                    }
+                },
+                {
+                    "owner": "rust",
+                    "fileLocation": [ "relative", "${workspaceRoot}" ],
+                    "severity": "error",
+                    "pattern": {
+                        "regexp": "^.*panicked\\s+at\\s+'(.*)',\\s+(.*):(\\d+)$",
+                        "message": 1, "file": 2, "line": 3
+                    }
+                }
+            ]
+        }
+    ]
+}
