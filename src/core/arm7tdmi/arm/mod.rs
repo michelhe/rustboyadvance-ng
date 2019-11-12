@@ -293,9 +293,9 @@ impl ArmInstruction {
             })
         } else {
             let ofs = if self.add_offset_flag() {
-                ofs as i32
+                ofs as u32
             } else {
-                -(ofs as i32)
+                (-(ofs as i32) as u32)
             };
             BarrelShifterValue::ImmediateValue(ofs)
         }
@@ -320,9 +320,9 @@ impl ArmInstruction {
             ArmFormat::LDR_STR_HS_IMM => {
                 let offset8 = (self.raw.bit_range(8..12) << 4) + self.raw.bit_range(0..4);
                 let offset8 = if self.add_offset_flag() {
-                    offset8 as i32
+                    offset8
                 } else {
-                    -(offset8 as i32)
+                    (-(offset8 as i32)) as u32
                 };
                 Ok(BarrelShifterValue::ImmediateValue(offset8))
             }

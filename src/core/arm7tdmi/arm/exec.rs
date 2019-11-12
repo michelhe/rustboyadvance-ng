@@ -173,9 +173,9 @@ impl Core {
 
         self.S_cycle32(sb, self.pc);
         let mut op1 = if insn.rn() == REG_PC {
-            (insn.pc + 8) as i32
+            (insn.pc + 8)
         } else {
-            self.get_reg(insn.rn()) as i32
+            self.get_reg(insn.rn())
         };
 
         let mut s_flag = insn.set_cond_flag();
@@ -190,16 +190,16 @@ impl Core {
             }
             _ => {}
         }
-        let op2 = self.decode_operand2(op2)? as i32;
+        let op2 = self.decode_operand2(op2)?;
 
         let reg_rd = insn.rd();
         if !s_flag {
             match opcode {
                 TEQ => {
-                    return self.write_status_register(sb, false, op2 as u32);
+                    return self.write_status_register(sb, false, op2);
                 }
                 CMN => {
-                    return self.write_status_register(sb, true, op2 as u32);
+                    return self.write_status_register(sb, true, op2);
                 }
                 TST => return self.move_from_status_register(sb, reg_rd, false),
                 CMP => return self.move_from_status_register(sb, reg_rd, true),
@@ -212,19 +212,19 @@ impl Core {
             s_flag = false;
         }
 
-        let C = self.cpsr.C() as i32;
+        let C = self.cpsr.C() as u32;
         let alu_res = if s_flag {
             let mut carry = self.bs_carry_out;
             let mut overflow = self.cpsr.V();
             let result = match opcode {
                 AND | TST => op1 & op2,
                 EOR | TEQ => op1 ^ op2,
-                SUB | CMP => Self::alu_sub_flags(op1, op2, &mut carry, &mut overflow),
-                RSB => Self::alu_sub_flags(op2, op1, &mut carry, &mut overflow),
-                ADD | CMN => Self::alu_add_flags(op1, op2, &mut carry, &mut overflow),
-                ADC => Self::alu_add_flags(op1, op2.wrapping_add(C), &mut carry, &mut overflow),
-                SBC => Self::alu_sub_flags(op1, op2.wrapping_add(1 - C), &mut carry, &mut overflow),
-                RSC => Self::alu_sub_flags(op2, op1.wrapping_add(1 - C), &mut carry, &mut overflow),
+                SUB | CMP => self.alu_sub_flags(op1, op2, &mut carry, &mut overflow),
+                RSB => self.alu_sub_flags(op2, op1, &mut carry, &mut overflow),
+                ADD | CMN => self.alu_add_flags(op1, op2, &mut carry, &mut overflow),
+                ADC => self.alu_adc_flags(op1, op2, &mut carry, &mut overflow),
+                SBC => self.alu_sbc_flags(op1, op2, &mut carry, &mut overflow),
+                RSC => self.alu_sbc_flags(op2, op1, &mut carry, &mut overflow),
                 ORR => op1 | op2,
                 MOV => op2,
                 BIC => op1 & (!op2),
@@ -280,7 +280,7 @@ impl Core {
             addr = insn.pc + 8; // prefetching
         }
         let offset = self.get_barrel_shifted_value(insn.ldr_str_offset());
-        let effective_addr = (addr as i32).wrapping_add(offset) as Addr;
+        let effective_addr = (addr as i32).wrapping_add(offset as i32) as Addr;
         addr = if insn.pre_index_flag() {
             effective_addr
         } else {
@@ -341,7 +341,7 @@ impl Core {
 
         let offset = self.get_barrel_shifted_value(insn.ldr_str_hs_offset().unwrap());
 
-        let effective_addr = (addr as i32).wrapping_add(offset) as Addr;
+        let effective_addr = (addr as i32).wrapping_add(offset as i32) as Addr;
         addr = if insn.pre_index_flag() {
             effective_addr
         } else {
@@ -529,9 +529,9 @@ impl Core {
             return Err(CpuError::IllegalInstruction);
         }
 
-        let op1 = self.get_reg(rm) as i32;
-        let op2 = self.get_reg(rs) as i32;
-        let mut result = op1.wrapping_mul(op2) as u32;
+        let op1 = self.get_reg(rm);
+        let op2 = self.get_reg(rs);
+        let mut result = op1.wrapping_mul(op2);
 
         if insn.accumulate_flag() {
             result = result.wrapping_add(self.get_reg(rn));
@@ -588,7 +588,7 @@ impl Core {
         self.set_reg(rd_hi, (result >> 32) as i32 as u32);
         self.set_reg(rd_lo, (result & 0xffffffff) as i32 as u32);
 
-        let m = self.get_required_multipiler_array_cycles(self.get_reg(rs) as i32);
+        let m = self.get_required_multipiler_array_cycles(self.get_reg(rs));
         for _ in 0..m {
             self.add_cycle();
         }

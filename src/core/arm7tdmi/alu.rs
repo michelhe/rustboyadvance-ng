@@ -71,16 +71,16 @@ pub struct ShiftedRegister {
 
 #[derive(Debug, PartialEq)]
 pub enum BarrelShifterValue {
-    ImmediateValue(i32),
+    ImmediateValue(u32),
     RotatedImmediate(u32, u32),
     ShiftedRegister(ShiftedRegister),
 }
 
 impl BarrelShifterValue {
     /// Decode operand2 as an immediate value
-    pub fn decode_rotated_immediate(&self) -> Option<i32> {
+    pub fn decode_rotated_immediate(&self) -> Option<u32> {
         if let BarrelShifterValue::RotatedImmediate(immediate, rotate) = self {
-            return Some(immediate.rotate_right(*rotate) as i32);
+            return Some(immediate.rotate_right(*rotate) as u32);
         }
         None
     }
@@ -269,43 +269,82 @@ impl Core {
         }
     }
 
-    pub fn get_barrel_shifted_value(&mut self, sval: BarrelShifterValue) -> i32 {
+    pub fn get_barrel_shifted_value(&mut self, sval: BarrelShifterValue) -> u32 {
         // TODO decide if error handling or panic here
         match sval {
-            BarrelShifterValue::ImmediateValue(offset) => offset,
+            BarrelShifterValue::ImmediateValue(offset) => offset as u32,
             BarrelShifterValue::ShiftedRegister(shifted_reg) => {
                 let added = shifted_reg.added.unwrap_or(true);
-                let abs = self.register_shift(shifted_reg).unwrap() as i32;
+                let abs = self.register_shift(shifted_reg).unwrap() as u32;
                 if added {
-                    abs
+                    abs as u32
                 } else {
-                    -abs
+                    (-(abs as i32)) as u32
                 }
             }
             _ => panic!("bad barrel shift"),
         }
     }
 
-    pub fn alu_sub_flags(a: i32, b: i32, carry: &mut bool, overflow: &mut bool) -> i32 {
+    pub(super) fn alu_sub_flags(
+        &self,
+        a: u32,
+        b: u32,
+        carry: &mut bool,
+        overflow: &mut bool,
+    ) -> u32 {
         let res = a.wrapping_sub(b);
-        *carry = (b as u32) <= (a as u32);
-        let (_, would_overflow) = a.overflowing_sub(b);
-        *overflow = would_overflow;
+        *carry = b <= a;
+        *overflow = (a as i32).overflowing_sub(b as i32).1;
         res
     }
 
-    pub fn alu_add_flags(a: i32, b: i32, carry: &mut bool, overflow: &mut bool) -> i32 {
-        let res = a.wrapping_add(b) as u32;
-        *carry = res < a as u32 || res < b as u32;
-        let (_, would_overflow) = a.overflowing_add(b);
-        *overflow = would_overflow;
-        res as i32
+    pub(super) fn alu_add_flags(
+        &self,
+        a: u32,
+        b: u32,
+        carry: &mut bool,
+        overflow: &mut bool,
+    ) -> u32 {
+        let res = a.wrapping_add(b);
+        *carry = add_carry_result(a as u64, b as u64);
+        *overflow = (a as i32).overflowing_add(b as i32).1;
+        res
     }
 
-    pub fn alu_update_flags(&mut self, result: i32, is_arithmetic: bool, c: bool, v: bool) {
-        self.cpsr.set_N(result < 0);
+    pub(super) fn alu_adc_flags(
+        &self,
+        a: u32,
+        b: u32,
+        carry: &mut bool,
+        overflow: &mut bool,
+    ) -> u32 {
+        let c = self.cpsr.C() as u64;
+        let res = (a as u64) + (b as u64) + c;
+        *carry = res > 0xffffffff;
+        *overflow = (!(a ^ b) & (b ^ (res as u32))).bit(31);
+        res as u32
+    }
+
+    pub(super) fn alu_sbc_flags(
+        &self,
+        a: u32,
+        b: u32,
+        carry: &mut bool,
+        overflow: &mut bool,
+    ) -> u32 {
+        self.alu_adc_flags(a, !b, carry, overflow)
+    }
+
+    pub fn alu_update_flags(&mut self, result: u32, is_arithmetic: bool, c: bool, v: bool) {
+        self.cpsr.set_N((result as i32) < 0);
         self.cpsr.set_Z(result == 0);
         self.cpsr.set_C(c);
         self.cpsr.set_V(v);
     }
+}
+
+#[inline]
+fn add_carry_result(a: u64, b: u64) -> bool {
+    a.wrapping_add(b) > 0xffffffff
 }

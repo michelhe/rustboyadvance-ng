@@ -32,9 +32,9 @@ impl Core {
                 bs_op: insn.format1_op(),
                 added: None,
             })
-            .unwrap() as i32;
+            .unwrap();
 
-        self.set_reg(insn.rd(), op2 as u32);
+        self.set_reg(insn.rd(), op2);
         self.alu_update_flags(op2, false, self.bs_carry_out, self.cpsr.V());
 
         self.S_cycle16(sb, self.pc + 2);
@@ -42,19 +42,19 @@ impl Core {
     }
 
     fn exec_thumb_add_sub(&mut self, sb: &mut SysBus, insn: ThumbInstruction) -> CpuExecResult {
-        let op1 = self.get_reg(insn.rs()) as i32;
+        let op1 = self.get_reg(insn.rs());
         let op2 = if insn.is_immediate_operand() {
-            insn.rn() as u32 as i32
+            insn.rn() as u32
         } else {
-            self.get_reg(insn.rn()) as i32
+            self.get_reg(insn.rn())
         };
 
         let mut carry = self.cpsr.C();
         let mut overflow = self.cpsr.V();
         let result = if insn.is_subtract() {
-            Self::alu_sub_flags(op1, op2, &mut carry, &mut overflow)
+            self.alu_sub_flags(op1, op2, &mut carry, &mut overflow)
         } else {
-            Self::alu_add_flags(op1, op2, &mut carry, &mut overflow)
+            self.alu_add_flags(op1, op2, &mut carry, &mut overflow)
         };
         self.alu_update_flags(result, true, carry, overflow);
         self.set_reg(insn.rd(), result as u32);
@@ -70,14 +70,14 @@ impl Core {
     ) -> CpuExecResult {
         use OpFormat3::*;
         let op = insn.format3_op();
-        let op1 = self.get_reg(insn.rd()) as i32;
-        let op2_imm = (insn.raw & 0xff) as i32;
+        let op1 = self.get_reg(insn.rd());
+        let op2_imm = (insn.raw & 0xff) as u32;
         let mut carry = self.cpsr.C();
         let mut overflow = self.cpsr.V();
         let result = match op {
             MOV => op2_imm,
-            CMP | SUB => Self::alu_sub_flags(op1, op2_imm, &mut carry, &mut overflow),
-            ADD => Self::alu_add_flags(op1, op2_imm, &mut carry, &mut overflow),
+            CMP | SUB => self.alu_sub_flags(op1, op2_imm, &mut carry, &mut overflow),
+            ADD => self.alu_add_flags(op1, op2_imm, &mut carry, &mut overflow),
         };
         let arithmetic = op == ADD || op == SUB;
         self.alu_update_flags(result, arithmetic, carry, overflow);
@@ -91,11 +91,11 @@ impl Core {
     fn exec_thumb_alu_ops(&mut self, sb: &mut SysBus, insn: ThumbInstruction) -> CpuExecResult {
         let rd = insn.rd();
         let rs = insn.rs();
-        let dst = self.get_reg(rd) as i32;
-        let src = self.get_reg(rs) as i32;
+        let dst = self.get_reg(rd);
+        let src = self.get_reg(rs);
 
         let mut carry = self.cpsr.C();
-        let c = self.cpsr.C() as i32;
+        let c = self.cpsr.C() as u32;
         let mut overflow = self.cpsr.V();
 
         use ThumbAluOps::*;
@@ -118,15 +118,15 @@ impl Core {
                     bs_op,
                     Some(true),
                 );
-                let result = self.get_barrel_shifted_value(shft) as i32;
+                let result = self.get_barrel_shifted_value(shft);
                 carry = self.bs_carry_out;
                 result
             }
-            ADC => Self::alu_add_flags(dst, src, &mut carry, &mut overflow).wrapping_add(c),
-            SBC => Self::alu_sub_flags(dst, src, &mut carry, &mut overflow).wrapping_sub(1 - c),
-            NEG => Self::alu_sub_flags(0, src, &mut carry, &mut overflow),
-            CMP => Self::alu_sub_flags(dst, src, &mut carry, &mut overflow),
-            CMN => Self::alu_add_flags(dst, src, &mut carry, &mut overflow),
+            ADC => self.alu_adc_flags(dst, src, &mut carry, &mut overflow),
+            SBC => self.alu_sbc_flags(dst, src, &mut carry, &mut overflow),
+            NEG => self.alu_sub_flags(0, src, &mut carry, &mut overflow),
+            CMP => self.alu_sub_flags(dst, src, &mut carry, &mut overflow),
+            CMN => self.alu_add_flags(dst, src, &mut carry, &mut overflow),
             ORR => dst | src,
             MUL => {
                 let m = self.get_required_multipiler_array_cycles(src);
@@ -176,13 +176,13 @@ impl Core {
         } else {
             insn.rs()
         };
-        let op1 = self.get_reg(dst_reg) as i32;
-        let op2 = self.get_reg(src_reg) as i32;
+        let op1 = self.get_reg(dst_reg);
+        let op2 = self.get_reg(src_reg);
 
         match op {
             OpFormat5::BX => return self.exec_thumb_bx(sb, insn),
             OpFormat5::ADD => {
-                self.set_reg(dst_reg, op1.wrapping_add(op2) as u32);
+                self.set_reg(dst_reg, op1.wrapping_add(op2));
                 if dst_reg == REG_PC {
                     self.flush_pipeline(sb);
                 }
@@ -190,7 +190,7 @@ impl Core {
             OpFormat5::CMP => {
                 let mut carry = self.cpsr.C();
                 let mut overflow = self.cpsr.V();
-                let result = Self::alu_sub_flags(op1, op2, &mut carry, &mut overflow);
+                let result = self.alu_sub_flags(op1, op2, &mut carry, &mut overflow);
                 self.alu_update_flags(result, true, carry, overflow);
             }
             OpFormat5::MOV => {

@@ -188,7 +188,7 @@ impl ArmInstruction {
         let (ofs_string, comment) = match offset {
             BarrelShifterValue::ImmediateValue(value) => {
                 let value_for_commnet = if self.rn() == REG_PC {
-                    value + (self.pc as i32) + 8 // account for pipelining
+                    value + self.pc + 8 // account for pipelining
                 } else {
                     value
                 };

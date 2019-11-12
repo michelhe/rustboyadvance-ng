@@ -242,7 +242,7 @@ impl Core {
         }
     }
 
-    pub(super) fn get_required_multipiler_array_cycles(&self, rs: i32) -> usize {
+    pub(super) fn get_required_multipiler_array_cycles(&self, rs: u32) -> usize {
         if rs & 0xff == rs {
             1
         } else if rs & 0xffff == rs {
