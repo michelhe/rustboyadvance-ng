@@ -87,9 +87,9 @@ bitfield! {
     pub struct DisplayStatus(u16);
     impl Debug;
     u16;
-    pub get_vblank, set_vblank: 0;
-    pub get_hblank, set_hblank: 1;
-    pub get_vcount, set_vcount: 2;
+    pub get_vblank_flag, set_vblank_flag: 0;
+    pub get_hblank_flag, set_hblank_flag: 1;
+    pub get_vcount_flag, set_vcount_flag: 2;
     pub vblank_irq_enable, _ : 3;
     pub hblank_irq_enable, _ : 4;
     pub vcount_irq_enable, _ : 5;

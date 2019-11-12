@@ -16,6 +16,7 @@ pub use regs::*;
 pub const VRAM_ADDR: Addr = 0x0600_0000;
 pub const DISPLAY_WIDTH: usize = 240;
 pub const DISPLAY_HEIGHT: usize = 160;
+pub const VBLANK_LINES: usize = 68;
 
 const CYCLES_PIXEL: usize = 4;
 const CYCLES_HDRAW: usize = 960;
@@ -445,6 +446,17 @@ impl Gpu {
         &self.frame_buffer.0
     }
 
+    fn update_vcount(&mut self, value: usize, irqs: &mut IrqBitmask) {
+        self.current_scanline = value;
+        let vcount_setting = self.dispstat.vcount_setting();
+        self.dispstat
+            .set_vcount_flag(vcount_setting == self.current_scanline as u16);
+
+        if self.dispstat.vcount_irq_enable() && self.dispstat.get_vcount_flag() {
+            irqs.set_LCD_VCounterMatch(true);
+        }
+    }
+
     // Returns the new gpu state
     pub fn step(
         &mut self,
@@ -454,57 +466,54 @@ impl Gpu {
     ) -> Option<GpuState> {
         self.cycles += cycles;
 
-        if self.dispstat.vcount_setting() != 0 {
-            self.dispstat
-                .set_vcount(self.dispstat.vcount_setting() == self.current_scanline as u16);
-        }
-        if self.dispstat.vcount_irq_enable() && self.dispstat.get_vcount() {
-            irqs.set_LCD_VCounterMatch(true);
-        }
-
         match self.state {
             HDraw => {
                 if self.cycles > CYCLES_HDRAW {
-                    self.current_scanline += 1;
                     self.cycles -= CYCLES_HDRAW;
-
-                    if self.current_scanline < DISPLAY_HEIGHT {
-                        self.render_scanline(sb);
-                        // HBlank
-                        self.dispstat.set_hblank(true);
-                        if self.dispstat.hblank_irq_enable() {
-                            irqs.set_LCD_HBlank(true);
-                        };
-                        self.state = HBlank;
-                        return Some(HBlank);
-                    } else {
-                        self.dispstat.set_vblank(true);
-                        if self.dispstat.vblank_irq_enable() {
-                            irqs.set_LCD_VBlank(true);
-                        };
-                        self.state = VBlank;
-                        return Some(VBlank);
+                    // HBlank
+                    self.dispstat.set_hblank_flag(true);
+                    if self.dispstat.hblank_irq_enable() {
+                        irqs.set_LCD_HBlank(true);
                     };
+                    self.state = HBlank;
+                    return Some(HBlank);
                 }
             }
             HBlank => {
                 if self.cycles > CYCLES_HBLANK {
                     self.cycles -= CYCLES_HBLANK;
-                    self.state = HDraw;
-                    self.dispstat.set_hblank(false);
-                    self.dispstat.set_vblank(false);
-                    return Some(HDraw);
+
+                    self.dispstat.set_hblank_flag(false);
+                    self.update_vcount(self.current_scanline + 1, irqs);
+
+                    if self.current_scanline < DISPLAY_HEIGHT {
+                        self.render_scanline(sb);
+                        self.state = HDraw;
+                        return Some(HDraw);
+                    } else {
+                        self.state = VBlank;
+                        self.dispstat.set_vblank_flag(true);
+                        if self.dispstat.vblank_irq_enable() {
+                            irqs.set_LCD_VBlank(true);
+                        };
+                        return Some(VBlank);
+                    }
                 }
             }
             VBlank => {
-                if self.cycles > CYCLES_VBLANK {
-                    self.cycles -= CYCLES_VBLANK;
-                    self.state = HDraw;
-                    self.dispstat.set_hblank(false);
-                    self.dispstat.set_vblank(false);
-                    self.current_scanline = 0;
-                    self.render_scanline(sb);
-                    return Some(HDraw);
+                if self.cycles > CYCLES_SCANLINE {
+                    self.cycles -= CYCLES_SCANLINE;
+
+                    if self.current_scanline < DISPLAY_HEIGHT + VBLANK_LINES {
+                        self.update_vcount(self.current_scanline + 1, irqs);
+                        return None;
+                    } else {
+                        self.update_vcount(0, irqs);
+                        self.dispstat.set_vblank_flag(false);
+                        self.render_scanline(sb);
+                        self.state = HDraw;
+                        return Some(self.state);
+                    }
                 }
             }
         }
