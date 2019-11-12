@@ -9,6 +9,13 @@ use super::timer::Timers;
 
 use consts::*;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum HaltState {
+    Running,
+    Halt, // In Halt mode, the CPU is paused as long as (IE AND IF)=0,
+    Stop, // In Stop mode, most of the hardware including sound and video are paused
+}
+
 #[derive(Debug)]
 pub struct IoDevices {
     pub intc: InterruptController,
@@ -18,6 +25,7 @@ pub struct IoDevices {
     pub keyinput: u16,
     pub post_boot_flag: bool,
     pub waitcnt: WaitControl, // TODO also implement 4000800
+    pub haltcnt: HaltState,
 
     mem: BoxedMemory,
 }
@@ -31,6 +39,7 @@ impl IoDevices {
             intc: InterruptController::new(),
             mem: BoxedMemory::new(vec![0; 0x800].into_boxed_slice()),
             post_boot_flag: false,
+            haltcnt: HaltState::Running,
             keyinput: keypad::KEYINPUT_ALL_RELEASED,
             waitcnt: WaitControl(0),
         }
@@ -223,7 +232,14 @@ impl Bus for IoDevices {
             REG_WAITCNT => io.waitcnt.0 = value,
 
             REG_POSTFLG => io.post_boot_flag = value != 0,
-            REG_HALTCNT => {}
+            REG_HALTCNT => {
+                if value & 0x80 != 0 {
+                    io.haltcnt = HaltState::Stop;
+                    panic!("Can't handle HaltCtrl == Stop yet");
+                } else {
+                    io.haltcnt = HaltState::Halt;
+                }
+            }
             _ => {
                 println!(
                     "Unimplemented write to {:x} {}",

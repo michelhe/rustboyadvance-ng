@@ -1,12 +1,11 @@
 /// Struct containing everything
-use super::arm7tdmi::{exception::Exception, Core, CpuState, DecodedInstruction};
+use super::arm7tdmi::Core;
 use super::cartridge::Cartridge;
 use super::gpu::*;
 use super::interrupt::*;
 use super::iodev::*;
 use super::sysbus::SysBus;
 
-use super::GBAResult;
 use super::SyncedIoDevice;
 use crate::backend::*;
 
@@ -45,14 +44,6 @@ impl GameBoyAdvance {
         self.sysbus.io.keyinput = self.backend.get_key_state();
     }
 
-    // TODO deprecate
-    pub fn step(&mut self) -> GBAResult<DecodedInstruction> {
-        let previous_cycles = self.cpu.cycles;
-        let executed_insn = self.cpu.step_one(&mut self.sysbus)?;
-        let cycles = self.cpu.cycles - previous_cycles;
-        Ok(executed_insn)
-    }
-
     pub fn step_new(&mut self) {
         let mut irqs = IrqBitmask(0);
         let previous_cycles = self.cpu.cycles;
@@ -63,14 +54,21 @@ impl GameBoyAdvance {
             &mut (*ptr).io as &mut IoDevices
         };
 
-        if !io.dmac.perform_work(&mut self.sysbus, &mut irqs) {
+        let cycles = if !io.dmac.perform_work(&mut self.sysbus, &mut irqs) {
             if io.intc.irq_pending() {
                 self.cpu.irq(&mut self.sysbus);
+                io.haltcnt = HaltState::Running;
             }
-            self.cpu.step(&mut self.sysbus).unwrap();
-        }
 
-        let cycles = self.cpu.cycles - previous_cycles;
+            if HaltState::Running == io.haltcnt {
+                self.cpu.step(&mut self.sysbus).unwrap();
+                self.cpu.cycles - previous_cycles
+            } else {
+                1
+            }
+        } else {
+            0
+        };
 
         io.timers.step(cycles, &mut self.sysbus, &mut irqs);
         if let Some(new_gpu_state) = io.gpu.step(cycles, &mut self.sysbus, &mut irqs) {
