@@ -398,7 +398,7 @@ impl Gpu {
         // TODO - also render objs
         match self.dispcnt.mode() {
             0 => {
-                for bg in 0..3 {
+                for bg in 0..4 {
                     if self.dispcnt.disp_bg(bg) {
                         self.scanline_reg_bg(bg, sb);
                     }
