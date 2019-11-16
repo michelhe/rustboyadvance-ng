@@ -76,7 +76,10 @@ impl GameBoyAdvance {
         };
 
         let cycles = if !io.dmac.perform_work(&mut self.sysbus, &mut irqs) {
-            if io.intc.irq_pending() {
+            if io.intc.irq_pending()
+                && self.cpu.last_executed.is_some()
+                && !self.cpu.did_pipeline_flush()
+            {
                 self.cpu.irq(&mut self.sysbus);
                 io.haltcnt = HaltState::Running;
             }

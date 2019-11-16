@@ -13,7 +13,7 @@ use super::super::sysbus::{
 };
 
 #[derive(Debug, PartialEq)]
-enum PipelineState {
+pub enum PipelineState {
     Refill1,
     Refill2,
     Execute,
@@ -42,13 +42,8 @@ pub struct Core {
 
     pub(super) bs_carry_out: bool,
 
-    pipeline_state: PipelineState,
+    pub pipeline_state: PipelineState,
     pipeline: [u32; 2],
-
-    fetched_arm: u32,
-    decoded_arm: u32,
-    fetched_thumb: u16,
-    decoded_thumb: u16,
     pub last_executed: Option<DecodedInstruction>,
 
     pub cycles: usize,
@@ -311,8 +306,8 @@ impl Core {
         }
     }
 
-    pub(super) fn did_pipeline_flush(&self) -> bool {
-        self.pipeline_state == PipelineState::Refill1
+    pub fn did_pipeline_flush(&self) -> bool {
+        self.pipeline_state != PipelineState::Execute
     }
 
     fn step_arm_exec(&mut self, insn: u32, sb: &mut SysBus) -> CpuResult<()> {
@@ -355,13 +350,13 @@ impl Core {
                 self.last_executed = None;
             }
             PipelineState::Execute => {
-                let insn = ThumbInstruction::decode(insn, self.pc.wrapping_sub(4))?;
+                let decoded_thumb = ThumbInstruction::decode(insn, self.pc.wrapping_sub(4))?;
                 self.gpr_previous = self.get_registers();
-                self.exec_thumb(sb, insn)?;
+                self.exec_thumb(sb, decoded_thumb)?;
                 if !self.did_pipeline_flush() {
                     self.pc = pc.wrapping_add(2);
                 }
-                self.last_executed = Some(DecodedInstruction::Thumb(insn));
+                self.last_executed = Some(DecodedInstruction::Thumb(decoded_thumb));
             }
         }
         Ok(())
@@ -410,6 +405,8 @@ impl Core {
         let insn = self.pipeline[0];
         self.pipeline[0] = self.pipeline[1];
         self.pipeline[1] = fetched_now;
+
+        self.trace_opcode(insn.into());
 
         match self.cpsr.state() {
             CpuState::ARM => self.step_arm_exec(insn, bus),
