@@ -54,6 +54,9 @@ impl Bus for IoDevices {
     fn read_16(&self, addr: Addr) -> u16 {
         let io = self;
         let io_addr = addr + IO_BASE;
+        if addr > 0x0800 {
+            return 0;
+        }
         match io_addr {
             REG_DISPCNT => io.gpu.dispcnt.0,
             REG_DISPSTAT => io.gpu.dispstat.0,
@@ -99,12 +102,12 @@ impl Bus for IoDevices {
             REG_HALTCNT => 0,
             REG_KEYINPUT => io.keyinput as u16,
             _ => {
-                println!(
-                    "Unimplemented read from {:x} {}",
-                    io_addr,
-                    io_reg_string(io_addr)
-                );
-                io.mem.read_16(addr)
+                // println!(
+                //     "Unimplemented read from {:x} {}",
+                //     io_addr,
+                //     io_reg_string(io_addr)
+                // );
+                0
             }
         }
     }
@@ -125,7 +128,9 @@ impl Bus for IoDevices {
 
     fn write_16(&mut self, addr: Addr, value: u16) {
         let mut io = self;
-        io.mem.write_16(addr, value);
+        if addr > 0x0800 {
+            return;
+        }
         let io_addr = addr + IO_BASE;
         match io_addr {
             REG_DISPCNT => io.gpu.dispcnt.0 = value,
@@ -241,11 +246,11 @@ impl Bus for IoDevices {
                 }
             }
             _ => {
-                println!(
-                    "Unimplemented write to {:x} {}",
-                    io_addr,
-                    io_reg_string(io_addr)
-                );
+                // println!(
+                //     "Unimplemented write to {:x} {}",
+                //     io_addr,
+                //     io_reg_string(io_addr)
+                // );
             }
         }
     }
