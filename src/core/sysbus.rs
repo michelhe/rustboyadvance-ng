@@ -23,6 +23,7 @@ pub const PALRAM_ADDR: u32 = 0x0500_0000;
 pub const VRAM_ADDR: u32 = 0x0600_0000;
 pub const OAM_ADDR: u32 = 0x0700_0000;
 pub const GAMEPAK_WS0_ADDR: u32 = 0x0800_0000;
+pub const GAMEPAK_MIRROR_WS0_ADDR: u32 = 0x0900_0000;
 pub const GAMEPAK_WS1_ADDR: u32 = 0x0A00_0000;
 pub const GAMEPAK_WS2_ADDR: u32 = 0x0C00_0000;
 
@@ -149,6 +150,8 @@ pub struct SysBus {
     pub oam: BoxedMemory,
     gamepak: Cartridge,
     dummy: DummyBus,
+
+    pub trace_access: bool,
 }
 
 impl SysBus {
@@ -164,13 +167,21 @@ impl SysBus {
             oam: BoxedMemory::new(vec![0; OAM_SIZE].into_boxed_slice()),
             gamepak: gamepak,
             dummy: DummyBus([0; 4]),
+
+            trace_access: false,
         }
     }
 
     fn map(&self, addr: Addr) -> (&dyn Bus, Addr) {
         let ofs = addr & 0x00ff_ffff;
         match addr & 0xff000000 {
-            BIOS_ADDR => (&self.bios, ofs),
+            BIOS_ADDR => {
+                if ofs >= 0x4000 {
+                    (&self.dummy, ofs) // TODO return last fetched opcode
+                } else {
+                    (&self.bios, ofs)
+                }
+            }
             EWRAM_ADDR => (&self.onboard_work_ram, ofs & 0x3_ffff),
             IWRAM_ADDR => (&self.internal_work_ram, ofs & 0x7fff),
             IOMEM_ADDR => (&self.io, {
@@ -189,7 +200,9 @@ impl SysBus {
                 ofs
             }),
             OAM_ADDR => (&self.oam, ofs & 0x3ff),
-            GAMEPAK_WS0_ADDR | GAMEPAK_WS1_ADDR | GAMEPAK_WS2_ADDR => (&self.gamepak, ofs),
+            GAMEPAK_WS0_ADDR | GAMEPAK_MIRROR_WS0_ADDR | GAMEPAK_WS1_ADDR | GAMEPAK_WS2_ADDR => {
+                (&self.gamepak, addr & 0x01ff_ffff)
+            }
             _ => (&self.dummy, ofs),
         }
     }
@@ -198,7 +211,7 @@ impl SysBus {
     fn map_mut(&mut self, addr: Addr) -> (&mut dyn Bus, Addr) {
         let ofs = addr & 0x00ff_ffff;
         match addr & 0xff000000 {
-            BIOS_ADDR => (&mut self.bios, ofs),
+            BIOS_ADDR => (&mut self.dummy, ofs),
             EWRAM_ADDR => (&mut self.onboard_work_ram, ofs & 0x3_ffff),
             IWRAM_ADDR => (&mut self.internal_work_ram, ofs & 0x7fff),
             IOMEM_ADDR => (&mut self.io, {
@@ -217,7 +230,9 @@ impl SysBus {
                 ofs
             }),
             OAM_ADDR => (&mut self.oam, ofs & 0x3ff),
-            GAMEPAK_WS0_ADDR | GAMEPAK_WS1_ADDR | GAMEPAK_WS2_ADDR => (&mut self.gamepak, ofs),
+            GAMEPAK_WS0_ADDR | GAMEPAK_MIRROR_WS0_ADDR | GAMEPAK_WS1_ADDR | GAMEPAK_WS2_ADDR => {
+                (&mut self.gamepak, addr & 0x01ff_ffff)
+            }
             _ => (&mut self.dummy, ofs),
         }
     }
@@ -243,7 +258,7 @@ impl SysBus {
                     cycles += 1;
                 }
             }
-            GAMEPAK_WS0_ADDR => match access.0 {
+            GAMEPAK_WS0_ADDR | GAMEPAK_MIRROR_WS0_ADDR => match access.0 {
                 MemoryAccessType::NonSeq => match access.1 {
                     MemoryAccessWidth::MemoryAccess32 => {
                         cycles += nonseq_cycles[self.io.waitcnt.ws0_first_access() as usize];
@@ -273,31 +288,37 @@ impl SysBus {
 impl Bus for SysBus {
     fn read_32(&self, addr: Addr) -> u32 {
         let (dev, addr) = self.map(addr);
-        dev.read_32(addr & 0xff_fffc)
+        dev.read_32(addr & 0x1ff_fffc)
     }
 
     fn read_16(&self, addr: Addr) -> u16 {
+        if self.trace_access {
+            println!("[TRACE] read_32 addr={:x}", addr);
+        }
         let (dev, addr) = self.map(addr);
-        dev.read_16(addr & 0xff_fffe)
+        dev.read_16(addr & 0x1ff_fffe)
     }
 
     fn read_8(&self, addr: Addr) -> u8 {
+        if self.trace_access {
+            println!("[TRACE] read_32 addr={:x}", addr);
+        }
         let (dev, addr) = self.map(addr);
-        dev.read_8(addr & 0xff_ffff)
+        dev.read_8(addr & 0x1ff_ffff)
     }
 
     fn write_32(&mut self, addr: Addr, value: u32) {
         let (dev, addr) = self.map_mut(addr);
-        dev.write_32(addr & 0xff_fffc, value);
+        dev.write_32(addr & 0x1ff_fffc, value);
     }
 
     fn write_16(&mut self, addr: Addr, value: u16) {
         let (dev, addr) = self.map_mut(addr);
-        dev.write_16(addr & 0xff_fffe, value);
+        dev.write_16(addr & 0x1ff_fffe, value);
     }
 
     fn write_8(&mut self, addr: Addr, value: u8) {
         let (dev, addr) = self.map_mut(addr);
-        dev.write_8(addr & 0xff_ffff, value);
+        dev.write_8(addr & 0x1ff_ffff, value);
     }
 }
