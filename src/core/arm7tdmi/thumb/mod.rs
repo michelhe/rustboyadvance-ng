@@ -282,8 +282,8 @@ impl ThumbInstruction {
         ThumbAluOps::from_u16(self.raw.bit_range(6..10)).unwrap()
     }
 
-    pub fn offset5(&self) -> i8 {
-        self.raw.bit_range(6..11) as i8
+    pub fn offset5(&self) -> u8 {
+        self.raw.bit_range(6..11) as u8
     }
 
     pub fn bcond_offset(&self) -> i32 {
