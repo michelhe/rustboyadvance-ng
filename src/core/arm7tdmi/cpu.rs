@@ -55,6 +55,8 @@ pub struct Core {
     pub breakpoints: Vec<u32>,
 
     pub verbose: bool,
+
+    pub trace_opcodes: bool,
 }
 
 pub type CpuExecResult = CpuResult<()>;
