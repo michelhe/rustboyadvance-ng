@@ -35,13 +35,21 @@ impl ObjAffineParams {
 }
 
 impl ObjAttrs {
-    fn size(&self) -> (usize, usize) {
-        let n = 8 << self.1.size();
-        match self.0.shape() {
-            0 /* Square */  => (n, n),
-            1 /* Wide */  => (n, n >> 1),
-            2 /* Tall */  => (n >> 1, n),
-            _ => unreachable!("invalid obj shape")
+    fn size(&self) -> (i32, i32) {
+        match (self.1.size(), self.0.shape()) {
+            (0, 0) /* Square */  => (8, 8),
+            (1, 0) /* Square */  => (16, 16),
+            (2, 0) /* Square */  => (32, 32),
+            (3, 0) /* Square */  => (64, 64),
+            (0, 1) /* Wide */  => (16, 8),
+            (1, 1) /* Wide */  => (32, 8),
+            (2, 1) /* Wide */  => (32, 16),
+            (3, 1) /* Wide */  => (64, 32),
+            (0, 2) /* Tall */  => (8, 16),
+            (1, 2) /* Tall */  => (8, 32),
+            (2, 2) /* Tall */  => (16, 32),
+            (3, 2) /* Tall */  => (32, 64),
+            _ => (8, 8), // according to commit f01016a30b2e8482d06798895ebc674370e81816 in melonDS
         }
     }
     fn coords(&self) -> (usize, usize) {
