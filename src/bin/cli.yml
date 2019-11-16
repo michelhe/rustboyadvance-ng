@@ -28,3 +28,11 @@ args:
     - debug:
         long: debug
         help: Start with the debugger attached
+    - script_file:
+        long: script-file
+        short: f
+        takes_value: true
+        help: Text file with debugger commands to run
+        required: false
+        requires:
+            debug

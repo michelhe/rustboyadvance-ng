@@ -69,7 +69,7 @@ fn run_emulator(matches: &ArgMatches) -> GBAResult<()> {
         gba.cpu.set_verbose(true);
         let mut debugger = Debugger::new(gba);
         println!("starting debugger...");
-        debugger.repl()?;
+        debugger.repl(matches.value_of("script_file"))?;
         println!("ending debugger...");
     } else {
         let frame_time = time::Duration::new(0, 1_000_000_000u32 / 60);

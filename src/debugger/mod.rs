@@ -1,4 +1,6 @@
 extern crate ctrlc;
+use std::fs::File;
+use std::io::{self, prelude::*, BufReader};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -20,18 +22,25 @@ mod palette_view;
 mod tile_view;
 extern crate time;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum DebuggerError {
     ParsingError(String),
     CpuError(CpuError),
     InvalidCommand(String),
     InvalidArgument(String),
     InvalidCommandFormat(String),
+    IoError(::std::io::Error),
 }
 
 impl From<CpuError> for DebuggerError {
     fn from(e: CpuError) -> DebuggerError {
         DebuggerError::CpuError(e)
+    }
+}
+
+impl From<::std::io::Error> for DebuggerError {
+    fn from(e: ::std::io::Error) -> DebuggerError {
+        DebuggerError::IoError(e)
     }
 }
 
@@ -147,7 +156,7 @@ impl Debugger {
             Expr::Command(c, a) => match self.eval_command(c, a) {
                 Ok(cmd) => {
                     self.previous_command = Some(cmd.clone());
-                    cmd.run(self)
+                    self.run_command(cmd)
                 }
                 Err(DebuggerError::InvalidCommand(c)) => {
                     println!("{}: {:?}", "invalid command".red(), c)
@@ -174,11 +183,20 @@ impl Debugger {
         self.running = false;
     }
 
-    pub fn repl(&mut self) -> DebuggerResult<()> {
+    pub fn repl(&mut self, script_file: Option<&str>) -> DebuggerResult<()> {
         println!("Welcome to rustboyadvance-NG debugger 😎!\n");
         self.running = true;
         let mut rl = Editor::<()>::new();
         let _ = rl.load_history(".rustboyadvance_history");
+        if let Some(path) = script_file {
+            println!("Executing script file");
+            let file = File::open(path)?;
+            let reader = BufReader::new(file);
+            for line in reader.lines() {
+                let expr = parse_expr(&line.unwrap())?;
+                self.eval_expr(expr);
+            }
+        }
         while self.running {
             let readline = rl.readline(&format!("({}) ᐅ ", "rustboyadvance-dbg".bold().cyan()));
             match readline {

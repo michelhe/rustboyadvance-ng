@@ -31,10 +31,19 @@ pub enum MemWriteCommandSize {
     Word,
 }
 
+bitflags! {
+    pub struct TraceFlags: u32 {
+        const TRACE_SYSBUS = 0b00000001;
+        const TRACE_OPCODE = 0b00000010;
+        const TRACE_DMA = 0b00000100;
+        const TRACE_TIMERS = 0b000001000;
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Command {
     Info,
-    DisplayInfo,
+    GpuInfo,
     Step(usize),
     Continue,
     Frame(usize),
@@ -49,25 +58,31 @@ pub enum Command {
     ListBreakpoints,
     Reset,
     Quit,
+    TraceToggle(TraceFlags),
 }
 
-impl Command {
-    pub fn run(&self, debugger: &mut Debugger) {
+impl Debugger {
+    pub fn run_command(&mut self, command: Command) {
         use Command::*;
-        match *self {
-            Info => println!("{}", debugger.gba.cpu),
-            DisplayInfo => { /*println!("GPU: {:#?}", debugger.gba.sysbus.io.gpu)*/ }
+        match command {
+            Info => {
+                println!("{}", self.gba.cpu);
+                println!("IME={}", self.gba.sysbus.io.intc.interrupt_master_enable);
+                println!("IE={:#?}", self.gba.sysbus.io.intc.interrupt_enable);
+                println!("IF={:#?}", self.gba.sysbus.io.intc.interrupt_flags);
+            }
+            GpuInfo => println!("GPU: {:#?}", self.gba.sysbus.io.gpu),
             Step(count) => {
-                debugger.ctrlc_flag.store(true, Ordering::SeqCst);
+                self.ctrlc_flag.store(true, Ordering::SeqCst);
                 for _ in 0..count {
-                    if !debugger.ctrlc_flag.load(Ordering::SeqCst) {
+                    if !self.ctrlc_flag.load(Ordering::SeqCst) {
                         break;
                     }
-                    debugger.gba.step_new();
-                    while debugger.gba.cpu.last_executed.is_none() {
-                        debugger.gba.step_new();
+                    self.gba.step_new();
+                    while self.gba.cpu.last_executed.is_none() {
+                        self.gba.step_new();
                     }
-                    let last_executed = debugger.gba.cpu.last_executed.unwrap();
+                    let last_executed = self.gba.cpu.last_executed.unwrap();
                     print!(
                         "{}\t{}",
                         Colour::Black
@@ -81,99 +96,48 @@ impl Command {
                         "{}",
                         Colour::Purple.dimmed().italic().paint(format!(
                             "\t\t/// Next instruction at @0x{:08x}",
-                            debugger.gba.cpu.get_next_pc()
+                            self.gba.cpu.get_next_pc()
                         ))
                     );
                 }
-                println!("{}\n", debugger.gba.cpu);
-                // match debugger.gba.step() {
-                //     Ok(insn) => {
-                //         print!(
-                //             "{}\t{}",
-                //             Colour::Black
-                //                 .bold()
-                //                 .italic()
-                //                 .on(Colour::White)
-                //                 .paint(format!("Executed at @0x{:08x}:", insn.get_pc(),)),
-                //             insn
-                //         );
-                //         println!(
-                //             "{}",
-                //             Colour::Purple.dimmed().italic().paint(format!(
-                //                 "\t\t/// Next instruction at @0x{:08x}",
-                //                 debugger.gba.cpu.get_next_pc()
-                //             ))
-                //         )
-                //     }
-                //     Err(GBAError::CpuError(e)) => {
-                //         println!("{}: {}", "cpu encountered an error".red(), e);
-                //         println!("cpu: {:x?}", debugger.gba.cpu)
-                //     }
-                //     _ => unreachable!(),
-                // }
+                println!("{}\n", self.gba.cpu);
             }
             Continue => {
-                let frame_time = time::Duration::new(0, 1_000_000_000u32 / 60);
-                debugger.ctrlc_flag.store(true, Ordering::SeqCst);
-                while debugger.ctrlc_flag.load(Ordering::SeqCst) {
+                self.ctrlc_flag.store(true, Ordering::SeqCst);
+                while self.ctrlc_flag.load(Ordering::SeqCst) {
                     let start_time = time::Instant::now();
-                    debugger.gba.frame();
-
-                    let time_passed = start_time.elapsed();
-                    let delay = frame_time.checked_sub(time_passed);
-                    match delay {
-                        None => {}
-                        Some(delay) => {
-                            ::std::thread::sleep(delay);
+                    self.gba.update_key_state();
+                    match self.gba.check_breakpoint() {
+                        Some(addr) => {
+                            println!("Breakpoint reached! @{:x}", addr);
+                            break;
                         }
-                    };
+                        _ => {
+                            self.gba.step_new();
+                        }
+                    }
                 }
-                // let start_cycles = debugger.gba.cpu.cycles();
-                // loop {
-                //     if let Some(bp) = debugger.check_breakpoint() {
-                //         match debugger.gba.step() {
-                //             Err(GBAError::CpuError(e)) => {
-                //                 println!("{}: {}", "cpu encountered an error".red(), e);
-                //                 println!("cpu: {:x?}", debugger.gba.cpu);
-                //                 break;
-                //             }
-                //             _ => (),
-                //         };
-                //         let num_cycles = debugger.gba.cpu.cycles() - start_cycles;
-                //         println!("hit breakpoint #0x{:08x} after {} cycles !", bp, num_cycles);
-                //         break;
-                //     } else {
-                //         match debugger.gba.step() {
-                //             Err(GBAError::CpuError(e)) => {
-                //                 println!("{}: {}", "cpu encountered an error".red(), e);
-                //                 println!("cpu: {:x?}", debugger.gba.cpu);
-                //                 break;
-                //             }
-                //             _ => (),
-                //         };
-                //     }
-                // }
             }
             Frame(count) => {
                 use super::time::PreciseTime;
                 let start = PreciseTime::now();
                 for _ in 0..count {
-                    debugger.gba.frame();
+                    self.gba.frame();
                 }
                 let end = PreciseTime::now();
                 println!("that took {} seconds", start.to(end));
             }
             HexDump(addr, nbytes) => {
-                let bytes = debugger.gba.sysbus.get_bytes(addr..addr + nbytes);
+                let bytes = self.gba.sysbus.get_bytes(addr..addr + nbytes);
                 hexdump::hexdump(&bytes);
             }
             MemWrite(size, addr, val) => match size {
-                MemWriteCommandSize::Byte => debugger.gba.sysbus.write_8(addr, val as u8),
-                MemWriteCommandSize::Half => debugger.gba.sysbus.write_16(addr, val as u16),
-                MemWriteCommandSize::Word => debugger.gba.sysbus.write_32(addr, val as u32),
+                MemWriteCommandSize::Byte => self.gba.sysbus.write_8(addr, val as u8),
+                MemWriteCommandSize::Half => self.gba.sysbus.write_16(addr, val as u16),
+                MemWriteCommandSize::Word => self.gba.sysbus.write_32(addr, val as u32),
             },
             Disass(mode, addr, n) => {
-                let bytes = debugger.gba.sysbus.get_bytes(addr..addr + n);
+                let bytes = self.gba.sysbus.get_bytes(addr..addr + n);
                 match mode {
                     DisassMode::ModeArm => {
                         let disass = Disassembler::<ArmInstruction>::new(addr, &bytes);
@@ -191,37 +155,60 @@ impl Command {
             }
             Quit => {
                 print!("Quitting!");
-                debugger.stop();
+                self.stop();
             }
-            AddBreakpoint(addr) => {
-                if !debugger.gba.cpu.breakpoints.contains(&addr) {
-                    let new_index = debugger.gba.cpu.breakpoints.len();
-                    debugger.gba.cpu.breakpoints.push(addr);
-                    println!("added breakpoint [{}] 0x{:08x}", new_index, addr);
-                } else {
-                    println!("breakpoint already exists!")
-                }
-            }
-            DelBreakpoint(addr) => debugger.delete_breakpoint(addr),
-            ClearBreakpoints => debugger.gba.cpu.breakpoints.clear(),
+            AddBreakpoint(addr) => match self.gba.add_breakpoint(addr) {
+                Some(index) => println!("Added breakpoint [{}] 0x{:08x}", index, addr),
+                None => println!("Breakpint already exists."),
+            },
+            DelBreakpoint(addr) => self.delete_breakpoint(addr),
+            ClearBreakpoints => self.gba.cpu.breakpoints.clear(),
             ListBreakpoints => {
                 println!("breakpoint list:");
-                for (i, b) in debugger.gba.cpu.breakpoints.iter().enumerate() {
+                for (i, b) in self.gba.cpu.breakpoints.iter().enumerate() {
                     println!("[{}] 0x{:08x}", i, b)
                 }
             }
-            PaletteView => create_palette_view(&debugger.gba.sysbus.palette_ram.mem),
-            // TileView(bg) => create_tile_view(bg, &debugger.gba),
+            PaletteView => create_palette_view(&self.gba.sysbus.palette_ram.mem),
+            // TileView(bg) => create_tile_view(bg, &self.gba),
             Reset => {
                 println!("resetting cpu...");
-                debugger.gba.cpu.reset(&mut debugger.gba.sysbus);
+                self.gba.cpu.reset(&mut self.gba.sysbus);
                 println!("cpu is restarted!")
+            }
+            TraceToggle(flags) => {
+                if flags.contains(TraceFlags::TRACE_SYSBUS) {
+                    self.gba.sysbus.trace_access = !self.gba.sysbus.trace_access;
+                    println!(
+                        "[*] sysbus tracing {}",
+                        if self.gba.sysbus.trace_access {
+                            "on"
+                        } else {
+                            "off"
+                        }
+                    )
+                }
+                if flags.contains(TraceFlags::TRACE_OPCODE) {
+                    self.gba.cpu.trace_opcodes = !self.gba.cpu.trace_opcodes;
+                    println!(
+                        "[*] opcode tracing {}",
+                        if self.gba.cpu.trace_opcodes {
+                            "on"
+                        } else {
+                            "off"
+                        }
+                    )
+                }
+                if flags.contains(TraceFlags::TRACE_DMA) {
+                    println!("[*] dma tracing not implemented");
+                }
+                if flags.contains(TraceFlags::TRACE_TIMERS) {
+                    println!("[*] timers tracing not implemented");
+                }
             }
         }
     }
-}
 
-impl Debugger {
     fn get_disassembler_args(&self, args: Vec<Value>) -> DebuggerResult<(Addr, u32)> {
         match args.len() {
             2 => {
@@ -260,7 +247,7 @@ impl Debugger {
 
         match command.as_ref() {
             "i" | "info" => Ok(Command::Info),
-            "dispinfo" => Ok(Command::DisplayInfo),
+            "gpuinfo" => Ok(Command::GpuInfo),
             "s" | "step" => {
                 let count = match args.len() {
                     0 => 1,
@@ -424,6 +411,28 @@ impl Debugger {
             "bl" => Ok(Command::ListBreakpoints),
             "q" | "quit" => Ok(Command::Quit),
             "r" | "reset" => Ok(Command::Reset),
+            "trace" => {
+                let usage = DebuggerError::InvalidCommandFormat(String::from(
+                    "trace [sysbus|opcode|dma|all]",
+                ));
+                if args.len() != 1 {
+                    Err(usage)
+                } else {
+                    if let Value::Identifier(flag_str) = &args[0] {
+                        let flags = match flag_str.as_ref() {
+                            "sysbus" => TraceFlags::TRACE_SYSBUS,
+                            "opcode" => TraceFlags::TRACE_OPCODE,
+                            "dma" => TraceFlags::TRACE_DMA,
+                            "timers" => TraceFlags::TRACE_TIMERS,
+                            "all" => TraceFlags::all(),
+                            _ => return Err(usage),
+                        };
+                        Ok(Command::TraceToggle(flags))
+                    } else {
+                        Err(usage)
+                    }
+                }
+            }
             _ => Err(DebuggerError::InvalidCommand(command)),
         }
     }

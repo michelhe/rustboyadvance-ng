@@ -381,6 +381,22 @@ impl Core {
         }
     }
 
+    fn trace_opcode(&self, insn: u32) {
+        if self.trace_opcodes && self.pipeline_state == PipelineState::Execute {
+            print!("[{:08X}] PC=0x{:08x} | ", insn, self.pc);
+            for r in 0..15 {
+                print!("R{}=0x{:08x} ", r, self.gpr[r]);
+            }
+            print!(
+                " N={} Z={} C={} V={} T={}\n",
+                self.cpsr.N() as u8,
+                self.cpsr.Z() as u8,
+                self.cpsr.C() as u8,
+                self.cpsr.V() as u8,
+                self.cpsr.state() as u8,
+            );
+        }
+    }
     /// Perform a pipeline step
     /// If an instruction was executed in this step, return it.
     pub fn step(&mut self, bus: &mut SysBus) -> CpuResult<()> {

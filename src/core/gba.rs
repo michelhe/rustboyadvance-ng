@@ -40,8 +40,29 @@ impl GameBoyAdvance {
         }
     }
 
-    fn update_key_state(&mut self) {
+    pub fn update_key_state(&mut self) {
         self.sysbus.io.keyinput = self.backend.get_key_state();
+    }
+
+    pub fn add_breakpoint(&mut self, addr: u32) -> Option<usize> {
+        if !self.cpu.breakpoints.contains(&addr) {
+            let new_index = self.cpu.breakpoints.len();
+            self.cpu.breakpoints.push(addr);
+            Some(new_index)
+        } else {
+            None
+        }
+    }
+
+    pub fn check_breakpoint(&self) -> Option<u32> {
+        let next_pc = self.cpu.get_next_pc();
+        for bp in &self.cpu.breakpoints {
+            if *bp == next_pc {
+                return Some(next_pc);
+            }
+        }
+
+        None
     }
 
     pub fn step_new(&mut self) {
