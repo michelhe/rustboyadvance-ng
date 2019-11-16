@@ -21,10 +21,20 @@ pub struct DmaChannel {
     pub wc: u32,
     pub ctrl: DmaChannelCtrl,
 
+    // These are "latched" when the dma is enabled.
+    internal: DmaInternalRegs,
+
     running: bool,
     cycles: usize,
     start_cycles: usize,
     irq: Interrupt,
+}
+
+#[derive(Debug, Default)]
+struct DmaInternalRegs {
+    src_addr: u32,
+    dst_addr: u32,
+    count: u32,
 }
 
 impl DmaChannel {
@@ -42,6 +52,7 @@ impl DmaChannel {
             ctrl: DmaChannelCtrl(0),
             cycles: 0,
             start_cycles: 0,
+            internal: Default::default(),
         }
     }
 
@@ -78,12 +89,13 @@ impl DmaChannel {
     pub fn write_dma_ctrl(&mut self, value: u16) -> bool {
         let ctrl = DmaChannelCtrl(value);
         let mut start_immediately = false;
-        if ctrl.is_enabled() {
+        if ctrl.is_enabled() && !self.ctrl.is_enabled() {
             self.start_cycles = self.cycles;
             self.running = true;
-            if ctrl.timing() == 0 {
-                start_immediately = true;
-            }
+            start_immediately = ctrl.timing() == 0;
+            self.internal.src_addr = self.src;
+            self.internal.dst_addr = self.dst;
+            self.internal.count = self.wc;
         }
         self.ctrl = ctrl;
         return start_immediately;
@@ -91,25 +103,30 @@ impl DmaChannel {
 
     fn xfer(&mut self, sb: &mut SysBus, irqs: &mut IrqBitmask) {
         let word_size = if self.ctrl.is_32bit() { 4 } else { 2 };
-        let dst_rld = self.dst;
-        for word in 0..self.wc {
+        let count = match self.internal.count {
+            0 => match self.id {
+                3 => 0x1_0000,
+                _ => 0x0_4000,
+            },
+            _ => self.internal.count,
+        };
+        for _ in 0..count {
             if word_size == 4 {
-                let w = sb.read_32(self.src);
-                sb.write_32(self.dst, w)
+                let w = sb.read_32(self.internal.src_addr);
+                sb.write_32(self.internal.dst_addr, w)
             } else {
-                let hw = sb.read_16(self.src);
-                // println!("src {:x} dst {:x}", self.src, self.dst);
-                sb.write_16(self.dst, hw)
+                let hw = sb.read_16(self.internal.src_addr);
+                sb.write_16(self.internal.dst_addr, hw)
             }
             match self.ctrl.src_adj() {
-                /* Increment */ 0 => self.src += word_size,
-                /* Decrement */ 1 => self.src -= word_size,
+                /* Increment */ 0 => self.internal.src_addr += word_size,
+                /* Decrement */ 1 => self.internal.src_addr -= word_size,
                 /* Fixed */ 2 => {}
                 _ => panic!("forbidden DMA source address adjustment"),
             }
             match self.ctrl.dst_adj() {
-                /* Increment[+Reload] */ 0 | 3 => self.dst += word_size,
-                /* Decrement */ 1 => self.dst -= word_size,
+                /* Increment[+Reload] */ 0 | 3 => self.internal.dst_addr += word_size,
+                /* Decrement */ 1 => self.internal.dst_addr -= word_size,
                 /* Fixed */ 2 => {}
                 _ => panic!("forbidden DMA dest address adjustment"),
             }
@@ -121,7 +138,7 @@ impl DmaChannel {
             self.start_cycles = self.cycles;
             /* reload */
             if 3 == self.ctrl.dst_adj() {
-                self.dst = dst_rld;
+                self.internal.dst_addr = self.dst;
             }
         } else {
             self.running = false;
