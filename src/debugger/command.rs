@@ -203,7 +203,7 @@ impl Debugger {
                     println!("[*] dma tracing not implemented");
                 }
                 if flags.contains(TraceFlags::TRACE_TIMERS) {
-                    println!("[*] timers tracing not implemented");
+                    self.gba.sysbus.io.timers.trace = !self.gba.sysbus.io.timers.trace;
                 }
             }
         }

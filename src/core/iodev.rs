@@ -208,25 +208,25 @@ impl Bus for IoDevices {
                 io.timers[0].timer_data = value;
                 io.timers[0].initial_data = value;
             }
-            REG_TM0CNT_H => io.timers[0].timer_ctl.0 = value,
+            REG_TM0CNT_H => io.timers.write_timer_ctl(0, value),
 
             REG_TM1CNT_L => {
                 io.timers[1].timer_data = value;
                 io.timers[1].initial_data = value;
             }
-            REG_TM1CNT_H => io.timers[1].timer_ctl.0 = value,
+            REG_TM1CNT_H => io.timers.write_timer_ctl(1, value),
 
             REG_TM2CNT_L => {
                 io.timers[2].timer_data = value;
                 io.timers[2].initial_data = value;
             }
-            REG_TM2CNT_H => io.timers[2].timer_ctl.0 = value,
+            REG_TM2CNT_H => io.timers.write_timer_ctl(2, value),
 
             REG_TM3CNT_L => {
                 io.timers[3].timer_data = value;
                 io.timers[3].initial_data = value;
             }
-            REG_TM3CNT_H => io.timers[3].timer_ctl.0 = value,
+            REG_TM3CNT_H => io.timers.write_timer_ctl(3, value),
 
             DMA_BASE..=REG_DMA3CNT_H => {
                 let ofs = io_addr - DMA_BASE;

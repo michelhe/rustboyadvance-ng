@@ -74,24 +74,43 @@ impl Timer {
 }
 
 #[derive(Debug)]
-pub struct Timers([Timer; 4]);
+pub struct Timers {
+    timers: [Timer; 4],
+    pub trace: bool,
+}
 
 impl std::ops::Index<usize> for Timers {
     type Output = Timer;
     fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
+        &self.timers[index]
     }
 }
 
 impl std::ops::IndexMut<usize> for Timers {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.0[index]
+        &mut self.timers[index]
     }
 }
 
 impl Timers {
     pub fn new() -> Timers {
-        Timers([Timer::new(0), Timer::new(1), Timer::new(2), Timer::new(3)])
+        Timers {
+            timers: [Timer::new(0), Timer::new(1), Timer::new(2), Timer::new(3)],
+            trace: false,
+        }
+    }
+
+    pub fn write_timer_ctl(&mut self, id: usize, value: u16) {
+        let old_enabled = self[id].timer_ctl.enabled();
+        self[id].timer_ctl.0 = value;
+        let new_enabled = self[id].timer_ctl.enabled();
+        if self.trace && old_enabled != new_enabled {
+            println!(
+                "TMR{} {}",
+                id,
+                if new_enabled { "enabled" } else { "disabled" }
+            );
+        }
     }
 }
 
@@ -100,15 +119,20 @@ impl SyncedIoDevice for Timers {
         for i in 0..4 {
             if self[i].timer_ctl.enabled() && !self[i].timer_ctl.cascade() {
                 match self[i].add_cycles(cycles, irqs) {
-                    TimerAction::Overflow(num_overflows) => match i {
-                        3 => {}
-                        _ => {
-                            let next_i = i + 1;
-                            if self[next_i].timer_ctl.cascade() {
-                                self[next_i].add_cycles(num_overflows, irqs);
+                    TimerAction::Overflow(num_overflows) => {
+                        if self.trace {
+                            println!("TMR{} overflown!", i);
+                        }
+                        match i {
+                            3 => {}
+                            _ => {
+                                let next_i = i + 1;
+                                if self[next_i].timer_ctl.cascade() {
+                                    self[next_i].add_cycles(num_overflows, irqs);
+                                }
                             }
                         }
-                    },
+                    }
                     TimerAction::Increment => {}
                 }
             }
