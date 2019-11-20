@@ -2,35 +2,26 @@ use super::super::SysBus;
 use super::regs::*;
 use super::*;
 
-use crate::core::sysbus::OAM_ADDR;
-
 const OVRAM: u32 = 0x0601_0000;
 const PALRAM_OFS_FG: u32 = 0x200;
 const ATTRS_SIZE: u32 = 2 * 3 + 2;
 
 struct ObjAttrs(Attribute0, Attribute1, Attribute2);
 
-struct ObjAffineParams {
-    pa: i16,
-    pb: i16,
-    pc: i16,
-    pd: i16,
-}
-
 const AFFINE_FILL: u32 = 2 * 3;
 
-impl ObjAffineParams {
-    fn from_index(sb: &SysBus, index: u32) -> ObjAffineParams {
+impl AffineMatrix {
+    fn from_index(sb: &SysBus, index: u32) -> AffineMatrix {
         let mut offset = AFFINE_FILL + index * 16 * 2;
-        let pa = sb.read_16(offset) as i16;
+        let pa = sb.oam.read_16(offset) as i16 as i32;
         offset += 2 + AFFINE_FILL;
-        let pb = sb.read_16(offset) as i16;
+        let pb = sb.oam.read_16(offset) as i16 as i32;
         offset += 2 + AFFINE_FILL;
-        let pc = sb.read_16(offset) as i16;
+        let pc = sb.oam.read_16(offset) as i16 as i32;
         offset += 2 + AFFINE_FILL;
-        let pd = sb.read_16(offset) as i16;
+        let pd = sb.oam.read_16(offset) as i16 as i32;
 
-        ObjAffineParams { pa, pb, pc, pd }
+        AffineMatrix { pa, pb, pc, pd }
     }
 }
 
@@ -52,8 +43,16 @@ impl ObjAttrs {
             _ => (8, 8), // according to commit f01016a30b2e8482d06798895ebc674370e81816 in melonDS
         }
     }
-    fn coords(&self) -> (usize, usize) {
-        (self.1.x_coord() as usize, self.0.y_coord() as usize)
+    fn coords(&self) -> (i32, i32) {
+        let mut y = self.0.y_coord() as i16 as i32;
+        let mut x = self.1.x_coord() as i16 as i32;
+        if y >= (DISPLAY_HEIGHT as i32) {
+            y -= 1 << 8;
+        }
+        if x >= (DISPLAY_WIDTH as i32) {
+            x -= 1 << 9;
+        }
+        (x, y)
     }
     fn tile_format(&self) -> (usize, PixelFormat) {
         if self.0.is_8bpp() {
@@ -72,15 +71,11 @@ impl ObjAttrs {
         let attr1 = (self.1).0;
         ((attr1 >> 9) & 0x1f) as u32
     }
+    fn affine_matrix(&self, sb: &SysBus) -> AffineMatrix {
+        AffineMatrix::from_index(sb, self.affine_index())
+    }
     fn is_hidden(&self) -> bool {
         self.0.objtype() == ObjType::Hidden
-    }
-    fn flip_xy(&self) -> (bool, bool) {
-        if !self.is_affine() {
-            (self.1.h_flip(), self.1.v_flip())
-        } else {
-            (false, false)
-        }
     }
 }
 
@@ -100,89 +95,91 @@ impl Gpu {
         }
     }
 
+    fn render_affine_obj(&mut self, sb: &SysBus, obj: ObjAttrs, _obj_num: usize) {
+       // PASS
+    }
+
+    fn render_normal_obj(&mut self, sb: &SysBus, obj: ObjAttrs, _obj_num: usize) {
+        let screen_y = self.current_scanline as i32;
+
+        let (ref_x, ref_y) = obj.coords();
+        let (obj_w, obj_h) = obj.size();
+
+        // skip this obj if not within its vertical bounds.
+        if !(screen_y >= ref_y && screen_y < ref_y + obj_h) {
+            return;
+        }
+
+        let tile_base = self.obj_tile_base() + 0x20 * (obj.2.tile() as u32);
+
+        let (tile_size, pixel_format) = obj.tile_format();
+        let palette_bank = match pixel_format {
+            PixelFormat::BPP4 => obj.2.palette(),
+            _ => 0u32,
+        };
+
+        let tile_array_width = match self.dispcnt.obj_mapping() {
+            ObjMapping::OneDimension => obj_w / 8,
+            ObjMapping::TwoDimension => {
+                if obj.0.is_8bpp() {
+                    16
+                } else {
+                    32
+                }
+            }
+        };
+
+        // render the pixels
+        let screen_width = DISPLAY_WIDTH as i32;
+        let end_x = ref_x + obj_w;
+        for screen_x in ref_x..end_x {
+            if screen_x < 0 {
+                continue;
+            }
+            if screen_x >= screen_width {
+                break;
+            }
+            if self.obj_line_priorities[screen_x as usize] < obj.2.priority() {
+                continue;
+            }
+            let mut sprite_y = screen_y - ref_y;
+            let mut sprite_x = screen_x - ref_x;
+            sprite_y = if obj.1.v_flip() {
+                obj_h - sprite_y - 1
+            } else {
+                sprite_y
+            };
+            sprite_x = if obj.1.h_flip() {
+                obj_w - sprite_x - 1
+            } else {
+                sprite_x
+            };
+            let tile_x = sprite_x % 8;
+            let tile_y = sprite_y % 8;
+            let tile_addr = tile_base
+                + index2d!(u32, sprite_x / 8, sprite_y / 8, tile_array_width) * (tile_size as u32);
+            let pixel_index =
+                self.read_pixel_index(sb, tile_addr, tile_x as u32, tile_y as u32, pixel_format);
+            let pixel_color =
+                self.get_palette_color(sb, pixel_index as u32, palette_bank, PALRAM_OFS_FG);
+            if pixel_color != Rgb15::TRANSPARENT {
+                self.obj_line[screen_x as usize] = pixel_color;
+                self.obj_line_priorities[screen_x as usize] = obj.2.priority();
+            }
+        }
+    }
+
     pub fn render_objs(&mut self, sb: &SysBus) {
-        let screen_y = self.current_scanline;
         // reset the scanline
         self.obj_line = Scanline::default();
         self.obj_line_priorities = Scanline([3; DISPLAY_WIDTH]);
         for obj_num in (0..128).rev() {
             let obj = read_obj_attrs(sb, obj_num);
-            if obj.is_hidden() {
-                continue;
-            }
-
-            let is_affine = obj.is_affine();
-            if is_affine {
-                panic!("im not ready for that yet :(");
-            }
-
-            let (obj_x, obj_y) = obj.coords();
-            let (obj_w, obj_h) = obj.size();
-            // skip this obj if not within its bounds.
-            if !(screen_y >= obj_y && screen_y < obj_y + obj_h) {
-                continue;
-            }
-
-            let tile_base = self.obj_tile_base() + 0x20 * (obj.2.tile() as u32);
-
-            let (tile_size, pixel_format) = obj.tile_format();
-            let palette_bank = match pixel_format {
-                PixelFormat::BPP4 => obj.2.palette(),
-                _ => 0u32,
-            };
-
-            let tile_array_width = match self.dispcnt.obj_mapping() {
-                ObjMapping::OneDimension => obj_w / 8,
-                ObjMapping::TwoDimension => {
-                    if obj.0.is_8bpp() {
-                        16
-                    } else {
-                        32
-                    }
-                }
-            };
-
-            let (xflip, yflip) = obj.flip_xy();
-
-            let end_x = obj_x + obj_w;
-            for screen_x in obj_x..end_x {
-                if screen_x > DISPLAY_WIDTH {
-                    break;
-                }
-                if self.obj_line_priorities[screen_x] < obj.2.priority() {
-                    continue;
-                }
-                let mut sprite_y = screen_y - obj_y;
-                let mut sprite_x = screen_x - obj_x;
-                if (!is_affine) {
-                    sprite_y = if yflip {
-                        obj_h - sprite_y - 1
-                    } else {
-                        sprite_y
-                    };
-                    sprite_x = if xflip {
-                        obj_w - sprite_x - 1
-                    } else {
-                        sprite_x
-                    };
-                }
-                let tile_x = sprite_x % 8;
-                let tile_y = sprite_y % 8;
-                let tile_addr = tile_base
-                    + index2d!(u32, sprite_x / 8, sprite_y / 8, tile_array_width)
-                        * (tile_size as u32);
-                let pixel_index = self.read_pixel_index(
-                    sb,
-                    tile_addr,
-                    tile_x as u32,
-                    tile_y as u32,
-                    pixel_format,
-                );
-                let pixel_color =
-                    self.get_palette_color(sb, pixel_index as u32, palette_bank, PALRAM_OFS_FG);
-                if pixel_color != Rgb15::TRANSPARENT {
-                    self.obj_line[screen_x] = pixel_color;
-                    self.obj_line_priorities[screen_x] = obj.2.priority();
+            match obj.0.objtype() {
+                ObjType::Hidden => continue,
+                ObjType::Normal => self.render_normal_obj(sb, obj, obj_num),
+                ObjType::Affine | ObjType::AffineDoubleSize => {
+                    self.render_affine_obj(sb, obj, obj_num)
                 }
             }
         }

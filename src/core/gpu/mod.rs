@@ -183,6 +183,14 @@ pub enum WindowType {
 }
 
 #[derive(Debug, Default, Copy, Clone)]
+pub struct AffineMatrix {
+    pub pa: i32,
+    pub pb: i32,
+    pub pc: i32,
+    pub pd: i32,
+}
+
+#[derive(Debug, Default, Copy, Clone)]
 pub struct BgAffine {
     pub pa: i16, // dx
     pub pb: i16, // dmx
