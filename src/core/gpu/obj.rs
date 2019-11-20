@@ -96,7 +96,84 @@ impl Gpu {
     }
 
     fn render_affine_obj(&mut self, sb: &SysBus, obj: ObjAttrs, _obj_num: usize) {
-       // PASS
+        let screen_y = self.current_scanline as i32;
+
+        let (ref_x, ref_y) = obj.coords();
+
+        let (obj_w, obj_h) = obj.size();
+
+        let (bbox_w, bbox_h) = match obj.0.objtype() {
+            ObjType::AffineDoubleSize => (2 * obj_w, 2 * obj_h),
+            _ => (obj_w, obj_h),
+        };
+
+        // skip this obj if not within its vertical bounds.
+        if !(screen_y >= ref_y && screen_y < ref_y + bbox_h) {
+            return;
+        }
+
+        let tile_base = self.obj_tile_base() + 0x20 * (obj.2.tile() as u32);
+
+        let (tile_size, pixel_format) = obj.tile_format();
+        let palette_bank = match pixel_format {
+            PixelFormat::BPP4 => obj.2.palette(),
+            _ => 0u32,
+        };
+
+        let tile_array_width = match self.dispcnt.obj_mapping() {
+            ObjMapping::OneDimension => obj_w / 8,
+            ObjMapping::TwoDimension => {
+                if obj.0.is_8bpp() {
+                    16
+                } else {
+                    32
+                }
+            }
+        };
+
+        let affine_matrix = obj.affine_matrix(sb);
+
+        let half_width = bbox_w / 2;
+        let half_height = bbox_h / 2;
+        let screen_width = DISPLAY_WIDTH as i32;
+        let iy = screen_y - (ref_y + half_height);
+        for ix in (-half_width)..(half_width) {
+            let screen_x = ref_x + half_width + ix;
+            if screen_x < 0 {
+                continue;
+            }
+            if screen_x >= screen_width {
+                break;
+            }
+            if self.obj_line_priorities[screen_x as usize] <= obj.2.priority() {
+                continue;
+            }
+
+            let transformed_x = (affine_matrix.pa * ix + affine_matrix.pb * iy) >> 8;
+            let transformed_y = (affine_matrix.pc * ix + affine_matrix.pd * iy) >> 8;
+            let texture_x = transformed_x + obj_w / 2;
+            let texture_y = transformed_y + obj_h / 2;
+            if texture_x >= 0 && texture_x < obj_w && texture_y >= 0 && texture_y < obj_h {
+                let tile_x = texture_x % 8;
+                let tile_y = texture_y % 8;
+                let tile_addr = tile_base
+                    + index2d!(u32, texture_x / 8, texture_y / 8, tile_array_width)
+                        * (tile_size as u32);
+                let pixel_index = self.read_pixel_index(
+                    sb,
+                    tile_addr,
+                    tile_x as u32,
+                    tile_y as u32,
+                    pixel_format,
+                );
+                let pixel_color =
+                    self.get_palette_color(sb, pixel_index as u32, palette_bank, PALRAM_OFS_FG);
+                if pixel_color != Rgb15::TRANSPARENT {
+                    self.obj_line[screen_x as usize] = pixel_color;
+                    self.obj_line_priorities[screen_x as usize] = obj.2.priority();
+                }
+            }
+        }
     }
 
     fn render_normal_obj(&mut self, sb: &SysBus, obj: ObjAttrs, _obj_num: usize) {
@@ -139,7 +216,7 @@ impl Gpu {
             if screen_x >= screen_width {
                 break;
             }
-            if self.obj_line_priorities[screen_x as usize] < obj.2.priority() {
+            if self.obj_line_priorities[screen_x as usize] <= obj.2.priority() {
                 continue;
             }
             let mut sprite_y = screen_y - ref_y;
@@ -173,7 +250,7 @@ impl Gpu {
         // reset the scanline
         self.obj_line = Scanline::default();
         self.obj_line_priorities = Scanline([3; DISPLAY_WIDTH]);
-        for obj_num in (0..128).rev() {
+        for obj_num in 0..128 {
             let obj = read_obj_attrs(sb, obj_num);
             match obj.0.objtype() {
                 ObjType::Hidden => continue,
