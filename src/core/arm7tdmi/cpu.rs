@@ -456,7 +456,6 @@ impl Core {
         self.gpr_banked_r13[5] = 0x0300_7f00; // UND
 
         self.gpr[13] = 0x0300_7f00;
-        self.gpr[14] = 0x0800_0000;
         self.pc = 0x0800_0000;
 
         self.cpsr.set(0x5f);

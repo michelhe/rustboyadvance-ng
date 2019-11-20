@@ -129,7 +129,7 @@ impl Core {
                 self.bs_carry_out = val.bit(31);
                 0
             }
-            x if x < 32 => {
+            1..=31 => {
                 self.bs_carry_out = val >> (amount - 1) & 1 == 1;
                 (val as u32) >> amount
             }

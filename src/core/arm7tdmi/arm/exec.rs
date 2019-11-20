@@ -20,7 +20,7 @@ impl Core {
             ArmFormat::B_BL => self.exec_b_bl(bus, insn),
             ArmFormat::DP => self.exec_data_processing(bus, insn),
             ArmFormat::SWI => {
-                self.software_interrupt(bus, insn.pc + 4, insn.swi_comment());
+                self.software_interrupt(bus, self.pc - 4, insn.swi_comment());
                 Ok(())
             }
             ArmFormat::LDR_STR => self.exec_ldr_str(bus, insn),

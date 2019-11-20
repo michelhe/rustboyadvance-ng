@@ -563,7 +563,7 @@ impl Core {
             ThumbFormat::LdmStm => self.exec_thumb_ldm_stm(bus, insn),
             ThumbFormat::BranchConditional => self.exec_thumb_branch_with_cond(bus, insn),
             ThumbFormat::Swi => {
-                self.software_interrupt(bus, insn.pc + 2, (insn.raw & 0xff) as u32);
+                self.software_interrupt(bus, self.pc - 2, (insn.raw & 0xff) as u32);
                 Ok(())
             }
             ThumbFormat::Branch => self.exec_thumb_branch(bus, insn),
