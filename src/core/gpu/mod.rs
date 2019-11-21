@@ -136,7 +136,7 @@ impl<T> std::ops::IndexMut<usize> for Scanline<T> {
 }
 
 #[derive(Debug, Default, Copy, Clone)]
-pub struct Bg {
+pub struct Background {
     pub bgcnt: BgControl,
     pub bgvofs: u16,
     pub bghofs: u16,
@@ -210,7 +210,7 @@ pub struct Gpu {
     pub dispcnt: DisplayControl,
     pub dispstat: DisplayStatus,
 
-    pub bg: [Bg; 4],
+    pub bg: [Background; 4],
     pub bg_aff: [BgAffine; 2],
 
     pub win0: Window,
@@ -233,7 +233,7 @@ impl Gpu {
         Gpu {
             dispcnt: DisplayControl(0x80),
             dispstat: DisplayStatus(0),
-            bg: [Bg::default(); 4],
+            bg: [Background::default(); 4],
             bg_aff: [BgAffine::default(); 2],
             win0: Window::default(),
             win1: Window::default(),
@@ -371,6 +371,7 @@ impl Gpu {
 
     fn scanline_aff_bg(&mut self, bg: usize, sb: &mut SysBus) {
         // TODO
+        self.bg[bg].line = Scanline::default();
     }
 
     fn scanline_mode3(&mut self, bg: usize, sb: &mut SysBus) {
