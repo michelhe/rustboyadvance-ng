@@ -26,6 +26,7 @@ pub struct IoDevices {
     pub post_boot_flag: bool,
     pub waitcnt: WaitControl, // TODO also implement 4000800
     pub haltcnt: HaltState,
+    pub sound_bias: u16,
 
     mem: BoxedMemory,
 }
@@ -42,6 +43,7 @@ impl IoDevices {
             haltcnt: HaltState::Running,
             keyinput: keypad::KEYINPUT_ALL_RELEASED,
             waitcnt: WaitControl(0),
+            sound_bias: 0x200,
         }
     }
 }
@@ -95,6 +97,8 @@ impl Bus for IoDevices {
             REG_DMA1CNT_H => io.dmac.channels[1].ctrl.0,
             REG_DMA2CNT_H => io.dmac.channels[2].ctrl.0,
             REG_DMA3CNT_H => io.dmac.channels[3].ctrl.0,
+
+            REG_SOUNDBIAS => io.sound_bias,
 
             REG_WAITCNT => io.waitcnt.0,
 
@@ -233,6 +237,8 @@ impl Bus for IoDevices {
                 let channel_id = (ofs / 12) as usize;
                 io.dmac.write_16(channel_id, ofs % 12, value)
             }
+
+            REG_SOUNDBIAS => io.sound_bias = value & 0xc3fe,
 
             REG_WAITCNT => io.waitcnt.0 = value,
 
