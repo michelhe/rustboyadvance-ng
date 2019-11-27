@@ -105,12 +105,15 @@ impl Bus for IoDevices {
             REG_POSTFLG => io.post_boot_flag as u16,
             REG_HALTCNT => 0,
             REG_KEYINPUT => io.keyinput as u16,
+            REG_SOUND1CNT_L..=DMA_BASE => {
+                println!(
+                    "Unimplemented read from {:x} {}",
+                    io_addr,
+                    io_reg_string(io_addr)
+                );
+                0
+            }
             _ => {
-                // println!(
-                //     "Unimplemented read from {:x} {}",
-                //     io_addr,
-                //     io_reg_string(io_addr)
-                // );
                 0
             }
         }
@@ -253,12 +256,14 @@ impl Bus for IoDevices {
                     io.haltcnt = HaltState::Halt;
                 }
             }
+            REG_SOUND1CNT_L..=DMA_BASE => {
+                println!(
+                    "Unimplemented write to {:x} {}",
+                    io_addr,
+                    io_reg_string(io_addr)
+                );
+            }
             _ => {
-                // println!(
-                //     "Unimplemented write to {:x} {}",
-                //     io_addr,
-                //     io_reg_string(io_addr)
-                // );
             }
         }
     }
