@@ -1,6 +1,7 @@
 pub mod arm7tdmi;
 pub mod cartridge;
 pub mod gpu;
+pub mod sound;
 pub mod sysbus;
 pub use sysbus::SysBus;
 pub mod interrupt;

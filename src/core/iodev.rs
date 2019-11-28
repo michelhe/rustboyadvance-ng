@@ -4,6 +4,7 @@ use super::gpu::regs::WindowFlags;
 use super::gpu::*;
 use super::interrupt::InterruptController;
 use super::keypad;
+use super::sound::SoundController;
 use super::sysbus::BoxedMemory;
 use super::timer::Timers;
 
@@ -20,6 +21,7 @@ pub enum HaltState {
 pub struct IoDevices {
     pub intc: InterruptController,
     pub gpu: Gpu,
+    pub sound: SoundController,
     pub timers: Timers,
     pub dmac: DmaController,
     pub keyinput: u16,
@@ -35,6 +37,7 @@ impl IoDevices {
     pub fn new() -> IoDevices {
         IoDevices {
             gpu: Gpu::new(),
+            sound: SoundController::new(),
             timers: Timers::new(),
             dmac: DmaController::new(),
             intc: InterruptController::new(),
@@ -105,15 +108,15 @@ impl Bus for IoDevices {
             REG_POSTFLG => io.post_boot_flag as u16,
             REG_HALTCNT => 0,
             REG_KEYINPUT => io.keyinput as u16,
-            REG_SOUND1CNT_L..=DMA_BASE => {
-                println!(
-                    "Unimplemented read from {:x} {}",
-                    io_addr,
-                    io_reg_string(io_addr)
-                );
-                0
-            }
+
+            REG_SOUND1CNT_L..=DMA_BASE => io.sound.handle_read(io_addr),
+
             _ => {
+                // println!(
+                //     "Unimplemented read from {:x} {}",
+                //     io_addr,
+                //     io_reg_string(io_addr)
+                // );
                 0
             }
         }
@@ -256,14 +259,16 @@ impl Bus for IoDevices {
                     io.haltcnt = HaltState::Halt;
                 }
             }
+
             REG_SOUND1CNT_L..=DMA_BASE => {
-                println!(
-                    "Unimplemented write to {:x} {}",
-                    io_addr,
-                    io_reg_string(io_addr)
-                );
+                io.sound.handle_write(io_addr, value);
             }
             _ => {
+                // println!(
+                //     "Unimplemented write to {:x} {}",
+                //     io_addr,
+                //     io_reg_string(io_addr)
+                // );
             }
         }
     }
@@ -410,7 +415,7 @@ pub mod consts {
     pub const REG_HALTCNT: Addr = 0x0400_0301;      //  1    W      Undocumented - Power Down Control
 }
 
-fn io_reg_string(addr: u32) -> &'static str {
+pub fn io_reg_string(addr: u32) -> &'static str {
     match addr {
         REG_DISPCNT => "REG_DISPCNT",
         REG_DISPSTAT => "REG_DISPSTAT",

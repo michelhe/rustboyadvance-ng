@@ -20,6 +20,8 @@ impl GameBoyAdvance {
         cpu: Core,
         bios_rom: Vec<u8>,
         gamepak: Cartridge,
+        // TODO rename this "graphics backend"
+        // TODO add sound backend
         backend: Box<dyn EmulatorBackend>,
     ) -> GameBoyAdvance {
         let io = IoDevices::new();
@@ -107,5 +109,7 @@ impl GameBoyAdvance {
         }
 
         io.intc.request_irqs(irqs);
+
+        io.sound.update(self.cpu.cycles);
     }
 }
