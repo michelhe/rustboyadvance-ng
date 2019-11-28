@@ -1,6 +1,5 @@
 use super::super::sysbus::SysBus;
 use super::cpu::{Core, PipelineState};
-use super::REG_LR;
 use super::{CpuMode, CpuState};
 use colored::*;
 
