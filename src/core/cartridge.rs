@@ -1,8 +1,14 @@
+use std::fs::File;
+use std::io::prelude::*;
+use std::path::Path;
 use std::str::from_utf8;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use zip::ZipArchive;
 
+use super::super::util::read_bin_file;
 use super::arm7tdmi::{bus::Bus, Addr};
+use super::GBAResult;
 
 /// From GBATEK
 ///
@@ -69,19 +75,40 @@ pub struct Cartridge {
     bytes: Box<[u8]>,
 }
 
+fn load_rom(path: &str) -> GBAResult<Vec<u8>> {
+    if path.ends_with(".zip") {
+        let zipfile = File::open(path)?;
+        let mut archive = ZipArchive::new(zipfile)?;
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i)?;
+            if file.name().ends_with(".gba") {
+                let mut buf = Vec::new();
+                file.read_to_end(&mut buf)?;
+                return Ok(buf);
+            }
+        }
+        panic!("no .gba file contained in the zip file");
+    } else {
+        let buf = read_bin_file(path)?;
+        Ok(buf)
+    }
+}
+
 impl Cartridge {
     const MIN_SIZE: usize = 4 * 1024 * 1024;
 
-    pub fn new(mut rom_bin: Vec<u8>) -> Cartridge {
+    pub fn from_path(rom_path: &str) -> GBAResult<Cartridge> {
+        let mut rom_bin = load_rom(rom_path)?;
+
         if rom_bin.len() < Cartridge::MIN_SIZE {
             rom_bin.resize_with(Cartridge::MIN_SIZE, Default::default);
         }
 
         let header = CartridgeHeader::parse(&rom_bin);
-        Cartridge {
+        Ok(Cartridge {
             header: header,
             bytes: rom_bin.into_boxed_slice(),
-        }
+        })
     }
 }
 

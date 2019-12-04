@@ -1,13 +1,8 @@
 use std::ffi::OsStr;
-use std::fs::File;
-use std::io::prelude::*;
-use std::path::Path;
 use std::time;
 
 #[macro_use]
 extern crate clap;
-
-extern crate zip;
 
 use clap::{App, ArgMatches};
 
@@ -19,25 +14,6 @@ use rustboyadvance_ng::core::cartridge::Cartridge;
 use rustboyadvance_ng::core::{GBAError, GBAResult, GameBoyAdvance};
 use rustboyadvance_ng::debugger::Debugger;
 use rustboyadvance_ng::util::read_bin_file;
-
-fn load_rom(path: &str) -> GBAResult<Vec<u8>> {
-    if path.ends_with(".zip") {
-        let zipfile = File::open(path)?;
-        let mut archive = zip::ZipArchive::new(zipfile)?;
-        for i in 0..archive.len() {
-            let mut file = archive.by_index(i)?;
-            if file.name().ends_with(".gba") {
-                let mut buf = Vec::new();
-                file.read_to_end(&mut buf)?;
-                return Ok(buf);
-            }
-        }
-        panic!("no .gba file contained in the zip file");
-    } else {
-        let buf = read_bin_file(path)?;
-        Ok(buf)
-    }
-}
 
 fn run_emulator(matches: &ArgMatches) -> GBAResult<()> {
     let skip_bios = matches.occurrences_of("skip_bios") != 0;
@@ -54,8 +30,7 @@ fn run_emulator(matches: &ArgMatches) -> GBAResult<()> {
 
     let bios_bin = read_bin_file(matches.value_of("bios").unwrap_or_default())?;
 
-    let rom_bin = load_rom(matches.value_of("game_rom").unwrap())?;
-    let cart = Cartridge::new(rom_bin);
+    let cart = Cartridge::from_path(matches.value_of("game_rom").unwrap())?;
     println!("loaded rom: {:#?}", cart.header);
 
     let mut core = Core::new();
