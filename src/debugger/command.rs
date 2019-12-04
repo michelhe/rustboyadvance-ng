@@ -102,31 +102,31 @@ impl Debugger {
                 }
                 println!("{}\n", self.gba.cpu);
             }
-            Continue => {
-                self.ctrlc_flag.store(true, Ordering::SeqCst);
-                while self.ctrlc_flag.load(Ordering::SeqCst) {
-                    let start_time = time::Instant::now();
-                    self.gba.update_key_state();
-                    match self.gba.check_breakpoint() {
-                        Some(addr) => {
-                            println!("Breakpoint reached! @{:x}", addr);
-                            break;
-                        }
-                        _ => {
-                            self.gba.step_new();
-                        }
-                    }
-                }
-            }
-            Frame(count) => {
-                use super::time::PreciseTime;
-                let start = PreciseTime::now();
-                for _ in 0..count {
-                    self.gba.frame();
-                }
-                let end = PreciseTime::now();
-                println!("that took {} seconds", start.to(end));
-            }
+            // Continue => {
+            //     self.ctrlc_flag.store(true, Ordering::SeqCst);
+            //     while self.ctrlc_flag.load(Ordering::SeqCst) {
+            //         let start_time = time::Instant::now();
+            //         self.gba.update_key_state();
+            //         match self.gba.check_breakpoint() {
+            //             Some(addr) => {
+            //                 println!("Breakpoint reached! @{:x}", addr);
+            //                 break;
+            //             }
+            //             _ => {
+            //                 self.gba.step_new();
+            //             }
+            //         }
+            //     }
+            // }
+            // Frame(count) => {
+            //     use super::time::PreciseTime;
+            //     let start = PreciseTime::now();
+            //     for _ in 0..count {
+            //         self.gba.frame();
+            //     }
+            //     let end = PreciseTime::now();
+            //     println!("that took {} seconds", start.to(end));
+            // }
             HexDump(addr, nbytes) => {
                 let bytes = self.gba.sysbus.get_bytes(addr..addr + nbytes);
                 hexdump::hexdump(&bytes);
@@ -206,6 +206,7 @@ impl Debugger {
                     self.gba.sysbus.io.timers.trace = !self.gba.sysbus.io.timers.trace;
                 }
             }
+            _ => println!("Not Implemented",),
         }
     }
 

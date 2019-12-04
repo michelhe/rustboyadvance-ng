@@ -25,7 +25,27 @@ extern crate zip;
 
 #[macro_use]
 pub mod util;
-pub mod backend;
 pub mod core;
 pub mod debugger;
 pub mod disass;
+
+pub trait VideoInterface {
+    fn render(&mut self, buffer: &[u32]);
+}
+
+pub trait AudioInterface {
+    fn get_sample_rate(&self);
+}
+
+pub trait InputInterface {
+    fn poll(&mut self) -> u16;
+}
+
+pub mod prelude {
+    pub use super::core::arm7tdmi;
+    pub use super::core::cartridge::Cartridge;
+    pub use super::core::{GBAError, GBAResult, GameBoyAdvance};
+    pub use super::debugger::Debugger;
+    pub use super::util::read_bin_file;
+    pub use super::{AudioInterface, InputInterface, VideoInterface};
+}

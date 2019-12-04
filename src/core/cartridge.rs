@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
@@ -8,7 +9,7 @@ use zip::ZipArchive;
 
 use super::super::util::read_bin_file;
 use super::arm7tdmi::{bus::Bus, Addr};
-use super::GBAResult;
+use super::{GBAError, GBAResult};
 
 /// From GBATEK
 ///
@@ -75,30 +76,40 @@ pub struct Cartridge {
     bytes: Box<[u8]>,
 }
 
-fn load_rom(path: &str) -> GBAResult<Vec<u8>> {
-    if path.ends_with(".zip") {
-        let zipfile = File::open(path)?;
-        let mut archive = ZipArchive::new(zipfile)?;
-        for i in 0..archive.len() {
-            let mut file = archive.by_index(i)?;
-            if file.name().ends_with(".gba") {
-                let mut buf = Vec::new();
-                file.read_to_end(&mut buf)?;
+fn load_rom(path: &Path) -> GBAResult<Vec<u8>> {
+    match path.extension() {
+        Some(extension) => match extension.to_str() {
+            Some("zip") => {
+                let zipfile = File::open(path)?;
+                let mut archive = ZipArchive::new(zipfile)?;
+                for i in 0..archive.len() {
+                    let mut file = archive.by_index(i)?;
+                    if file.name().ends_with(".gba") {
+                        let mut buf = Vec::new();
+                        file.read_to_end(&mut buf)?;
+                        return Ok(buf);
+                    }
+                }
+                panic!("no .gba file contained in the zip file");
+            }
+            _ => {
+                let buf = read_bin_file(path)?;
                 return Ok(buf);
             }
+        },
+        _ => {
+            let buf = read_bin_file(path)?;
+            return Ok(buf);
         }
-        panic!("no .gba file contained in the zip file");
-    } else {
-        let buf = read_bin_file(path)?;
-        Ok(buf)
     }
 }
 
 impl Cartridge {
     const MIN_SIZE: usize = 4 * 1024 * 1024;
 
-    pub fn from_path(rom_path: &str) -> GBAResult<Cartridge> {
+    pub fn from_path(rom_path: &Path) -> GBAResult<Cartridge> {
         let mut rom_bin = load_rom(rom_path)?;
+        println!("loaded {} bytes", rom_bin.len());
 
         if rom_bin.len() < Cartridge::MIN_SIZE {
             rom_bin.resize_with(Cartridge::MIN_SIZE, Default::default);

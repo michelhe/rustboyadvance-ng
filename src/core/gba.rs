@@ -7,43 +7,32 @@ use super::iodev::*;
 use super::sysbus::SysBus;
 
 use super::SyncedIoDevice;
-use crate::backend::*;
+
+use super::super::{AudioInterface, InputInterface, VideoInterface};
 
 pub struct GameBoyAdvance {
-    backend: Box<dyn EmulatorBackend>,
     pub cpu: Core,
     pub sysbus: Box<SysBus>,
 }
 
 impl GameBoyAdvance {
-    pub fn new(
-        cpu: Core,
-        bios_rom: Vec<u8>,
-        gamepak: Cartridge,
-        // TODO rename this "graphics backend"
-        // TODO add sound backend
-        backend: Box<dyn EmulatorBackend>,
-    ) -> GameBoyAdvance {
+    pub fn new(cpu: Core, bios_rom: Vec<u8>, gamepak: Cartridge) -> GameBoyAdvance {
         let io = IoDevices::new();
         GameBoyAdvance {
-            backend: backend,
             cpu: cpu,
             sysbus: Box::new(SysBus::new(io, bios_rom, gamepak)),
         }
     }
 
-    pub fn frame(&mut self) {
-        self.update_key_state();
+    pub fn frame(&mut self, video: &mut VideoInterface, input: &mut InputInterface) {
+        self.sysbus.io.keyinput = input.poll();
         while self.sysbus.io.gpu.state != GpuState::VBlank {
             self.step_new();
         }
+        video.render(self.sysbus.io.gpu.get_framebuffer());
         while self.sysbus.io.gpu.state == GpuState::VBlank {
             self.step_new();
         }
-    }
-
-    pub fn update_key_state(&mut self) {
-        self.sysbus.io.keyinput = self.backend.get_key_state();
     }
 
     pub fn add_breakpoint(&mut self, addr: u32) -> Option<usize> {
@@ -100,7 +89,6 @@ impl GameBoyAdvance {
         if let Some(new_gpu_state) = io.gpu.step(cycles, &mut self.sysbus, &mut irqs) {
             match new_gpu_state {
                 GpuState::VBlank => {
-                    self.backend.render(io.gpu.get_framebuffer());
                     io.dmac.notify_vblank();
                 }
                 GpuState::HBlank => io.dmac.notify_hblank(),

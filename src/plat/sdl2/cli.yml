@@ -1,6 +1,6 @@
-name: rustboyadvance-ng
+name: rba-sdl2
 author: Michel Heily <michelheily@gmail.com>
-about: Game boy advance emulator and debugger
+about: RustBoyAdvance SDL2 port
 args:
     - bios:
         help: Sets the bios file to use
@@ -19,12 +19,6 @@ args:
     - no_framerate_limit:
         long: no-framerate-limit
         help: Run without frame limiter
-    - backend:
-        long: backend
-        takes_value: true
-        possible_values: [ sdl2, minifb ]
-        default_value: minifb
-        required: false
     - debug:
         long: debug
         help: Start with the debugger attached
