@@ -1,4 +1,7 @@
 /// Struct containing everything
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use super::arm7tdmi::Core;
 use super::cartridge::Cartridge;
 use super::gpu::*;
@@ -10,28 +13,53 @@ use super::SyncedIoDevice;
 
 use super::super::{AudioInterface, InputInterface, VideoInterface};
 
-pub struct GameBoyAdvance {
-    pub cpu: Core,
+pub struct GameBoyAdvance<V, A, I>
+where
+    V: VideoInterface,
+    A: AudioInterface,
+    I: InputInterface,
+{
     pub sysbus: Box<SysBus>,
+    pub cpu: Core,
+    video_device: Rc<RefCell<V>>,
+    audio_device: Rc<RefCell<A>>,
+    input_device: Rc<RefCell<I>>,
 }
 
-impl GameBoyAdvance {
-    pub fn new(cpu: Core, bios_rom: Vec<u8>, gamepak: Cartridge) -> GameBoyAdvance {
+impl<V, A, I> GameBoyAdvance<V, A, I>
+where
+    V: VideoInterface,
+    A: AudioInterface,
+    I: InputInterface,
+{
+    pub fn new(
+        cpu: Core,
+        bios_rom: Vec<u8>,
+        gamepak: Cartridge,
+        video_device: Rc<RefCell<V>>,
+        audio_device: Rc<RefCell<A>>,
+        input_device: Rc<RefCell<I>>,
+    ) -> GameBoyAdvance<V, A, I> {
         let io = IoDevices::new();
         GameBoyAdvance {
             cpu: cpu,
             sysbus: Box::new(SysBus::new(io, bios_rom, gamepak)),
+            video_device: video_device,
+            audio_device: audio_device,
+            input_device: input_device,
         }
     }
 
-    pub fn frame(&mut self, video: &mut VideoInterface, input: &mut InputInterface) {
-        self.sysbus.io.keyinput = input.poll();
+    pub fn frame(&mut self) {
+        self.sysbus.io.keyinput = self.input_device.borrow_mut().poll();
         while self.sysbus.io.gpu.state != GpuState::VBlank {
-            self.step_new();
+            self.step();
         }
-        video.render(self.sysbus.io.gpu.get_framebuffer());
+        self.video_device
+            .borrow_mut()
+            .render(self.sysbus.io.gpu.get_framebuffer());
         while self.sysbus.io.gpu.state == GpuState::VBlank {
-            self.step_new();
+            self.step();
         }
     }
 
@@ -56,7 +84,7 @@ impl GameBoyAdvance {
         None
     }
 
-    pub fn step_new(&mut self) {
+    pub fn step(&mut self) {
         let mut irqs = IrqBitmask(0);
         let previous_cycles = self.cpu.cycles;
 

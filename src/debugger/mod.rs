@@ -12,6 +12,8 @@ use colored::*;
 use super::core::arm7tdmi::{Addr, Bus, CpuError};
 use super::core::GameBoyAdvance;
 
+use super::{AudioInterface, InputInterface, VideoInterface};
+
 mod parser;
 use parser::{parse_expr, DerefType, Expr, Value};
 
@@ -46,15 +48,25 @@ impl From<::std::io::Error> for DebuggerError {
 
 type DebuggerResult<T> = Result<T, DebuggerError>;
 
-pub struct Debugger {
-    pub gba: GameBoyAdvance,
+pub struct Debugger<V, A, I>
+where
+    V: VideoInterface,
+    A: AudioInterface,
+    I: InputInterface,
+{
+    pub gba: GameBoyAdvance<V, A, I>,
     running: bool,
     pub ctrlc_flag: Arc<AtomicBool>,
     pub previous_command: Option<Command>,
 }
 
-impl Debugger {
-    pub fn new(gba: GameBoyAdvance) -> Debugger {
+impl<V, A, I> Debugger<V, A, I>
+where
+    V: VideoInterface,
+    A: AudioInterface,
+    I: InputInterface,
+{
+    pub fn new(gba: GameBoyAdvance<V, A, I>) -> Debugger<V, A, I> {
         let ctrlc_flag = Arc::new(AtomicBool::new(true));
         let r = ctrlc_flag.clone();
         ctrlc::set_handler(move || {

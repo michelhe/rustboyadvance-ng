@@ -8,6 +8,7 @@ use crate::core::arm7tdmi::thumb::ThumbInstruction;
 use crate::core::arm7tdmi::{Addr, CpuState};
 use crate::core::GBAError;
 use crate::disass::Disassembler;
+use crate::{AudioInterface, InputInterface, VideoInterface};
 
 use super::palette_view::create_palette_view;
 // use super::tile_view::create_tile_view;
@@ -61,7 +62,12 @@ pub enum Command {
     TraceToggle(TraceFlags),
 }
 
-impl Debugger {
+impl<V, A, I> Debugger<V, A, I>
+where
+    V: VideoInterface,
+    A: AudioInterface,
+    I: InputInterface,
+{
     pub fn run_command(&mut self, command: Command) {
         use Command::*;
         match command {
@@ -78,9 +84,9 @@ impl Debugger {
                     if !self.ctrlc_flag.load(Ordering::SeqCst) {
                         break;
                     }
-                    self.gba.step_new();
+                    self.gba.step();
                     while self.gba.cpu.last_executed.is_none() {
-                        self.gba.step_new();
+                        self.gba.step();
                     }
                     let last_executed = self.gba.cpu.last_executed.unwrap();
                     print!(
@@ -113,7 +119,7 @@ impl Debugger {
             //                 break;
             //             }
             //             _ => {
-            //                 self.gba.step_new();
+            //                 self.gba.step();
             //             }
             //         }
             //     }

@@ -1,5 +1,7 @@
 extern crate sdl2;
-use sdl2::Sdl;
+
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use std::path::Path;
 use std::time;
@@ -11,9 +13,9 @@ mod audio;
 mod keyboard;
 mod video;
 
-use keyboard::create_keyboard;
-use video::create_video_interface;
-use audio::create_audio_player;
+use audio::{create_audio_player, Sdl2AudioPlayer};
+use keyboard::{create_keyboard, Sdl2Input};
+use video::{create_video_interface, Sdl2Video};
 
 #[macro_use]
 extern crate rustboyadvance_ng;
@@ -41,12 +43,13 @@ fn main() {
     let cpu = cpu;
 
     let sdl_context = sdl2::init().unwrap();
-    let mut video = create_video_interface(&sdl_context);
-    let mut audio = create_audio_player(&sdl_context);
-    let mut keyboard = create_keyboard(&sdl_context);
+    let video = Rc::new(RefCell::new(create_video_interface(&sdl_context)));
+    let audio = Rc::new(RefCell::new(create_audio_player(&sdl_context)));
+    let keyboard = Rc::new(RefCell::new(create_keyboard(&sdl_context)));
 
     let mut fps_counter = FpsCounter::default();
-    let mut gba = GameBoyAdvance::new(cpu, bios_bin, cart);
+    let mut gba: GameBoyAdvance<Sdl2Video, Sdl2AudioPlayer, Sdl2Input> =
+        GameBoyAdvance::new(cpu, bios_bin, cart, video.clone(), audio.clone(), keyboard.clone());
 
     if debug {
         gba.cpu.set_verbose(true);
@@ -59,10 +62,11 @@ fn main() {
         loop {
             let start_time = time::Instant::now();
 
-            gba.frame(&mut video, &mut keyboard);
+            gba.frame();
+
             if let Some(fps) = fps_counter.tick() {
                 let title = format!("{} ({} fps)", rom_name, fps);
-                video.set_window_title(&title);
+                video.borrow_mut().set_window_title(&title);
             }
 
             if !no_framerate_limit {
