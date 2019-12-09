@@ -12,19 +12,19 @@ const SCREEN_WIDTH: u32 = DISPLAY_WIDTH as u32;
 const SCREEN_HEIGHT: u32 = DISPLAY_HEIGHT as u32;
 const SCALE: u32 = 3; // TODO control via CLI & support window resize
 
-pub struct PlatformSdl2_VideoInterface {
+pub struct Sdl2VideoInterface {
     tc: TextureCreator<WindowContext>,
     canvas: WindowCanvas,
     fps_counter: FpsCounter,
 }
 
-impl PlatformSdl2_VideoInterface {
+impl Sdl2VideoInterface {
     pub fn set_window_title(&mut self, title: &str) {
         self.canvas.window_mut().set_title(&title);
     }
 }
 
-impl VideoInterface for PlatformSdl2_VideoInterface {
+impl VideoInterface for Sdl2VideoInterface {
     fn render(&mut self, buffer: &[u32]) {
         let mut texture = self
             .tc
@@ -53,7 +53,7 @@ impl VideoInterface for PlatformSdl2_VideoInterface {
     }
 }
 
-pub fn create_video_interface(sdl: &Sdl) -> PlatformSdl2_VideoInterface {
+pub fn create_video_interface(sdl: &Sdl) -> Sdl2VideoInterface {
     let video_subsystem = sdl.video().unwrap();
     let window = video_subsystem
         .window(
@@ -69,7 +69,7 @@ pub fn create_video_interface(sdl: &Sdl) -> PlatformSdl2_VideoInterface {
     canvas.set_draw_color(Color::RGB(0, 0, 0));
     canvas.clear();
     let tc = canvas.texture_creator();
-    PlatformSdl2_VideoInterface {
+    Sdl2VideoInterface {
         tc: tc,
         canvas: canvas,
         fps_counter: Default::default(),

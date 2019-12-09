@@ -11,8 +11,9 @@ mod audio;
 mod keyboard;
 mod video;
 
-use keyboard::{create_keyboard, PlatformSdl2_Keyboard};
-use video::{create_video_interface, PlatformSdl2_VideoInterface};
+use keyboard::create_keyboard;
+use video::create_video_interface;
+use audio::create_audio_player;
 
 #[macro_use]
 extern crate rustboyadvance_ng;
@@ -41,6 +42,7 @@ fn main() {
 
     let sdl_context = sdl2::init().unwrap();
     let mut video = create_video_interface(&sdl_context);
+    let mut audio = create_audio_player(&sdl_context);
     let mut keyboard = create_keyboard(&sdl_context);
 
     let mut fps_counter = FpsCounter::default();

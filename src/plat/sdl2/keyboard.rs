@@ -7,12 +7,12 @@ use rustboyadvance_ng::InputInterface;
 extern crate bit;
 use bit::BitIndex;
 
-pub struct PlatformSdl2_Keyboard {
+pub struct Sdl2Keyboard {
     event_pump: EventPump,
     keyinput: u16,
 }
 
-impl InputInterface for PlatformSdl2_Keyboard {
+impl InputInterface for Sdl2Keyboard {
     fn poll(&mut self) -> u16 {
         for event in self.event_pump.poll_iter() {
             match event {
@@ -56,8 +56,8 @@ fn keycode_to_keypad(keycode: Keycode) -> Option<gba_keypad::Keys> {
     }
 }
 
-pub fn create_keyboard(sdl: &sdl2::Sdl) -> PlatformSdl2_Keyboard {
-    PlatformSdl2_Keyboard {
+pub fn create_keyboard(sdl: &sdl2::Sdl) -> Sdl2Keyboard {
+    Sdl2Keyboard {
         event_pump: sdl.event_pump().unwrap(),
         keyinput: gba_keypad::KEYINPUT_ALL_RELEASED,
     }
