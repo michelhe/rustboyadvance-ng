@@ -192,10 +192,12 @@ impl Bus for IoDevices {
                 io.gpu.win1.top = top as u8;
             }
             REG_WININ => {
+                let value = value & !0xc0c0;
                 io.gpu.win0.flags = WindowFlags::from(value & 0xff);
                 io.gpu.win1.flags = WindowFlags::from(value >> 8);
             }
             REG_WINOUT => {
+                let value = value & !0xc0c0;
                 io.gpu.winout_flags = WindowFlags::from(value & 0xff);
                 io.gpu.winobj_flags = WindowFlags::from(value >> 8);
             }
