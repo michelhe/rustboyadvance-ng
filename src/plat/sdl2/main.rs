@@ -1,4 +1,6 @@
 extern crate sdl2;
+use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -10,24 +12,23 @@ use std::time;
 extern crate clap;
 
 mod audio;
-mod keyboard;
+mod input;
 mod video;
 
 use audio::{create_audio_player, Sdl2AudioPlayer};
-use keyboard::{create_keyboard, Sdl2Input};
+use input::{create_input, Sdl2Input};
 use video::{create_video_interface, Sdl2Video};
 
-#[macro_use]
 extern crate rustboyadvance_ng;
 use rustboyadvance_ng::prelude::*;
 use rustboyadvance_ng::util::FpsCounter;
 
 fn main() {
+    let mut frame_limiter = true;
     let yaml = load_yaml!("cli.yml");
     let matches = clap::App::from_yaml(yaml).get_matches();
 
     let skip_bios = matches.occurrences_of("skip_bios") != 0;
-    let no_framerate_limit = matches.occurrences_of("no_framerate_limit") != 0;
     let debug = matches.occurrences_of("debug") != 0;
 
     let bios_path = Path::new(matches.value_of("bios").unwrap_or_default());
@@ -45,11 +46,19 @@ fn main() {
     let sdl_context = sdl2::init().unwrap();
     let video = Rc::new(RefCell::new(create_video_interface(&sdl_context)));
     let audio = Rc::new(RefCell::new(create_audio_player(&sdl_context)));
-    let keyboard = Rc::new(RefCell::new(create_keyboard(&sdl_context)));
+    let input = Rc::new(RefCell::new(create_input()));
 
     let mut fps_counter = FpsCounter::default();
-    let mut gba: GameBoyAdvance<Sdl2Video, Sdl2AudioPlayer, Sdl2Input> =
-        GameBoyAdvance::new(cpu, bios_bin, cart, video.clone(), audio.clone(), keyboard.clone());
+    let mut gba: GameBoyAdvance<Sdl2Video, Sdl2AudioPlayer, Sdl2Input> = GameBoyAdvance::new(
+        cpu,
+        bios_bin,
+        cart,
+        video.clone(),
+        audio.clone(),
+        input.clone(),
+    );
+
+    let mut event_pump = sdl_context.event_pump().unwrap();
 
     if debug {
         gba.cpu.set_verbose(true);
@@ -62,6 +71,37 @@ fn main() {
         loop {
             let start_time = time::Instant::now();
 
+            for event in event_pump.poll_iter() {
+                match event {
+                    Event::KeyDown {
+                        keycode: Some(Keycode::Space),
+                        ..
+                    } => {
+                        frame_limiter = false;
+                    }
+                    Event::KeyUp {
+                        keycode: Some(Keycode::Space),
+                        ..
+                    } => {
+                        frame_limiter = true;
+                    }
+                    Event::KeyDown {
+                        keycode: Some(keycode),
+                        ..
+                    } => {
+                        input.borrow_mut().on_keyboard_key_down(keycode);
+                    }
+                    Event::KeyUp {
+                        keycode: Some(keycode),
+                        ..
+                    } => {
+                        input.borrow_mut().on_keyboard_key_up(keycode);
+                    }
+                    Event::Quit { .. } => panic!("quit!"),
+                    _ => {}
+                }
+            }
+
             gba.frame();
 
             if let Some(fps) = fps_counter.tick() {
@@ -69,7 +109,7 @@ fn main() {
                 video.borrow_mut().set_window_title(&title);
             }
 
-            if !no_framerate_limit {
+            if frame_limiter {
                 let time_passed = start_time.elapsed();
                 let delay = frame_time.checked_sub(time_passed);
                 match delay {
