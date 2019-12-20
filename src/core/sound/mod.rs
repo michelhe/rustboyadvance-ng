@@ -1,15 +1,45 @@
 use bit::BitIndex;
 
+use super::dma::DmaController;
 use super::iodev::consts::*;
 use super::iodev::io_reg_string;
 
+mod fifo;
+use fifo::SoundFifo;
+
 const DMG_RATIOS: [f32; 4] = [0.25, 0.5, 1.0, 0.0];
+const DMA_RATIOS: [f32; 2] = [0.5, 1.0];
+const DMA_TIMERS: [usize; 2] = [0, 1];
 const DUTY_RATIOS: [f32; 4] = [0.125, 0.25, 0.5, 0.75];
+
+#[derive(Debug)]
+struct NoiseChannel {}
+
+#[derive(Debug)]
+struct DmaSound {
+    volume: f32,
+    enable_right: bool,
+    enable_left: bool,
+    timer_select: usize,
+    fifo: SoundFifo<i8>,
+}
+
+impl Default for DmaSound {
+    fn default() -> DmaSound {
+        DmaSound {
+            volume: DMA_RATIOS[0],
+            enable_right: false,
+            enable_left: false,
+            timer_select: 0,
+            fifo: SoundFifo::new(),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct SoundController {
     sample_rate_to_cpu_freq: usize, // how many "cycles" are a sample?
-    last_sample_cycles: usize, // cycles count when we last provided a new sample.
+    last_sample_cycles: usize,      // cycles count when we last provided a new sample.
 
     mse: bool,
 
@@ -35,6 +65,9 @@ pub struct SoundController {
     sqr1_step_increase: bool,
     sqr1_initial_vol: usize,
     sqr1_cur_vol: usize,
+
+    sound_a: DmaSound,
+    sound_b: DmaSound,
 }
 
 impl SoundController {
@@ -62,6 +95,8 @@ impl SoundController {
             sqr1_step_increase: false,
             sqr1_initial_vol: 0,
             sqr1_cur_vol: 0,
+            sound_a: Default::default(),
+            sound_b: Default::default(),
         }
     }
 
@@ -81,10 +116,26 @@ impl SoundController {
                     | cbit(15, self.right_noise)
             }
 
-            REG_SOUNDCNT_H => DMG_RATIOS
-                .iter()
-                .position(|&f| f == self.dmg_volume_ratio)
-                .expect("bad dmg_volume_ratio!") as u16,
+            REG_SOUNDCNT_H => {
+                DMG_RATIOS
+                    .iter()
+                    .position(|&f| f == self.dmg_volume_ratio)
+                    .expect("bad dmg_volume_ratio!") as u16
+                    | DMA_RATIOS
+                        .iter()
+                        .position(|&f| f == self.sound_a.volume)
+                        .unwrap() as u16
+                    | DMA_RATIOS
+                        .iter()
+                        .position(|&f| f == self.sound_b.volume)
+                        .unwrap() as u16
+                    | cbit(8, self.sound_a.enable_right)
+                    | cbit(9, self.sound_a.enable_left)
+                    | cbit(10, self.sound_a.timer_select != 0)
+                    | cbit(12, self.sound_b.enable_right)
+                    | cbit(13, self.sound_b.enable_left)
+                    | cbit(14, self.sound_b.timer_select != 0)
+            }
 
             _ => {
                 println!(
@@ -105,12 +156,6 @@ impl SoundController {
     }
 
     pub fn handle_write(&mut self, io_addr: u32, value: u16) {
-        println!(
-            "Write {} ({:08x}) = {:04x}",
-            io_reg_string(io_addr),
-            io_addr,
-            value
-        );
         if io_addr == REG_SOUNDCNT_X {
             if value & bit(7) != 0 {
                 if !self.mse {
@@ -149,11 +194,20 @@ impl SoundController {
 
             REG_SOUNDCNT_H => {
                 self.dmg_volume_ratio = DMG_RATIOS[value.bit_range(0..1) as usize];
-                if value.bit_range(2..15) != 0 {
-                    println!(
-                        "unsupported bits in REG_SOUNDCNT_H, {:04x}",
-                        value.bit_range(2..15)
-                    );
+                self.sound_a.volume = DMA_RATIOS[value.bit(2) as usize];
+                self.sound_b.volume = DMA_RATIOS[value.bit(3) as usize];
+                self.sound_a.enable_right = value.bit(8);
+                self.sound_a.enable_left = value.bit(9);
+                self.sound_a.timer_select = DMA_TIMERS[value.bit(10) as usize];
+                self.sound_b.enable_right = value.bit(12);
+                self.sound_b.enable_left = value.bit(13);
+                self.sound_b.timer_select = DMA_TIMERS[value.bit(14) as usize];
+
+                if value.bit(11) {
+                    self.sound_a.fifo.reset();
+                }
+                if value.bit(15) {
+                    self.sound_b.fifo.reset();
                 }
             }
 
@@ -173,6 +227,16 @@ impl SoundController {
                 }
             }
 
+            REG_FIFO_A => {
+                self.sound_a.fifo.write((value & 0xff00 >> 8) as i8);
+                self.sound_a.fifo.write((value & 0xff) as i8);
+            }
+
+            REG_FIFO_B => {
+                self.sound_b.fifo.write((value & 0xff00 >> 8) as i8);
+                self.sound_b.fifo.write((value & 0xff) as i8);
+            }
+
             _ => {
                 println!(
                     "Unimplemented write to {:x} {}",
@@ -183,10 +247,23 @@ impl SoundController {
         }
     }
 
+    pub fn handle_timer_overflow(&mut self, dmac: &mut DmaController, timer_id: usize) {
+        if !self.mse {
+            return;
+        }
+        // TODO - play sound ?
+
+        if timer_id == self.sound_a.timer_select {
+            dmac.notify_sound_fifo(REG_FIFO_A);
+        }
+        if timer_id == self.sound_b.timer_select {
+            dmac.notify_sound_fifo(REG_FIFO_B);
+        }
+    }
+
     pub fn update(&mut self, cycles: usize) {
-        if cycles - self.last_sample_cycles >= self.sample_rate_to_cpu_freq {
+        while cycles - self.last_sample_cycles >= self.sample_rate_to_cpu_freq {
             self.last_sample_cycles += self.sample_rate_to_cpu_freq;
-            println!("{:?}", cycles);
         }
     }
 }

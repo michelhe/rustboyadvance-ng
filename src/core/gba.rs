@@ -8,6 +8,7 @@ use super::gpu::*;
 use super::interrupt::*;
 use super::iodev::*;
 use super::sysbus::SysBus;
+use super::timer::TimerEvent;
 
 use super::SyncedIoDevice;
 
@@ -113,7 +114,8 @@ where
             0
         };
 
-        io.timers.step(cycles, &mut self.sysbus, &mut irqs);
+        io.timers.tick(cycles, &mut self.sysbus, &mut irqs);
+
         if let Some(new_gpu_state) = io.gpu.step(cycles, &mut self.sysbus, &mut irqs) {
             match new_gpu_state {
                 GpuState::VBlank => {

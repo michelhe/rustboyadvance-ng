@@ -19,9 +19,9 @@ pub struct Timer {
     pub cycles: usize,
 }
 
-pub enum TimerAction {
-    Overflow(usize),
-    Increment,
+pub enum TimerEvent {
+    Overflow(usize, usize),
+    Increment(usize),
 }
 
 impl Timer {
@@ -49,7 +49,7 @@ impl Timer {
         }
     }
 
-    pub fn add_cycles(&mut self, cycles: usize, irqs: &mut IrqBitmask) -> TimerAction {
+    pub fn add_cycles(&mut self, cycles: usize, irqs: &mut IrqBitmask) -> TimerEvent {
         let mut num_overflows = 0;
         self.cycles += cycles;
 
@@ -66,9 +66,9 @@ impl Timer {
             }
         }
         if num_overflows > 0 {
-            return TimerAction::Overflow(num_overflows);
+            return TimerEvent::Overflow(self.timer_id, num_overflows);
         } else {
-            return TimerAction::Increment;
+            return TimerEvent::Increment(self.timer_id);
         }
     }
 }
@@ -112,31 +112,37 @@ impl Timers {
             );
         }
     }
-}
 
-impl SyncedIoDevice for Timers {
-    fn step(&mut self, cycles: usize, _sb: &mut SysBus, irqs: &mut IrqBitmask) {
+    pub fn tick(
+        &mut self,
+        cycles: usize,
+        sb: &mut SysBus,
+        irqs: &mut IrqBitmask,
+    ) -> Option<TimerEvent> {
         for i in 0..4 {
             if self[i].timer_ctl.enabled() && !self[i].timer_ctl.cascade() {
-                match self[i].add_cycles(cycles, irqs) {
-                    TimerAction::Overflow(num_overflows) => {
+                let event = self[i].add_cycles(cycles, irqs);
+                match event {
+                    TimerEvent::Overflow(_, num_overflows) => {
                         if self.trace {
                             println!("TMR{} overflown!", i);
                         }
-                        match i {
-                            3 => {}
-                            _ => {
-                                let next_i = i + 1;
-                                if self[next_i].timer_ctl.cascade() {
-                                    self[next_i].add_cycles(num_overflows, irqs);
-                                }
+                        if i != 3 {
+                            let next_i = i + 1;
+                            if self[next_i].timer_ctl.cascade() {
+                                self[next_i].add_cycles(num_overflows, irqs);
                             }
                         }
+                        if i == 0 || i == 1 {
+                            sb.io.sound.handle_timer_overflow(&mut sb.io.dmac, i);
+                        }
                     }
-                    TimerAction::Increment => {}
+                    _ => {}
                 }
+                return Some(event);
             }
         }
+        None
     }
 }
 

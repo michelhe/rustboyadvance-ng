@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use super::arm7tdmi::{Addr, Bus};
 use super::sysbus::SysBus;
-use super::{Interrupt, IrqBitmask, SyncedIoDevice};
+use super::{Interrupt, IrqBitmask};
 
 use num::FromPrimitive;
 
@@ -27,6 +27,7 @@ pub struct DmaChannel {
     running: bool,
     cycles: usize,
     start_cycles: usize,
+    fifo_mode: bool,
     irq: Interrupt,
 }
 
@@ -52,6 +53,7 @@ impl DmaChannel {
             ctrl: DmaChannelCtrl(0),
             cycles: 0,
             start_cycles: 0,
+            fifo_mode: false,
             internal: Default::default(),
         }
     }
@@ -88,17 +90,35 @@ impl DmaChannel {
 
     pub fn write_dma_ctrl(&mut self, value: u16) -> bool {
         let ctrl = DmaChannelCtrl(value);
+        let timing = ctrl.timing();
         let mut start_immediately = false;
         if ctrl.is_enabled() && !self.ctrl.is_enabled() {
             self.start_cycles = self.cycles;
             self.running = true;
-            start_immediately = ctrl.timing() == 0;
+            start_immediately = timing == 0;
             self.internal.src_addr = self.src;
             self.internal.dst_addr = self.dst;
             self.internal.count = self.wc;
+            self.fifo_mode = timing == 3 && (self.id == 0 || self.id == 1);
         }
         self.ctrl = ctrl;
         return start_immediately;
+    }
+
+    #[inline]
+    fn xfer_adj_addrs(&mut self, word_size: u32) {
+        match self.ctrl.src_adj() {
+            /* Increment */ 0 => self.internal.src_addr += word_size,
+            /* Decrement */ 1 => self.internal.src_addr -= word_size,
+            /* Fixed */ 2 => {}
+            _ => panic!("forbidden DMA source address adjustment"),
+        }
+        match self.ctrl.dst_adj() {
+            /* Increment[+Reload] */ 0 | 3 => self.internal.dst_addr += word_size,
+            /* Decrement */ 1 => self.internal.dst_addr -= word_size,
+            /* Fixed */ 2 => {}
+            _ => panic!("forbidden DMA dest address adjustment"),
+        }
     }
 
     fn xfer(&mut self, sb: &mut SysBus, irqs: &mut IrqBitmask) {
@@ -110,25 +130,26 @@ impl DmaChannel {
             },
             _ => self.internal.count,
         };
-        for _ in 0..count {
-            if word_size == 4 {
+        let fifo_mode = self.fifo_mode;
+
+        if fifo_mode {
+            println!("FIFO Tranfer");
+            for _ in 0..count {
+                let v = sb.read_16(self.internal.src_addr);
+                sb.write_16(self.internal.dst_addr, v);
+                self.internal.src_addr += 2;
+            }
+        } else if word_size == 4 {
+            for _ in 0..count {
                 let w = sb.read_32(self.internal.src_addr);
-                sb.write_32(self.internal.dst_addr, w)
-            } else {
+                sb.write_32(self.internal.dst_addr, w);
+                self.xfer_adj_addrs(word_size);
+            }
+        } else {
+            for _ in 0..count {
                 let hw = sb.read_16(self.internal.src_addr);
-                sb.write_16(self.internal.dst_addr, hw)
-            }
-            match self.ctrl.src_adj() {
-                /* Increment */ 0 => self.internal.src_addr += word_size,
-                /* Decrement */ 1 => self.internal.src_addr -= word_size,
-                /* Fixed */ 2 => {}
-                _ => panic!("forbidden DMA source address adjustment"),
-            }
-            match self.ctrl.dst_adj() {
-                /* Increment[+Reload] */ 0 | 3 => self.internal.dst_addr += word_size,
-                /* Decrement */ 1 => self.internal.dst_addr -= word_size,
-                /* Fixed */ 2 => {}
-                _ => panic!("forbidden DMA dest address adjustment"),
+                sb.write_16(self.internal.dst_addr, hw);
+                self.xfer_adj_addrs(word_size)
             }
         }
         if self.ctrl.is_triggering_irq() {
@@ -206,6 +227,17 @@ impl DmaController {
     pub fn notify_hblank(&mut self) {
         for i in 0..4 {
             if self.channels[i].ctrl.is_enabled() && self.channels[i].ctrl.timing() == 2 {
+                self.xfers_queue.push_back(i);
+            }
+        }
+    }
+
+    pub fn notify_sound_fifo(&mut self, fifo_addr: u32) {
+        for i in 1..=2 {
+            if self.channels[i].ctrl.is_enabled()
+                && self.channels[i].ctrl.timing() == 3
+                && self.channels[i].dst == fifo_addr
+            {
                 self.xfers_queue.push_back(i);
             }
         }
