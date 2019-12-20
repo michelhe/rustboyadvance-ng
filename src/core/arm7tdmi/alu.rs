@@ -122,21 +122,24 @@ impl Core {
         }
     }
 
-    pub fn lsr(&mut self, val: u32, amount: u32, _carry_in: bool, immediate: bool) -> u32 {
-        let amount = if immediate && amount == 0 { 32 } else { amount };
-        match amount {
-            32 => {
-                self.bs_carry_out = val.bit(31);
-                0
+    pub fn lsr(&mut self, val: u32, amount: u32, carry_in: bool, immediate: bool) -> u32 {
+        if amount != 0 {
+            match amount {
+                x if x < 32 => {
+                    self.bs_carry_out = (val >> (amount - 1) & 1) == 1;
+                    val >> amount
+                }
+                _ => {
+                    self.bs_carry_out = false;
+                    0
+                }
             }
-            1..=31 => {
-                self.bs_carry_out = val >> (amount - 1) & 1 == 1;
-                (val as u32) >> amount
-            }
-            _ => {
-                self.bs_carry_out = false;
-                0
-            }
+        } else if immediate {
+            self.bs_carry_out = val.bit(31);
+            0
+        } else {
+            self.bs_carry_out = carry_in;
+            val
         }
     }
 
