@@ -29,6 +29,11 @@ cpal="0.10.0"
 name = "rba-sdl2"
 path = "src/plat/sdl2/main.rs"
 
+[[bin]]
+name = "rba-minifb"
+path = "src/plat/minifb/main.rs"
+
+
 [profile.dev]
 opt-level = 0
 debug = true

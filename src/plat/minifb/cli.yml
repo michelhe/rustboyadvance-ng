@@ -1,0 +1,32 @@
+name: rba-sdl2
+author: Michel Heily <michelheily@gmail.com>
+about: RustBoyAdvance SDL2 port
+args:
+    - bios:
+        help: Sets the bios file to use
+        short: b
+        required: false
+        default_value: gba_bios.bin
+    - game_rom:
+        long: game-rom
+        takes_value: true
+        help: Sets the game-rom file to use
+        required: true
+        index: 1
+    - skip_bios:
+        long: skip-bios
+        help: Skip running bios and start from the ROM instead
+    - no_framerate_limit:
+        long: no-framerate-limit
+        help: Run without frame limiter
+    - debug:
+        long: debug
+        help: Start with the debugger attached
+    - script_file:
+        long: script-file
+        short: f
+        takes_value: true
+        help: Text file with debugger commands to run
+        required: false
+        requires:
+            debug
