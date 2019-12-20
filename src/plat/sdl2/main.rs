@@ -2,6 +2,8 @@ extern crate sdl2;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 
+extern crate spin_sleep;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -115,7 +117,7 @@ fn main() {
                 match delay {
                     None => {}
                     Some(delay) => {
-                        ::std::thread::sleep(delay);
+                        spin_sleep::sleep(delay);
                     }
                 };
             }
