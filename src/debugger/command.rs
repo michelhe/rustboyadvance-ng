@@ -38,6 +38,7 @@ bitflags! {
         const TRACE_OPCODE = 0b00000010;
         const TRACE_DMA = 0b00000100;
         const TRACE_TIMERS = 0b000001000;
+        const TRACE_EXCEPTIONS = 0b000001000;
     }
 }
 
@@ -108,31 +109,30 @@ where
                 }
                 println!("{}\n", self.gba.cpu);
             }
-            // Continue => {
-            //     self.ctrlc_flag.store(true, Ordering::SeqCst);
-            //     while self.ctrlc_flag.load(Ordering::SeqCst) {
-            //         let start_time = time::Instant::now();
-            //         self.gba.update_key_state();
-            //         match self.gba.check_breakpoint() {
-            //             Some(addr) => {
-            //                 println!("Breakpoint reached! @{:x}", addr);
-            //                 break;
-            //             }
-            //             _ => {
-            //                 self.gba.step();
-            //             }
-            //         }
-            //     }
-            // }
-            // Frame(count) => {
-            //     use super::time::PreciseTime;
-            //     let start = PreciseTime::now();
-            //     for _ in 0..count {
-            //         self.gba.frame();
-            //     }
-            //     let end = PreciseTime::now();
-            //     println!("that took {} seconds", start.to(end));
-            // }
+            Continue => {
+                self.ctrlc_flag.store(true, Ordering::SeqCst);
+                while self.ctrlc_flag.load(Ordering::SeqCst) {
+                    self.gba.key_poll();
+                    match self.gba.check_breakpoint() {
+                        Some(addr) => {
+                            println!("Breakpoint reached! @{:x}", addr);
+                            break;
+                        }
+                        _ => {
+                            self.gba.step();
+                        }
+                    }
+                }
+            }
+            Frame(count) => {
+                use super::time::PreciseTime;
+                let start = PreciseTime::now();
+                for _ in 0..count {
+                    self.gba.frame();
+                }
+                let end = PreciseTime::now();
+                println!("that took {} seconds", start.to(end));
+            }
             HexDump(addr, nbytes) => {
                 let bytes = self.gba.sysbus.get_bytes(addr..addr + nbytes);
                 hexdump::hexdump(&bytes);
@@ -199,6 +199,17 @@ where
                     println!(
                         "[*] opcode tracing {}",
                         if self.gba.cpu.trace_opcodes {
+                            "on"
+                        } else {
+                            "off"
+                        }
+                    )
+                }
+                if flags.contains(TraceFlags::TRACE_EXCEPTIONS) {
+                    self.gba.cpu.trace_exceptions = !self.gba.cpu.trace_exceptions;
+                    println!(
+                        "[*] exception tracing {}",
+                        if self.gba.cpu.trace_exceptions {
                             "on"
                         } else {
                             "off"
@@ -420,7 +431,7 @@ where
             "r" | "reset" => Ok(Command::Reset),
             "trace" => {
                 let usage = DebuggerError::InvalidCommandFormat(String::from(
-                    "trace [sysbus|opcode|dma|all]",
+                    "trace [sysbus|opcode|dma|all|exceptions]",
                 ));
                 if args.len() != 1 {
                     Err(usage)
@@ -429,6 +440,7 @@ where
                         let flags = match flag_str.as_ref() {
                             "sysbus" => TraceFlags::TRACE_SYSBUS,
                             "opcode" => TraceFlags::TRACE_OPCODE,
+                            "exceptions" => TraceFlags::TRACE_EXCEPTIONS,
                             "dma" => TraceFlags::TRACE_DMA,
                             "timers" => TraceFlags::TRACE_TIMERS,
                             "all" => TraceFlags::all(),

@@ -30,7 +30,7 @@ impl Core {
             Irq => (CpuMode::Irq, true, false),
             Fiq => (CpuMode::Fiq, true, true),
         };
-        if self.verbose {
+        if self.trace_exceptions {
             println!(
                 "{}: {:?}, pc: {:#x}, new_mode: {:?} old_mode: {:?}",
                 "Exception".cyan(),

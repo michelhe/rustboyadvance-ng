@@ -1,27 +1,21 @@
 use super::interrupt::{Interrupt, IrqBitmask};
+use super::iodev::consts::*;
 use super::sysbus::SysBus;
-use super::SyncedIoDevice;
 
 use num::FromPrimitive;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Timer {
     // registers
-    pub timer_ctl: TimerCtl,
-    pub timer_data: u16,
+    pub ctl: TimerCtl,
+    pub data: u16,
+
+    irq: Interrupt,
 
     timer_id: usize,
-    reg: u32,
-    target: u32,
-    fired: bool,
     pub initial_data: u16,
 
     pub cycles: usize,
-}
-
-pub enum TimerEvent {
-    Overflow(usize, usize),
-    Increment(usize),
 }
 
 impl Timer {
@@ -31,44 +25,21 @@ impl Timer {
         }
         Timer {
             timer_id: timer_id,
-            ..Timer::default()
+            irq: Interrupt::from_usize(timer_id + 8).unwrap(),
+            data: 0,
+            ctl: TimerCtl(0),
+            initial_data: 0,
+            cycles: 0,
         }
     }
 
-    fn get_irq(&self) -> Interrupt {
-        Interrupt::from_usize(self.timer_id + 8).unwrap()
-    }
-
     fn frequency(&self) -> usize {
-        match self.timer_ctl.prescalar() {
+        match self.ctl.prescalar() {
             0 => 1,
             1 => 64,
             2 => 256,
             3 => 1024,
             _ => unreachable!(),
-        }
-    }
-
-    pub fn add_cycles(&mut self, cycles: usize, irqs: &mut IrqBitmask) -> TimerEvent {
-        let mut num_overflows = 0;
-        self.cycles += cycles;
-
-        let frequency = self.frequency();
-        while self.cycles >= frequency {
-            self.cycles -= frequency;
-            self.timer_data = self.timer_data.wrapping_add(1);
-            if self.timer_data == 0 {
-                if self.timer_ctl.irq_enabled() {
-                    irqs.add_irq(self.get_irq());
-                }
-                self.timer_data = self.initial_data;
-                num_overflows += 1;
-            }
-        }
-        if num_overflows > 0 {
-            return TimerEvent::Overflow(self.timer_id, num_overflows);
-        } else {
-            return TimerEvent::Increment(self.timer_id);
         }
     }
 }
@@ -96,14 +67,14 @@ impl Timers {
     pub fn new() -> Timers {
         Timers {
             timers: [Timer::new(0), Timer::new(1), Timer::new(2), Timer::new(3)],
-            trace: false,
+            trace: true,
         }
     }
 
     pub fn write_timer_ctl(&mut self, id: usize, value: u16) {
-        let old_enabled = self[id].timer_ctl.enabled();
-        self[id].timer_ctl.0 = value;
-        let new_enabled = self[id].timer_ctl.enabled();
+        let old_enabled = self[id].ctl.enabled();
+        self[id].ctl.0 = value;
+        let new_enabled = self[id].ctl.enabled();
         if self.trace && old_enabled != new_enabled {
             println!(
                 "TMR{} {}",
@@ -113,36 +84,88 @@ impl Timers {
         }
     }
 
-    pub fn tick(
-        &mut self,
-        cycles: usize,
-        sb: &mut SysBus,
-        irqs: &mut IrqBitmask,
-    ) -> Option<TimerEvent> {
-        for i in 0..4 {
-            if self[i].timer_ctl.enabled() && !self[i].timer_ctl.cascade() {
-                let event = self[i].add_cycles(cycles, irqs);
-                match event {
-                    TimerEvent::Overflow(_, num_overflows) => {
-                        if self.trace {
-                            println!("TMR{} overflown!", i);
-                        }
-                        if i != 3 {
-                            let next_i = i + 1;
-                            if self[next_i].timer_ctl.cascade() {
-                                self[next_i].add_cycles(num_overflows, irqs);
-                            }
-                        }
-                        if i == 0 || i == 1 {
-                            sb.io.sound.handle_timer_overflow(&mut sb.io.dmac, i);
-                        }
-                    }
-                    _ => {}
+    pub fn handle_read(&self, io_addr: u32) -> u16 {
+        match io_addr {
+            REG_TM0CNT_L => self.timers[0].data,
+            REG_TM0CNT_H => self.timers[0].ctl.0,
+            REG_TM1CNT_L => self.timers[1].data,
+            REG_TM1CNT_H => self.timers[1].ctl.0,
+            REG_TM2CNT_L => self.timers[2].data,
+            REG_TM2CNT_H => self.timers[2].ctl.0,
+            REG_TM3CNT_L => self.timers[3].data,
+            REG_TM3CNT_H => self.timers[3].ctl.0,
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn handle_write(&mut self, io_addr: u32, value: u16) {
+        match io_addr {
+            REG_TM0CNT_L => {
+                self.timers[0].data = value;
+                self.timers[0].initial_data = value;
+            }
+            REG_TM0CNT_H => self.write_timer_ctl(0, value),
+
+            REG_TM1CNT_L => {
+                self.timers[1].data = value;
+                self.timers[1].initial_data = value;
+            }
+            REG_TM1CNT_H => self.write_timer_ctl(1, value),
+
+            REG_TM2CNT_L => {
+                self.timers[2].data = value;
+                self.timers[2].initial_data = value;
+            }
+            REG_TM2CNT_H => self.write_timer_ctl(2, value),
+
+            REG_TM3CNT_L => {
+                self.timers[3].data = value;
+                self.timers[3].initial_data = value;
+            }
+            REG_TM3CNT_H => self.write_timer_ctl(3, value),
+            _ => unreachable!(),
+        }
+    }
+
+    fn update_timer(&mut self, id: usize, cycles: usize, sb: &mut SysBus, irqs: &mut IrqBitmask) {
+        let timer = &mut self.timers[id];
+        timer.cycles += cycles;
+        let mut num_overflows = 0;
+        let freq = timer.frequency();
+        while timer.cycles >= freq {
+            timer.cycles -= freq;
+            timer.data = timer.data.wrapping_add(1);
+            if timer.data == 0 {
+                if self.trace {
+                    println!("TMR{} overflown!", id);
                 }
-                return Some(event);
+                if timer.ctl.irq_enabled() {
+                    irqs.add_irq(timer.irq);
+                }
+                timer.data = timer.initial_data;
+                num_overflows += 1;
             }
         }
-        None
+
+        if num_overflows > 0 {
+            if id != 3 {
+                let next_timer = &mut self.timers[id + 1];
+                if next_timer.ctl.cascade() {
+                    self.update_timer(id + 1, num_overflows, sb, irqs);
+                }
+            }
+            if id == 0 || id == 1 {
+                sb.io.sound.handle_timer_overflow(&mut sb.io.dmac, id);
+            }
+        }
+    }
+
+    pub fn step(&mut self, cycles: usize, sb: &mut SysBus, irqs: &mut IrqBitmask) {
+        for i in 0..4 {
+            if self.timers[i].ctl.enabled() && !self.timers[i].ctl.cascade() {
+                self.update_timer(i, cycles, sb, irqs);
+            }
+        }
     }
 }
 

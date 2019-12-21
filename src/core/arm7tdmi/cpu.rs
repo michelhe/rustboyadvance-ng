@@ -57,6 +57,8 @@ pub struct Core {
     pub verbose: bool,
 
     pub trace_opcodes: bool,
+
+    pub trace_exceptions: bool,
 }
 
 pub type CpuExecResult = CpuResult<()>;

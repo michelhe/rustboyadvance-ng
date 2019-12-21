@@ -11,9 +11,9 @@ extern crate clap;
 
 #[macro_use]
 extern crate rustboyadvance_ng;
+use rustboyadvance_ng::core::keypad;
 use rustboyadvance_ng::prelude::*;
 use rustboyadvance_ng::util::FpsCounter;
-use rustboyadvance_ng::core::keypad;
 
 extern crate bit;
 use bit::BitIndex;
@@ -80,7 +80,6 @@ impl AudioInterface for MiniFb {
     }
 }
 
-
 fn main() {
     let yaml = load_yaml!("cli.yml");
     let matches = clap::App::from_yaml(yaml).get_matches();
@@ -118,8 +117,14 @@ fn main() {
     }));
 
     let mut fps_counter = FpsCounter::default();
-    let mut gba: GameBoyAdvance<MiniFb, MiniFb, MiniFb> =
-        GameBoyAdvance::new(cpu, bios_bin, cart, minifb.clone(), minifb.clone(), minifb.clone());
+    let mut gba: GameBoyAdvance<MiniFb, MiniFb, MiniFb> = GameBoyAdvance::new(
+        cpu,
+        bios_bin,
+        cart,
+        minifb.clone(),
+        minifb.clone(),
+        minifb.clone(),
+    );
 
     if debug {
         gba.cpu.set_verbose(true);

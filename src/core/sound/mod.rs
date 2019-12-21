@@ -36,6 +36,12 @@ impl Default for DmaSound {
     }
 }
 
+const REG_FIFO_A_L: u32 = REG_FIFO_A;
+const REG_FIFO_A_H: u32 = REG_FIFO_A + 2;
+
+const REG_FIFO_B_L: u32 = REG_FIFO_B;
+const REG_FIFO_B_H: u32 = REG_FIFO_B + 2;
+
 #[derive(Debug)]
 pub struct SoundController {
     sample_rate_to_cpu_freq: usize, // how many "cycles" are a sample?
@@ -66,6 +72,8 @@ pub struct SoundController {
     sqr1_initial_vol: usize,
     sqr1_cur_vol: usize,
 
+    sound_bias: u16,
+
     sound_a: DmaSound,
     sound_b: DmaSound,
 }
@@ -95,6 +103,7 @@ impl SoundController {
             sqr1_step_increase: false,
             sqr1_initial_vol: 0,
             sqr1_cur_vol: 0,
+            sound_bias: 0x200,
             sound_a: Default::default(),
             sound_b: Default::default(),
         }
@@ -137,6 +146,8 @@ impl SoundController {
                     | cbit(14, self.sound_b.timer_select != 0)
             }
 
+            REG_SOUNDBIAS => self.sound_bias,
+
             _ => {
                 println!(
                     "Unimplemented read from {:x} {}",
@@ -174,7 +185,7 @@ impl SoundController {
         }
 
         if !self.mse {
-            println!("MSE disabled, refusing to write");
+            // println!("MSE disabled, refusing to write");
             return;
         }
 
@@ -227,15 +238,17 @@ impl SoundController {
                 }
             }
 
-            REG_FIFO_A => {
-                self.sound_a.fifo.write((value & 0xff00 >> 8) as i8);
+            REG_FIFO_A_L | REG_FIFO_A_H => {
+                self.sound_a.fifo.write(((value >> 8) & 0xff) as i8);
                 self.sound_a.fifo.write((value & 0xff) as i8);
             }
 
-            REG_FIFO_B => {
-                self.sound_b.fifo.write((value & 0xff00 >> 8) as i8);
+            REG_FIFO_B_L | REG_FIFO_B_H => {
+                self.sound_b.fifo.write(((value >> 8) & 0xff) as i8);
                 self.sound_b.fifo.write((value & 0xff) as i8);
             }
+
+            REG_SOUNDBIAS => self.sound_bias = value & 0xc3fe,
 
             _ => {
                 println!(

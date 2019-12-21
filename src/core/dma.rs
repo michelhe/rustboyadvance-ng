@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use super::arm7tdmi::{Addr, Bus};
+use super::iodev::consts::{REG_FIFO_A, REG_FIFO_B};
 use super::sysbus::SysBus;
 use super::{Interrupt, IrqBitmask};
 
@@ -99,7 +100,10 @@ impl DmaChannel {
             self.internal.src_addr = self.src;
             self.internal.dst_addr = self.dst;
             self.internal.count = self.wc;
-            self.fifo_mode = timing == 3 && (self.id == 0 || self.id == 1);
+            self.fifo_mode = timing == 3
+                && ctrl.repeat()
+                && (self.id == 1 || self.id == 2)
+                && (self.dst == REG_FIFO_A || self.dst == REG_FIFO_B);
         }
         self.ctrl = ctrl;
         return start_immediately;
@@ -133,11 +137,10 @@ impl DmaChannel {
         let fifo_mode = self.fifo_mode;
 
         if fifo_mode {
-            println!("FIFO Tranfer");
-            for _ in 0..count {
-                let v = sb.read_16(self.internal.src_addr);
-                sb.write_16(self.internal.dst_addr, v);
-                self.internal.src_addr += 2;
+            for _ in 0..4 {
+                let v = sb.read_32(self.internal.src_addr);
+                sb.write_32(self.internal.dst_addr, v);
+                self.internal.src_addr += 4;
             }
         } else if word_size == 4 {
             for _ in 0..count {

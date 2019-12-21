@@ -8,9 +8,6 @@ use super::gpu::*;
 use super::interrupt::*;
 use super::iodev::*;
 use super::sysbus::SysBus;
-use super::timer::TimerEvent;
-
-use super::SyncedIoDevice;
 
 use super::super::{AudioInterface, InputInterface, VideoInterface};
 
@@ -51,8 +48,13 @@ where
         }
     }
 
-    pub fn frame(&mut self) {
+    #[inline]
+    pub fn key_poll(&mut self) {
         self.sysbus.io.keyinput = self.input_device.borrow_mut().poll();
+    }
+
+    pub fn frame(&mut self) {
+        self.key_poll();
         while self.sysbus.io.gpu.state != GpuState::VBlank {
             self.step();
         }
@@ -114,7 +116,7 @@ where
             0
         };
 
-        io.timers.tick(cycles, &mut self.sysbus, &mut irqs);
+        io.timers.step(cycles, &mut self.sysbus, &mut irqs);
 
         if let Some(new_gpu_state) = io.gpu.step(cycles, &mut self.sysbus, &mut irqs) {
             match new_gpu_state {

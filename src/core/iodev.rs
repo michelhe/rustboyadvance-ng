@@ -28,7 +28,6 @@ pub struct IoDevices {
     pub post_boot_flag: bool,
     pub waitcnt: WaitControl, // TODO also implement 4000800
     pub haltcnt: HaltState,
-    pub sound_bias: u16,
 
     mem: BoxedMemory,
 }
@@ -46,7 +45,6 @@ impl IoDevices {
             haltcnt: HaltState::Running,
             keyinput: keypad::KEYINPUT_ALL_RELEASED,
             waitcnt: WaitControl(0),
-            sound_bias: 0x200,
         }
     }
 }
@@ -87,29 +85,19 @@ impl Bus for IoDevices {
             REG_IE => io.intc.interrupt_enable.0 as u16,
             REG_IF => io.intc.interrupt_flags.0 as u16,
 
-            REG_TM0CNT_L => io.timers[0].timer_data,
-            REG_TM0CNT_H => io.timers[0].timer_ctl.0,
-            REG_TM1CNT_L => io.timers[1].timer_data,
-            REG_TM1CNT_H => io.timers[1].timer_ctl.0,
-            REG_TM2CNT_L => io.timers[2].timer_data,
-            REG_TM2CNT_H => io.timers[2].timer_ctl.0,
-            REG_TM3CNT_L => io.timers[3].timer_data,
-            REG_TM3CNT_H => io.timers[3].timer_ctl.0,
+            REG_TM0CNT_L..=REG_TM3CNT_H => io.timers.handle_read(io_addr),
 
+            REG_SOUND1CNT_L..DMA_BASE => io.sound.handle_read(io_addr),
             REG_DMA0CNT_H => io.dmac.channels[0].ctrl.0,
             REG_DMA1CNT_H => io.dmac.channels[1].ctrl.0,
             REG_DMA2CNT_H => io.dmac.channels[2].ctrl.0,
             REG_DMA3CNT_H => io.dmac.channels[3].ctrl.0,
-
-            REG_SOUNDBIAS => io.sound_bias,
 
             REG_WAITCNT => io.waitcnt.0,
 
             REG_POSTFLG => io.post_boot_flag as u16,
             REG_HALTCNT => 0,
             REG_KEYINPUT => io.keyinput as u16,
-
-            REG_SOUND1CNT_L..=DMA_BASE => io.sound.handle_read(io_addr),
 
             _ => {
                 // println!(
@@ -216,37 +204,17 @@ impl Bus for IoDevices {
             REG_IE => io.intc.interrupt_enable.0 = value,
             REG_IF => io.intc.interrupt_flags.0 &= !value,
 
-            REG_TM0CNT_L => {
-                io.timers[0].timer_data = value;
-                io.timers[0].initial_data = value;
-            }
-            REG_TM0CNT_H => io.timers.write_timer_ctl(0, value),
+            REG_TM0CNT_L..=REG_TM3CNT_H => io.timers.handle_write(io_addr, value),
 
-            REG_TM1CNT_L => {
-                io.timers[1].timer_data = value;
-                io.timers[1].initial_data = value;
+            REG_SOUND1CNT_L..DMA_BASE => {
+                io.sound.handle_write(io_addr, value);
             }
-            REG_TM1CNT_H => io.timers.write_timer_ctl(1, value),
-
-            REG_TM2CNT_L => {
-                io.timers[2].timer_data = value;
-                io.timers[2].initial_data = value;
-            }
-            REG_TM2CNT_H => io.timers.write_timer_ctl(2, value),
-
-            REG_TM3CNT_L => {
-                io.timers[3].timer_data = value;
-                io.timers[3].initial_data = value;
-            }
-            REG_TM3CNT_H => io.timers.write_timer_ctl(3, value),
 
             DMA_BASE..=REG_DMA3CNT_H => {
                 let ofs = io_addr - DMA_BASE;
                 let channel_id = (ofs / 12) as usize;
                 io.dmac.write_16(channel_id, ofs % 12, value)
             }
-
-            REG_SOUNDBIAS => io.sound_bias = value & 0xc3fe,
 
             REG_WAITCNT => io.waitcnt.0 = value,
 
@@ -260,9 +228,6 @@ impl Bus for IoDevices {
                 }
             }
 
-            REG_SOUND1CNT_L..=DMA_BASE => {
-                io.sound.handle_write(io_addr, value);
-            }
             _ => {
                 // println!(
                 //     "Unimplemented write to {:x} {}",
