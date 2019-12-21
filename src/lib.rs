@@ -35,7 +35,10 @@ pub trait VideoInterface {
 }
 
 pub trait AudioInterface {
-    fn get_sample_rate(&self) -> u32;
+    fn get_sample_rate(&self) -> i32;
+
+    #[allow(unused_variables)]
+    fn play(&mut self, samples: &[i16]) {}
 }
 
 pub trait InputInterface {

@@ -75,7 +75,7 @@ impl InputInterface for MiniFb {
 }
 
 impl AudioInterface for MiniFb {
-    fn get_sample_rate(&self) -> u32 {
+    fn get_sample_rate(&self) -> i32 {
         0
     }
 }

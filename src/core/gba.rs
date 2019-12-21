@@ -129,7 +129,7 @@ where
         }
 
         io.intc.request_irqs(irqs);
-
-        io.sound.update(self.cpu.cycles);
+        let mut audio_device = self.audio_device.borrow_mut();
+        io.sound.update(self.cpu.cycles, &mut (*audio_device));
     }
 }

@@ -67,7 +67,7 @@ impl Timers {
     pub fn new() -> Timers {
         Timers {
             timers: [Timer::new(0), Timer::new(1), Timer::new(2), Timer::new(3)],
-            trace: true,
+            trace: false,
         }
     }
 
@@ -155,7 +155,9 @@ impl Timers {
                 }
             }
             if id == 0 || id == 1 {
-                sb.io.sound.handle_timer_overflow(&mut sb.io.dmac, id);
+                sb.io
+                    .sound
+                    .handle_timer_overflow(&mut sb.io.dmac, id, num_overflows);
             }
         }
     }

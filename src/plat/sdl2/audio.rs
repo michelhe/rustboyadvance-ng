@@ -1,31 +1,20 @@
 use sdl2;
-use sdl2::audio::{AudioDevice, AudioSpec, AudioSpecDesired};
+use sdl2::audio::{AudioDevice, AudioQueue, AudioSpec, AudioSpecDesired, AudioStatus};
 
 use rustboyadvance_ng::AudioInterface;
 
 pub struct Sdl2AudioPlayer {
-    device: AudioDevice<GbaAudioCallback>,
-    freq: u32,
+    device: AudioQueue<i16>,
+    freq: i32,
 }
 
 impl AudioInterface for Sdl2AudioPlayer {
-    fn get_sample_rate(&self) -> u32 {
+    fn get_sample_rate(&self) -> i32 {
         self.freq
     }
-}
 
-struct GbaAudioCallback {
-    spec: AudioSpec,
-}
-
-impl sdl2::audio::AudioCallback for GbaAudioCallback {
-    type Channel = f32;
-
-    fn callback(&mut self, out: &mut [f32]) {
-        // TODO audio
-        for x in out.iter_mut() {
-            *x = 0.0;
-        }
+    fn play(&mut self, samples: &[i16]) {
+        self.device.queue(&samples);
     }
 }
 
@@ -33,19 +22,26 @@ pub fn create_audio_player(sdl: &sdl2::Sdl) -> Sdl2AudioPlayer {
     let audio_subsystem = sdl.audio().unwrap();
 
     let desired_spec = AudioSpecDesired {
-        freq: Some(44100),
-        channels: Some(1), // stereo
+        freq: Some(44_100),
+        channels: Some(2), // stereo
         samples: None,
     };
 
-    let mut device = audio_subsystem
-        .open_playback(None, &desired_spec, |spec| {
-            println!("Obtained {:?}", spec);
+    // let mut device = audio_subsystem
+    //     .open_playback(None, &desired_spec, |spec| {
+    //         println!("Obtained {:?}", spec);
 
-            GbaAudioCallback { spec: spec }
-        })
+    //         GbaAudioCallback { spec: spec }
+    //     })
+    //     .unwrap();
+
+    let mut device = audio_subsystem
+        .open_queue::<i16, _>(None, &desired_spec)
         .unwrap();
 
-    let freq = (*device.lock()).spec.freq as u32;
+    println!("Found audio device: {:?}", device.spec());
+
+    let freq = device.spec().freq;
+    device.resume();
     Sdl2AudioPlayer { device, freq }
 }
