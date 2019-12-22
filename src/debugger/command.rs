@@ -63,12 +63,7 @@ pub enum Command {
     TraceToggle(TraceFlags),
 }
 
-impl<V, A, I> Debugger<V, A, I>
-where
-    V: VideoInterface,
-    A: AudioInterface,
-    I: InputInterface,
-{
+impl Debugger {
     pub fn run_command(&mut self, command: Command) {
         use Command::*;
         match command {

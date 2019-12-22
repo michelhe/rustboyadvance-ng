@@ -11,33 +11,23 @@ use super::sysbus::SysBus;
 
 use super::super::{AudioInterface, InputInterface, VideoInterface};
 
-pub struct GameBoyAdvance<V, A, I>
-where
-    V: VideoInterface,
-    A: AudioInterface,
-    I: InputInterface,
-{
+pub struct GameBoyAdvance {
     pub sysbus: Box<SysBus>,
     pub cpu: Core,
-    video_device: Rc<RefCell<V>>,
-    audio_device: Rc<RefCell<A>>,
-    input_device: Rc<RefCell<I>>,
+    video_device: Rc<RefCell<dyn VideoInterface>>,
+    audio_device: Rc<RefCell<dyn AudioInterface>>,
+    input_device: Rc<RefCell<dyn InputInterface>>,
 }
 
-impl<V, A, I> GameBoyAdvance<V, A, I>
-where
-    V: VideoInterface,
-    A: AudioInterface,
-    I: InputInterface,
-{
+impl GameBoyAdvance {
     pub fn new(
         cpu: Core,
         bios_rom: Vec<u8>,
         gamepak: Cartridge,
-        video_device: Rc<RefCell<V>>,
-        audio_device: Rc<RefCell<A>>,
-        input_device: Rc<RefCell<I>>,
-    ) -> GameBoyAdvance<V, A, I> {
+        video_device: Rc<RefCell<dyn VideoInterface>>,
+        audio_device: Rc<RefCell<dyn AudioInterface>>,
+        input_device: Rc<RefCell<dyn InputInterface>>,
+    ) -> GameBoyAdvance {
         let io = IoDevices::new();
         GameBoyAdvance {
             cpu: cpu,

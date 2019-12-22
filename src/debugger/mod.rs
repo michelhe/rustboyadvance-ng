@@ -48,25 +48,15 @@ impl From<::std::io::Error> for DebuggerError {
 
 type DebuggerResult<T> = Result<T, DebuggerError>;
 
-pub struct Debugger<V, A, I>
-where
-    V: VideoInterface,
-    A: AudioInterface,
-    I: InputInterface,
-{
-    pub gba: GameBoyAdvance<V, A, I>,
+pub struct Debugger {
+    pub gba: GameBoyAdvance,
     running: bool,
     pub ctrlc_flag: Arc<AtomicBool>,
     pub previous_command: Option<Command>,
 }
 
-impl<V, A, I> Debugger<V, A, I>
-where
-    V: VideoInterface,
-    A: AudioInterface,
-    I: InputInterface,
-{
-    pub fn new(gba: GameBoyAdvance<V, A, I>) -> Debugger<V, A, I> {
+impl Debugger {
+    pub fn new(gba: GameBoyAdvance) -> Debugger {
         let ctrlc_flag = Arc::new(AtomicBool::new(true));
         let r = ctrlc_flag.clone();
         ctrlc::set_handler(move || {

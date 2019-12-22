@@ -51,7 +51,7 @@ fn main() {
     let input = Rc::new(RefCell::new(create_input()));
 
     let mut fps_counter = FpsCounter::default();
-    let mut gba: GameBoyAdvance<Sdl2Video, Sdl2AudioPlayer, Sdl2Input> = GameBoyAdvance::new(
+    let mut gba = GameBoyAdvance::new(
         cpu,
         bios_bin,
         cart,
