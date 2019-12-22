@@ -138,7 +138,6 @@ impl Bus for DummyBus {
     fn write_8(&mut self, _addr: Addr, _value: u8) {}
 }
 
-#[derive(Debug)]
 pub struct SysBus {
     pub io: IoDevices,
 

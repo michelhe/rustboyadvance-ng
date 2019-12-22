@@ -85,6 +85,7 @@ fn main() {
                         keycode: Some(Keycode::Space),
                         ..
                     } => {
+                        audio.borrow_mut().device.clear(); // clear audio queue
                         frame_limiter = true;
                     }
                     Event::KeyDown {

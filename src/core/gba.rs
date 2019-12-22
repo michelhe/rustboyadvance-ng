@@ -7,6 +7,7 @@ use super::cartridge::Cartridge;
 use super::gpu::*;
 use super::interrupt::*;
 use super::iodev::*;
+use super::sound::SoundController;
 use super::sysbus::SysBus;
 
 use super::super::{AudioInterface, InputInterface, VideoInterface};
@@ -28,7 +29,8 @@ impl GameBoyAdvance {
         audio_device: Rc<RefCell<dyn AudioInterface>>,
         input_device: Rc<RefCell<dyn InputInterface>>,
     ) -> GameBoyAdvance {
-        let io = IoDevices::new();
+        let sound_controller = SoundController::new(audio_device.clone());
+        let io = IoDevices::new(sound_controller);
         GameBoyAdvance {
             cpu: cpu,
             sysbus: Box::new(SysBus::new(io, bios_rom, gamepak)),
@@ -119,7 +121,6 @@ impl GameBoyAdvance {
         }
 
         io.intc.request_irqs(irqs);
-        let mut audio_device = self.audio_device.borrow_mut();
-        io.sound.update(self.cpu.cycles, &mut (*audio_device));
+        io.sound.update(self.cpu.cycles);
     }
 }

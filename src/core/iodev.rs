@@ -17,7 +17,6 @@ pub enum HaltState {
     Stop, // In Stop mode, most of the hardware including sound and video are paused
 }
 
-#[derive(Debug)]
 pub struct IoDevices {
     pub intc: InterruptController,
     pub gpu: Gpu,
@@ -33,10 +32,10 @@ pub struct IoDevices {
 }
 
 impl IoDevices {
-    pub fn new() -> IoDevices {
+    pub fn new(sound_controller: SoundController) -> IoDevices {
         IoDevices {
             gpu: Gpu::new(),
-            sound: SoundController::new(),
+            sound: sound_controller,
             timers: Timers::new(),
             dmac: DmaController::new(),
             intc: InterruptController::new(),
