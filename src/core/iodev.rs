@@ -245,7 +245,7 @@ impl Bus for IoDevices {
         } else {
             (t & 0xff00) | (value as u16)
         };
-        self.write_16(addr, t);
+        self.write_16(addr & !1, t);
     }
 }
 
