@@ -513,7 +513,7 @@ impl Gpu {
                 if self.cycles > CYCLES_SCANLINE {
                     self.cycles -= CYCLES_SCANLINE;
 
-                    if self.current_scanline < DISPLAY_HEIGHT + VBLANK_LINES {
+                    if self.current_scanline < DISPLAY_HEIGHT + VBLANK_LINES - 1 {
                         self.update_vcount(self.current_scanline + 1, irqs);
                         return None;
                     } else {
