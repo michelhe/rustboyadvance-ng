@@ -1,4 +1,6 @@
-use std::collections::VecDeque;
+extern crate bit_set;
+
+use bit_set::BitSet;
 
 use super::arm7tdmi::{Addr, Bus};
 use super::iodev::consts::{REG_FIFO_A, REG_FIFO_B};
@@ -105,6 +107,9 @@ impl DmaChannel {
                 && (self.id == 1 || self.id == 2)
                 && (self.dst == REG_FIFO_A || self.dst == REG_FIFO_B);
         }
+        if !ctrl.is_enabled() {
+            self.running = false;
+        }
         self.ctrl = ctrl;
         return start_immediately;
     }
@@ -138,20 +143,20 @@ impl DmaChannel {
 
         if fifo_mode {
             for _ in 0..4 {
-                let v = sb.read_32(self.internal.src_addr);
-                sb.write_32(self.internal.dst_addr, v);
+                let v = sb.read_32(self.internal.src_addr & !3);
+                sb.write_32(self.internal.dst_addr & !3, v);
                 self.internal.src_addr += 4;
             }
         } else if word_size == 4 {
             for _ in 0..count {
-                let w = sb.read_32(self.internal.src_addr);
-                sb.write_32(self.internal.dst_addr, w);
+                let w = sb.read_32(self.internal.src_addr & !3);
+                sb.write_32(self.internal.dst_addr & !3, w);
                 self.xfer_adj_addrs(word_size);
             }
         } else {
             for _ in 0..count {
-                let hw = sb.read_16(self.internal.src_addr);
-                sb.write_16(self.internal.dst_addr, hw);
+                let hw = sb.read_16(self.internal.src_addr & !1);
+                sb.write_16(self.internal.dst_addr & !1, hw);
                 self.xfer_adj_addrs(word_size)
             }
         }
@@ -174,7 +179,7 @@ impl DmaChannel {
 #[derive(Debug)]
 pub struct DmaController {
     pub channels: [DmaChannel; 4],
-    xfers_queue: VecDeque<usize>,
+    pending_bittset: BitSet,
     cycles: usize,
 }
 
@@ -187,20 +192,20 @@ impl DmaController {
                 DmaChannel::new(2),
                 DmaChannel::new(3),
             ],
-            xfers_queue: VecDeque::new(),
+            pending_bittset: BitSet::with_capacity(4),
             cycles: 0,
         }
     }
 
-    pub fn perform_work(&mut self, sb: &mut SysBus, irqs: &mut IrqBitmask) -> bool {
-        if self.xfers_queue.is_empty() {
-            false
-        } else {
-            while let Some(id) = self.xfers_queue.pop_front() {
-                self.channels[id].xfer(sb, irqs)
-            }
-            true
+    pub fn has_work(&self) -> bool {
+        !self.pending_bittset.is_empty()
+    }
+
+    pub fn perform_work(&mut self, sb: &mut SysBus, irqs: &mut IrqBitmask) {
+        for id in self.pending_bittset.iter() {
+            self.channels[id].xfer(sb, irqs);
         }
+        self.pending_bittset.clear();
     }
 
     pub fn write_16(&mut self, channel_id: usize, ofs: u32, value: u16) {
@@ -212,7 +217,9 @@ impl DmaController {
             8 => self.channels[channel_id].write_word_count(value),
             10 => {
                 if self.channels[channel_id].write_dma_ctrl(value) {
-                    self.xfers_queue.push_back(channel_id)
+                    self.pending_bittset.insert(channel_id);
+                } else {
+                    self.pending_bittset.remove(channel_id);
                 }
             }
             _ => panic!("Invalid dma offset"),
@@ -222,7 +229,7 @@ impl DmaController {
     pub fn notify_vblank(&mut self) {
         for i in 0..4 {
             if self.channels[i].ctrl.is_enabled() && self.channels[i].ctrl.timing() == 1 {
-                self.xfers_queue.push_back(i);
+                self.pending_bittset.insert(i);
             }
         }
     }
@@ -230,7 +237,7 @@ impl DmaController {
     pub fn notify_hblank(&mut self) {
         for i in 0..4 {
             if self.channels[i].ctrl.is_enabled() && self.channels[i].ctrl.timing() == 2 {
-                self.xfers_queue.push_back(i);
+                self.pending_bittset.insert(i);
             }
         }
     }
@@ -238,10 +245,11 @@ impl DmaController {
     pub fn notify_sound_fifo(&mut self, fifo_addr: u32) {
         for i in 1..=2 {
             if self.channels[i].ctrl.is_enabled()
+                && self.channels[i].running
                 && self.channels[i].ctrl.timing() == 3
                 && self.channels[i].dst == fifo_addr
             {
-                self.xfers_queue.push_back(i);
+                self.pending_bittset.insert(i);
             }
         }
     }

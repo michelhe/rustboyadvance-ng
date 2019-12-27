@@ -89,7 +89,7 @@ impl GameBoyAdvance {
             &mut (*ptr).io as &mut IoDevices
         };
 
-        let cycles = if !io.dmac.perform_work(&mut self.sysbus, &mut irqs) {
+        let cycles = if !io.dmac.has_work() {
             if io.intc.irq_pending()
                 && self.cpu.last_executed.is_some()
                 && !self.cpu.did_pipeline_flush()
@@ -105,6 +105,7 @@ impl GameBoyAdvance {
                 1
             }
         } else {
+            io.dmac.perform_work(&mut self.sysbus, &mut irqs);
             0
         };
 
