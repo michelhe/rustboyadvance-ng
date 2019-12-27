@@ -472,7 +472,7 @@ impl Gpu {
         cycles: usize,
         sb: &mut SysBus,
         irqs: &mut IrqBitmask,
-    ) -> Option<GpuState> {
+    ) {
         self.cycles += cycles;
 
         match self.state {
@@ -485,7 +485,7 @@ impl Gpu {
                         irqs.set_LCD_HBlank(true);
                     };
                     self.state = HBlank;
-                    return Some(HBlank);
+                    sb.io.dmac.notify_hblank();
                 }
             }
             HBlank => {
@@ -498,14 +498,13 @@ impl Gpu {
                     if self.current_scanline < DISPLAY_HEIGHT {
                         self.render_scanline(sb);
                         self.state = HDraw;
-                        return Some(HDraw);
                     } else {
                         self.state = VBlank;
                         self.dispstat.set_vblank_flag(true);
                         if self.dispstat.vblank_irq_enable() {
                             irqs.set_LCD_VBlank(true);
                         };
-                        return Some(VBlank);
+                        sb.io.dmac.notify_vblank();
                     }
                 }
             }
@@ -515,19 +514,15 @@ impl Gpu {
 
                     if self.current_scanline < DISPLAY_HEIGHT + VBLANK_LINES - 1 {
                         self.update_vcount(self.current_scanline + 1, irqs);
-                        return None;
                     } else {
                         self.update_vcount(0, irqs);
                         self.dispstat.set_vblank_flag(false);
                         self.render_scanline(sb);
                         self.state = HDraw;
-                        return Some(self.state);
                     }
                 }
             }
         }
-
-        return None;
     }
 }
 

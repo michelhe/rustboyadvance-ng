@@ -111,15 +111,7 @@ impl GameBoyAdvance {
 
         io.timers.step(cycles, &mut self.sysbus, &mut irqs);
 
-        if let Some(new_gpu_state) = io.gpu.step(cycles, &mut self.sysbus, &mut irqs) {
-            match new_gpu_state {
-                GpuState::VBlank => {
-                    io.dmac.notify_vblank();
-                }
-                GpuState::HBlank => io.dmac.notify_hblank(),
-                _ => {}
-            }
-        }
+        io.gpu.step(cycles, &mut self.sysbus, &mut irqs);
 
         io.intc.request_irqs(irqs);
         io.sound.update(self.cpu.cycles);
