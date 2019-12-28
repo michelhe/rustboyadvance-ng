@@ -25,7 +25,7 @@ impl Timer {
         }
         Timer {
             timer_id: timer_id,
-            irq: Interrupt::from_usize(timer_id + 8).unwrap(),
+            irq: Interrupt::from_usize(timer_id + 3).unwrap(),
             data: 0,
             ctl: TimerCtl(0),
             initial_data: 0,
