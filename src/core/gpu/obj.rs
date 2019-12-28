@@ -276,7 +276,7 @@ impl Default for ObjInfo {
         ObjInfo {
             mode: ObjMode::Normal,
             color: Rgb15::TRANSPARENT,
-            priority: 3,
+            priority: 4,
         }
     }
 }
