@@ -8,6 +8,7 @@ use crate::num::FromPrimitive;
 
 mod mosaic;
 mod obj;
+use obj::ObjInfo;
 mod sfx;
 
 pub mod regs;
@@ -81,31 +82,6 @@ impl Default for GpuState {
     }
 }
 use GpuState::*;
-
-pub struct FrameBuffer([u32; DISPLAY_WIDTH * DISPLAY_HEIGHT]);
-
-impl fmt::Debug for FrameBuffer {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "FrameBuffer: ")?;
-        for i in 0..6 {
-            write!(f, "#{:06x}, ", self[i])?;
-        }
-        write!(f, "...")
-    }
-}
-
-impl std::ops::Index<usize> for FrameBuffer {
-    type Output = u32;
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
-    }
-}
-
-impl std::ops::IndexMut<usize> for FrameBuffer {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.0[index]
-    }
-}
 
 #[derive(Copy, Clone)]
 pub struct Scanline<T>([T; DISPLAY_WIDTH]);
@@ -200,7 +176,7 @@ pub struct BgAffine {
     pub y: i32,
 }
 
-#[derive(Debug)]
+#[derive(DebugStub)]
 pub struct Gpu {
     pub state: GpuState,
     cycles: usize,
@@ -223,9 +199,11 @@ pub struct Gpu {
     pub bldalpha: BlendAlpha,
     pub bldy: u16,
 
-    pub obj_line: Scanline<Rgb15>,
-    pub obj_line_priorities: Scanline<u16>,
-    pub frame_buffer: FrameBuffer,
+    #[debug_stub = "Sprite Buffer"]
+    pub obj_buffer: [ObjInfo; DISPLAY_WIDTH],
+
+    #[debug_stub = "Frame Buffer"]
+    pub frame_buffer: [u32; DISPLAY_WIDTH * DISPLAY_HEIGHT],
 }
 
 impl Gpu {
@@ -247,9 +225,8 @@ impl Gpu {
             state: HDraw,
             vcount: 0,
             cycles: 0,
-            obj_line: Scanline::default(),
-            obj_line_priorities: Scanline([3; DISPLAY_WIDTH]),
-            frame_buffer: FrameBuffer([0; DISPLAY_WIDTH * DISPLAY_HEIGHT]),
+            obj_buffer: [Default::default(); DISPLAY_WIDTH],
+            frame_buffer: [0; DISPLAY_WIDTH * DISPLAY_HEIGHT],
         }
     }
 
@@ -293,7 +270,7 @@ impl Gpu {
     }
 
     fn render_pixel(&mut self, x: i32, y: i32, p: Rgb15) {
-        self.frame_buffer.0[index2d!(usize, x, y, DISPLAY_WIDTH)] = p.to_rgb24();
+        self.frame_buffer[index2d!(usize, x, y, DISPLAY_WIDTH)] = p.to_rgb24();
     }
 
     fn scanline_reg_bg(&mut self, bg: usize, sb: &mut SysBus) {
@@ -446,13 +423,12 @@ impl Gpu {
         self.mosaic_sfx();
         let post_sfx_line = self.composite_sfx(sb);
         for x in 0..DISPLAY_WIDTH {
-            self.frame_buffer.0[x + self.vcount * DISPLAY_WIDTH] =
-                post_sfx_line[x].to_rgb24();
+            self.frame_buffer[x + self.vcount * DISPLAY_WIDTH] = post_sfx_line[x].to_rgb24();
         }
     }
 
     pub fn get_framebuffer(&self) -> &[u32] {
-        &self.frame_buffer.0
+        &self.frame_buffer
     }
 
     fn update_vcount(&mut self, value: usize, irqs: &mut IrqBitmask) {

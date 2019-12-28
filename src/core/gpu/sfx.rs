@@ -51,11 +51,11 @@ impl Gpu {
         'outer: for priority in 0..4 {
             if bflags.contains(BlendFlags::OBJ)
                 && wflags.contains(WindowFlags::OBJ)
-                && !self.obj_line[screen_x].is_transparent()
-                && self.obj_line_priorities[screen_x] == priority
+                && !self.obj_buffer[screen_x].color.is_transparent()
+                && self.obj_buffer[screen_x].priority == priority
             {
                 return Some(Layer {
-                    color: self.obj_line[screen_x],
+                    color: self.obj_buffer[screen_x].color,
                     blend_flag: BlendFlags::OBJ,
                 });
             }
@@ -75,9 +75,10 @@ impl Gpu {
                 }
             }
         }
+        let backdrop = sb.palette_ram.read_16(0);
         if bflags.contains(BlendFlags::BACKDROP) {
             return Some(Layer {
-                color: Rgb15(sb.palette_ram.read_16(0)),
+                color: Rgb15(backdrop),
                 blend_flag: BlendFlags::BACKDROP,
             });
         }

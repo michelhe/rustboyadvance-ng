@@ -145,7 +145,7 @@ impl Gpu {
             if screen_x >= screen_width {
                 break;
             }
-            if self.obj_line_priorities[screen_x as usize] <= obj.2.priority() {
+            if self.obj_buffer[screen_x as usize].priority <= obj.2.priority() {
                 continue;
             }
 
@@ -169,8 +169,9 @@ impl Gpu {
                 let pixel_color =
                     self.get_palette_color(sb, pixel_index as u32, palette_bank, PALRAM_OFS_FG);
                 if pixel_color != Rgb15::TRANSPARENT {
-                    self.obj_line[screen_x as usize] = pixel_color;
-                    self.obj_line_priorities[screen_x as usize] = obj.2.priority();
+                    let mut current_obj = &mut self.obj_buffer[screen_x as usize];
+                    current_obj.color = pixel_color;
+                    current_obj.priority = obj.2.priority();
                 }
             }
         }
@@ -216,7 +217,7 @@ impl Gpu {
             if screen_x >= screen_width {
                 break;
             }
-            if self.obj_line_priorities[screen_x as usize] <= obj.2.priority() {
+            if self.obj_buffer[screen_x as usize].priority <= obj.2.priority() {
                 continue;
             }
             let mut sprite_y = screen_y - ref_y;
@@ -240,16 +241,16 @@ impl Gpu {
             let pixel_color =
                 self.get_palette_color(sb, pixel_index as u32, palette_bank, PALRAM_OFS_FG);
             if pixel_color != Rgb15::TRANSPARENT {
-                self.obj_line[screen_x as usize] = pixel_color;
-                self.obj_line_priorities[screen_x as usize] = obj.2.priority();
+                let mut current_obj = &mut self.obj_buffer[screen_x as usize];
+                current_obj.color = pixel_color;
+                current_obj.priority = obj.2.priority();
             }
         }
     }
 
     pub fn render_objs(&mut self, sb: &SysBus) {
         // reset the scanline
-        self.obj_line = Scanline::default();
-        self.obj_line_priorities = Scanline([3; DISPLAY_WIDTH]);
+        self.obj_buffer = [Default::default(); DISPLAY_WIDTH];
         for obj_num in 0..128 {
             let obj = read_obj_attrs(sb, obj_num);
             match obj.0.objtype() {
@@ -263,8 +264,25 @@ impl Gpu {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct ObjInfo {
+    pub(super) color: Rgb15,
+    pub(super) priority: u16,
+    pub(super) mode: ObjMode,
+}
+
+impl Default for ObjInfo {
+    fn default() -> ObjInfo {
+        ObjInfo {
+            mode: ObjMode::Normal,
+            color: Rgb15::TRANSPARENT,
+            priority: 3,
+        }
+    }
+}
+
 #[derive(Debug, Primitive, Copy, Clone, PartialEq)]
-enum ObjMode {
+pub enum ObjMode {
     Normal = 0b00,
     Sfx = 0b01,
     Window = 0b10,
