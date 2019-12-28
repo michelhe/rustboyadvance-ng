@@ -149,7 +149,7 @@ impl Gpu {
 
     pub fn composite_sfx(&self, sb: &SysBus) -> Scanline<Rgb15> {
         let mut line: Scanline<Rgb15> = Scanline::default();
-        let y = self.current_scanline;
+        let y = self.vcount;
         for x in 0..DISPLAY_WIDTH {
             let window = self.get_active_window_type(x, y);
             let wflags = self.get_window_flags(window);

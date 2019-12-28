@@ -62,7 +62,7 @@ impl Bus for IoDevices {
         match io_addr {
             REG_DISPCNT => io.gpu.dispcnt.0,
             REG_DISPSTAT => io.gpu.dispstat.0,
-            REG_VCOUNT => io.gpu.current_scanline as u16,
+            REG_VCOUNT => io.gpu.vcount as u16,
             REG_BG0CNT => io.gpu.bg[0].bgcnt.0,
             REG_BG1CNT => io.gpu.bg[1].bgcnt.0,
             REG_BG2CNT => io.gpu.bg[2].bgcnt.0,

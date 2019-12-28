@@ -96,7 +96,7 @@ impl Gpu {
     }
 
     fn render_affine_obj(&mut self, sb: &SysBus, obj: ObjAttrs, _obj_num: usize) {
-        let screen_y = self.current_scanline as i32;
+        let screen_y = self.vcount as i32;
 
         let (ref_x, ref_y) = obj.coords();
 
@@ -177,7 +177,7 @@ impl Gpu {
     }
 
     fn render_normal_obj(&mut self, sb: &SysBus, obj: ObjAttrs, _obj_num: usize) {
-        let screen_y = self.current_scanline as i32;
+        let screen_y = self.vcount as i32;
 
         let (ref_x, ref_y) = obj.coords();
         let (obj_w, obj_h) = obj.size();

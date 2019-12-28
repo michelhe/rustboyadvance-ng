@@ -14,7 +14,7 @@ impl Gpu {
 
         for bg in 0..4 {
             if self.dispcnt.disp_bg(bg) && self.bg[bg].bgcnt.mosaic() {
-                let y = self.current_scanline as usize;
+                let y = self.vcount as usize;
                 if y % vsize == 0 {
                     self.bg[bg].mosaic_first_row = self.bg[bg].line.clone();
                 }

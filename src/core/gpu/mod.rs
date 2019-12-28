@@ -206,7 +206,7 @@ pub struct Gpu {
     cycles: usize,
 
     // registers
-    pub current_scanline: usize, // VCOUNT
+    pub vcount: usize, // VCOUNT
     pub dispcnt: DisplayControl,
     pub dispstat: DisplayStatus,
 
@@ -245,7 +245,7 @@ impl Gpu {
             bldy: 0,
 
             state: HDraw,
-            current_scanline: 0,
+            vcount: 0,
             cycles: 0,
             obj_line: Scanline::default(),
             obj_line_priorities: Scanline([3; DISPLAY_WIDTH]),
@@ -304,7 +304,7 @@ impl Gpu {
 
         let (bg_width, bg_height) = self.bg[bg].bgcnt.size_regular();
 
-        let screen_y = self.current_scanline as u32;
+        let screen_y = self.vcount as u32;
         let mut screen_x = 0;
 
         // calculate the bg coords at the top-left corner, including wraparound
@@ -375,7 +375,7 @@ impl Gpu {
     }
 
     fn scanline_mode3(&mut self, bg: usize, sb: &mut SysBus) {
-        let y = self.current_scanline;
+        let y = self.vcount;
 
         for x in 0..DISPLAY_WIDTH {
             let pixel_index = index2d!(u32, x, y, DISPLAY_WIDTH);
@@ -392,7 +392,7 @@ impl Gpu {
             _ => unreachable!(),
         };
 
-        let y = self.current_scanline;
+        let y = self.vcount;
 
         for x in 0..DISPLAY_WIDTH {
             let bitmap_index = index2d!(x, y, DISPLAY_WIDTH);
@@ -446,7 +446,7 @@ impl Gpu {
         self.mosaic_sfx();
         let post_sfx_line = self.composite_sfx(sb);
         for x in 0..DISPLAY_WIDTH {
-            self.frame_buffer.0[x + self.current_scanline * DISPLAY_WIDTH] =
+            self.frame_buffer.0[x + self.vcount * DISPLAY_WIDTH] =
                 post_sfx_line[x].to_rgb24();
         }
     }
@@ -456,10 +456,10 @@ impl Gpu {
     }
 
     fn update_vcount(&mut self, value: usize, irqs: &mut IrqBitmask) {
-        self.current_scanline = value;
+        self.vcount = value;
         let vcount_setting = self.dispstat.vcount_setting();
         self.dispstat
-            .set_vcount_flag(vcount_setting == self.current_scanline as u16);
+            .set_vcount_flag(vcount_setting == self.vcount as u16);
 
         if self.dispstat.vcount_irq_enable() && self.dispstat.get_vcount_flag() {
             irqs.set_LCD_VCounterMatch(true);
@@ -488,9 +488,9 @@ impl Gpu {
                     self.cycles -= CYCLES_HBLANK;
 
                     self.dispstat.set_hblank_flag(false);
-                    self.update_vcount(self.current_scanline + 1, irqs);
+                    self.update_vcount(self.vcount + 1, irqs);
 
-                    if self.current_scanline < DISPLAY_HEIGHT {
+                    if self.vcount < DISPLAY_HEIGHT {
                         self.render_scanline(sb);
                         self.state = HDraw;
                     } else {
@@ -507,8 +507,8 @@ impl Gpu {
                 if self.cycles > CYCLES_SCANLINE {
                     self.cycles -= CYCLES_SCANLINE;
 
-                    if self.current_scanline < DISPLAY_HEIGHT + VBLANK_LINES - 1 {
-                        self.update_vcount(self.current_scanline + 1, irqs);
+                    if self.vcount < DISPLAY_HEIGHT + VBLANK_LINES - 1 {
+                        self.update_vcount(self.vcount + 1, irqs);
                     } else {
                         self.update_vcount(0, irqs);
                         self.dispstat.set_vblank_flag(false);
