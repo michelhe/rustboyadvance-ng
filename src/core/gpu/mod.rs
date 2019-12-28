@@ -467,12 +467,7 @@ impl Gpu {
     }
 
     // Returns the new gpu state
-    pub fn step(
-        &mut self,
-        cycles: usize,
-        sb: &mut SysBus,
-        irqs: &mut IrqBitmask,
-    ) {
+    pub fn step(&mut self, cycles: usize, sb: &mut SysBus, irqs: &mut IrqBitmask) {
         self.cycles += cycles;
 
         match self.state {

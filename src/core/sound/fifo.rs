@@ -1,5 +1,4 @@
 // TODO write tests or replace with a crate
-
 const SOUND_FIFO_CAPACITY: usize = 32;
 
 #[derive(Debug)]

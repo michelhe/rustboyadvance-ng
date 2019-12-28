@@ -26,6 +26,8 @@ zip = "0.5.3"
 ctrlc = "3.1.3"
 spin_sleep="0.3.7"
 bit-set = "0.5.1"
+ringbuf = "0.2.1"
+debug_stub_derive = "0.3.0"
 
 [[bin]]
 name = "rba-sdl2"

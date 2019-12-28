@@ -1,11 +1,38 @@
 use sdl2;
-use sdl2::audio::{AudioQueue, AudioSpecDesired};
+use sdl2::audio::{AudioCallback, AudioDevice, AudioSpec, AudioSpecDesired};
 
-use rustboyadvance_ng::AudioInterface;
+use rustboyadvance_ng::{AudioInterface, StereoSample};
+
+extern crate ringbuf;
+use ringbuf::{Consumer, Producer, RingBuffer};
+
+struct GbaAudioCallback {
+    consumer: Consumer<StereoSample>,
+    spec: AudioSpec,
+}
 
 pub struct Sdl2AudioPlayer {
-    pub device: AudioQueue<i16>,
+    _device: AudioDevice<GbaAudioCallback>,
+    producer: Producer<StereoSample>,
     freq: i32,
+}
+
+impl AudioCallback for GbaAudioCallback {
+    type Channel = i16;
+
+    fn callback(&mut self, out_samples: &mut [i16]) {
+        let sample_count = out_samples.len() / 2;
+
+        for i in 0..sample_count {
+            if let Some((left, right)) = self.consumer.pop() {
+                out_samples[2 * i] = left * (1 << 4);
+                out_samples[2 * i + 1] = right * (1 << 4);
+            } else {
+                out_samples[2 * i] = self.spec.silence as i16;
+                out_samples[2 * i + 1] = self.spec.silence as i16;
+            }
+        }
+    }
 }
 
 impl AudioInterface for Sdl2AudioPlayer {
@@ -13,28 +40,50 @@ impl AudioInterface for Sdl2AudioPlayer {
         self.freq
     }
 
-    fn play(&mut self, samples: &[i16]) {
-        self.device.queue(&samples);
+    fn push_sample(&mut self, sample: StereoSample) {
+        #![allow(unused_must_use)]
+        self.producer.push(sample);
     }
 }
 
 pub fn create_audio_player(sdl: &sdl2::Sdl) -> Sdl2AudioPlayer {
-    let audio_subsystem = sdl.audio().unwrap();
-
     let desired_spec = AudioSpecDesired {
         freq: Some(44_100),
         channels: Some(2), // stereo
         samples: None,
     };
 
+    let audio_subsystem = sdl.audio().unwrap();
+
+    let mut freq = 0;
+
+    let mut producer: Option<Producer<StereoSample>> = None;
+
     let device = audio_subsystem
-        .open_queue::<i16, _>(None, &desired_spec)
+        .open_playback(None, &desired_spec, |spec| {
+            println!("Found audio device: {:?}", spec);
+            freq = spec.freq;
+
+            // Create a thread-safe SPSC fifo
+            let ringbuf_size = (spec.samples as usize) * 2;
+            let rb = RingBuffer::<StereoSample>::new(ringbuf_size);
+            let (prod, cons) = rb.split();
+
+            // move producer to the outer scope
+            producer = Some(prod);
+
+            GbaAudioCallback {
+                consumer: cons,
+                spec,
+            }
+        })
         .unwrap();
 
-    println!("Found audio device: {:?}", device.spec());
-
-    let freq = device.spec().freq;
     device.resume();
 
-    Sdl2AudioPlayer { device, freq }
+    Sdl2AudioPlayer {
+        _device: device,
+        freq,
+        producer: producer.unwrap(),
+    }
 }

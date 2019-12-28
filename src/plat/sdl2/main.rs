@@ -17,9 +17,9 @@ mod audio;
 mod input;
 mod video;
 
-use audio::{create_audio_player, Sdl2AudioPlayer};
-use input::{create_input, Sdl2Input};
-use video::{create_video_interface, Sdl2Video};
+use audio::create_audio_player;
+use input::create_input;
+use video::create_video_interface;
 
 extern crate rustboyadvance_ng;
 use rustboyadvance_ng::prelude::*;
@@ -85,7 +85,6 @@ fn main() {
                         keycode: Some(Keycode::Space),
                         ..
                     } => {
-                        audio.borrow_mut().device.clear(); // clear audio queue
                         frame_limiter = true;
                     }
                     Event::KeyDown {

@@ -31,10 +31,20 @@ struct DmaSoundChannel {
     fifo: SoundFifo,
 }
 
+impl DmaSoundChannel {
+    fn is_stereo_channel_enabled(&self, channel: usize) -> bool {
+        match channel {
+            0 => self.enable_left,
+            1 => self.enable_right,
+            _ => unreachable!(),
+        }
+    }
+}
+
 impl Default for DmaSoundChannel {
     fn default() -> DmaSoundChannel {
         DmaSoundChannel {
-            volume_shift: 1,
+            volume_shift: 0,
             value: 0,
             enable_right: false,
             enable_left: false,
@@ -50,8 +60,12 @@ const REG_FIFO_A_H: u32 = REG_FIFO_A + 2;
 const REG_FIFO_B_L: u32 = REG_FIFO_B;
 const REG_FIFO_B_H: u32 = REG_FIFO_B + 2;
 
+type AudioDeviceRcRefCell = Rc<RefCell<dyn AudioInterface>>;
+
+#[derive(DebugStub)]
 pub struct SoundController {
-    audio_device: Rc<RefCell<dyn AudioInterface>>,
+    #[debug_stub = "AudioDeviceRcRefCell"]
+    audio_device: AudioDeviceRcRefCell,
 
     sample_rate_to_cpu_freq: usize, // how many "cycles" are a sample?
     last_sample_cycles: usize,      // cycles count when we last provided a new sample.
@@ -90,7 +104,7 @@ pub struct SoundController {
 }
 
 impl SoundController {
-    pub fn new(audio_device: Rc<RefCell<dyn AudioInterface>>) -> SoundController {
+    pub fn new(audio_device: AudioDeviceRcRefCell) -> SoundController {
         let resampler =
             CosineResampler::new(32768_f32, audio_device.borrow().get_sample_rate() as f32);
         SoundController {
@@ -250,13 +264,13 @@ impl SoundController {
             }
 
             REG_FIFO_A_L | REG_FIFO_A_H => {
-                self.dma_sound[0].fifo.write(((value >> 8) & 0xff) as i8);
                 self.dma_sound[0].fifo.write((value & 0xff) as i8);
+                self.dma_sound[0].fifo.write(((value >> 8) & 0xff) as i8);
             }
 
             REG_FIFO_B_L | REG_FIFO_B_H => {
-                self.dma_sound[1].fifo.write(((value >> 8) & 0xff) as i8);
                 self.dma_sound[1].fifo.write((value & 0xff) as i8);
+                self.dma_sound[1].fifo.write(((value >> 8) & 0xff) as i8);
             }
 
             REG_SOUNDBIAS => self.sound_bias = value & 0xc3fe,
@@ -283,11 +297,11 @@ impl SoundController {
 
         const FIFO_INDEX_TO_REG: [u32; 2] = [REG_FIFO_A, REG_FIFO_B];
         for fifo in 0..2 {
-            let channel = &mut self.dma_sound[fifo];
+            let dma = &mut self.dma_sound[fifo];
 
-            if timer_id == channel.timer_select {
-                channel.value = channel.fifo.read();
-                if channel.fifo.count() <= 16 {
+            if timer_id == dma.timer_select {
+                dma.value = dma.fifo.read();
+                if dma.fifo.count() <= 16 {
                     dmac.notify_sound_fifo(FIFO_INDEX_TO_REG[fifo]);
                 }
             }
@@ -310,22 +324,19 @@ impl SoundController {
 
             // time to push a new sample!
 
-            let mut sample = (0i16, 0i16);
-            for i in 0..2 {
-                let channel = &self.dma_sound[i];
-                if channel.enable_left {
-                    sample.0 += ((channel.value as i16) << 8) >> channel.volume_shift;
-                }
-                if channel.enable_right {
-                    sample.1 += ((channel.value as i16) << 8) >> channel.volume_shift;
+            let mut sample = [0; 2];
+
+            for channel in 0..=1 {
+                for dma in &mut self.dma_sound {
+                    if dma.is_stereo_channel_enabled(channel) {
+                        sample[channel] += dma.value as i16;
+                    }
                 }
             }
 
-            self.resampler.push_sample(sample, &mut self.output_buffer);
-            if self.output_buffer.len() >= 10000 {
-                self.audio_device.borrow_mut().play(&self.output_buffer);
-                self.output_buffer.clear();
-            }
+            let mut audio = self.audio_device.borrow_mut();
+            self.resampler
+                .push_sample((sample[0], sample[1]), &mut *audio);
         }
     }
 }

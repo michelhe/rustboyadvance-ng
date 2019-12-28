@@ -3,6 +3,9 @@
 #![feature(exclusive_range_pattern)]
 
 #[macro_use]
+extern crate debug_stub_derive;
+
+#[macro_use]
 extern crate enum_primitive_derive;
 extern crate num;
 extern crate num_traits;
@@ -34,11 +37,13 @@ pub trait VideoInterface {
     fn render(&mut self, buffer: &[u32]);
 }
 
+pub type StereoSample = (i16, i16);
+
 pub trait AudioInterface {
     fn get_sample_rate(&self) -> i32;
 
     #[allow(unused_variables)]
-    fn play(&mut self, samples: &[i16]) {}
+    fn push_sample(&mut self, samples: StereoSample) {}
 }
 
 pub trait InputInterface {
