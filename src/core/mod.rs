@@ -12,7 +12,6 @@ pub mod gba;
 pub use gba::GameBoyAdvance;
 pub mod dma;
 pub mod keypad;
-pub mod palette;
 pub mod timer;
 
 use crate::debugger;

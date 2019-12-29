@@ -10,7 +10,7 @@ use crate::core::GBAError;
 use crate::disass::Disassembler;
 use crate::{AudioInterface, InputInterface, VideoInterface};
 
-use super::palette_view::create_palette_view;
+// use super::palette_view::create_palette_view;
 // use super::tile_view::create_tile_view;
 use super::{parser::Value, Debugger, DebuggerError, DebuggerResult};
 
@@ -54,7 +54,7 @@ pub enum Command {
     Disass(DisassMode, Addr, u32),
     AddBreakpoint(Addr),
     DelBreakpoint(Addr),
-    PaletteView,
+    // PaletteView,
     // TileView(u32),
     ClearBreakpoints,
     ListBreakpoints,
@@ -170,7 +170,7 @@ impl Debugger {
                     println!("[{}] 0x{:08x}", i, b)
                 }
             }
-            PaletteView => create_palette_view(&self.gba.sysbus.palette_ram.mem),
+            // PaletteView => create_palette_view(&self.gba.sysbus.palette_ram.mem),
             // TileView(bg) => create_tile_view(bg, &self.gba),
             Reset => {
                 println!("resetting cpu...");
@@ -413,7 +413,7 @@ impl Debugger {
                     "breakdel [addr]",
                 ))),
             },
-            "palette-view" => Ok(Command::PaletteView),
+            // "palette-view" => Ok(Command::PaletteView),
             // "tiles" => {
             //     if args.len() != 1 {
             //         return Err(DebuggerError::InvalidCommandFormat("tile <bg>".to_string()));
