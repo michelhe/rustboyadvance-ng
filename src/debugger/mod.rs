@@ -1,6 +1,6 @@
 extern crate ctrlc;
 use std::fs::File;
-use std::io::{self, prelude::*, BufReader};
+use std::io::{prelude::*, BufReader};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -9,10 +9,9 @@ use rustyline::Editor;
 
 use colored::*;
 
-use super::core::arm7tdmi::{Addr, Bus, CpuError};
+use super::core::arm7tdmi::CpuError;
 use super::core::GameBoyAdvance;
-
-use super::{AudioInterface, InputInterface, VideoInterface};
+use super::core::{Addr, Bus};
 
 mod parser;
 use parser::{parse_expr, DerefType, Expr, Value};

@@ -4,11 +4,12 @@ use ansi_term::{Colour, Style};
 
 pub use super::exception::Exception;
 use super::{
-    arm::*, bus::Bus, psr::RegPSR, reg_string, thumb::ThumbInstruction, Addr, CpuMode, CpuResult,
-    CpuState, DecodedInstruction, InstructionDecoder,
+    arm::*, psr::RegPSR, reg_string, thumb::ThumbInstruction, Addr, CpuMode, CpuResult, CpuState,
+    DecodedInstruction, InstructionDecoder,
 };
 
-use super::super::sysbus::{
+use crate::core::bus::Bus;
+use crate::core::sysbus::{
     MemoryAccess, MemoryAccessType, MemoryAccessType::*, MemoryAccessWidth::*, SysBus,
 };
 

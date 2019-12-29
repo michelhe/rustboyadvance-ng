@@ -2,10 +2,9 @@ extern crate bit_set;
 
 use bit_set::BitSet;
 
-use super::arm7tdmi::{Addr, Bus};
 use super::iodev::consts::{REG_FIFO_A, REG_FIFO_B};
 use super::sysbus::SysBus;
-use super::{Interrupt, IrqBitmask};
+use super::{Addr, Bus, Interrupt, IrqBitmask};
 
 use num::FromPrimitive;
 

@@ -1,4 +1,3 @@
-use super::arm7tdmi::{Addr, Bus};
 use super::dma::DmaController;
 use super::gpu::regs::WindowFlags;
 use super::gpu::*;
@@ -7,8 +6,9 @@ use super::keypad;
 use super::sound::SoundController;
 use super::sysbus::BoxedMemory;
 use super::timer::Timers;
+use super::{Addr, Bus};
 
-use consts::*;
+use self::consts::*;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HaltState {
@@ -19,8 +19,8 @@ pub enum HaltState {
 
 pub struct IoDevices {
     pub intc: InterruptController,
-    pub gpu: Gpu,
-    pub sound: SoundController,
+    pub gpu: Box<Gpu>,
+    pub sound: Box<SoundController>,
     pub timers: Timers,
     pub dmac: DmaController,
     pub keyinput: u16,
@@ -32,7 +32,7 @@ pub struct IoDevices {
 }
 
 impl IoDevices {
-    pub fn new(gpu: Gpu, sound_controller: SoundController) -> IoDevices {
+    pub fn new(gpu: Box<Gpu>, sound_controller: Box<SoundController>) -> IoDevices {
         IoDevices {
             gpu: gpu,
             sound: sound_controller,

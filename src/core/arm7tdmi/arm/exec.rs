@@ -1,11 +1,11 @@
 use crate::bit::BitIndex;
 
 use super::super::alu::*;
-use crate::core::arm7tdmi::bus::Bus;
 use crate::core::arm7tdmi::cpu::{Core, CpuExecResult};
 use crate::core::arm7tdmi::psr::RegPSR;
 use crate::core::arm7tdmi::{Addr, CpuError, CpuMode, CpuResult, CpuState, REG_LR, REG_PC};
 use crate::core::sysbus::SysBus;
+use crate::core::Bus;
 
 use super::*;
 

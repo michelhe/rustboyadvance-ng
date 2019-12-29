@@ -1,5 +1,4 @@
 use std::cmp;
-use std::ops::Sub;
 
 use super::regs::*;
 use super::*;
@@ -42,20 +41,20 @@ struct Layer {
 impl Gpu {
     fn get_top_layer(
         &self,
-        sb: &SysBus,
         screen_x: usize,
         bflags: BlendFlags,
         wflags: WindowFlags,
     ) -> Option<Layer> {
         // priorities are 0-4 when 0 is the highest
         'outer: for priority in 0..4 {
+            let obj = self.obj_buffer_get(screen_x, self.vcount);
             if bflags.contains(BlendFlags::OBJ)
                 && wflags.contains(WindowFlags::OBJ)
-                && !self.obj_buffer[screen_x].color.is_transparent()
-                && self.obj_buffer[screen_x].priority == priority
+                && !obj.color.is_transparent()
+                && obj.priority == priority
             {
                 return Some(Layer {
-                    color: self.obj_buffer[screen_x].color,
+                    color: obj.color,
                     blend_flag: BlendFlags::OBJ,
                 });
             }
@@ -75,7 +74,7 @@ impl Gpu {
                 }
             }
         }
-        let backdrop = sb.palette_ram.read_16(0);
+        let backdrop = self.palette_ram.read_16(0);
         if bflags.contains(BlendFlags::BACKDROP) {
             return Some(Layer {
                 color: Rgb15(backdrop),
@@ -110,17 +109,11 @@ impl Gpu {
         }
     }
 
-    fn sfx_blend_alpha(
-        &self,
-        sb: &SysBus,
-        x: usize,
-        _y: usize,
-        wflags: WindowFlags,
-    ) -> Option<Rgb15> {
+    fn sfx_blend_alpha(&self, x: usize, _y: usize, wflags: WindowFlags) -> Option<Rgb15> {
         let top_layers = self.bldcnt.top();
         let bottom_layers = self.bldcnt.bottom();
-        if let Some(top_layer) = self.get_top_layer(sb, x, top_layers, wflags) {
-            if let Some(bot_layer) = self.get_top_layer(sb, x, bottom_layers, wflags) {
+        if let Some(top_layer) = self.get_top_layer(x, top_layers, wflags) {
+            if let Some(bot_layer) = self.get_top_layer(x, bottom_layers, wflags) {
                 let eva = self.bldalpha.eva();
                 let evb = self.bldalpha.evb();
                 return Some(top_layer.color.blend_with(bot_layer.color, eva, evb));
@@ -133,7 +126,6 @@ impl Gpu {
 
     fn sfx_blend_bw(
         &self,
-        sb: &SysBus,
         fadeto: Rgb15,
         x: usize,
         _y: usize,
@@ -142,21 +134,19 @@ impl Gpu {
         let top_layers = self.bldcnt.top();
         let evy = self.bldy;
 
-        if let Some(layer) = self.get_top_layer(sb, x, top_layers, wflags) {
+        if let Some(layer) = self.get_top_layer(x, top_layers, wflags) {
             return Some(layer.color.blend_with(fadeto, 16 - evy, evy));
         }
         None
     }
 
-    pub fn composite_sfx(&self, sb: &SysBus) -> Scanline<Rgb15> {
-        let mut line: Scanline<Rgb15> = Scanline::default();
+    pub fn composite_sfx_to_framebuffer(&mut self) {
         let y = self.vcount;
+
         for x in 0..DISPLAY_WIDTH {
             let window = self.get_active_window_type(x, y);
             let wflags = self.get_window_flags(window);
-            let toplayer = self
-                .get_top_layer(sb, x, BlendFlags::all(), wflags)
-                .unwrap();
+            let toplayer = self.get_top_layer(x, BlendFlags::all(), wflags).unwrap();
 
             let bldmode = if wflags.sfx_enabled() {
                 self.bldcnt.mode()
@@ -164,41 +154,37 @@ impl Gpu {
                 BldMode::BldNone
             };
 
-            match bldmode {
+            let pixel = match bldmode {
                 BldMode::BldAlpha => {
                     if self.bldcnt.top().contains(toplayer.blend_flag)
                         || self.bldcnt.bottom().contains(toplayer.blend_flag)
                     {
-                        line[x] = self
-                            .sfx_blend_alpha(sb, x, y, wflags)
-                            .unwrap_or(toplayer.color);
+                        self.sfx_blend_alpha(x, y, wflags).unwrap_or(toplayer.color)
                     } else {
-                        line[x] = toplayer.color;
+                        toplayer.color
                     }
                 }
                 BldMode::BldWhite => {
                     let result = if self.bldcnt.top().contains(toplayer.blend_flag) {
-                        self.sfx_blend_bw(sb, Rgb15::WHITE, x, y, wflags)
+                        self.sfx_blend_bw(Rgb15::WHITE, x, y, wflags)
                             .unwrap_or(toplayer.color)
                     } else {
                         toplayer.color
                     };
-                    line[x] = result;
+                    result
                 }
                 BldMode::BldBlack => {
                     let result = if self.bldcnt.top().contains(toplayer.blend_flag) {
-                        self.sfx_blend_bw(sb, Rgb15::BLACK, x, y, wflags)
+                        self.sfx_blend_bw(Rgb15::BLACK, x, y, wflags)
                             .unwrap_or(toplayer.color)
                     } else {
                         toplayer.color
                     };
-                    line[x] = result;
+                    result
                 }
-                BldMode::BldNone => {
-                    line[x] = toplayer.color;
-                }
-            }
+                BldMode::BldNone => toplayer.color,
+            };
+            self.render_pixel(x as i32, y as i32, pixel);
         }
-        line
     }
 }

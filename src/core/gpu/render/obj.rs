@@ -1,6 +1,5 @@
-use super::super::SysBus;
-use super::regs::*;
-use super::*;
+use super::super::regs::*;
+use super::super::*;
 
 const OVRAM: u32 = 0x0601_0000;
 const PALRAM_OFS_FG: u32 = 0x200;
@@ -9,21 +8,6 @@ const ATTRS_SIZE: u32 = 2 * 3 + 2;
 struct ObjAttrs(Attribute0, Attribute1, Attribute2);
 
 const AFFINE_FILL: u32 = 2 * 3;
-
-impl AffineMatrix {
-    fn from_index(sb: &SysBus, index: u32) -> AffineMatrix {
-        let mut offset = AFFINE_FILL + index * 16 * 2;
-        let pa = sb.oam.read_16(offset) as i16 as i32;
-        offset += 2 + AFFINE_FILL;
-        let pb = sb.oam.read_16(offset) as i16 as i32;
-        offset += 2 + AFFINE_FILL;
-        let pc = sb.oam.read_16(offset) as i16 as i32;
-        offset += 2 + AFFINE_FILL;
-        let pd = sb.oam.read_16(offset) as i16 as i32;
-
-        AffineMatrix { pa, pb, pc, pd }
-    }
-}
 
 impl ObjAttrs {
     fn size(&self) -> (i32, i32) {
@@ -71,20 +55,9 @@ impl ObjAttrs {
         let attr1 = (self.1).0;
         ((attr1 >> 9) & 0x1f) as u32
     }
-    fn affine_matrix(&self, sb: &SysBus) -> AffineMatrix {
-        AffineMatrix::from_index(sb, self.affine_index())
-    }
     fn is_hidden(&self) -> bool {
         self.0.objtype() == ObjType::Hidden
     }
-}
-
-fn read_obj_attrs(sb: &SysBus, obj: usize) -> ObjAttrs {
-    let addr = ATTRS_SIZE * (obj as u32);
-    let attr0 = Attribute0(sb.oam.read_16(addr + 0));
-    let attr1 = Attribute1(sb.oam.read_16(addr + 2));
-    let attr2 = Attribute2(sb.oam.read_16(addr + 4));
-    ObjAttrs(attr0, attr1, attr2)
 }
 
 impl Gpu {
@@ -95,7 +68,28 @@ impl Gpu {
         }
     }
 
-    fn render_affine_obj(&mut self, sb: &SysBus, obj: ObjAttrs, _obj_num: usize) {
+    fn get_affine_matrix(&self, affine_index: u32) -> AffineMatrix {
+        let mut offset = AFFINE_FILL + affine_index * 16 * 2;
+        let pa = self.oam.read_16(offset) as i16 as i32;
+        offset += 2 + AFFINE_FILL;
+        let pb = self.oam.read_16(offset) as i16 as i32;
+        offset += 2 + AFFINE_FILL;
+        let pc = self.oam.read_16(offset) as i16 as i32;
+        offset += 2 + AFFINE_FILL;
+        let pd = self.oam.read_16(offset) as i16 as i32;
+
+        AffineMatrix { pa, pb, pc, pd }
+    }
+
+    fn read_obj_attrs(&self, obj: usize) -> ObjAttrs {
+        let addr = ATTRS_SIZE * (obj as u32);
+        let attr0 = Attribute0(self.oam.read_16(addr + 0));
+        let attr1 = Attribute1(self.oam.read_16(addr + 2));
+        let attr2 = Attribute2(self.oam.read_16(addr + 4));
+        ObjAttrs(attr0, attr1, attr2)
+    }
+
+    fn render_affine_obj(&mut self, obj: ObjAttrs, _obj_num: usize) {
         let screen_y = self.vcount as i32;
 
         let (ref_x, ref_y) = obj.coords();
@@ -131,7 +125,7 @@ impl Gpu {
             }
         };
 
-        let affine_matrix = obj.affine_matrix(sb);
+        let affine_matrix = self.get_affine_matrix(obj.affine_index());
 
         let half_width = bbox_w / 2;
         let half_height = bbox_h / 2;
@@ -145,7 +139,11 @@ impl Gpu {
             if screen_x >= screen_width {
                 break;
             }
-            if self.obj_buffer[screen_x as usize].priority <= obj.2.priority() {
+            if self
+                .obj_buffer_get(screen_x as usize, screen_y as usize)
+                .priority
+                <= obj.2.priority()
+            {
                 continue;
             }
 
@@ -159,25 +157,16 @@ impl Gpu {
                 let tile_addr = tile_base
                     + index2d!(u32, texture_x / 8, texture_y / 8, tile_array_width)
                         * (tile_size as u32);
-                let pixel_index = self.read_pixel_index(
-                    sb,
-                    tile_addr,
-                    tile_x as u32,
-                    tile_y as u32,
-                    pixel_format,
-                );
+                let pixel_index =
+                    self.read_pixel_index(tile_addr, tile_x as u32, tile_y as u32, pixel_format);
                 let pixel_color =
-                    self.get_palette_color(sb, pixel_index as u32, palette_bank, PALRAM_OFS_FG);
-                if pixel_color != Rgb15::TRANSPARENT {
-                    let mut current_obj = &mut self.obj_buffer[screen_x as usize];
-                    current_obj.color = pixel_color;
-                    current_obj.priority = obj.2.priority();
-                }
+                    self.get_palette_color(pixel_index as u32, palette_bank, PALRAM_OFS_FG);
+                self.write_obj_pixel(screen_x as usize, screen_y as usize, pixel_color, &obj);
             }
         }
     }
 
-    fn render_normal_obj(&mut self, sb: &SysBus, obj: ObjAttrs, _obj_num: usize) {
+    fn render_normal_obj(&mut self, obj: ObjAttrs, _obj_num: usize) {
         let screen_y = self.vcount as i32;
 
         let (ref_x, ref_y) = obj.coords();
@@ -217,7 +206,11 @@ impl Gpu {
             if screen_x >= screen_width {
                 break;
             }
-            if self.obj_buffer[screen_x as usize].priority <= obj.2.priority() {
+            if self
+                .obj_buffer_get(screen_x as usize, screen_y as usize)
+                .priority
+                <= obj.2.priority()
+            {
                 continue;
             }
             let mut sprite_y = screen_y - ref_y;
@@ -237,46 +230,39 @@ impl Gpu {
             let tile_addr = tile_base
                 + index2d!(u32, sprite_x / 8, sprite_y / 8, tile_array_width) * (tile_size as u32);
             let pixel_index =
-                self.read_pixel_index(sb, tile_addr, tile_x as u32, tile_y as u32, pixel_format);
+                self.read_pixel_index(tile_addr, tile_x as u32, tile_y as u32, pixel_format);
             let pixel_color =
-                self.get_palette_color(sb, pixel_index as u32, palette_bank, PALRAM_OFS_FG);
-            if pixel_color != Rgb15::TRANSPARENT {
-                let mut current_obj = &mut self.obj_buffer[screen_x as usize];
-                current_obj.color = pixel_color;
-                current_obj.priority = obj.2.priority();
-            }
+                self.get_palette_color(pixel_index as u32, palette_bank, PALRAM_OFS_FG);
+            self.write_obj_pixel(screen_x as usize, screen_y as usize, pixel_color, &obj);
         }
     }
 
-    pub fn render_objs(&mut self, sb: &SysBus) {
-        // reset the scanline
-        self.obj_buffer = [Default::default(); DISPLAY_WIDTH];
-        for obj_num in 0..128 {
-            let obj = read_obj_attrs(sb, obj_num);
-            match obj.0.objtype() {
-                ObjType::Hidden => continue,
-                ObjType::Normal => self.render_normal_obj(sb, obj, obj_num),
-                ObjType::Affine | ObjType::AffineDoubleSize => {
-                    self.render_affine_obj(sb, obj, obj_num)
+    fn write_obj_pixel(&mut self, x: usize, y: usize, pixel_color: Rgb15, attrs: &ObjAttrs) {
+        let mut current_obj = self.obj_buffer_get_mut(x, y);
+        match attrs.0.objmode() {
+            ObjMode::Normal | ObjMode::Sfx => {
+                if pixel_color != Rgb15::TRANSPARENT {
+                    current_obj.color = pixel_color;
+                    current_obj.priority = attrs.2.priority();
                 }
             }
+            ObjMode::Window => {
+                current_obj.window = true;
+            }
+            ObjMode::Forbidden => {
+                panic!("Forbidden sprite mode!");
+            }
         }
     }
-}
 
-#[derive(Debug, Copy, Clone)]
-pub struct ObjInfo {
-    pub(super) color: Rgb15,
-    pub(super) priority: u16,
-    pub(super) mode: ObjMode,
-}
-
-impl Default for ObjInfo {
-    fn default() -> ObjInfo {
-        ObjInfo {
-            mode: ObjMode::Normal,
-            color: Rgb15::TRANSPARENT,
-            priority: 4,
+    pub(in super::super) fn render_objs(&mut self) {
+        for obj_num in 0..128 {
+            let obj = self.read_obj_attrs(obj_num);
+            match obj.0.objtype() {
+                ObjType::Hidden => continue,
+                ObjType::Normal => self.render_normal_obj(obj, obj_num),
+                ObjType::Affine | ObjType::AffineDoubleSize => self.render_affine_obj(obj, obj_num),
+            }
         }
     }
 }

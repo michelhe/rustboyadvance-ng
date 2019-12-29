@@ -12,8 +12,6 @@ pub mod cpu;
 pub use cpu::*;
 pub mod alu;
 pub use alu::*;
-pub mod bus;
-pub use bus::*;
 pub mod exception;
 pub mod psr;
 
@@ -21,7 +19,7 @@ pub const REG_PC: usize = 15;
 pub const REG_LR: usize = 14;
 pub const REG_SP: usize = 13;
 
-pub type Addr = u32;
+pub(self) use crate::core::{Addr, Bus};
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum DecodedInstruction {

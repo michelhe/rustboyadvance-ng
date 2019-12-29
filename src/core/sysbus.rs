@@ -3,17 +3,13 @@ use std::ops::Add;
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 
-use super::arm7tdmi::bus::Bus;
-use super::arm7tdmi::Addr;
 use super::cartridge::Cartridge;
-use super::gpu::GpuState;
+use super::gpu::{GpuState, VIDEO_RAM_SIZE};
 use super::iodev::IoDevices;
+use super::{Addr, Bus};
 
-const VIDEO_RAM_SIZE: usize = 128 * 1024;
 const WORK_RAM_SIZE: usize = 256 * 1024;
 const INTERNAL_RAM_SIZE: usize = 32 * 1024;
-const PALETTE_RAM_SIZE: usize = 1 * 1024;
-const OAM_SIZE: usize = 1 * 1024;
 
 pub const BIOS_ADDR: u32 = 0x0000_0000;
 pub const EWRAM_ADDR: u32 = 0x0200_0000;
@@ -144,9 +140,6 @@ pub struct SysBus {
     bios: BoxedMemory,
     onboard_work_ram: BoxedMemory,
     internal_work_ram: BoxedMemory,
-    pub palette_ram: BoxedMemory,
-    pub vram: BoxedMemory,
-    pub oam: BoxedMemory,
     gamepak: Cartridge,
     dummy: DummyBus,
 
@@ -161,9 +154,6 @@ impl SysBus {
             bios: BoxedMemory::new(bios_rom.into_boxed_slice()),
             onboard_work_ram: BoxedMemory::new(vec![0; WORK_RAM_SIZE].into_boxed_slice()),
             internal_work_ram: BoxedMemory::new(vec![0; INTERNAL_RAM_SIZE].into_boxed_slice()),
-            palette_ram: BoxedMemory::new(vec![0; PALETTE_RAM_SIZE].into_boxed_slice()),
-            vram: BoxedMemory::new(vec![0; VIDEO_RAM_SIZE].into_boxed_slice()),
-            oam: BoxedMemory::new(vec![0; OAM_SIZE].into_boxed_slice()),
             gamepak: gamepak,
             dummy: DummyBus([0; 4]),
 
@@ -190,15 +180,15 @@ impl SysBus {
                     ofs & 0x7ff
                 }
             }),
-            PALRAM_ADDR => (&self.palette_ram, ofs & 0x3ff),
-            VRAM_ADDR => (&self.vram, {
+            PALRAM_ADDR => (&self.io.gpu.palette_ram, ofs & 0x3ff),
+            VRAM_ADDR => (&self.io.gpu.vram, {
                 let mut ofs = ofs & ((VIDEO_RAM_SIZE as u32) - 1);
                 if ofs > 0x18000 {
                     ofs -= 0x8000;
                 }
                 ofs
             }),
-            OAM_ADDR => (&self.oam, ofs & 0x3ff),
+            OAM_ADDR => (&self.io.gpu.oam, ofs & 0x3ff),
             GAMEPAK_WS0_ADDR | GAMEPAK_MIRROR_WS0_ADDR | GAMEPAK_WS1_ADDR | GAMEPAK_WS2_ADDR => {
                 (&self.gamepak, addr & 0x01ff_ffff)
             }
@@ -220,15 +210,15 @@ impl SysBus {
                     ofs & 0x7ff
                 }
             }),
-            PALRAM_ADDR => (&mut self.palette_ram, ofs & 0x3ff),
-            VRAM_ADDR => (&mut self.vram, {
+            PALRAM_ADDR => (&mut self.io.gpu.palette_ram, ofs & 0x3ff),
+            VRAM_ADDR => (&mut self.io.gpu.vram, {
                 let mut ofs = ofs & ((VIDEO_RAM_SIZE as u32) - 1);
                 if ofs > 0x18000 {
                     ofs -= 0x8000;
                 }
                 ofs
             }),
-            OAM_ADDR => (&mut self.oam, ofs & 0x3ff),
+            OAM_ADDR => (&mut self.io.gpu.oam, ofs & 0x3ff),
             GAMEPAK_WS0_ADDR | GAMEPAK_MIRROR_WS0_ADDR | GAMEPAK_WS1_ADDR | GAMEPAK_WS2_ADDR => {
                 (&mut self.gamepak, addr & 0x01ff_ffff)
             }

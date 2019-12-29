@@ -8,8 +8,7 @@ use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use zip::ZipArchive;
 
 use super::super::util::read_bin_file;
-use super::arm7tdmi::{bus::Bus, Addr};
-use super::{GBAError, GBAResult};
+use super::{Addr, Bus, GBAResult};
 
 /// From GBATEK
 ///

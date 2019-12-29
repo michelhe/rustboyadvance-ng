@@ -1,4 +1,4 @@
-use super::Addr;
+pub type Addr = u32;
 
 pub trait Bus {
     fn read_32(&self, addr: Addr) -> u32;

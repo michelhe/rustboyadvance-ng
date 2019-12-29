@@ -10,17 +10,17 @@ pub use interrupt::Interrupt;
 pub use interrupt::IrqBitmask;
 pub mod gba;
 pub use gba::GameBoyAdvance;
+pub mod bus;
 pub mod dma;
 pub mod keypad;
 pub mod timer;
+pub use bus::*;
+
+pub use super::{AudioInterface, InputInterface, VideoInterface};
 
 use crate::debugger;
 
 use zip;
-
-pub trait SyncedIoDevice {
-    fn step(&mut self, cycles: usize, sb: &mut SysBus, irqs: &mut IrqBitmask);
-}
 
 #[derive(Debug)]
 pub enum GBAError {

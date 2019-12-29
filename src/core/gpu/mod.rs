@@ -1,38 +1,48 @@
 use std::cell::RefCell;
-use std::rc::Rc;
 use std::fmt;
+use std::rc::Rc;
 
-use super::arm7tdmi::{Addr, Bus};
-use super::*;
-use crate::VideoInterface;
+use super::super::VideoInterface;
+use super::interrupt::IrqBitmask;
+use super::sysbus::{BoxedMemory, SysBus};
+use super::Bus;
 
 use crate::bitfield::Bit;
 use crate::num::FromPrimitive;
 
+mod render;
+
 mod mosaic;
-mod obj;
-use obj::ObjInfo;
-mod sfx;
 mod rgb15;
+mod sfx;
 pub use rgb15::Rgb15;
 
 pub mod regs;
 pub use regs::*;
 
-pub const VRAM_ADDR: Addr = 0x0600_0000;
-pub const DISPLAY_WIDTH: usize = 240;
-pub const DISPLAY_HEIGHT: usize = 160;
-pub const VBLANK_LINES: usize = 68;
+#[allow(unused)]
+pub mod consts {
+    pub const VIDEO_RAM_SIZE: usize = 128 * 1024;
+    pub const PALETTE_RAM_SIZE: usize = 1 * 1024;
+    pub const OAM_SIZE: usize = 1 * 1024;
 
-const CYCLES_PIXEL: usize = 4;
-const CYCLES_HDRAW: usize = 960;
-const CYCLES_HBLANK: usize = 272;
-const CYCLES_SCANLINE: usize = 1232;
-const CYCLES_VDRAW: usize = 197120;
-const CYCLES_VBLANK: usize = 83776;
+    pub const VRAM_ADDR: u32 = 0x0600_0000;
+    pub const DISPLAY_WIDTH: usize = 240;
+    pub const DISPLAY_HEIGHT: usize = 160;
+    pub const VBLANK_LINES: usize = 68;
 
-pub const TILE_SIZE: u32 = 0x20;
+    pub(super) const CYCLES_PIXEL: usize = 4;
+    pub(super) const CYCLES_HDRAW: usize = 960;
+    pub(super) const CYCLES_HBLANK: usize = 272;
+    pub(super) const CYCLES_SCANLINE: usize = 1232;
+    pub(super) const CYCLES_VDRAW: usize = 197120;
+    pub(super) const CYCLES_VBLANK: usize = 83776;
 
+    pub const TILE_SIZE: u32 = 0x20;
+}
+pub use self::consts::*;
+
+pub type FrameBuffer<T> = [T; DISPLAY_WIDTH * DISPLAY_HEIGHT];
 
 #[derive(Debug, Primitive, Copy, Clone)]
 pub enum PixelFormat {
@@ -146,6 +156,23 @@ pub struct BgAffine {
     pub y: i32,
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct ObjBufferEntry {
+    pub(super) color: Rgb15,
+    pub(super) priority: u16,
+    pub(super) window: bool,
+}
+
+impl Default for ObjBufferEntry {
+    fn default() -> ObjBufferEntry {
+        ObjBufferEntry {
+            window: false,
+            color: Rgb15::TRANSPARENT,
+            priority: 4,
+        }
+    }
+}
+
 type VideoDeviceRcRefCell = Rc<RefCell<dyn VideoInterface>>;
 
 #[derive(DebugStub)]
@@ -173,11 +200,15 @@ pub struct Gpu {
     pub bldalpha: BlendAlpha,
     pub bldy: u16,
 
+    pub palette_ram: BoxedMemory,
+    pub vram: BoxedMemory,
+    pub oam: BoxedMemory,
+
     #[debug_stub = "Sprite Buffer"]
-    pub obj_buffer: [ObjInfo; DISPLAY_WIDTH],
+    pub obj_buffer: FrameBuffer<ObjBufferEntry>,
 
     #[debug_stub = "Frame Buffer"]
-    pub frame_buffer: [u32; DISPLAY_WIDTH * DISPLAY_HEIGHT],
+    pub(super) frame_buffer: FrameBuffer<u32>,
 }
 
 impl Gpu {
@@ -201,210 +232,95 @@ impl Gpu {
             state: HDraw,
             vcount: 0,
             cycles: 0,
-            obj_buffer: [Default::default(); DISPLAY_WIDTH],
+
+            palette_ram: BoxedMemory::new(vec![0; PALETTE_RAM_SIZE].into_boxed_slice()),
+            vram: BoxedMemory::new(vec![0; VIDEO_RAM_SIZE].into_boxed_slice()),
+            oam: BoxedMemory::new(vec![0; OAM_SIZE].into_boxed_slice()),
+
+            obj_buffer: [Default::default(); DISPLAY_WIDTH * DISPLAY_HEIGHT],
             frame_buffer: [0; DISPLAY_WIDTH * DISPLAY_HEIGHT],
         }
     }
 
     /// helper method that reads the palette index from a base address and x + y
-    pub fn read_pixel_index(
-        &self,
-        sb: &SysBus,
-        addr: Addr,
-        x: u32,
-        y: u32,
-        format: PixelFormat,
-    ) -> usize {
+    pub fn read_pixel_index(&self, addr: u32, x: u32, y: u32, format: PixelFormat) -> usize {
         let ofs = addr - VRAM_ADDR;
         match format {
             PixelFormat::BPP4 => {
-                let byte = sb.vram.read_8(ofs + index2d!(Addr, x / 2, y, 4));
+                let byte = self.vram.read_8(ofs + index2d!(u32, x / 2, y, 4));
                 if x & 1 != 0 {
                     (byte >> 4) as usize
                 } else {
                     (byte & 0xf) as usize
                 }
             }
-            PixelFormat::BPP8 => sb.vram.read_8(ofs + index2d!(Addr, x, y, 8)) as usize,
+            PixelFormat::BPP8 => self.vram.read_8(ofs + index2d!(u32, x, y, 8)) as usize,
         }
     }
 
-    pub fn get_palette_color(
-        &self,
-        sb: &SysBus,
-        index: u32,
-        palette_index: u32,
-        offset: u32,
-    ) -> Rgb15 {
+    pub fn get_palette_color(&self, index: u32, palette_index: u32, offset: u32) -> Rgb15 {
         if index == 0 || (palette_index != 0 && index % 16 == 0) {
             return Rgb15::TRANSPARENT;
         }
         Rgb15(
-            sb.palette_ram
+            self.palette_ram
                 .read_16(offset + 2 * index + 0x20 * palette_index),
         )
     }
 
-    fn render_pixel(&mut self, x: i32, y: i32, p: Rgb15) {
+    pub(super) fn obj_buffer_get(&self, x: usize, y: usize) -> &ObjBufferEntry {
+        &self.obj_buffer[index2d!(x, y, DISPLAY_WIDTH)]
+    }
+
+    pub(super) fn obj_buffer_get_mut(&mut self, x: usize, y: usize) -> &mut ObjBufferEntry {
+        &mut self.obj_buffer[index2d!(x, y, DISPLAY_WIDTH)]
+    }
+
+    pub(super) fn render_pixel(&mut self, x: i32, y: i32, p: Rgb15) {
         self.frame_buffer[index2d!(usize, x, y, DISPLAY_WIDTH)] = p.to_rgb24();
     }
 
-    fn scanline_reg_bg(&mut self, bg: usize, sb: &mut SysBus) {
-        let (h_ofs, v_ofs) = (self.bg[bg].bghofs as u32, self.bg[bg].bgvofs as u32);
-        let tileset_base = self.bg[bg].bgcnt.char_block();
-        let tilemap_base = self.bg[bg].bgcnt.screen_block();
-        let (tile_size, pixel_format) = self.bg[bg].bgcnt.tile_format();
-
-        let (bg_width, bg_height) = self.bg[bg].bgcnt.size_regular();
-
-        let screen_y = self.vcount as u32;
-        let mut screen_x = 0;
-
-        // calculate the bg coords at the top-left corner, including wraparound
-        let bg_x = (screen_x + h_ofs) % bg_width;
-        let bg_y = (screen_y + v_ofs) % bg_height;
-
-        // calculate the initial screen entry index
-        // | (256,256) | (512,256) |  (256,512)  | (512,512) |
-        // |-----------|-----------|-------------|-----------|
-        // |           |           |     [1]     |  [2][3]   |
-        // |    [0]    |  [0][1]   |     [0]     |  [0][1]   |
-        // |___________|___________|_____________|___________|
-        //
-        let mut sbb = match (bg_width, bg_height) {
-            (256, 256) => 0,
-            (512, 256) => bg_x / 256,
-            (256, 512) => bg_y / 256,
-            (512, 512) => index2d!(u32, bg_x / 256, bg_y / 256, 2),
-            _ => unreachable!(),
-        } as u32;
-
-        let mut se_row = (bg_x / 8) % 32;
-        let se_column = (bg_y / 8) % 32;
-
-        // this will be non-zero if the h-scroll lands in a middle of a tile
-        let mut start_tile_x = bg_x % 8;
-        let tile_py = (bg_y % 8) as u32;
-
-        loop {
-            let mut map_addr =
-                tilemap_base + SCREEN_BLOCK_SIZE * sbb + 2 * index2d!(u32, se_row, se_column, 32);
-            for _ in se_row..32 {
-                let entry = TileMapEntry(sb.vram.read_16(map_addr - VRAM_ADDR));
-                let tile_addr = tileset_base + entry.tile_index() * tile_size;
-
-                for tile_px in start_tile_x..8 {
-                    let index = self.read_pixel_index(
-                        sb,
-                        tile_addr,
-                        if entry.x_flip() { 7 - tile_px } else { tile_px },
-                        if entry.y_flip() { 7 - tile_py } else { tile_py },
-                        pixel_format,
-                    );
-                    let palette_bank = match pixel_format {
-                        PixelFormat::BPP4 => entry.palette_bank() as u32,
-                        PixelFormat::BPP8 => 0u32,
-                    };
-                    let color = self.get_palette_color(sb, index as u32, palette_bank, 0);
-                    self.bg[bg].line[screen_x as usize] = color;
-                    screen_x += 1;
-                    if (DISPLAY_WIDTH as u32) == screen_x {
-                        return;
-                    }
-                }
-                start_tile_x = 0;
-                map_addr += 2;
-            }
-            se_row = 0;
-            if bg_width == 512 {
-                sbb = sbb ^ 1;
-            }
-        }
-    }
-
-    fn scanline_aff_bg(&mut self, bg: usize, sb: &mut SysBus) {
-        // TODO
-        self.bg[bg].line = Scanline::default();
-    }
-
-    fn scanline_mode3(&mut self, bg: usize, sb: &mut SysBus) {
-        let y = self.vcount;
-
-        for x in 0..DISPLAY_WIDTH {
-            let pixel_index = index2d!(u32, x, y, DISPLAY_WIDTH);
-            let pixel_ofs = 2 * pixel_index;
-            let color = Rgb15(sb.vram.read_16(pixel_ofs));
-            self.bg[bg].line[x] = color;
-        }
-    }
-
-    fn scanline_mode4(&mut self, bg: usize, sb: &mut SysBus) {
-        let page_ofs: u32 = match self.dispcnt.display_frame() {
-            0 => 0x0600_0000 - VRAM_ADDR,
-            1 => 0x0600_a000 - VRAM_ADDR,
-            _ => unreachable!(),
-        };
-
-        let y = self.vcount;
-
-        for x in 0..DISPLAY_WIDTH {
-            let bitmap_index = index2d!(x, y, DISPLAY_WIDTH);
-            let bitmap_ofs = page_ofs + (bitmap_index as u32);
-            let index = sb.vram.read_8(bitmap_ofs as Addr) as u32;
-            let color = self.get_palette_color(sb, index, 0, 0);
-            self.bg[bg].line[x] = color;
-        }
-    }
-
-    pub fn render_scanline(&mut self, sb: &mut SysBus) {
-        // TODO - also render objs
+    pub fn render_scanline(&mut self) {
         match self.dispcnt.mode() {
             0 => {
                 for bg in 0..4 {
                     if self.dispcnt.disp_bg(bg) {
-                        self.scanline_reg_bg(bg, sb);
+                        self.render_reg_bg(bg);
                     }
                 }
             }
             1 => {
                 if self.dispcnt.disp_bg(2) {
-                    self.scanline_aff_bg(2, sb);
+                    self.render_aff_bg(2);
                 }
                 if self.dispcnt.disp_bg(1) {
-                    self.scanline_reg_bg(1, sb);
+                    self.render_reg_bg(1);
                 }
                 if self.dispcnt.disp_bg(0) {
-                    self.scanline_reg_bg(0, sb);
+                    self.render_reg_bg(0);
                 }
             }
             2 => {
                 if self.dispcnt.disp_bg(3) {
-                    self.scanline_aff_bg(3, sb);
+                    self.render_aff_bg(3);
                 }
                 if self.dispcnt.disp_bg(2) {
-                    self.scanline_aff_bg(2, sb);
+                    self.render_aff_bg(2);
                 }
             }
             3 => {
-                self.scanline_mode3(2, sb);
+                self.render_mode3(2);
             }
             4 => {
-                self.scanline_mode4(2, sb);
+                self.render_mode4(2);
             }
             _ => panic!("{:?} not supported", self.dispcnt.mode()),
         }
         if self.dispcnt.disp_obj() {
-            self.render_objs(sb);
+            self.render_objs();
         }
         self.mosaic_sfx();
-        let post_sfx_line = self.composite_sfx(sb);
-        for x in 0..DISPLAY_WIDTH {
-            self.frame_buffer[x + self.vcount * DISPLAY_WIDTH] = post_sfx_line[x].to_rgb24();
-        }
-    }
-
-    pub fn get_framebuffer(&self) -> &[u32] {
-        &self.frame_buffer
+        self.composite_sfx_to_framebuffer();
     }
 
     fn update_vcount(&mut self, value: usize, irqs: &mut IrqBitmask) {
@@ -415,6 +331,13 @@ impl Gpu {
 
         if self.dispstat.vcount_irq_enable() && self.dispstat.get_vcount_flag() {
             irqs.set_LCD_VCounterMatch(true);
+        }
+    }
+
+    // Clears the gpu internal buffer
+    pub fn clear(&mut self) {
+        for x in self.obj_buffer.iter_mut() {
+            *x = Default::default();
         }
     }
 
@@ -443,7 +366,7 @@ impl Gpu {
                     self.update_vcount(self.vcount + 1, irqs);
 
                     if self.vcount < DISPLAY_HEIGHT {
-                        self.render_scanline(sb);
+                        self.render_scanline();
                         self.state = HDraw;
                     } else {
                         self.state = VBlank;
@@ -465,20 +388,11 @@ impl Gpu {
                     } else {
                         self.update_vcount(0, irqs);
                         self.dispstat.set_vblank_flag(false);
-                        self.render_scanline(sb);
+                        self.render_scanline();
                         self.state = HDraw;
                     }
                 }
             }
         }
     }
-}
-
-bitfield! {
-    struct TileMapEntry(u16);
-    u16;
-    u32, tile_index, _: 9, 0;
-    x_flip, _ : 10;
-    y_flip, _ : 11;
-    palette_bank, _ : 15, 12;
 }

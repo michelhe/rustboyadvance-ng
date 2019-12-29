@@ -343,9 +343,10 @@ impl ThumbInstruction {
 #[cfg(test)]
 /// All instructions constants were generated using an ARM assembler.
 mod tests {
+    use super::super::Core;
     use super::*;
-    use crate::core::arm7tdmi::{Bus, Core};
     use crate::core::sysbus::BoxedMemory;
+    use crate::core::Bus;
 
     #[test]
     fn mov_low_reg() {

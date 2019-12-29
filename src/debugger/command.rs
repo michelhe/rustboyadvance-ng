@@ -3,10 +3,10 @@ use std::sync::Arc;
 use std::time;
 
 use crate::core::arm7tdmi::arm::ArmInstruction;
-use crate::core::arm7tdmi::bus::Bus;
 use crate::core::arm7tdmi::thumb::ThumbInstruction;
-use crate::core::arm7tdmi::{Addr, CpuState};
+use crate::core::arm7tdmi::CpuState;
 use crate::core::GBAError;
+use crate::core::{Addr, Bus};
 use crate::disass::Disassembler;
 use crate::{AudioInterface, InputInterface, VideoInterface};
 

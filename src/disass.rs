@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
-use super::core::arm7tdmi::{Addr, InstructionDecoder, InstructionDecoderError};
+use super::core::arm7tdmi::{InstructionDecoder, InstructionDecoderError};
+use super::core::Addr;
 use std::io::ErrorKind;
 
 pub struct Disassembler<'a, D>

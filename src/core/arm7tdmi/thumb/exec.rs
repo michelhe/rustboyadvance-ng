@@ -1,7 +1,7 @@
-use crate::core::arm7tdmi::bus::Bus;
 use crate::core::arm7tdmi::cpu::{Core, CpuExecResult};
 use crate::core::arm7tdmi::*;
 use crate::core::sysbus::SysBus;
+use crate::core::Bus;
 
 use crate::bit::BitIndex;
 
