@@ -15,8 +15,6 @@ use super::super::{AudioInterface, InputInterface, VideoInterface};
 pub struct GameBoyAdvance {
     pub sysbus: Box<SysBus>,
     pub cpu: Core,
-    video_device: Rc<RefCell<dyn VideoInterface>>,
-    audio_device: Rc<RefCell<dyn AudioInterface>>,
     input_device: Rc<RefCell<dyn InputInterface>>,
 }
 
@@ -29,14 +27,12 @@ impl GameBoyAdvance {
         audio_device: Rc<RefCell<dyn AudioInterface>>,
         input_device: Rc<RefCell<dyn InputInterface>>,
     ) -> GameBoyAdvance {
-        let gpu = Box::new(Gpu::new(video_device.clone()));
-        let sound_controller = Box::new(SoundController::new(audio_device.clone()));
+        let gpu = Box::new(Gpu::new(video_device));
+        let sound_controller = Box::new(SoundController::new(audio_device));
         let io = IoDevices::new(gpu, sound_controller);
         GameBoyAdvance {
             cpu: cpu,
             sysbus: Box::new(SysBus::new(io, bios_rom, gamepak)),
-            video_device: video_device,
-            audio_device: audio_device,
             input_device: input_device,
         }
     }
