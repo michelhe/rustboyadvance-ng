@@ -32,9 +32,9 @@ pub struct IoDevices {
 }
 
 impl IoDevices {
-    pub fn new(sound_controller: SoundController) -> IoDevices {
+    pub fn new(gpu: Gpu, sound_controller: SoundController) -> IoDevices {
         IoDevices {
-            gpu: Gpu::new(),
+            gpu: gpu,
             sound: sound_controller,
             timers: Timers::new(),
             dmac: DmaController::new(),

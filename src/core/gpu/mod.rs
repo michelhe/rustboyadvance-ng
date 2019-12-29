@@ -1,7 +1,10 @@
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::fmt;
 
 use super::arm7tdmi::{Addr, Bus};
 use super::*;
+use crate::VideoInterface;
 
 use crate::bitfield::Bit;
 use crate::num::FromPrimitive;
@@ -143,8 +146,12 @@ pub struct BgAffine {
     pub y: i32,
 }
 
+type VideoDeviceRcRefCell = Rc<RefCell<dyn VideoInterface>>;
+
 #[derive(DebugStub)]
 pub struct Gpu {
+    #[debug_stub = "video handle"]
+    video_device: VideoDeviceRcRefCell,
     pub state: GpuState,
     cycles: usize,
 
@@ -174,8 +181,10 @@ pub struct Gpu {
 }
 
 impl Gpu {
-    pub fn new() -> Gpu {
+    pub fn new(video_device: VideoDeviceRcRefCell) -> Gpu {
         Gpu {
+            video_device: video_device,
+
             dispcnt: DisplayControl(0x80),
             dispstat: DisplayStatus(0),
             bg: [Background::default(); 4],
@@ -443,6 +452,7 @@ impl Gpu {
                             irqs.set_LCD_VBlank(true);
                         };
                         sb.io.dmac.notify_vblank();
+                        self.video_device.borrow_mut().render(&self.frame_buffer);
                     }
                 }
             }

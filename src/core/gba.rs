@@ -29,8 +29,9 @@ impl GameBoyAdvance {
         audio_device: Rc<RefCell<dyn AudioInterface>>,
         input_device: Rc<RefCell<dyn InputInterface>>,
     ) -> GameBoyAdvance {
+        let gpu = Gpu::new(video_device.clone());
         let sound_controller = SoundController::new(audio_device.clone());
-        let io = IoDevices::new(sound_controller);
+        let io = IoDevices::new(gpu, sound_controller);
         GameBoyAdvance {
             cpu: cpu,
             sysbus: Box::new(SysBus::new(io, bios_rom, gamepak)),
@@ -47,13 +48,10 @@ impl GameBoyAdvance {
 
     pub fn frame(&mut self) {
         self.key_poll();
-        while self.sysbus.io.gpu.state != GpuState::VBlank {
+        while self.sysbus.io.gpu.vcount != DISPLAY_HEIGHT {
             self.step();
         }
-        self.video_device
-            .borrow_mut()
-            .render(self.sysbus.io.gpu.get_framebuffer());
-        while self.sysbus.io.gpu.state == GpuState::VBlank {
+        while self.sysbus.io.gpu.vcount == DISPLAY_HEIGHT {
             self.step();
         }
     }
