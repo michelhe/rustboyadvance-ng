@@ -31,6 +31,7 @@ fn main() {
     let matches = clap::App::from_yaml(yaml).get_matches();
 
     let skip_bios = matches.occurrences_of("skip_bios") != 0;
+
     let debug = matches.occurrences_of("debug") != 0;
 
     let bios_path = Path::new(matches.value_of("bios").unwrap_or_default());
@@ -63,64 +64,84 @@ fn main() {
     let mut event_pump = sdl_context.event_pump().unwrap();
 
     if debug {
-        gba.cpu.set_verbose(true);
-        let mut debugger = Debugger::new(gba);
-        println!("starting debugger...");
-        debugger.repl(matches.value_of("script_file")).unwrap();
-        println!("ending debugger...");
-    } else {
-        let frame_time = time::Duration::new(0, 1_000_000_000u32 / 60);
-        loop {
-            let start_time = time::Instant::now();
+        #[cfg(rba_with_debugger)]
+        {
+            gba.cpu.set_verbose(true);
+            let mut debugger = Debugger::new(gba);
+            println!("starting debugger...");
+            debugger.repl(matches.value_of("script_file")).unwrap();
+            println!("ending debugger...");
+            return;
+        }
+        #[cfg(not(rba_with_debugger))]
+        {
+            panic!("Please compile me with cfg(rba_with_debugger)");
+        }
+    }
 
-            for event in event_pump.poll_iter() {
-                match event {
-                    Event::KeyDown {
-                        keycode: Some(Keycode::Space),
-                        ..
-                    } => {
-                        frame_limiter = false;
-                    }
-                    Event::KeyUp {
-                        keycode: Some(Keycode::Space),
-                        ..
-                    } => {
-                        frame_limiter = true;
-                    }
-                    Event::KeyDown {
-                        keycode: Some(keycode),
-                        ..
-                    } => {
-                        input.borrow_mut().on_keyboard_key_down(keycode);
-                    }
-                    Event::KeyUp {
-                        keycode: Some(keycode),
-                        ..
-                    } => {
-                        input.borrow_mut().on_keyboard_key_up(keycode);
-                    }
-                    Event::Quit { .. } => panic!("quit!"),
-                    _ => {}
+    let frame_time = time::Duration::new(0, 1_000_000_000u32 / 60);
+    loop {
+        let start_time = time::Instant::now();
+
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::KeyDown {
+                    keycode: Some(Keycode::Space),
+                    ..
+                } => {
+                    frame_limiter = false;
                 }
+                Event::KeyUp {
+                    keycode: Some(Keycode::Space),
+                    ..
+                } => {
+                    frame_limiter = true;
+                }
+                #[cfg(rba_with_debugger)]
+                Event::KeyUp {
+                    keycode: Some(Keycode::F1),
+                    ..
+                } => {
+                    let mut debugger = Debugger::new(gba);
+                    println!("starting debugger...");
+                    debugger.repl(matches.value_of("script_file")).unwrap();
+                    gba = debugger.gba;
+                    println!("ending debugger...");
+                    break;
+                }
+                Event::KeyDown {
+                    keycode: Some(keycode),
+                    ..
+                } => {
+                    input.borrow_mut().on_keyboard_key_down(keycode);
+                }
+                Event::KeyUp {
+                    keycode: Some(keycode),
+                    ..
+                } => {
+                    input.borrow_mut().on_keyboard_key_up(keycode);
+                }
+                Event::Quit { .. } => panic!("quit!"),
+                _ => {}
             }
+        }
 
-            gba.frame();
+        gba.frame();
 
-            if let Some(fps) = fps_counter.tick() {
-                let title = format!("{} ({} fps)", rom_name, fps);
-                video.borrow_mut().set_window_title(&title);
-            }
+        if let Some(fps) = fps_counter.tick() {
+            let title = format!("{} ({} fps)", rom_name, fps);
+            video.borrow_mut().set_window_title(&title);
+        }
 
-            if frame_limiter {
-                let time_passed = start_time.elapsed();
-                let delay = frame_time.checked_sub(time_passed);
-                match delay {
-                    None => {}
-                    Some(delay) => {
-                        spin_sleep::sleep(delay);
-                    }
-                };
-            }
+        if frame_limiter {
+            let time_passed = start_time.elapsed();
+            let delay = frame_time.checked_sub(time_passed);
+            match delay {
+                None => {}
+                Some(delay) => {
+                    spin_sleep::sleep(delay);
+                }
+            };
         }
     }
 }

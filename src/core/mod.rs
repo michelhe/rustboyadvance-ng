@@ -18,6 +18,7 @@ pub use bus::*;
 
 pub use super::{AudioInterface, InputInterface, VideoInterface};
 
+#[cfg(rba_with_debugger)]
 use crate::debugger;
 
 use zip;
@@ -26,6 +27,7 @@ use zip;
 pub enum GBAError {
     IO(::std::io::Error),
     CpuError(arm7tdmi::CpuError),
+    #[cfg(rba_with_debugger)]
     DebuggerError(debugger::DebuggerError),
 }
 
@@ -43,6 +45,7 @@ impl From<arm7tdmi::CpuError> for GBAError {
     }
 }
 
+#[cfg(rba_with_debugger)]
 impl From<debugger::DebuggerError> for GBAError {
     fn from(err: debugger::DebuggerError) -> GBAError {
         GBAError::DebuggerError(err)
