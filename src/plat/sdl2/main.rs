@@ -19,7 +19,7 @@ mod video;
 
 use audio::create_audio_player;
 use input::create_input;
-use video::create_video_interface;
+use video::{create_video_interface, SCALE, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 extern crate rustboyadvance_ng;
 use rustboyadvance_ng::prelude::*;
@@ -47,7 +47,18 @@ fn main() {
     let cpu = cpu;
 
     let sdl_context = sdl2::init().unwrap();
-    let video = Rc::new(RefCell::new(create_video_interface(&sdl_context)));
+    let video_subsystem = sdl_context.video().unwrap();
+    let window = video_subsystem
+        .window(
+            "RustBoyAdvance",
+            SCREEN_WIDTH * SCALE,
+            SCREEN_HEIGHT * SCALE,
+        )
+        .opengl()
+        .position_centered()
+        .build()
+        .unwrap();
+    let video = Rc::new(RefCell::new(create_video_interface(window)));
     let audio = Rc::new(RefCell::new(create_audio_player(&sdl_context)));
     let input = Rc::new(RefCell::new(create_input()));
 

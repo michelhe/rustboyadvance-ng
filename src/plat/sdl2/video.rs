@@ -1,15 +1,14 @@
 use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::rect::Rect;
 use sdl2::render::{TextureCreator, WindowCanvas};
-use sdl2::video::WindowContext;
-use sdl2::Sdl;
+use sdl2::video::{Window, WindowContext};
 
 use rustboyadvance_ng::core::gpu::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use rustboyadvance_ng::VideoInterface;
 
-const SCREEN_WIDTH: u32 = DISPLAY_WIDTH as u32;
-const SCREEN_HEIGHT: u32 = DISPLAY_HEIGHT as u32;
-const SCALE: u32 = 3; // TODO control via CLI & support window resize
+pub const SCREEN_WIDTH: u32 = DISPLAY_WIDTH as u32;
+pub const SCREEN_HEIGHT: u32 = DISPLAY_HEIGHT as u32;
+pub const SCALE: u32 = 3; // TODO control via CLI & support window resize
 
 pub struct Sdl2Video {
     tc: TextureCreator<WindowContext>,
@@ -46,18 +45,7 @@ impl VideoInterface for Sdl2Video {
     }
 }
 
-pub fn create_video_interface(sdl: &Sdl) -> Sdl2Video {
-    let video_subsystem = sdl.video().unwrap();
-    let window = video_subsystem
-        .window(
-            "RustBoyAdvance",
-            SCREEN_WIDTH * SCALE,
-            SCREEN_HEIGHT * SCALE,
-        )
-        .opengl()
-        .position_centered()
-        .build()
-        .unwrap();
+pub fn create_video_interface(window: Window) -> Sdl2Video {
     let mut canvas = window.into_canvas().accelerated().build().unwrap();
     canvas.set_draw_color(Color::RGB(0, 0, 0));
     canvas.clear();
