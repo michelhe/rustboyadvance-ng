@@ -179,20 +179,20 @@ impl SoundController {
             REG_SOUNDBIAS => self.sound_bias,
 
             _ => {
-                println!(
-                    "Unimplemented read from {:x} {}",
-                    io_addr,
-                    io_reg_string(io_addr)
-                );
+                // println!(
+                //     "Unimplemented read from {:x} {}",
+                //     io_addr,
+                //     io_reg_string(io_addr)
+                // );
                 0
             }
         };
-        println!(
-            "Read {} ({:08x}) = {:04x}",
-            io_reg_string(io_addr),
-            io_addr,
-            value
-        );
+        // println!(
+        //     "Read {} ({:08x}) = {:04x}",
+        //     io_reg_string(io_addr),
+        //     io_addr,
+        //     value
+        // );
         value
     }
 
@@ -289,11 +289,11 @@ impl SoundController {
             },
 
             _ => {
-                println!(
-                    "Unimplemented write to {:x} {}",
-                    io_addr,
-                    io_reg_string(io_addr)
-                );
+                // println!(
+                //     "Unimplemented write to {:x} {}",
+                //     io_addr,
+                //     io_reg_string(io_addr)
+                // );
             }
         }
     }
