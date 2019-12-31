@@ -49,10 +49,6 @@ impl IoDevices {
 }
 
 impl Bus for IoDevices {
-    fn read_32(&self, addr: Addr) -> u32 {
-        (self.read_16(addr + 2) as u32) << 16 | (self.read_16(addr) as u32)
-    }
-
     fn read_16(&self, addr: Addr) -> u16 {
         let io = self;
         let io_addr = addr + IO_BASE;
@@ -116,11 +112,6 @@ impl Bus for IoDevices {
         } else {
             t as u8
         }
-    }
-
-    fn write_32(&mut self, addr: Addr, value: u32) {
-        self.write_16(addr, (value & 0xffff) as u16);
-        self.write_16(addr + 2, (value >> 16) as u16);
     }
 
     fn write_16(&mut self, addr: Addr, value: u16) {

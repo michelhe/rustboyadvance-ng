@@ -221,7 +221,7 @@ impl DmaController {
                     self.pending_bittset.remove(channel_id);
                 }
             }
-            _ => panic!("Invalid dma offset"),
+            _ => panic!("Invalid dma offset {:x}", ofs),
         }
     }
 

@@ -1,8 +1,6 @@
 use std::fmt;
 use std::ops::Add;
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-
 use super::cartridge::Cartridge;
 use super::gpu::{GpuState, VIDEO_RAM_SIZE};
 use super::iodev::IoDevices;
@@ -78,26 +76,8 @@ impl BoxedMemory {
 }
 
 impl Bus for BoxedMemory {
-    fn read_32(&self, addr: Addr) -> u32 {
-        self.read_16(addr) as u32 | (self.read_16(addr + 2) as u32) << 16
-    }
-
-    fn read_16(&self, addr: Addr) -> u16 {
-        self.read_8(addr) as u16 | (self.read_8(addr+1) as u16) << 8
-    }
-
     fn read_8(&self, addr: Addr) -> u8 {
         self.mem[addr as usize]
-    }
-
-    fn write_32(&mut self, addr: Addr, value: u32) {
-        self.write_16(addr, (value & 0xffff) as u16);
-        self.write_16(addr + 2, (value >> 16) as u16);
-    }
-
-    fn write_16(&mut self, addr: Addr, value: u16) {
-        self.write_8(addr, (value & 0xff) as u8);
-        self.write_8(addr + 1, ((value >> 8) & 0xff) as u8);
     }
 
     fn write_8(&mut self, addr: Addr, value: u8) {
@@ -109,21 +89,9 @@ impl Bus for BoxedMemory {
 struct DummyBus([u8; 4]);
 
 impl Bus for DummyBus {
-    fn read_32(&self, _addr: Addr) -> u32 {
-        0
-    }
-
-    fn read_16(&self, _addr: Addr) -> u16 {
-        0
-    }
-
     fn read_8(&self, _addr: Addr) -> u8 {
         0
     }
-
-    fn write_32(&mut self, _addr: Addr, _value: u32) {}
-
-    fn write_16(&mut self, _addr: Addr, _value: u16) {}
 
     fn write_8(&mut self, _addr: Addr, _value: u8) {}
 }
@@ -275,17 +243,11 @@ impl Bus for SysBus {
     }
 
     fn read_16(&self, addr: Addr) -> u16 {
-        if self.trace_access {
-            println!("[TRACE] read_32 addr={:x}", addr);
-        }
         let (dev, addr) = self.map(addr);
         dev.read_16(addr & 0x1ff_fffe)
     }
 
     fn read_8(&self, addr: Addr) -> u8 {
-        if self.trace_access {
-            println!("[TRACE] read_32 addr={:x}", addr);
-        }
         let (dev, addr) = self.map(addr);
         dev.read_8(addr & 0x1ff_ffff)
     }
