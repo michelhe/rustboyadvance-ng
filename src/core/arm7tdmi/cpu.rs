@@ -367,18 +367,16 @@ impl Core {
         Ok(())
     }
 
-    pub(super) fn flush_pipeline(&mut self, sb: &mut SysBus) {
+    pub(super) fn flush_pipeline16(&mut self, sb: &mut SysBus) {
         self.pipeline_state = PipelineState::Refill1;
-        match self.cpsr.state() {
-            CpuState::ARM => {
-                self.N_cycle32(sb, self.pc);
-                self.S_cycle32(sb, self.pc + 4);
-            }
-            CpuState::THUMB => {
-                self.N_cycle16(sb, self.pc);
-                self.S_cycle16(sb, self.pc + 2);
-            }
-        }
+        self.N_cycle16(sb, self.pc);
+        self.S_cycle16(sb, self.pc + 2);
+    }
+
+    pub(super) fn flush_pipeline32(&mut self, sb: &mut SysBus) {
+        self.pipeline_state = PipelineState::Refill1;
+        self.N_cycle32(sb, self.pc);
+        self.S_cycle32(sb, self.pc + 4);
     }
 
     fn trace_opcode(&self, insn: u32) {

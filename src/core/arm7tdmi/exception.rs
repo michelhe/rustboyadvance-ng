@@ -58,7 +58,7 @@ impl Core {
 
         // Set PC to vector address
         self.pc = e as u32;
-        self.flush_pipeline(sb);
+        self.flush_pipeline32(sb);
     }
 
     pub fn irq(&mut self, sb: &mut SysBus) {

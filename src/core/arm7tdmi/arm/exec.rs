@@ -44,7 +44,7 @@ impl Core {
         }
 
         self.pc = (self.pc as i32).wrapping_add(insn.branch_offset()) as u32 & !1;
-        self.flush_pipeline(sb);
+        self.flush_pipeline32(sb);
 
         Ok(())
     }
@@ -63,7 +63,7 @@ impl Core {
         }
 
         self.pc = addr;
-        self.flush_pipeline(sb); // +1S+1N
+        self.flush_pipeline32(sb); // +1S+1N
 
         Ok(())
     }
@@ -258,7 +258,7 @@ impl Core {
 
         if let Some(result) = alu_res {
             if reg_rd == REG_PC {
-                self.flush_pipeline(sb);
+                self.flush_pipeline32(sb);
             }
             self.set_reg(reg_rd, result as u32);
         }
@@ -306,7 +306,7 @@ impl Core {
             self.add_cycle();
 
             if insn.rd() == REG_PC {
-                self.flush_pipeline(sb);
+                self.flush_pipeline32(sb);
             }
         } else {
             let value = if insn.rd() == REG_PC {
@@ -374,7 +374,7 @@ impl Core {
             self.add_cycle();
 
             if insn.rd() == REG_PC {
-                self.flush_pipeline(sb);
+                self.flush_pipeline32(sb);
             }
         } else {
             let value = if insn.rd() == REG_PC {
@@ -459,7 +459,7 @@ impl Core {
                             if psr_transfer {
                                 self.transfer_spsr_mode();
                             }
-                            self.flush_pipeline(sb);
+                            self.flush_pipeline32(sb);
                         }
 
                         if !full {
@@ -504,7 +504,7 @@ impl Core {
             if is_load {
                 let val = self.ldr_word(addr as u32, sb);
                 self.set_reg(REG_PC, val & !3);
-                self.flush_pipeline(sb);
+                self.flush_pipeline32(sb);
             } else {
                 self.write_32(addr as u32, self.pc + 4, sb);
             }

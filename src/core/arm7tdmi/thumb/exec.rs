@@ -183,7 +183,7 @@ impl Core {
             OpFormat5::ADD => {
                 self.set_reg(dst_reg, op1.wrapping_add(op2));
                 if dst_reg == REG_PC {
-                    self.flush_pipeline(sb);
+                    self.flush_pipeline16(sb);
                 }
             }
             OpFormat5::CMP => {
@@ -195,7 +195,7 @@ impl Core {
             OpFormat5::MOV => {
                 self.set_reg(dst_reg, op2 as u32);
                 if dst_reg == REG_PC {
-                    self.flush_pipeline(sb);
+                    self.flush_pipeline16(sb);
                 }
             }
         }
@@ -409,7 +409,7 @@ impl Core {
             if pc_lr_flag {
                 pop(self, sb, REG_PC);
                 self.pc = self.pc & !1;
-                self.flush_pipeline(sb);
+                self.flush_pipeline16(sb);
             }
             self.S_cycle16(sb, self.pc + 2);
         } else {
@@ -481,7 +481,7 @@ impl Core {
             if is_load {
                 let val = self.ldr_word(addr, sb);
                 self.set_reg(REG_PC, val & !1);
-                self.flush_pipeline(sb);
+                self.flush_pipeline16(sb);
             } else {
                 self.write_32(addr, self.pc + 2, sb);
             }
@@ -507,7 +507,7 @@ impl Core {
             let offset = insn.bcond_offset();
             self.S_cycle16(sb, self.pc);
             self.pc = (self.pc as i32).wrapping_add(offset) as u32;
-            self.flush_pipeline(sb);
+            self.flush_pipeline16(sb);
             Ok(())
         }
     }
@@ -516,7 +516,7 @@ impl Core {
         let offset = ((insn.offset11() << 21) >> 20) as i32;
         self.pc = (self.pc as i32).wrapping_add(offset) as u32;
         self.S_cycle16(sb, self.pc);
-        self.flush_pipeline(sb);
+        self.flush_pipeline16(sb);
         Ok(())
     }
 
@@ -533,7 +533,7 @@ impl Core {
             self.pc = ((self.gpr[REG_LR] & !1) as i32).wrapping_add(off) as u32;
             self.gpr[REG_LR] = next_pc;
 
-            self.flush_pipeline(sb);
+            self.flush_pipeline16(sb);
             Ok(())
         } else {
             off = (off << 21) >> 9;
