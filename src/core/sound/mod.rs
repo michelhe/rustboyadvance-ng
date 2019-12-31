@@ -97,6 +97,9 @@ pub struct SoundController {
 
     sound_bias: u16,
 
+    sample_rate: f32,
+    cycles_per_sample: usize,
+
     dma_sound: [DmaSoundChannel; 2],
 
     resampler: CosineResampler,
@@ -133,6 +136,8 @@ impl SoundController {
             sqr1_initial_vol: 0,
             sqr1_cur_vol: 0,
             sound_bias: 0x200,
+            sample_rate: 32_768f32,
+            cycles_per_sample: 512,
             dma_sound: [Default::default(), Default::default()],
 
             resampler: resampler,
@@ -273,7 +278,15 @@ impl SoundController {
                 self.dma_sound[1].fifo.write(((value >> 8) & 0xff) as i8);
             }
 
-            REG_SOUNDBIAS => self.sound_bias = value & 0xc3fe,
+            REG_SOUNDBIAS => {
+                self.sound_bias = value & 0xc3fe;
+                let resolution = self.sound_bias.bit_range(14..16) as usize;
+                self.sample_rate = (32768 << resolution) as f32;
+                if self.sample_rate != self.resampler.in_freq {
+                    self.resampler.in_freq = self.sample_rate;
+                }
+                self.cycles_per_sample = 512 >> resolution;
+            },
 
             _ => {
                 println!(
@@ -308,19 +321,9 @@ impl SoundController {
         }
     }
 
-    fn sample_rate(&self) -> i32 {
-        let resolution = self.sound_bias.bit_range(14..16) as usize;
-        (32768 << resolution) as i32
-    }
-
     pub fn update(&mut self, cycles: usize) {
-        let resolution = self.sound_bias.bit_range(14..16) as usize;
-        let cycles_per_sample = 512 >> resolution;
-
-        self.resampler.in_freq = self.sample_rate() as f32;
-
-        while cycles - self.last_sample_cycles >= cycles_per_sample {
-            self.last_sample_cycles += cycles_per_sample;
+        while cycles - self.last_sample_cycles >= self.cycles_per_sample {
+            self.last_sample_cycles += self.cycles_per_sample;
 
             // time to push a new sample!
 
