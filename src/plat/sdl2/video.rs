@@ -1,6 +1,6 @@
 use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::rect::Rect;
-use sdl2::render::{TextureCreator, WindowCanvas};
+use sdl2::render::{Texture, TextureCreator, WindowCanvas};
 use sdl2::video::{Window, WindowContext};
 
 use rustboyadvance_ng::core::gpu::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
@@ -10,24 +10,21 @@ pub const SCREEN_WIDTH: u32 = DISPLAY_WIDTH as u32;
 pub const SCREEN_HEIGHT: u32 = DISPLAY_HEIGHT as u32;
 pub const SCALE: u32 = 3; // TODO control via CLI & support window resize
 
-pub struct Sdl2Video {
-    tc: TextureCreator<WindowContext>,
+pub struct Sdl2Video<'a> {
+    _tc: TextureCreator<WindowContext>, // only kept alive because of the texture
+    texture: Texture<'a>,               // TODO - what happens if _tc is destroyed first ?
     canvas: WindowCanvas,
 }
 
-impl Sdl2Video {
+impl<'a> Sdl2Video<'a> {
     pub fn set_window_title(&mut self, title: &str) {
         self.canvas.window_mut().set_title(&title).unwrap();
     }
 }
 
-impl VideoInterface for Sdl2Video {
+impl<'a> VideoInterface for Sdl2Video<'a> {
     fn render(&mut self, buffer: &[u32]) {
-        let mut texture = self
-            .tc
-            .create_texture_streaming(PixelFormatEnum::BGRA32, SCREEN_WIDTH, SCREEN_HEIGHT)
-            .unwrap();
-        texture
+        self.texture
             .update(
                 None,
                 unsafe { std::mem::transmute::<&[u32], &[u8]>(buffer) },
@@ -36,7 +33,7 @@ impl VideoInterface for Sdl2Video {
             .unwrap();
         self.canvas
             .copy(
-                &texture,
+                &self.texture,
                 None,
                 Some(Rect::new(0, 0, SCREEN_WIDTH * SCALE, SCREEN_HEIGHT * SCALE)),
             )
@@ -45,13 +42,20 @@ impl VideoInterface for Sdl2Video {
     }
 }
 
-pub fn create_video_interface(window: Window) -> Sdl2Video {
+pub fn create_video_interface<'a>(window: Window) -> Sdl2Video<'a> {
     let mut canvas = window.into_canvas().accelerated().build().unwrap();
     canvas.set_draw_color(Color::RGB(0, 0, 0));
     canvas.clear();
-    let tc = canvas.texture_creator();
+    let mut tc = canvas.texture_creator();
+    let texture = unsafe {
+        let tc_ptr = &mut tc as *mut TextureCreator<WindowContext>;
+        (*tc_ptr)
+            .create_texture_streaming(PixelFormatEnum::BGRA32, SCREEN_WIDTH, SCREEN_HEIGHT)
+            .unwrap()
+    };
     Sdl2Video {
-        tc: tc,
+        _tc: tc,
+        texture: texture,
         canvas: canvas,
     }
 }
