@@ -1,6 +1,9 @@
 extern crate sdl2;
 use sdl2::event::Event;
+use sdl2::image::{InitFlag, LoadTexture};
 use sdl2::keyboard::Keycode;
+use sdl2::pixels::Color;
+use sdl2::rect::Rect;
 use sdl2::EventPump;
 
 extern crate spin_sleep;
@@ -52,10 +55,11 @@ fn main() {
 
     let debug = matches.occurrences_of("debug") != 0;
 
-    let sdl_context = sdl2::init().unwrap();
+    let sdl_context = sdl2::init().expect("failed to initialize sdl2");
     let mut event_pump = sdl_context.event_pump().unwrap();
 
     let video_subsystem = sdl_context.video().unwrap();
+    let _image_context = sdl2::image::init(InitFlag::PNG | InitFlag::JPG).unwrap();
     let window = video_subsystem
         .window(
             "RustBoyAdvance",
@@ -66,7 +70,27 @@ fn main() {
         .position_centered()
         .build()
         .unwrap();
-    let video = Rc::new(RefCell::new(create_video_interface(window)));
+    let mut canvas = window.into_canvas().accelerated().build().unwrap();
+
+    // Display the icon as a placeholder
+    canvas.set_draw_color(Color::RGB(0x80, 0x75, 0x85)); // default background color for the icon
+    canvas.clear();
+    let texture_creator = canvas.texture_creator();
+    let icon_texture = texture_creator
+        .load_texture("assets/icon.png")
+        .expect("failed to load icon");
+    canvas
+        .copy(
+            &icon_texture,
+            None,
+            Some(Rect::new(0, 0, SCREEN_WIDTH * SCALE, SCREEN_HEIGHT * SCALE)),
+        )
+        .unwrap();
+    canvas.present();
+
+    // TODO also set window icon
+
+    let video = Rc::new(RefCell::new(create_video_interface(canvas)));
     let audio = Rc::new(RefCell::new(create_audio_player(&sdl_context)));
     let input = Rc::new(RefCell::new(create_input()));
 

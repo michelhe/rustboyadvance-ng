@@ -1,7 +1,7 @@
-use sdl2::pixels::{Color, PixelFormatEnum};
+use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect;
 use sdl2::render::{Texture, TextureCreator, WindowCanvas};
-use sdl2::video::{Window, WindowContext};
+use sdl2::video::WindowContext;
 
 use rustboyadvance_ng::core::gpu::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use rustboyadvance_ng::VideoInterface;
@@ -42,11 +42,7 @@ impl<'a> VideoInterface for Sdl2Video<'a> {
     }
 }
 
-pub fn create_video_interface<'a>(window: Window) -> Sdl2Video<'a> {
-    let mut canvas = window.into_canvas().accelerated().build().unwrap();
-    canvas.set_draw_color(Color::RGB(0, 0, 0));
-    canvas.clear();
-    canvas.present();
+pub fn create_video_interface<'a>(canvas: WindowCanvas) -> Sdl2Video<'a> {
     let mut tc = canvas.texture_creator();
     let texture = unsafe {
         let tc_ptr = &mut tc as *mut TextureCreator<WindowContext>;

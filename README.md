@@ -2,6 +2,8 @@
 
 [![Build Status](https://travis-ci.com/michelhe/rustboyadvance-ng.svg?branch=master)](https://travis-ci.com/michelhe/rustboyadvance-ng)
 
+![icon ](assets/icon.png)
+
 RustBoyAdvance-NG Nintendo GameBoy Advance emulator and debugger, written in the rust programming language.
 
 Currently passing armwrestler tests, and displays some of TONC's Demos.
