@@ -1,6 +1,7 @@
 extern crate sdl2;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
+use sdl2::EventPump;
 
 extern crate spin_sleep;
 
@@ -9,6 +10,8 @@ use std::rc::Rc;
 
 use std::path::Path;
 use std::time;
+
+use std::process;
 
 #[macro_use]
 extern crate clap;
@@ -25,6 +28,21 @@ extern crate rustboyadvance_ng;
 use rustboyadvance_ng::prelude::*;
 use rustboyadvance_ng::util::FpsCounter;
 
+/// Waits for the user to drag a rom file to window
+fn wait_for_rom(event_pump: &mut EventPump) -> String {
+    'running: loop {
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::DropFile { filename, .. } => {
+                    return filename;
+                }
+                Event::Quit { .. } => process::exit(0),
+                _ => {}
+            }
+        }
+    }
+}
+
 fn main() {
     let mut frame_limiter = true;
     let yaml = load_yaml!("cli.yml");
@@ -34,19 +52,9 @@ fn main() {
 
     let debug = matches.occurrences_of("debug") != 0;
 
-    let bios_path = Path::new(matches.value_of("bios").unwrap_or_default());
-    let rom_path = Path::new(matches.value_of("game_rom").unwrap());
-    let rom_name = rom_path.file_name().unwrap().to_str().unwrap();
-
-    let bios_bin = read_bin_file(bios_path).unwrap();
-    let cart = Cartridge::from_path(rom_path).unwrap();
-    let mut cpu = arm7tdmi::Core::new();
-    if skip_bios {
-        cpu.skip_bios();
-    }
-    let cpu = cpu;
-
     let sdl_context = sdl2::init().unwrap();
+    let mut event_pump = sdl_context.event_pump().unwrap();
+
     let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem
         .window(
@@ -62,7 +70,26 @@ fn main() {
     let audio = Rc::new(RefCell::new(create_audio_player(&sdl_context)));
     let input = Rc::new(RefCell::new(create_input()));
 
-    let mut fps_counter = FpsCounter::default();
+    let bios_path = Path::new(matches.value_of("bios").unwrap_or_default());
+    let bios_bin = read_bin_file(bios_path).unwrap();
+
+    let mut rom_path = match matches.value_of("game_rom") {
+        Some(path) => path.to_string(),
+        _ => {
+            println!("[!] Rom file missing, please drag a rom file into the emulator window...");
+            wait_for_rom(&mut event_pump)
+        }
+    };
+
+    let mut rom_name = Path::new(&rom_path).file_name().unwrap().to_str().unwrap();
+    let cart = Cartridge::from_path(Path::new(&rom_path)).unwrap();
+
+    let mut cpu = arm7tdmi::Core::new();
+    if skip_bios {
+        cpu.skip_bios();
+    }
+    let cpu = cpu;
+
     let mut gba = GameBoyAdvance::new(
         cpu,
         bios_bin,
@@ -71,8 +98,6 @@ fn main() {
         audio.clone(),
         input.clone(),
     );
-
-    let mut event_pump = sdl_context.event_pump().unwrap();
 
     if debug {
         #[cfg(rba_with_debugger)]
@@ -90,8 +115,9 @@ fn main() {
         }
     }
 
+    let mut fps_counter = FpsCounter::default();
     let frame_time = time::Duration::new(0, 1_000_000_000u32 / 60);
-    loop {
+    'running: loop {
         let start_time = time::Instant::now();
 
         for event in event_pump.poll_iter() {
@@ -132,7 +158,26 @@ fn main() {
                 } => {
                     input.borrow_mut().on_keyboard_key_up(keycode);
                 }
-                Event::Quit { .. } => panic!("quit!"),
+                Event::Quit { .. } => break 'running,
+                Event::DropFile { filename, .. } => {
+                    // load the new rom
+                    rom_path = filename;
+                    rom_name = Path::new(&rom_path).file_name().unwrap().to_str().unwrap();
+                    let cart = Cartridge::from_path(Path::new(&rom_path)).unwrap();
+                    let bios_bin = read_bin_file(bios_path).unwrap();
+
+                    // create a new emulator - TODO, export to a function
+                    let mut cpu = arm7tdmi::Core::new();
+                    cpu.skip_bios();
+                    gba = GameBoyAdvance::new(
+                        cpu,
+                        bios_bin,
+                        cart,
+                        video.clone(),
+                        audio.clone(),
+                        input.clone(),
+                    );
+                }
                 _ => {}
             }
         }

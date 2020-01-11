@@ -46,6 +46,7 @@ pub fn create_video_interface<'a>(window: Window) -> Sdl2Video<'a> {
     let mut canvas = window.into_canvas().accelerated().build().unwrap();
     canvas.set_draw_color(Color::RGB(0, 0, 0));
     canvas.clear();
+    canvas.present();
     let mut tc = canvas.texture_creator();
     let texture = unsafe {
         let tc_ptr = &mut tc as *mut TextureCreator<WindowContext>;

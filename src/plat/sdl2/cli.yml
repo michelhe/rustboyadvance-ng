@@ -11,7 +11,7 @@ args:
         long: game-rom
         takes_value: true
         help: Sets the game-rom file to use
-        required: true
+        required: false
         index: 1
     - skip_bios:
         long: skip-bios
