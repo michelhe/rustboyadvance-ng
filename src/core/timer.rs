@@ -2,6 +2,8 @@ use super::interrupt::{Interrupt, IrqBitmask};
 use super::iodev::consts::*;
 use super::sysbus::SysBus;
 
+use bit_set::BitSet;
+
 use num::FromPrimitive;
 
 #[derive(Debug)]
@@ -42,11 +44,32 @@ impl Timer {
             _ => unreachable!(),
         }
     }
+
+    /// updates the timer with 'cycles' amount of cycles, returns the number of times it overflowed
+    fn update(&mut self, cycles: usize, irqs: &mut IrqBitmask) -> usize {
+        self.cycles += cycles;
+        let mut num_overflows = 0;
+        let freq = self.frequency();
+        while self.cycles >= freq {
+            self.cycles -= freq;
+            self.data = self.data.wrapping_add(1);
+            if self.data == 0 {
+                if self.ctl.irq_enabled() {
+                    irqs.add_irq(self.irq);
+                }
+                self.data = self.initial_data;
+                num_overflows += 1;
+            }
+        }
+
+        num_overflows
+    }
 }
 
 #[derive(Debug)]
 pub struct Timers {
     timers: [Timer; 4],
+    running_timers: BitSet,
     pub trace: bool,
 }
 
@@ -67,6 +90,7 @@ impl Timers {
     pub fn new() -> Timers {
         Timers {
             timers: [Timer::new(0), Timer::new(1), Timer::new(2), Timer::new(3)],
+            running_timers: BitSet::with_capacity(4),
             trace: false,
         }
     }
@@ -75,6 +99,12 @@ impl Timers {
         let old_enabled = self[id].ctl.enabled();
         self[id].ctl.0 = value;
         let new_enabled = self[id].ctl.enabled();
+        let cascade = self.timers[id].ctl.cascade();
+        if new_enabled && !cascade {
+            self.running_timers.insert(id);
+        } else {
+            self.running_timers.remove(id);
+        }
         if self.trace && old_enabled != new_enabled {
             println!(
                 "TMR{} {}",
@@ -127,45 +157,24 @@ impl Timers {
         }
     }
 
-    fn update_timer(&mut self, id: usize, cycles: usize, sb: &mut SysBus, irqs: &mut IrqBitmask) {
-        let timer = &mut self.timers[id];
-        timer.cycles += cycles;
-        let mut num_overflows = 0;
-        let freq = timer.frequency();
-        while timer.cycles >= freq {
-            timer.cycles -= freq;
-            timer.data = timer.data.wrapping_add(1);
-            if timer.data == 0 {
-                if self.trace {
-                    println!("TMR{} overflown!", id);
+    pub fn update(&mut self, cycles: usize, sb: &mut SysBus, irqs: &mut IrqBitmask) {
+        for id in self.running_timers.iter() {
+            if !self.timers[id].ctl.cascade() {
+                let timer = &mut self.timers[id];
+                let num_overflows = timer.update(cycles, irqs);
+                if num_overflows > 0 {
+                    if id != 3 {
+                        let next_timer = &mut self.timers[id + 1];
+                        if next_timer.ctl.cascade() {
+                            next_timer.update(num_overflows, irqs);
+                        }
+                    }
+                    if id == 0 || id == 1 {
+                        sb.io
+                            .sound
+                            .handle_timer_overflow(&mut sb.io.dmac, id, num_overflows);
+                    }
                 }
-                if timer.ctl.irq_enabled() {
-                    irqs.add_irq(timer.irq);
-                }
-                timer.data = timer.initial_data;
-                num_overflows += 1;
-            }
-        }
-
-        if num_overflows > 0 {
-            if id != 3 {
-                let next_timer = &mut self.timers[id + 1];
-                if next_timer.ctl.cascade() {
-                    self.update_timer(id + 1, num_overflows, sb, irqs);
-                }
-            }
-            if id == 0 || id == 1 {
-                sb.io
-                    .sound
-                    .handle_timer_overflow(&mut sb.io.dmac, id, num_overflows);
-            }
-        }
-    }
-
-    pub fn step(&mut self, cycles: usize, sb: &mut SysBus, irqs: &mut IrqBitmask) {
-        for i in 0..4 {
-            if self.timers[i].ctl.enabled() && !self.timers[i].ctl.cascade() {
-                self.update_timer(i, cycles, sb, irqs);
             }
         }
     }

@@ -15,6 +15,7 @@ extern crate bit;
 extern crate bitfield;
 #[macro_use]
 extern crate bitflags;
+extern crate bit_set;
 
 extern crate byteorder;
 

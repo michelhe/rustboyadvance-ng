@@ -16,6 +16,8 @@ pub struct GameBoyAdvance {
     pub sysbus: Box<SysBus>,
     pub cpu: Core,
     input_device: Rc<RefCell<dyn InputInterface>>,
+
+    cycles_to_next_event: usize,
 }
 
 impl GameBoyAdvance {
@@ -34,6 +36,8 @@ impl GameBoyAdvance {
             cpu: cpu,
             sysbus: Box::new(SysBus::new(io, bios_rom, gamepak)),
             input_device: input_device,
+
+            cycles_to_next_event: 1,
         }
     }
 
@@ -74,41 +78,64 @@ impl GameBoyAdvance {
         None
     }
 
-    pub fn step(&mut self) {
-        let mut irqs = IrqBitmask(0);
+    fn step_cpu(&mut self, io: &mut IoDevices) -> usize {
+        if io.intc.irq_pending()
+            && self.cpu.last_executed.is_some()
+            && !self.cpu.did_pipeline_flush()
+        {
+            self.cpu.irq(&mut self.sysbus);
+            io.haltcnt = HaltState::Running;
+        }
         let previous_cycles = self.cpu.cycles;
+        self.cpu.step(&mut self.sysbus);
+        self.cpu.cycles - previous_cycles
+    }
 
+    pub fn step(&mut self) {
         // // I hate myself for doing this, but rust left me no choice.
         let io = unsafe {
             let ptr = &mut *self.sysbus as *mut SysBus;
             &mut (*ptr).io as &mut IoDevices
         };
 
-        let cycles = if !io.dmac.has_work() {
-            if io.intc.irq_pending()
-                && self.cpu.last_executed.is_some()
-                && !self.cpu.did_pipeline_flush()
-            {
-                self.cpu.irq(&mut self.sysbus);
-                io.haltcnt = HaltState::Running;
-            }
+        let mut irqs = IrqBitmask(0);
 
-            if HaltState::Running == io.haltcnt {
-                self.cpu.step(&mut self.sysbus).unwrap();
-                self.cpu.cycles - previous_cycles
+        let mut cycles_left = self.cycles_to_next_event;
+        let mut cycles_to_next_event = std::usize::MAX;
+        let mut cycles = 0;
+
+        while cycles_left > 0 {
+            let mut irqs = IrqBitmask(0);
+            let _cycles = if !io.dmac.is_active() {
+                if HaltState::Running == io.haltcnt {
+                    self.step_cpu(io)
+                } else {
+                    cycles = cycles_left;
+                    break;
+                }
             } else {
-                1
+                io.dmac.perform_work(&mut self.sysbus, &mut irqs);
+                io.intc.request_irqs(irqs);
+                return;
+            };
+
+            cycles += _cycles;
+            if cycles_left < _cycles {
+                break;
             }
-        } else {
-            io.dmac.perform_work(&mut self.sysbus, &mut irqs);
-            0
-        };
+            cycles_left -= _cycles;
+        }
 
-        io.timers.step(cycles, &mut self.sysbus, &mut irqs);
-
-        io.gpu.step(cycles, &mut self.sysbus, &mut irqs);
-
+        // update gpu & sound
+        io.timers.update(cycles, &mut self.sysbus, &mut irqs);
+        io.gpu.step(
+            cycles,
+            &mut self.sysbus,
+            &mut irqs,
+            &mut cycles_to_next_event,
+        );
+        io.sound.update(cycles, &mut cycles_to_next_event);
+        self.cycles_to_next_event = cycles_to_next_event;
         io.intc.request_irqs(irqs);
-        io.sound.update(self.cpu.cycles);
     }
 }

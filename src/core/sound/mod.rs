@@ -68,7 +68,7 @@ pub struct SoundController {
     audio_device: AudioDeviceRcRefCell,
 
     sample_rate_to_cpu_freq: usize, // how many "cycles" are a sample?
-    last_sample_cycles: usize,      // cycles count when we last provided a new sample.
+    cycles: usize,                  // cycles count when we last provided a new sample.
 
     mse: bool,
 
@@ -114,7 +114,7 @@ impl SoundController {
             audio_device: audio_device,
 
             sample_rate_to_cpu_freq: 12345,
-            last_sample_cycles: 0,
+            cycles: 0,
             mse: false,
             left_volume: 0,
             left_sqr1: false,
@@ -286,7 +286,7 @@ impl SoundController {
                     self.resampler.in_freq = self.sample_rate;
                 }
                 self.cycles_per_sample = 512 >> resolution;
-            },
+            }
 
             _ => {
                 // println!(
@@ -321,9 +321,10 @@ impl SoundController {
         }
     }
 
-    pub fn update(&mut self, cycles: usize) {
-        while cycles - self.last_sample_cycles >= self.cycles_per_sample {
-            self.last_sample_cycles += self.cycles_per_sample;
+    pub fn update(&mut self, cycles: usize, cycles_to_next_event: &mut usize) {
+        self.cycles += cycles;
+        while self.cycles >= self.cycles_per_sample {
+            self.cycles -= self.cycles_per_sample;
 
             // time to push a new sample!
 
@@ -340,6 +341,9 @@ impl SoundController {
             let mut audio = self.audio_device.borrow_mut();
             self.resampler
                 .push_sample((sample[0], sample[1]), &mut *audio);
+        }
+        if self.cycles_per_sample < *cycles_to_next_event {
+            *cycles_to_next_event = self.cycles_per_sample;
         }
     }
 }

@@ -1,11 +1,8 @@
-extern crate bit_set;
-
-use bit_set::BitSet;
-
 use super::iodev::consts::{REG_FIFO_A, REG_FIFO_B};
 use super::sysbus::SysBus;
 use super::{Addr, Bus, Interrupt, IrqBitmask};
 
+use bit_set::BitSet;
 use num::FromPrimitive;
 
 #[derive(Debug)]
@@ -178,7 +175,7 @@ impl DmaChannel {
 #[derive(Debug)]
 pub struct DmaController {
     pub channels: [DmaChannel; 4],
-    pending_bittset: BitSet,
+    pending_set: BitSet,
     cycles: usize,
 }
 
@@ -191,20 +188,20 @@ impl DmaController {
                 DmaChannel::new(2),
                 DmaChannel::new(3),
             ],
-            pending_bittset: BitSet::with_capacity(4),
+            pending_set: BitSet::with_capacity(4),
             cycles: 0,
         }
     }
 
-    pub fn has_work(&self) -> bool {
-        !self.pending_bittset.is_empty()
+    pub fn is_active(&self) -> bool {
+        !self.pending_set.is_empty()
     }
 
     pub fn perform_work(&mut self, sb: &mut SysBus, irqs: &mut IrqBitmask) {
-        for id in self.pending_bittset.iter() {
+        for id in self.pending_set.iter() {
             self.channels[id].xfer(sb, irqs);
         }
-        self.pending_bittset.clear();
+        self.pending_set.clear();
     }
 
     pub fn write_16(&mut self, channel_id: usize, ofs: u32, value: u16) {
@@ -216,9 +213,9 @@ impl DmaController {
             8 => self.channels[channel_id].write_word_count(value),
             10 => {
                 if self.channels[channel_id].write_dma_ctrl(value) {
-                    self.pending_bittset.insert(channel_id);
+                    self.pending_set.insert(channel_id);
                 } else {
-                    self.pending_bittset.remove(channel_id);
+                    self.pending_set.remove(channel_id);
                 }
             }
             _ => panic!("Invalid dma offset {:x}", ofs),
@@ -228,7 +225,7 @@ impl DmaController {
     pub fn notify_vblank(&mut self) {
         for i in 0..4 {
             if self.channels[i].ctrl.is_enabled() && self.channels[i].ctrl.timing() == 1 {
-                self.pending_bittset.insert(i);
+                self.pending_set.insert(i);
             }
         }
     }
@@ -236,7 +233,7 @@ impl DmaController {
     pub fn notify_hblank(&mut self) {
         for i in 0..4 {
             if self.channels[i].ctrl.is_enabled() && self.channels[i].ctrl.timing() == 2 {
-                self.pending_bittset.insert(i);
+                self.pending_set.insert(i);
             }
         }
     }
@@ -248,7 +245,7 @@ impl DmaController {
                 && self.channels[i].ctrl.timing() == 3
                 && self.channels[i].dst == fifo_addr
             {
-                self.pending_bittset.insert(i);
+                self.pending_set.insert(i);
             }
         }
     }

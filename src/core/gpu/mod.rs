@@ -180,7 +180,9 @@ pub struct Gpu {
     #[debug_stub = "video handle"]
     video_device: VideoDeviceRcRefCell,
     pub state: GpuState,
-    cycles: usize,
+
+    /// how many cycles left until next gpu state ?
+    cycles_left_for_current_state: usize,
 
     // registers
     pub vcount: usize, // VCOUNT
@@ -231,7 +233,7 @@ impl Gpu {
 
             state: HDraw,
             vcount: 0,
-            cycles: 0,
+            cycles_left_for_current_state: CYCLES_HDRAW,
 
             palette_ram: BoxedMemory::new(vec![0; PALETTE_RAM_SIZE].into_boxed_slice()),
             vram: BoxedMemory::new(vec![0; VIDEO_RAM_SIZE].into_boxed_slice()),
@@ -342,34 +344,39 @@ impl Gpu {
     }
 
     // Returns the new gpu state
-    pub fn step(&mut self, cycles: usize, sb: &mut SysBus, irqs: &mut IrqBitmask) {
-        self.cycles += cycles;
+    pub fn step(
+        &mut self,
+        cycles: usize,
+        sb: &mut SysBus,
+        irqs: &mut IrqBitmask,
+        cycles_to_next_event: &mut usize,
+    ) {
+        if self.cycles_left_for_current_state <= cycles {
+            let overshoot = cycles - self.cycles_left_for_current_state;
 
-        match self.state {
-            HDraw => {
-                if self.cycles > CYCLES_HDRAW {
-                    self.cycles -= CYCLES_HDRAW;
-                    // HBlank
+            // handle the state change
+            match self.state {
+                HDraw => {
+                    // Transition to HBlank
+                    self.state = HBlank;
+                    self.cycles_left_for_current_state = CYCLES_HBLANK;
                     self.dispstat.set_hblank_flag(true);
                     if self.dispstat.hblank_irq_enable() {
                         irqs.set_LCD_HBlank(true);
                     };
-                    self.state = HBlank;
                     sb.io.dmac.notify_hblank();
                 }
-            }
-            HBlank => {
-                if self.cycles > CYCLES_HBLANK {
-                    self.cycles -= CYCLES_HBLANK;
-
+                HBlank => {
                     self.dispstat.set_hblank_flag(false);
                     self.update_vcount(self.vcount + 1, irqs);
 
                     if self.vcount < DISPLAY_HEIGHT {
                         self.render_scanline();
                         self.state = HDraw;
+                        self.cycles_left_for_current_state = CYCLES_HDRAW;
                     } else {
                         self.state = VBlank;
+                        self.cycles_left_for_current_state = CYCLES_SCANLINE;
                         self.dispstat.set_vblank_flag(true);
                         if self.dispstat.vblank_irq_enable() {
                             irqs.set_LCD_VBlank(true);
@@ -378,21 +385,33 @@ impl Gpu {
                         self.video_device.borrow_mut().render(&self.frame_buffer);
                     }
                 }
-            }
-            VBlank => {
-                if self.cycles > CYCLES_SCANLINE {
-                    self.cycles -= CYCLES_SCANLINE;
-
+                VBlank => {
                     if self.vcount < DISPLAY_HEIGHT + VBLANK_LINES - 1 {
                         self.update_vcount(self.vcount + 1, irqs);
+                        self.cycles_left_for_current_state = CYCLES_SCANLINE;
                     } else {
                         self.update_vcount(0, irqs);
                         self.dispstat.set_vblank_flag(false);
                         self.render_scanline();
                         self.state = HDraw;
+
+                        self.cycles_left_for_current_state = CYCLES_HDRAW;
                     }
                 }
+            };
+
+            // handle the overshoot
+            if overshoot < self.cycles_left_for_current_state {
+                self.cycles_left_for_current_state -= overshoot;
+            } else {
+                panic!("OH SHIT");
             }
+        } else {
+            self.cycles_left_for_current_state -= cycles;
+        }
+
+        if self.cycles_left_for_current_state < *cycles_to_next_event {
+            *cycles_to_next_event = self.cycles_left_for_current_state;
         }
     }
 }
