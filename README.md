@@ -6,8 +6,6 @@ RustBoyAdvance-NG Nintendo GameBoy Advance emulator and debugger, written in the
 
 Currently passing armwrestler tests, and displays some of TONC's Demos.
 
-![TONC bigmap.gba demo ](img/tonc_bigmap_demo.gif)
-
 # Using the REPL
 
 You need to have rust installed, and somehow legally obtain a gba bios binary.
@@ -15,8 +13,6 @@ You need to have rust installed, and somehow legally obtain a gba bios binary.
 ```bash
 $ cargo run -- debug
 ```
-
-![Debugger REPL Demo](img/demo.gif)
 
 # Why is this project needed ?
 
