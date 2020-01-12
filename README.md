@@ -4,17 +4,18 @@
 
 ![icon ](assets/icon.png)
 
-RustBoyAdvance-NG Nintendo GameBoy Advance emulator and debugger, written in the rust programming language.
+Nintendo GameBoy Advance ™ emulator and debugger, written in rust.
 
-Currently passing armwrestler tests, and displays some of TONC's Demos.
+# Build and usage
 
-# Using the REPL
+1. set-up rust *nightly*
+2. Obtain a gba bios binary. you can get an [open source GBA bios](https://github.com/Nebuleon/ReGBA/blob/master/bios/gba_bios.bin)
+3. Place the bios file in the repository root and name it `gba_bios.bin`
 
-You need to have rust installed, and somehow legally obtain a gba bios binary.
-
-```bash
-$ cargo run -- debug
-```
+4. Build and run in release mode (performance is terrible in the `dev` profile)
+    ```bash
+    $ cargo run --release -- path/to/rom
+    ```
 
 # Why is this project needed ?
 
@@ -28,6 +29,35 @@ I tried to resurrect it a year ago but didn't have the time to get invested in a
 I've grown to like rust a lot since then, so here we go again.
 You know what they say, *third time's a charm*.
 
+# Progress
+
+## Supported features:
+* Display modes 0,4,5
+* PCM Audio channels
+
+## Todo:
+* Display modes 2,3 (affine backgrounds)
+* Flash(backup) support
+* CGB audio (4 wave generator channels)
+* web.asm frontend
+* color correction
+
+## Tested games status
+
+### Kirby - Nightmare in Dreamland*
+No issues so far
+
+### Pokemon - Emerald
+
+Won't boot unless binary patched to remove a loop querying the flash chip
+
+### Dragon Ball - Legacy of Goku 2
+crashes when entering in-game menu, other than that works fine.
+
+## Screenshots
+
+![Pokemon Emerald](media/screenshot1.png) ![Kirby - Nightmare in Dreamland](media/screenshot2.png) ![Dragon Ball - Legacy of Goku 2](media/screenshot3.png)
+
 # Links
 
 - [ARM7TDMI Technical Reference Manual](http://infocenter.arm.com/help/topic/com.arm.doc.ddi0210c/DDI0210B.pdf)
@@ -40,6 +70,6 @@ You know what they say, *third time's a charm*.
     Comes with neat demo roms that really helped me during development and debugging.
 - [NanoboyAdvance](https://github.com/fleroviux/NanoboyAdvance)
     A GameBoy Advance emulator written in C++17 by a nice person called fleroviux.
-    I've used this emulator to search for a tough bug in mine.
+    I've used this for debugging.
 - [Eggvance](https://github.com/jsmolka/eggvance/tree/master/tests)
     A GameBoy Advance emulator written in C++, with really useful CPU test roms.
