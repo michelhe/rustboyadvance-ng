@@ -1,6 +1,6 @@
 # RustBoyAdvance-NG
 
-[![Build Status](https://travis-ci.com/michelhe/rustboyadvance-ng.svg?branch=master)](https://travis-ci.com/michelhe/rustboyadvance-ng)
+![license](https://img.shields.io/github/license/michelhe/rustboyadvance-ng) [![Build Status](https://travis-ci.com/michelhe/rustboyadvance-ng.svg?branch=master)](https://travis-ci.com/michelhe/rustboyadvance-ng)
 
 ![icon ](assets/icon.png)
 
