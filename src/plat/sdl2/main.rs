@@ -73,7 +73,7 @@ fn main() {
     let mut canvas = window.into_canvas().accelerated().build().unwrap();
 
     // Display the icon as a placeholder
-    canvas.set_draw_color(Color::RGB(0x80, 0x75, 0x85)); // default background color for the icon
+    canvas.set_draw_color(Color::RGB(0x40, 0x22, 0x20)); // default background color for the icon
     canvas.clear();
     let texture_creator = canvas.texture_creator();
     let icon_texture = texture_creator
@@ -83,7 +83,12 @@ fn main() {
         .copy(
             &icon_texture,
             None,
-            Some(Rect::new(0, 0, SCREEN_WIDTH * SCALE, SCREEN_HEIGHT * SCALE)),
+            Some(Rect::new(
+                (SCREEN_WIDTH as i32) * ((SCALE as i32) - 1) / 2,
+                (SCREEN_HEIGHT as i32) * ((SCALE as i32) - 1) / 2,
+                SCREEN_WIDTH,
+                SCREEN_HEIGHT,
+            )),
         )
         .unwrap();
     canvas.present();
