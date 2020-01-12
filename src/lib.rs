@@ -19,8 +19,10 @@ extern crate bit_set;
 
 extern crate byteorder;
 
+#[cfg(feature = "debugger")]
 extern crate rustyline;
 
+#[cfg(feature = "debugger")]
 extern crate nom;
 
 extern crate ansi_term;
@@ -33,7 +35,7 @@ pub mod util;
 pub mod core;
 pub mod disass;
 
-#[cfg(rba_with_debugger)]
+#[cfg(feature = "debugger")]
 pub mod debugger;
 
 pub trait VideoInterface {
@@ -57,7 +59,7 @@ pub mod prelude {
     pub use super::core::arm7tdmi;
     pub use super::core::cartridge::Cartridge;
     pub use super::core::{GBAError, GBAResult, GameBoyAdvance};
-    #[cfg(rba_with_debugger)]
+    #[cfg(feature = "debugger")]
     pub use super::debugger::Debugger;
     pub use super::util::read_bin_file;
     pub use super::{AudioInterface, InputInterface, VideoInterface};

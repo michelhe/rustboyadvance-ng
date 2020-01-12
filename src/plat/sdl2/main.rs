@@ -129,7 +129,7 @@ fn main() {
     );
 
     if debug {
-        #[cfg(rba_with_debugger)]
+        #[cfg(feature = "debugger")]
         {
             gba.cpu.set_verbose(true);
             let mut debugger = Debugger::new(gba);
@@ -138,9 +138,9 @@ fn main() {
             println!("ending debugger...");
             return;
         }
-        #[cfg(not(rba_with_debugger))]
+        #[cfg(not(feature = "debugger"))]
         {
-            panic!("Please compile me with cfg(rba_with_debugger)");
+            panic!("Please compile me with 'debugger' feature");
         }
     }
 
@@ -163,7 +163,7 @@ fn main() {
                 } => {
                     frame_limiter = true;
                 }
-                #[cfg(rba_with_debugger)]
+                #[cfg(feature = "debugger")]
                 Event::KeyUp {
                     keycode: Some(Keycode::F1),
                     ..
