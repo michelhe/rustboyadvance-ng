@@ -43,20 +43,25 @@ pub mod disass;
 pub mod debugger;
 
 pub trait VideoInterface {
-    fn render(&mut self, buffer: &[u32]);
+    #[allow(unused_variables)]
+    fn render(&mut self, buffer: &[u32]) {}
 }
 
 pub type StereoSample = (i16, i16);
 
 pub trait AudioInterface {
-    fn get_sample_rate(&self) -> i32;
+    fn get_sample_rate(&self) -> i32 {
+        44100
+    }
 
     #[allow(unused_variables)]
     fn push_sample(&mut self, samples: StereoSample) {}
 }
 
 pub trait InputInterface {
-    fn poll(&mut self) -> u16;
+    fn poll(&mut self) -> u16 {
+        core::keypad::KEYINPUT_ALL_RELEASED
+    }
 }
 
 pub mod prelude {

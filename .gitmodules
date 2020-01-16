@@ -1,0 +1,3 @@
+[submodule "external/gba-suite"]
+	path = external/gba-suite
+	url = https://github.com/jsmolka/gba-suite.git

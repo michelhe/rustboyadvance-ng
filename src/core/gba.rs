@@ -182,3 +182,67 @@ impl GameBoyAdvance {
         io.intc.request_irqs(irqs);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use super::super::arm7tdmi;
+    use super::super::cartridge::Cartridge;
+
+    struct DummyInterface {}
+
+    impl DummyInterface {
+        fn new() -> DummyInterface {
+            DummyInterface {}
+        }
+    }
+
+    impl VideoInterface for DummyInterface {}
+    impl AudioInterface for DummyInterface {}
+    impl InputInterface for DummyInterface {}
+
+    fn make_mock_gba(rom: &[u8]) -> GameBoyAdvance {
+        let bios = vec![0; 0x4000];
+        let cpu = arm7tdmi::Core::new();
+        let cartridge = Cartridge::from_bytes(rom);
+        let dummy = Rc::new(RefCell::new(DummyInterface::new()));
+        let mut gba = GameBoyAdvance::new(
+            cpu,
+            bios,
+            cartridge,
+            dummy.clone(),
+            dummy.clone(),
+            dummy.clone(),
+        );
+        gba.skip_bios();
+
+        gba
+    }
+
+    #[test]
+    fn test_arm7tdmi_arm_eggvance() {
+        let mut gba = make_mock_gba(include_bytes!("../../external/gba-suite/arm/arm.gba"));
+
+        for _ in 0..10 {
+            gba.frame();
+        }
+
+        assert_eq!(0x080019e0, gba.cpu.pc);
+        assert_eq!(0, gba.cpu.gpr[12]);
+    }
+
+    #[test]
+    fn test_arm7tdmi_thumb_eggvance() {
+        let mut gba = make_mock_gba(include_bytes!("../../external/gba-suite/thumb/thumb.gba"));
+
+        for _ in 0..10 {
+            gba.frame();
+        }
+
+        assert_eq!(0x800091a, gba.cpu.pc);
+        assert_eq!(0, gba.cpu.gpr[7]);
+    }
+}

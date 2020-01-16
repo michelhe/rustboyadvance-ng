@@ -58,12 +58,12 @@ crashes when entering in-game menu, other than that works fine.
 
 ![Pokemon Emerald](media/screenshot1.png) ![Kirby - Nightmare in Dreamland](media/screenshot2.png) ![Dragon Ball - Legacy of Goku 2](media/screenshot3.png)
 
-# Links
+# Links and attribution
 
 - [ARM7TDMI Technical Reference Manual](http://infocenter.arm.com/help/topic/com.arm.doc.ddi0210c/DDI0210B.pdf)
     Technical Reference Manuals are **fun**.
 - [GBATEK](http://problemkaputt.de/gbatek.htm)
-    A single webpage written by *no$gba* developer  Martin Korth.
+    A single webpage written by *no$gba* developer Martin Korth.
     This page has pretty much everything. Seriously, it's the best.
 - [TONC](https://www.coranac.com/tonc/text/)
     A comprehensive GBA dev guide that I used a-lot in order to understand the GBA system.
@@ -71,5 +71,5 @@ crashes when entering in-game menu, other than that works fine.
 - [NanoboyAdvance](https://github.com/fleroviux/NanoboyAdvance)
     A GameBoy Advance emulator written in C++17 by a nice person called fleroviux.
     I've used this for debugging.
-- [Eggvance](https://github.com/jsmolka/eggvance/tree/master/tests)
-    A GameBoy Advance emulator written in C++, with really useful CPU test roms.
+- [Eggvance gba-suite](https://github.com/jsmolka/gba-suite)
+    Incredible test suite for the arm7tdmi interpreter that I'm using, written by Julian Smolka.

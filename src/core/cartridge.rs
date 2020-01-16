@@ -122,6 +122,15 @@ impl Cartridge {
             bytes: rom_bin.into_boxed_slice(),
         })
     }
+
+    pub fn from_bytes(bytes: &[u8]) -> Cartridge {
+        let header = CartridgeHeader::parse(&bytes);
+
+        Cartridge {
+            header: header,
+            bytes: bytes.into(),
+        }
+    }
 }
 
 impl Bus for Cartridge {
