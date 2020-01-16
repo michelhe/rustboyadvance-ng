@@ -3,6 +3,10 @@
 #![feature(exclusive_range_pattern)]
 
 #[macro_use]
+extern crate serde;
+extern crate bincode;
+
+#[macro_use]
 extern crate debug_stub_derive;
 
 #[macro_use]

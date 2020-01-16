@@ -6,6 +6,8 @@ edition = "2018"
 default-run= "rba-sdl2"
 
 [dependencies]
+serde = {version = "1.0.104", features = ["derive"] }
+bincode = "1.2.1"
 byteorder = "1"
 num = "0.2.0"
 num-traits = "0.2"
