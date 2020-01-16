@@ -44,8 +44,6 @@ pub mod consts {
 }
 pub use self::consts::*;
 
-pub type FrameBuffer<T> = [T; DISPLAY_WIDTH * DISPLAY_HEIGHT];
-
 #[derive(Debug, Primitive, Copy, Clone)]
 pub enum PixelFormat {
     BPP4 = 0,
@@ -65,31 +63,35 @@ impl Default for GpuState {
 }
 use GpuState::*;
 
-#[derive(Copy, Clone)]
-pub struct Scanline<T>([T; DISPLAY_WIDTH]);
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Scanline {
+    inner: Vec<Rgb15>,
+}
 
-impl Default for Scanline<Rgb15> {
-    fn default() -> Scanline<Rgb15> {
-        Scanline([Rgb15::TRANSPARENT; DISPLAY_WIDTH])
+impl Default for Scanline {
+    fn default() -> Scanline {
+        Scanline {
+            inner: vec![Rgb15::TRANSPARENT; DISPLAY_WIDTH],
+        }
     }
 }
 
-impl<T> fmt::Debug for Scanline<T> {
+impl fmt::Debug for Scanline {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "...")
     }
 }
 
-impl<T> std::ops::Index<usize> for Scanline<T> {
-    type Output = T;
+impl std::ops::Index<usize> for Scanline {
+    type Output = Rgb15;
     fn index(&self, index: usize) -> &Self::Output {
-        &self.0[index]
+        &self.inner[index]
     }
 }
 
-impl<T> std::ops::IndexMut<usize> for Scanline<T> {
+impl std::ops::IndexMut<usize> for Scanline {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.0[index]
+        &mut self.inner[index]
     }
 }
 
@@ -98,10 +100,11 @@ pub struct Background {
     pub bgcnt: BgControl,
     pub bgvofs: u16,
     pub bghofs: u16,
-    line: Scanline<Rgb15>,
+
+    line: Scanline,
 
     // for mosaic
-    mosaic_first_row: Scanline<Rgb15>,
+    mosaic_first_row: Scanline,
 }
 
 #[derive(Debug, Default)]
@@ -211,10 +214,10 @@ pub struct Gpu {
     pub oam: BoxedMemory,
 
     #[debug_stub = "Sprite Buffer"]
-    pub obj_buffer: FrameBuffer<ObjBufferEntry>,
+    pub obj_buffer: Vec<ObjBufferEntry>,
 
     #[debug_stub = "Frame Buffer"]
-    pub(super) frame_buffer: FrameBuffer<u32>,
+    pub(super) frame_buffer: Vec<u32>,
 }
 
 impl Gpu {
@@ -224,7 +227,12 @@ impl Gpu {
 
             dispcnt: DisplayControl(0x80),
             dispstat: DisplayStatus(0),
-            bg: [Background::default(); 4],
+            bg: [
+                Background::default(),
+                Background::default(),
+                Background::default(),
+                Background::default(),
+            ],
             bg_aff: [BgAffine::default(); 2],
             win0: Window::default(),
             win1: Window::default(),
@@ -243,8 +251,8 @@ impl Gpu {
             vram: BoxedMemory::new(vec![0; VIDEO_RAM_SIZE].into_boxed_slice()),
             oam: BoxedMemory::new(vec![0; OAM_SIZE].into_boxed_slice()),
 
-            obj_buffer: [Default::default(); DISPLAY_WIDTH * DISPLAY_HEIGHT],
-            frame_buffer: [0; DISPLAY_WIDTH * DISPLAY_HEIGHT],
+            obj_buffer: vec![Default::default(); DISPLAY_WIDTH * DISPLAY_HEIGHT],
+            frame_buffer: vec![0; DISPLAY_WIDTH * DISPLAY_HEIGHT],
         }
     }
 
