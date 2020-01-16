@@ -2,11 +2,10 @@ use super::interrupt::{Interrupt, IrqBitmask};
 use super::iodev::consts::*;
 use super::sysbus::SysBus;
 
-use bit_set::BitSet;
-
 use num::FromPrimitive;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Timer {
     // registers
     pub ctl: TimerCtl,
@@ -66,10 +65,10 @@ impl Timer {
     }
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Timers {
     timers: [Timer; 4],
-    running_timers: BitSet,
+    running_timers: u8,
     pub trace: bool,
 }
 
@@ -90,7 +89,7 @@ impl Timers {
     pub fn new() -> Timers {
         Timers {
             timers: [Timer::new(0), Timer::new(1), Timer::new(2), Timer::new(3)],
-            running_timers: BitSet::with_capacity(4),
+            running_timers: 0,
             trace: false,
         }
     }
@@ -101,9 +100,9 @@ impl Timers {
         let new_enabled = self[id].ctl.enabled();
         let cascade = self.timers[id].ctl.cascade();
         if new_enabled && !cascade {
-            self.running_timers.insert(id);
+            self.running_timers |= 1 << id;
         } else {
-            self.running_timers.remove(id);
+            self.running_timers &= !(1 << id);
         }
         if self.trace && old_enabled != new_enabled {
             println!(
@@ -158,7 +157,11 @@ impl Timers {
     }
 
     pub fn update(&mut self, cycles: usize, sb: &mut SysBus, irqs: &mut IrqBitmask) {
-        for id in self.running_timers.iter() {
+        for id in 0..4 {
+            if self.running_timers & (1 << id) == 0 {
+                continue;
+            }
+
             if !self.timers[id].ctl.cascade() {
                 let timer = &mut self.timers[id];
                 let num_overflows = timer.update(cycles, irqs);
@@ -181,7 +184,7 @@ impl Timers {
 }
 
 bitfield! {
-    #[derive(Default)]
+    #[derive(Serialize, Deserialize, Clone, Default)]
     pub struct TimerCtl(u16);
     impl Debug;
     u16;

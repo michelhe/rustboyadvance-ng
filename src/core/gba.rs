@@ -2,6 +2,9 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use bincode;
+use serde::{Deserialize, Serialize};
+
 use super::arm7tdmi::Core;
 use super::cartridge::Cartridge;
 use super::gpu::*;
@@ -21,6 +24,12 @@ pub struct GameBoyAdvance {
     input_device: Rc<RefCell<dyn InputInterface>>,
 
     cycles_to_next_event: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SaveState {
+    sysbus: Box<SysBus>,
+    cpu: Core,
 }
 
 impl GameBoyAdvance {
@@ -47,6 +56,25 @@ impl GameBoyAdvance {
 
             cycles_to_next_event: 1,
         }
+    }
+
+    pub fn save_state(&self) -> bincode::Result<Vec<u8>> {
+        let s = SaveState {
+            cpu: self.cpu.clone(),
+            sysbus: self.sysbus.clone(),
+        };
+
+        bincode::serialize(&s)
+    }
+
+    pub fn restore_state(&mut self, bytes: &[u8]) -> bincode::Result<()> {
+        let decoded: Box<SaveState> = bincode::deserialize_from(bytes)?;
+
+        self.cpu = decoded.cpu;
+        self.sysbus = decoded.sysbus;
+        self.cycles_to_next_event = 1;
+
+        Ok(())
     }
 
     #[inline]

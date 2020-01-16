@@ -1,8 +1,10 @@
 //! Helper type to deal with the GBA's 15bit color
 
+use serde::{Deserialize, Serialize};
+
 bitfield! {
     #[repr(transparent)]
-    #[derive(Copy, Clone, Default, PartialEq)]
+    #[derive(Serialize, Deserialize, Copy, Clone, Default, PartialEq)]
     pub struct Rgb15(u16);
     impl Debug;
     pub r, set_r: 4, 0;

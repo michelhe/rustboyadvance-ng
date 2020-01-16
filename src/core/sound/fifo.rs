@@ -1,7 +1,9 @@
 // TODO write tests or replace with a crate
 const SOUND_FIFO_CAPACITY: usize = 32;
 
-#[derive(Debug)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SoundFifo {
     wr_pos: usize,
     rd_pos: usize,

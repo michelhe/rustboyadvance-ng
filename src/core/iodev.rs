@@ -7,15 +7,18 @@ use super::sound::SoundController;
 use super::timer::Timers;
 use super::{Addr, Bus};
 
+use serde::{Deserialize, Serialize};
+
 use self::consts::*;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 pub enum HaltState {
     Running,
     Halt, // In Halt mode, the CPU is paused as long as (IE AND IF)=0,
     Stop, // In Stop mode, most of the hardware including sound and video are paused
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct IoDevices {
     pub intc: InterruptController,
     pub gpu: Box<Gpu>,
@@ -262,7 +265,7 @@ impl Bus for IoDevices {
 }
 
 bitfield! {
-    #[derive(Default, Copy, Clone, PartialEq)]
+    #[derive(Serialize, Deserialize, Default, Copy, Clone, PartialEq)]
     pub struct WaitControl(u16);
     impl Debug;
     u16;

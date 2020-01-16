@@ -2,16 +2,10 @@ use super::iodev::consts::{REG_FIFO_A, REG_FIFO_B};
 use super::sysbus::SysBus;
 use super::{Addr, Bus, Interrupt, IrqBitmask};
 
-use bit_set::BitSet;
 use num::FromPrimitive;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
-enum DmaTransferType {
-    Xfer16bit,
-    Xfer32bit,
-}
-
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DmaChannel {
     id: usize,
 
@@ -30,7 +24,7 @@ pub struct DmaChannel {
     irq: Interrupt,
 }
 
-#[derive(Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 struct DmaInternalRegs {
     src_addr: u32,
     dst_addr: u32,
@@ -172,10 +166,10 @@ impl DmaChannel {
     }
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DmaController {
     pub channels: [DmaChannel; 4],
-    pending_set: BitSet,
+    pending_set: u8,
     cycles: usize,
 }
 
@@ -188,20 +182,22 @@ impl DmaController {
                 DmaChannel::new(2),
                 DmaChannel::new(3),
             ],
-            pending_set: BitSet::with_capacity(4),
+            pending_set: 0,
             cycles: 0,
         }
     }
 
     pub fn is_active(&self) -> bool {
-        !self.pending_set.is_empty()
+        self.pending_set != 0
     }
 
     pub fn perform_work(&mut self, sb: &mut SysBus, irqs: &mut IrqBitmask) {
-        for id in self.pending_set.iter() {
-            self.channels[id].xfer(sb, irqs);
+        for id in 0..4 {
+            if self.pending_set & (1 << id) != 0 {
+                self.channels[id].xfer(sb, irqs);
+            }
         }
-        self.pending_set.clear();
+        self.pending_set = 0;
     }
 
     pub fn write_16(&mut self, channel_id: usize, ofs: u32, value: u16) {
@@ -213,9 +209,9 @@ impl DmaController {
             8 => self.channels[channel_id].write_word_count(value),
             10 => {
                 if self.channels[channel_id].write_dma_ctrl(value) {
-                    self.pending_set.insert(channel_id);
+                    self.pending_set |= 1 << channel_id;
                 } else {
-                    self.pending_set.remove(channel_id);
+                    self.pending_set &= !(1 << channel_id);
                 }
             }
             _ => panic!("Invalid dma offset {:x}", ofs),
@@ -225,7 +221,7 @@ impl DmaController {
     pub fn notify_vblank(&mut self) {
         for i in 0..4 {
             if self.channels[i].ctrl.is_enabled() && self.channels[i].ctrl.timing() == 1 {
-                self.pending_set.insert(i);
+                self.pending_set |= 1 << i;
             }
         }
     }
@@ -233,7 +229,7 @@ impl DmaController {
     pub fn notify_hblank(&mut self) {
         for i in 0..4 {
             if self.channels[i].ctrl.is_enabled() && self.channels[i].ctrl.timing() == 2 {
-                self.pending_set.insert(i);
+                self.pending_set |= 1 << i;
             }
         }
     }
@@ -245,14 +241,14 @@ impl DmaController {
                 && self.channels[i].ctrl.timing() == 3
                 && self.channels[i].dst == fifo_addr
             {
-                self.pending_set.insert(i);
+                self.pending_set |= 1 << i;
             }
         }
     }
 }
 
 bitfield! {
-    #[derive(Default)]
+    #[derive(Serialize, Deserialize, Clone, Default)]
     pub struct DmaChannelCtrl(u16);
     impl Debug;
     u16;

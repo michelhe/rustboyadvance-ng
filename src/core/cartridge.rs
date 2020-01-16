@@ -4,6 +4,8 @@ use std::io::prelude::*;
 use std::path::Path;
 use std::str::from_utf8;
 
+use serde::{Deserialize, Serialize};
+
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use zip::ZipArchive;
 
@@ -35,7 +37,7 @@ use super::{Addr, Bus, GBAResult};
 ///   0C6h    26    Not used         (seems to be unused)
 ///   0E0h    4     JOYBUS Entry Pt. (32bit ARM branch opcode, eg. "B joy_start")
 ///
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CartridgeHeader {
     // rom_entry_point: Addr,
     game_title: String,
@@ -69,7 +71,7 @@ impl CartridgeHeader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Cartridge {
     pub header: CartridgeHeader,
     bytes: Box<[u8]>,

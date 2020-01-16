@@ -1,6 +1,8 @@
 /// The program status register
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 use crate::bit::BitIndex;
 use crate::num::FromPrimitive;
 
@@ -27,7 +29,7 @@ impl From<bool> for CpuState {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default)]
 pub struct RegPSR {
     raw: u32,
 }

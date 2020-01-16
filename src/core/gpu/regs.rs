@@ -1,6 +1,8 @@
 use super::sfx::BldMode;
 use super::*;
 
+use serde::{Deserialize, Serialize};
+
 pub const SCREEN_BLOCK_SIZE: u32 = 0x800;
 
 #[derive(Debug, PartialEq)]
@@ -60,6 +62,7 @@ impl BgControl {
 
 // struct definitions below because the bitfield! macro messes up syntax highlighting in vscode.
 bitfield! {
+    #[derive(Serialize, Deserialize, Clone)]
     pub struct DisplayControl(u16);
     impl Debug;
     u16;
@@ -79,6 +82,7 @@ bitfield! {
 }
 
 bitfield! {
+    #[derive(Serialize, Deserialize, Clone)]
     pub struct DisplayStatus(u16);
     impl Debug;
     u16;
@@ -92,7 +96,7 @@ bitfield! {
 }
 
 bitfield! {
-    #[derive(Default, Copy, Clone)]
+    #[derive(Serialize, Deserialize, Default, Copy, Clone)]
     pub struct BgControl(u16);
     impl Debug;
     u16;
@@ -106,7 +110,7 @@ bitfield! {
 }
 
 bitfield! {
-    #[derive(Default, Copy, Clone)]
+    #[derive(Serialize, Deserialize, Default, Copy, Clone)]
     pub struct RegMosaic(u16);
     impl Debug;
     u32;
@@ -117,7 +121,7 @@ bitfield! {
 }
 
 bitflags! {
-    #[derive(Default)]
+    #[derive(Serialize, Deserialize, Default)]
     pub struct BlendFlags: u32 {
         const BG0 = 0b00000001;
         const BG1 = 0b00000010;
@@ -148,7 +152,7 @@ impl BlendFlags {
 }
 
 bitfield! {
-    #[derive(Default, Copy, Clone)]
+    #[derive(Serialize, Deserialize, Default, Copy, Clone)]
     pub struct BlendControl(u16);
     impl Debug;
     pub into BlendFlags, top, _: 5, 0;
@@ -157,7 +161,7 @@ bitfield! {
 }
 
 bitfield! {
-    #[derive(Default, Copy, Clone)]
+    #[derive(Serialize, Deserialize, Default, Copy, Clone)]
     pub struct BlendAlpha(u16);
     impl Debug;
     u16;
@@ -166,7 +170,7 @@ bitfield! {
 }
 
 bitflags! {
-    #[derive(Default)]
+    #[derive(Serialize, Deserialize, Default)]
     pub struct WindowFlags: u32 {
         const BG0 = 0b00000001;
         const BG1 = 0b00000010;
@@ -200,7 +204,7 @@ const BG_WIN_FLAG: [WindowFlags; 4] = [
 ];
 
 bitfield! {
-    #[derive(Default, Copy, Clone)]
+    #[derive(Serialize, Deserialize, Default, Copy, Clone)]
     pub struct WindowReg(u16);
     impl Debug;
     u16;

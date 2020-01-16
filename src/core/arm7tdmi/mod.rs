@@ -1,6 +1,7 @@
 use std::fmt;
 
 use num::Num;
+use serde::{Deserialize, Serialize};
 
 pub mod arm;
 pub mod thumb;
@@ -21,7 +22,7 @@ pub const REG_SP: usize = 13;
 
 pub(self) use crate::core::{Addr, Bus};
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
 pub enum DecodedInstruction {
     Arm(ArmInstruction),
     Thumb(ThumbInstruction),

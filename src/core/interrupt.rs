@@ -1,4 +1,6 @@
-#[derive(Debug, Primitive, Copy, Clone, PartialEq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Debug, Primitive, Copy, Clone, PartialEq)]
 #[allow(non_camel_case_types)]
 pub enum Interrupt {
     LCD_VBlank = 0,
@@ -17,7 +19,7 @@ pub enum Interrupt {
     GamePak = 13,
 }
 
-#[derive(Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct InterruptController {
     pub interrupt_master_enable: bool,
     pub interrupt_enable: IrqBitmask,
@@ -48,7 +50,7 @@ impl IrqBitmask {
 }
 
 bitfield! {
-    #[derive(Default, Copy, Clone, PartialEq)]
+    #[derive(Serialize, Deserialize, Default, Copy, Clone, PartialEq)]
     pub struct IrqBitmask(u16);
     impl Debug;
     u16;

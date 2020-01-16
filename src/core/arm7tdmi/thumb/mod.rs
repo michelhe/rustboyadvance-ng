@@ -35,7 +35,7 @@ impl ThumbDecodeError {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
 pub enum ThumbFormat {
     /// Format 1
     MoveShiftedReg,
@@ -77,7 +77,7 @@ pub enum ThumbFormat {
     BranchLongWithLink,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
 pub struct ThumbInstruction {
     pub fmt: ThumbFormat,
     pub raw: u16,

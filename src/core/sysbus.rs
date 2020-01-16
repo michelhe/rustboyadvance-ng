@@ -1,6 +1,8 @@
 use std::fmt;
 use std::ops::Add;
 
+use serde::{Deserialize, Serialize};
+
 use super::cartridge::Cartridge;
 use super::gpu::{GpuState, VIDEO_RAM_SIZE};
 use super::iodev::IoDevices;
@@ -64,7 +66,7 @@ impl fmt::Display for MemoryAccess {
     }
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BoxedMemory {
     pub mem: Box<[u8]>,
 }
@@ -77,15 +79,17 @@ impl BoxedMemory {
 
 impl Bus for BoxedMemory {
     fn read_8(&self, addr: Addr) -> u8 {
-        self.mem[addr as usize]
+        unsafe { *self.mem.get_unchecked(addr as usize) }
     }
 
     fn write_8(&mut self, addr: Addr, value: u8) {
-        self.mem[addr as usize] = value;
+        unsafe {
+            *self.mem.get_unchecked_mut(addr as usize) = value;
+        }
     }
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct DummyBus([u8; 4]);
 
 impl Bus for DummyBus {
@@ -96,6 +100,7 @@ impl Bus for DummyBus {
     fn write_8(&mut self, _addr: Addr, _value: u8) {}
 }
 
+#[derive(Serialize, Deserialize, Clone)]
 pub struct SysBus {
     pub io: IoDevices,
 

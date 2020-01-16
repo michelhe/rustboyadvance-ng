@@ -1,12 +1,14 @@
 use crate::{AudioInterface, StereoSample};
 
+use serde::{Deserialize, Serialize};
+
 const PI: f32 = std::f32::consts::PI;
 
 pub trait Resampler {
     fn push_sample(&mut self, s: StereoSample, audio: &mut dyn AudioInterface);
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CosineResampler {
     last_in_sample: StereoSample,
     phase: f32,

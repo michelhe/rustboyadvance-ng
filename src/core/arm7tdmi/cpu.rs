@@ -1,6 +1,7 @@
 use std::fmt;
 
 use ansi_term::{Colour, Style};
+use serde::{Deserialize, Serialize};
 
 pub use super::exception::Exception;
 use super::{
@@ -13,7 +14,7 @@ use crate::core::sysbus::{
     MemoryAccess, MemoryAccessType, MemoryAccessType::*, MemoryAccessWidth::*, SysBus,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub enum PipelineState {
     Refill1,
     Refill2,
@@ -26,7 +27,7 @@ impl Default for PipelineState {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Core {
     pub pc: u32,
     pub gpr: [u32; 15],

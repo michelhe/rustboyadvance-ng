@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use bit::BitIndex;
+use serde::{Deserialize, Serialize};
 
 use super::dma::DmaController;
 use super::iodev::consts::*;
@@ -18,10 +19,7 @@ const DMG_RATIOS: [f32; 4] = [0.25, 0.5, 1.0, 0.0];
 const DMA_TIMERS: [usize; 2] = [0, 1];
 const DUTY_RATIOS: [f32; 4] = [0.125, 0.25, 0.5, 0.75];
 
-#[derive(Debug)]
-struct NoiseChannel {}
-
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 struct DmaSoundChannel {
     value: i8,
     volume_shift: i16,
@@ -62,7 +60,7 @@ const REG_FIFO_B_H: u32 = REG_FIFO_B + 2;
 
 type AudioDeviceRcRefCell = Rc<RefCell<dyn AudioInterface>>;
 
-#[derive(DebugStub)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SoundController {
     sample_rate_to_cpu_freq: usize, // how many "cycles" are a sample?
     cycles: usize,                  // cycles count when we last provided a new sample.

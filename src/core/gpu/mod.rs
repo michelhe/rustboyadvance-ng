@@ -2,6 +2,8 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
+use serde::{Deserialize, Serialize};
+
 use super::super::VideoInterface;
 use super::interrupt::IrqBitmask;
 use super::sysbus::{BoxedMemory, SysBus};
@@ -50,7 +52,7 @@ pub enum PixelFormat {
     BPP8 = 1,
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
 pub enum GpuState {
     HDraw = 0,
     HBlank,
@@ -95,7 +97,7 @@ impl std::ops::IndexMut<usize> for Scanline {
     }
 }
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct Background {
     pub bgcnt: BgControl,
     pub bgvofs: u16,
@@ -107,7 +109,7 @@ pub struct Background {
     mosaic_first_row: Scanline,
 }
 
-#[derive(Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Window {
     pub left: u8,
     pub right: u8,
@@ -151,7 +153,7 @@ pub struct AffineMatrix {
     pub pd: i32,
 }
 
-#[derive(Debug, Default, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, Copy, Clone)]
 pub struct BgAffine {
     pub pa: i16, // dx
     pub pb: i16, // dmx
@@ -163,7 +165,7 @@ pub struct BgAffine {
     pub internal_y: i32,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 pub struct ObjBufferEntry {
     pub(super) color: Rgb15,
     pub(super) priority: u16,
@@ -182,7 +184,7 @@ impl Default for ObjBufferEntry {
 
 type VideoDeviceRcRefCell = Rc<RefCell<dyn VideoInterface>>;
 
-#[derive(DebugStub)]
+#[derive(Serialize, Deserialize, Clone, DebugStub)]
 pub struct Gpu {
     pub state: GpuState,
 

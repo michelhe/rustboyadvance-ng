@@ -1,6 +1,8 @@
 pub mod display;
 pub mod exec;
 
+use serde::{Deserialize, Serialize};
+
 use super::alu::*;
 use crate::core::arm7tdmi::{Addr, InstructionDecoder, InstructionDecoderError};
 
@@ -38,7 +40,7 @@ impl ArmDecodeError {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Primitive)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Primitive)]
 pub enum ArmCond {
     EQ = 0b0000,
     NE = 0b0001,
@@ -57,7 +59,7 @@ pub enum ArmCond {
     AL = 0b1110,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
 #[allow(non_camel_case_types)]
 pub enum ArmFormat {
     /// Branch and Exchange
@@ -97,7 +99,7 @@ pub enum ArmHalfwordTransferType {
     SignedHalfwords = 0b11,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
 pub struct ArmInstruction {
     pub cond: ArmCond,
     pub fmt: ArmFormat,
