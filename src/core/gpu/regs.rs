@@ -44,14 +44,9 @@ impl BgControl {
         }
     }
 
-    pub fn size_affine(&self) -> (u32, u32) {
-        match self.bg_size() {
-            0b00 => (128, 128),
-            0b01 => (256, 256),
-            0b10 => (512, 512),
-            0b11 => (1024, 1024),
-            _ => unreachable!(),
-        }
+    pub fn size_affine(&self) -> (i32, i32) {
+        let x = 128 << self.bg_size();
+        (x, x)
     }
 
     pub fn tile_format(&self) -> (u32, PixelFormat) {

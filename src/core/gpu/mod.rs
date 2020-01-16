@@ -12,6 +12,8 @@ use crate::num::FromPrimitive;
 
 mod render;
 
+use render::Point;
+
 mod mosaic;
 mod rgb15;
 mod sfx;
@@ -154,6 +156,8 @@ pub struct BgAffine {
     pub pd: i16, // dmy
     pub x: i32,
     pub y: i32,
+    pub internal_x: i32,
+    pub internal_y: i32,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -282,6 +286,14 @@ impl Gpu {
         self.frame_buffer[index2d!(usize, x, y, DISPLAY_WIDTH)] = p.to_rgb24();
     }
 
+    pub fn get_ref_point(&self, bg: usize) -> Point {
+        assert!(bg == 2 || bg == 3);
+        (
+            self.bg_aff[bg - 2].internal_x,
+            self.bg_aff[bg - 2].internal_y,
+        )
+    }
+
     pub fn render_scanline(&mut self) {
         match self.dispcnt.mode() {
             0 => {
@@ -343,6 +355,73 @@ impl Gpu {
         }
     }
 
+    pub fn on_state_completed(
+        &mut self,
+        completed: GpuState,
+        sb: &mut SysBus,
+        irqs: &mut IrqBitmask,
+    ) {
+        match self.state {
+            HDraw => {
+                // Transition to HBlank
+                self.state = HBlank;
+                self.cycles_left_for_current_state = CYCLES_HBLANK;
+                self.dispstat.set_hblank_flag(true);
+
+                if self.dispstat.hblank_irq_enable() {
+                    irqs.set_LCD_HBlank(true);
+                };
+                sb.io.dmac.notify_hblank();
+            }
+            HBlank => {
+                self.update_vcount(self.vcount + 1, irqs);
+
+                if self.vcount < DISPLAY_HEIGHT {
+                    self.state = HDraw;
+                    self.dispstat.set_hblank_flag(false);
+                    self.render_scanline();
+                    // update BG2/3 reference points on the end of a scanline
+                    for i in 0..2 {
+                        self.bg_aff[i].internal_x += self.bg_aff[i].pb as i16 as i32;
+                        self.bg_aff[i].internal_y += self.bg_aff[i].pd as i16 as i32;
+                    }
+                    self.cycles_left_for_current_state = CYCLES_HDRAW;
+                } else {
+                    self.state = VBlank;
+
+                    // latch BG2/3 reference points on vblank
+                    for i in 0..2 {
+                        self.bg_aff[i].internal_x = self.bg_aff[i].x;
+                        self.bg_aff[i].internal_y = self.bg_aff[i].y;
+                    }
+
+                    self.dispstat.set_vblank_flag(true);
+                    self.dispstat.set_hblank_flag(false);
+                    if self.dispstat.vblank_irq_enable() {
+                        irqs.set_LCD_VBlank(true);
+                    };
+
+                    sb.io.dmac.notify_vblank();
+                    self.video_device.borrow_mut().render(&self.frame_buffer);
+                    self.cycles_left_for_current_state = CYCLES_SCANLINE;
+                }
+            }
+            VBlank => {
+                if self.vcount < DISPLAY_HEIGHT + VBLANK_LINES - 1 {
+                    self.update_vcount(self.vcount + 1, irqs);
+                    self.cycles_left_for_current_state = CYCLES_SCANLINE;
+                } else {
+                    self.update_vcount(0, irqs);
+                    self.dispstat.set_vblank_flag(false);
+                    self.render_scanline();
+                    self.state = HDraw;
+
+                    self.cycles_left_for_current_state = CYCLES_HDRAW;
+                }
+            }
+        };
+    }
+
     // Returns the new gpu state
     pub fn step(
         &mut self,
@@ -354,51 +433,7 @@ impl Gpu {
         if self.cycles_left_for_current_state <= cycles {
             let overshoot = cycles - self.cycles_left_for_current_state;
 
-            // handle the state change
-            match self.state {
-                HDraw => {
-                    // Transition to HBlank
-                    self.state = HBlank;
-                    self.cycles_left_for_current_state = CYCLES_HBLANK;
-                    self.dispstat.set_hblank_flag(true);
-                    if self.dispstat.hblank_irq_enable() {
-                        irqs.set_LCD_HBlank(true);
-                    };
-                    sb.io.dmac.notify_hblank();
-                }
-                HBlank => {
-                    self.dispstat.set_hblank_flag(false);
-                    self.update_vcount(self.vcount + 1, irqs);
-
-                    if self.vcount < DISPLAY_HEIGHT {
-                        self.render_scanline();
-                        self.state = HDraw;
-                        self.cycles_left_for_current_state = CYCLES_HDRAW;
-                    } else {
-                        self.state = VBlank;
-                        self.cycles_left_for_current_state = CYCLES_SCANLINE;
-                        self.dispstat.set_vblank_flag(true);
-                        if self.dispstat.vblank_irq_enable() {
-                            irqs.set_LCD_VBlank(true);
-                        };
-                        sb.io.dmac.notify_vblank();
-                        self.video_device.borrow_mut().render(&self.frame_buffer);
-                    }
-                }
-                VBlank => {
-                    if self.vcount < DISPLAY_HEIGHT + VBLANK_LINES - 1 {
-                        self.update_vcount(self.vcount + 1, irqs);
-                        self.cycles_left_for_current_state = CYCLES_SCANLINE;
-                    } else {
-                        self.update_vcount(0, irqs);
-                        self.dispstat.set_vblank_flag(false);
-                        self.render_scanline();
-                        self.state = HDraw;
-
-                        self.cycles_left_for_current_state = CYCLES_HDRAW;
-                    }
-                }
-            };
+            self.on_state_completed(self.state, sb, irqs);
 
             // handle the overshoot
             if overshoot < self.cycles_left_for_current_state {

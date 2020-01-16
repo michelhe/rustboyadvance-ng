@@ -4,7 +4,6 @@ use super::gpu::*;
 use super::interrupt::InterruptController;
 use super::keypad;
 use super::sound::SoundController;
-use super::sysbus::BoxedMemory;
 use super::timer::Timers;
 use super::{Addr, Bus};
 
@@ -27,8 +26,6 @@ pub struct IoDevices {
     pub post_boot_flag: bool,
     pub waitcnt: WaitControl, // TODO also implement 4000800
     pub haltcnt: HaltState,
-
-    mem: BoxedMemory,
 }
 
 impl IoDevices {
@@ -39,7 +36,6 @@ impl IoDevices {
             timers: Timers::new(),
             dmac: DmaController::new(),
             intc: InterruptController::new(),
-            mem: BoxedMemory::new(vec![0; 0x800].into_boxed_slice()),
             post_boot_flag: false,
             haltcnt: HaltState::Running,
             keyinput: keypad::KEYINPUT_ALL_RELEASED,
@@ -135,14 +131,40 @@ impl Bus for IoDevices {
             REG_BG2VOFS => io.gpu.bg[2].bgvofs = value & 0x1ff,
             REG_BG3HOFS => io.gpu.bg[3].bghofs = value & 0x1ff,
             REG_BG3VOFS => io.gpu.bg[3].bgvofs = value & 0x1ff,
-            REG_BG2X_L => io.gpu.bg_aff[0].x |= (value as u32) as i32,
-            REG_BG2X_H => io.gpu.bg_aff[0].x |= ((value as u32) << 16) as i32,
-            REG_BG2Y_L => io.gpu.bg_aff[0].y |= (value as u32) as i32,
-            REG_BG2Y_H => io.gpu.bg_aff[0].y |= ((value as u32) << 16) as i32,
-            REG_BG3X_L => io.gpu.bg_aff[1].x |= (value as u32) as i32,
-            REG_BG3X_H => io.gpu.bg_aff[1].x |= ((value as u32) << 16) as i32,
-            REG_BG3Y_L => io.gpu.bg_aff[1].y |= (value as u32) as i32,
-            REG_BG3Y_H => io.gpu.bg_aff[1].y |= ((value as u32) << 16) as i32,
+            REG_BG2X_L | REG_BG3X_L => {
+                let index = (io_addr - REG_BG2X_L) / 0x10;
+                let t = io.gpu.bg_aff[index as usize].x as u32;
+                io.gpu.bg_aff[index as usize].x = ((t & 0xffff0000) + (value as u32)) as i32;
+                if io.gpu.state != GpuState::VBlank {
+                    io.gpu.bg_aff[index as usize].internal_x = io.gpu.bg_aff[index as usize].x;
+                }
+            }
+            REG_BG2Y_L | REG_BG3Y_L => {
+                let index = (io_addr - REG_BG2X_L) / 0x10;
+                let t = io.gpu.bg_aff[index as usize].y as u32;
+                io.gpu.bg_aff[index as usize].y = ((t & 0xffff0000) + (value as u32)) as i32;
+                if io.gpu.state != GpuState::VBlank {
+                    io.gpu.bg_aff[index as usize].internal_y = io.gpu.bg_aff[index as usize].y;
+                }
+            }
+            REG_BG2X_H | REG_BG3X_H => {
+                let index = (io_addr - REG_BG2X_L) / 0x10;
+                let t = io.gpu.bg_aff[index as usize].x;
+                io.gpu.bg_aff[index as usize].x =
+                    (t & 0xffff) | ((sign_extend_i32((value & 0xfff) as i32, 12)) << 16);
+                if io.gpu.state != GpuState::VBlank {
+                    io.gpu.bg_aff[index as usize].internal_x = io.gpu.bg_aff[index as usize].x;
+                }
+            }
+            REG_BG2Y_H | REG_BG3Y_H => {
+                let index = (io_addr - REG_BG2X_L) / 0x10;
+                let t = io.gpu.bg_aff[index as usize].y;
+                io.gpu.bg_aff[index as usize].y =
+                    (t & 0xffff) | ((sign_extend_i32((value & 0xfff) as i32, 12)) << 16);
+                if io.gpu.state != GpuState::VBlank {
+                    io.gpu.bg_aff[index as usize].internal_y = io.gpu.bg_aff[index as usize].y;
+                }
+            }
             REG_BG2PA => io.gpu.bg_aff[0].pa = value as i16,
             REG_BG2PB => io.gpu.bg_aff[0].pb = value as i16,
             REG_BG2PC => io.gpu.bg_aff[0].pc = value as i16,
@@ -478,4 +500,9 @@ pub fn io_reg_string(addr: u32) -> &'static str {
         REG_HALTCNT => "REG_HALTCNT",
         _ => "UNKNOWN",
     }
+}
+
+fn sign_extend_i32(value: i32, size: u32) -> i32 {
+    let shift = 32 - size;
+    ((value << shift) as i32) >> shift
 }

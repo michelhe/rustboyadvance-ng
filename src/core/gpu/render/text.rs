@@ -1,7 +1,9 @@
 //! Rendering for modes 0-3
 
 use super::super::consts::*;
-use super::super::{Gpu, PixelFormat, Scanline, SCREEN_BLOCK_SIZE};
+use super::super::Rgb15;
+use super::super::{Gpu, PixelFormat, SCREEN_BLOCK_SIZE};
+use super::{utils, ViewPort};
 
 use crate::core::Bus;
 
@@ -79,8 +81,48 @@ impl Gpu {
     }
 
     pub(in super::super) fn render_aff_bg(&mut self, bg: usize) {
-        // TODO
-        self.bg[bg].line = Scanline::default();
+        assert!(bg == 2 || bg == 3);
+
+        let texture_size = 128 << self.bg[bg].bgcnt.bg_size();
+        let viewport = ViewPort::new(texture_size, texture_size);
+
+        let ref_point = self.get_ref_point(bg);
+        let pa = self.bg_aff[bg - 2].pa as i16 as i32;
+        let pc = self.bg_aff[bg - 2].pc as i16 as i32;
+
+        let screen_block = self.bg[bg].bgcnt.screen_block();
+        let char_block = self.bg[bg].bgcnt.char_block();
+
+        let wraparound = self.bg[bg].bgcnt.affine_wraparound();
+
+        for screen_x in 0..(DISPLAY_WIDTH as i32) {
+            let mut t = utils::transform_bg_point(ref_point, screen_x, pa, pc);
+
+            if !viewport.contains_point(t) {
+                if wraparound {
+                    t.0 = t.0.rem_euclid(texture_size);
+                    t.1 = t.1.rem_euclid(texture_size);
+                } else {
+                    self.bg[bg].line[screen_x as usize] = Rgb15::TRANSPARENT;
+                    continue;
+                }
+            }
+            let map_addr = screen_block + index2d!(u32, t.0 / 8, t.1 / 8, texture_size / 8);
+            let tile_index = self.vram.read_8(map_addr - VRAM_ADDR) as u32;
+            let tile_addr = char_block + tile_index * 0x40;
+
+            let color = self.get_palette_color(
+                self.read_pixel_index(
+                    tile_addr,
+                    (t.0 % 8) as u32,
+                    (t.1 % 8) as u32,
+                    PixelFormat::BPP8,
+                ) as u32,
+                0,
+                0,
+            );
+            self.bg[bg].line[screen_x as usize] = color;
+        }
     }
 }
 
