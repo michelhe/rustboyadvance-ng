@@ -11,6 +11,13 @@ pub fn read_bin_file(filename: &Path) -> io::Result<Vec<u8>> {
     Ok(buf)
 }
 
+pub fn write_bin_file(filename: &Path, data: &Vec<u8>) -> io::Result<()> {
+    let mut f = File::create(filename)?;
+    f.write_all(data)?;
+
+    Ok(())
+}
+
 pub struct FpsCounter {
     count: u32,
     timer: time::Instant,

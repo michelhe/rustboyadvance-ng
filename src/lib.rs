@@ -65,6 +65,6 @@ pub mod prelude {
     pub use super::core::{GBAError, GBAResult, GameBoyAdvance};
     #[cfg(feature = "debugger")]
     pub use super::debugger::Debugger;
-    pub use super::util::read_bin_file;
+    pub use super::util::{read_bin_file, write_bin_file};
     pub use super::{AudioInterface, InputInterface, VideoInterface};
 }
