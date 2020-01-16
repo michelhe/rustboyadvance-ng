@@ -198,11 +198,3 @@ impl fmt::Display for CpuError {
 }
 
 pub type CpuResult<T> = Result<T, CpuError>;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
-}
