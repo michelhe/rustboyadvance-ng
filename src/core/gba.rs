@@ -78,6 +78,11 @@ impl GameBoyAdvance {
         None
     }
 
+    pub fn skip_bios(&mut self) {
+        self.cpu.skip_bios();
+        self.sysbus.io.gpu.skip_bios();
+    }
+
     fn step_cpu(&mut self, io: &mut IoDevices) -> usize {
         if io.intc.irq_pending()
             && self.cpu.last_executed.is_some()

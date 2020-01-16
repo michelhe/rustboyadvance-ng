@@ -248,6 +248,15 @@ impl Gpu {
         }
     }
 
+    pub fn skip_bios(&mut self) {
+        for i in 0..2 {
+            self.bg_aff[i].pa = 0x100;
+            self.bg_aff[i].pb = 0;
+            self.bg_aff[i].pc = 0;
+            self.bg_aff[i].pd = 0x100;
+        }
+    }
+
     /// helper method that reads the palette index from a base address and x + y
     pub fn read_pixel_index(&self, addr: u32, x: u32, y: u32, format: PixelFormat) -> usize {
         let ofs = addr - VRAM_ADDR;

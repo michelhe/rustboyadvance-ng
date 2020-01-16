@@ -113,20 +113,18 @@ fn main() {
     let mut rom_name = Path::new(&rom_path).file_name().unwrap().to_str().unwrap();
     let cart = Cartridge::from_path(Path::new(&rom_path)).unwrap();
 
-    let mut cpu = arm7tdmi::Core::new();
-    if skip_bios {
-        cpu.skip_bios();
-    }
-    let cpu = cpu;
-
     let mut gba = GameBoyAdvance::new(
-        cpu,
+        arm7tdmi::Core::new(),
         bios_bin,
         cart,
         video.clone(),
         audio.clone(),
         input.clone(),
     );
+
+    if skip_bios {
+        gba.skip_bios();
+    }
 
     if debug {
         #[cfg(feature = "debugger")]
@@ -196,16 +194,15 @@ fn main() {
                     let bios_bin = read_bin_file(bios_path).unwrap();
 
                     // create a new emulator - TODO, export to a function
-                    let mut cpu = arm7tdmi::Core::new();
-                    cpu.skip_bios();
                     gba = GameBoyAdvance::new(
-                        cpu,
+                        arm7tdmi::Core::new(),
                         bios_bin,
                         cart,
                         video.clone(),
                         audio.clone(),
                         input.clone(),
                     );
+                    gba.skip_bios();
                 }
                 _ => {}
             }
