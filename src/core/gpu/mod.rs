@@ -184,8 +184,6 @@ type VideoDeviceRcRefCell = Rc<RefCell<dyn VideoInterface>>;
 
 #[derive(DebugStub)]
 pub struct Gpu {
-    #[debug_stub = "video handle"]
-    video_device: VideoDeviceRcRefCell,
     pub state: GpuState,
 
     /// how many cycles left until next gpu state ?
@@ -221,10 +219,8 @@ pub struct Gpu {
 }
 
 impl Gpu {
-    pub fn new(video_device: VideoDeviceRcRefCell) -> Gpu {
+    pub fn new() -> Gpu {
         Gpu {
-            video_device: video_device,
-
             dispcnt: DisplayControl(0x80),
             dispstat: DisplayStatus(0),
             bg: [
@@ -377,6 +373,7 @@ impl Gpu {
         completed: GpuState,
         sb: &mut SysBus,
         irqs: &mut IrqBitmask,
+        video_device: &VideoDeviceRcRefCell,
     ) {
         match self.state {
             HDraw => {
@@ -419,7 +416,7 @@ impl Gpu {
                     };
 
                     sb.io.dmac.notify_vblank();
-                    self.video_device.borrow_mut().render(&self.frame_buffer);
+                    video_device.borrow_mut().render(&self.frame_buffer);
                     self.cycles_left_for_current_state = CYCLES_SCANLINE;
                 }
             }
@@ -446,11 +443,12 @@ impl Gpu {
         sb: &mut SysBus,
         irqs: &mut IrqBitmask,
         cycles_to_next_event: &mut usize,
+        video_device: &VideoDeviceRcRefCell,
     ) {
         if self.cycles_left_for_current_state <= cycles {
             let overshoot = cycles - self.cycles_left_for_current_state;
 
-            self.on_state_completed(self.state, sb, irqs);
+            self.on_state_completed(self.state, sb, irqs, video_device);
 
             // handle the overshoot
             if overshoot < self.cycles_left_for_current_state {

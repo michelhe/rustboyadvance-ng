@@ -64,9 +64,6 @@ type AudioDeviceRcRefCell = Rc<RefCell<dyn AudioInterface>>;
 
 #[derive(DebugStub)]
 pub struct SoundController {
-    #[debug_stub = "AudioDeviceRcRefCell"]
-    audio_device: AudioDeviceRcRefCell,
-
     sample_rate_to_cpu_freq: usize, // how many "cycles" are a sample?
     cycles: usize,                  // cycles count when we last provided a new sample.
 
@@ -107,12 +104,9 @@ pub struct SoundController {
 }
 
 impl SoundController {
-    pub fn new(audio_device: AudioDeviceRcRefCell) -> SoundController {
-        let resampler =
-            CosineResampler::new(32768_f32, audio_device.borrow().get_sample_rate() as f32);
+    pub fn new(audio_device_sample_rate: f32) -> SoundController {
+        let resampler = CosineResampler::new(32768_f32, audio_device_sample_rate);
         SoundController {
-            audio_device: audio_device,
-
             sample_rate_to_cpu_freq: 12345,
             cycles: 0,
             mse: false,
@@ -321,7 +315,12 @@ impl SoundController {
         }
     }
 
-    pub fn update(&mut self, cycles: usize, cycles_to_next_event: &mut usize) {
+    pub fn update(
+        &mut self,
+        cycles: usize,
+        cycles_to_next_event: &mut usize,
+        audio_device: &AudioDeviceRcRefCell,
+    ) {
         self.cycles += cycles;
         while self.cycles >= self.cycles_per_sample {
             self.cycles -= self.cycles_per_sample;
@@ -338,7 +337,7 @@ impl SoundController {
                 }
             }
 
-            let mut audio = self.audio_device.borrow_mut();
+            let mut audio = audio_device.borrow_mut();
             self.resampler
                 .push_sample((sample[0], sample[1]), &mut *audio);
         }
