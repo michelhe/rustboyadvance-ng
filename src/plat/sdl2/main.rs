@@ -6,12 +6,13 @@ use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::EventPump;
 
+extern crate bytesize;
 extern crate spin_sleep;
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time;
 
 use std::process;
@@ -31,6 +32,10 @@ extern crate rustboyadvance_ng;
 use rustboyadvance_ng::prelude::*;
 use rustboyadvance_ng::util::FpsCounter;
 
+fn get_savestate_path(rom_filename: &Path) -> PathBuf {
+    rom_filename.with_extension("savestate")
+}
+
 /// Waits for the user to drag a rom file to window
 fn wait_for_rom(event_pump: &mut EventPump) -> String {
     'running: loop {
@@ -46,7 +51,7 @@ fn wait_for_rom(event_pump: &mut EventPump) -> String {
     }
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut frame_limiter = true;
     let yaml = load_yaml!("cli.yml");
     let matches = clap::App::from_yaml(yaml).get_matches();
@@ -109,6 +114,8 @@ fn main() {
             wait_for_rom(&mut event_pump)
         }
     };
+
+    let mut savestate_path = get_savestate_path(&Path::new(&rom_path));
 
     let mut rom_name = Path::new(&rom_path).file_name().unwrap().to_str().unwrap();
     let cart = Cartridge::from_path(Path::new(&rom_path)).unwrap();
@@ -173,6 +180,32 @@ fn main() {
                     println!("ending debugger...");
                     break;
                 }
+                Event::KeyUp {
+                    keycode: Some(Keycode::F5),
+                    ..
+                } => {
+                    println!("Saving state ...");
+                    let save = gba.save_state()?;
+                    write_bin_file(&savestate_path, &save)?;
+                    println!(
+                        "Saved to {:?} ({})",
+                        savestate_path,
+                        bytesize::ByteSize::b(save.len() as u64)
+                    );
+                }
+                Event::KeyUp {
+                    keycode: Some(Keycode::F9),
+                    ..
+                } => {
+                    if savestate_path.is_file() {
+                        let save = read_bin_file(&savestate_path)?;
+                        println!("Restoring state from {:?}...", savestate_path);
+                        gba.restore_state(&save)?;
+                        println!("Restored!");
+                    } else {
+                        println!("Savestate not created, please create one by pressing F5");
+                    }
+                }
                 Event::KeyDown {
                     keycode: Some(keycode),
                     ..
@@ -189,6 +222,7 @@ fn main() {
                 Event::DropFile { filename, .. } => {
                     // load the new rom
                     rom_path = filename;
+                    savestate_path = get_savestate_path(&Path::new(&rom_path));
                     rom_name = Path::new(&rom_path).file_name().unwrap().to_str().unwrap();
                     let cart = Cartridge::from_path(Path::new(&rom_path)).unwrap();
                     let bios_bin = read_bin_file(bios_path).unwrap();
@@ -226,4 +260,6 @@ fn main() {
             };
         }
     }
+
+    Ok(())
 }
