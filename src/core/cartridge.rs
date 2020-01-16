@@ -75,6 +75,7 @@ impl CartridgeHeader {
 pub struct Cartridge {
     pub header: CartridgeHeader,
     bytes: Box<[u8]>,
+    size: usize,
 }
 
 fn load_rom(path: &Path) -> GBAResult<Vec<u8>> {
@@ -106,36 +107,36 @@ fn load_rom(path: &Path) -> GBAResult<Vec<u8>> {
 }
 
 impl Cartridge {
-    const MIN_SIZE: usize = 4 * 1024 * 1024;
-
     pub fn from_path(rom_path: &Path) -> GBAResult<Cartridge> {
-        let mut rom_bin = load_rom(rom_path)?;
-        println!("loaded {} bytes", rom_bin.len());
-
-        if rom_bin.len() < Cartridge::MIN_SIZE {
-            rom_bin.resize_with(Cartridge::MIN_SIZE, Default::default);
-        }
-
+        let rom_bin = load_rom(rom_path)?;
+        let size = rom_bin.len();
         let header = CartridgeHeader::parse(&rom_bin);
         Ok(Cartridge {
             header: header,
             bytes: rom_bin.into_boxed_slice(),
+            size: size,
         })
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Cartridge {
+        let size = bytes.len();
         let header = CartridgeHeader::parse(&bytes);
 
         Cartridge {
             header: header,
             bytes: bytes.into(),
+            size: size,
         }
     }
 }
 
 impl Bus for Cartridge {
     fn read_8(&self, addr: Addr) -> u8 {
-        self.bytes[addr as usize]
+        if addr >= (self.size as u32) {
+            0xDD // TODO - open bus implementation
+        } else {
+            self.bytes[addr as usize]
+        }
     }
 
     fn write_8(&mut self, addr: Addr, value: u8) {
