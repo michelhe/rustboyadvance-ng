@@ -274,23 +274,31 @@ impl Core {
     /// ------------------------------------------------------------------------------
     /// For LDR, add y=1S+1N if Rd=R15.
     fn exec_ldr_str(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
-        let mut writeback = insn.write_back_flag();
-        let mut addr = self.get_reg(insn.rn());
-        if insn.rn() == REG_PC {
+        let load = insn.load_flag();
+        let pre_index = insn.pre_index_flag();
+        let writeback = insn.write_back_flag();
+        let base_reg = insn.rn();
+        let dest_reg = insn.rd();
+        let mut addr = self.get_reg(base_reg);
+        if base_reg == REG_PC {
             addr = insn.pc + 8; // prefetching
         }
         let offset = self.get_barrel_shifted_value(insn.ldr_str_offset());
         let effective_addr = (addr as i32).wrapping_add(offset as i32) as Addr;
+
+        // TODO - confirm this
+        let old_mode = self.cpsr.mode();
+        if !pre_index && writeback {
+            self.change_mode(old_mode, CpuMode::User);
+        }
+
         addr = if insn.pre_index_flag() {
             effective_addr
         } else {
-            writeback = true;
             addr
         };
-        if writeback && insn.rd() == insn.rn() {
-            writeback = false;
-        }
-        if insn.load_flag() {
+
+        if load {
             self.S_cycle32(sb, self.pc);
             let data = if insn.transfer_size() == 1 {
                 self.N_cycle8(sb, addr);
@@ -300,19 +308,19 @@ impl Core {
                 self.ldr_word(addr, sb)
             };
 
-            self.set_reg(insn.rd(), data);
+            self.set_reg(dest_reg, data);
 
             // +1I
             self.add_cycle();
 
-            if insn.rd() == REG_PC {
+            if dest_reg == REG_PC {
                 self.flush_pipeline32(sb);
             }
         } else {
-            let value = if insn.rd() == REG_PC {
+            let value = if dest_reg == REG_PC {
                 insn.pc + 12
             } else {
-                self.get_reg(insn.rd())
+                self.get_reg(dest_reg)
             };
             if insn.transfer_size() == 1 {
                 self.N_cycle8(sb, addr);
@@ -324,34 +332,49 @@ impl Core {
             self.N_cycle32(sb, self.pc);
         }
 
-        if writeback {
-            self.set_reg(insn.rn(), effective_addr as u32)
+        if !load || base_reg != dest_reg {
+            if !pre_index {
+                self.set_reg(base_reg, effective_addr);
+            } else if insn.write_back_flag() {
+                self.set_reg(base_reg, effective_addr);
+            }
+        }
+
+        if !pre_index && insn.write_back_flag() {
+            self.change_mode(self.cpsr.mode(), old_mode);
         }
 
         Ok(())
     }
 
     fn exec_ldr_str_hs(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
-        let mut writeback = insn.write_back_flag();
-
-        let mut addr = self.get_reg(insn.rn());
-        if insn.rn() == REG_PC {
+        let load = insn.load_flag();
+        let pre_index = insn.pre_index_flag();
+        let writeback = insn.write_back_flag();
+        let base_reg = insn.rn();
+        let dest_reg = insn.rd();
+        let mut addr = self.get_reg(base_reg);
+        if base_reg == REG_PC {
             addr = insn.pc + 8; // prefetching
         }
 
         let offset = self.get_barrel_shifted_value(insn.ldr_str_hs_offset().unwrap());
 
+        // TODO - confirm this
+        let old_mode = self.cpsr.mode();
+        if !pre_index && writeback {
+            println!("SPECIAL CHANGE MODE");
+            self.change_mode(old_mode, CpuMode::User);
+        }
+
         let effective_addr = (addr as i32).wrapping_add(offset as i32) as Addr;
         addr = if insn.pre_index_flag() {
             effective_addr
         } else {
-            writeback = true;
             addr
         };
-        if writeback && insn.rd() == insn.rn() {
-            writeback = false;
-        }
-        if insn.load_flag() {
+
+        if load {
             self.S_cycle32(sb, self.pc);
             let data = match insn.halfword_data_transfer_type().unwrap() {
                 ArmHalfwordTransferType::SignedByte => {
@@ -368,19 +391,19 @@ impl Core {
                 }
             };
 
-            self.set_reg(insn.rd(), data);
+            self.set_reg(dest_reg, data);
 
             // +1I
             self.add_cycle();
 
-            if insn.rd() == REG_PC {
+            if dest_reg == REG_PC {
                 self.flush_pipeline32(sb);
             }
         } else {
-            let value = if insn.rd() == REG_PC {
+            let value = if dest_reg == REG_PC {
                 insn.pc + 12
             } else {
-                self.get_reg(insn.rd())
+                self.get_reg(dest_reg)
             };
 
             match insn.halfword_data_transfer_type().unwrap() {
@@ -393,26 +416,29 @@ impl Core {
             };
         }
 
-        if writeback {
-            self.set_reg(insn.rn(), effective_addr as u32)
+        if !load || base_reg != dest_reg {
+            if !pre_index {
+                self.set_reg(base_reg, effective_addr);
+            } else if insn.write_back_flag() {
+                self.set_reg(base_reg, effective_addr);
+            }
         }
 
         Ok(())
     }
 
     fn exec_ldm_stm(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
-        let full = insn.pre_index_flag();
+        let mut full = insn.pre_index_flag();
         let ascending = insn.add_offset_flag();
-        let psr_user_flag = insn.psr_and_force_user_flag();
+        let s_flag = insn.raw.bit(22);
         let is_load = insn.load_flag();
         let mut writeback = insn.write_back_flag();
-        let rn = insn.rn();
-        let mut addr = self.gpr[rn] as i32;
+        let base_reg = insn.rn();
+        let mut base_addr = self.get_reg(base_reg);
 
-        let step: i32 = if ascending { 4 } else { -4 };
         let rlist = insn.register_list();
 
-        if psr_user_flag {
+        if s_flag {
             match self.cpsr.mode() {
                 CpuMode::User | CpuMode::System => {
                     panic!("LDM/STM with S bit in unprivileged mode")
@@ -421,7 +447,7 @@ impl Core {
             };
         }
 
-        let user_bank_transfer = if psr_user_flag {
+        let user_bank_transfer = if s_flag {
             if is_load {
                 !rlist.bit(REG_PC)
             } else {
@@ -431,29 +457,45 @@ impl Core {
             false
         };
 
-        let psr_transfer = psr_user_flag & is_load & rlist.bit(REG_PC);
+        let old_mode = self.cpsr.mode();
+        if user_bank_transfer {
+            self.change_mode(old_mode, CpuMode::User);
+        }
+
+        let psr_transfer = s_flag & is_load & rlist.bit(REG_PC);
+
+        let rlist_count = rlist.count_ones();
+
+        let old_base = base_addr;
+
+        if rlist != 0 && !ascending {
+            base_addr = base_addr.wrapping_sub(rlist_count * 4);
+            if writeback {
+                self.set_reg(base_reg, base_addr);
+                writeback = false;
+            }
+            full = !full;
+        }
+
+        let mut addr = base_addr;
 
         if rlist != 0 {
             if is_load {
                 self.add_cycle();
                 self.N_cycle32(sb, self.pc);
                 for r in 0..16 {
-                    let r = if ascending { r } else { 15 - r };
                     if rlist.bit(r) {
-                        if r == rn {
+                        if r == base_reg {
                             writeback = false;
                         }
                         if full {
-                            addr = addr.wrapping_add(step);
+                            addr = addr.wrapping_add(4);
                         }
 
-                        let val = sb.read_32(addr as Addr);
+                        let val = sb.read_32(addr);
                         self.S_cycle32(sb, self.pc);
-                        if user_bank_transfer {
-                            self.set_reg_user(r, val);
-                        } else {
-                            self.set_reg(r, val);
-                        }
+
+                        self.set_reg(r, val);
 
                         if r == REG_PC {
                             if psr_transfer {
@@ -463,38 +505,47 @@ impl Core {
                         }
 
                         if !full {
-                            addr = addr.wrapping_add(step);
+                            addr = addr.wrapping_add(4);
                         }
                     }
                 }
             } else {
                 let mut first = true;
                 for r in 0..16 {
-                    let r = if ascending { r } else { 15 - r };
                     if rlist.bit(r) {
-                        if full {
-                            addr = addr.wrapping_add(step);
-                        }
-
-                        let val = if r == REG_PC {
-                            insn.pc + 12
-                        } else {
-                            if user_bank_transfer {
-                                self.get_reg_user(r)
+                        let val = if r != base_reg {
+                            if r == REG_PC {
+                                insn.pc + 12
                             } else {
                                 self.get_reg(r)
                             }
+                        } else {
+                            if first {
+                                old_base
+                            } else {
+                                let x = rlist_count * 4;
+                                if ascending {
+                                    old_base + x
+                                } else {
+                                    old_base - x
+                                }
+                            }
                         };
+
+                        if full {
+                            addr = addr.wrapping_add(4);
+                        }
+
                         if first {
-                            self.N_cycle32(sb, addr as u32);
+                            self.N_cycle32(sb, addr);
                             first = false;
                         } else {
-                            self.S_cycle32(sb, addr as u32);
+                            self.S_cycle32(sb, addr);
                         }
-                        self.write_32(addr as Addr, val, sb);
+                        self.write_32(addr, val, sb);
 
                         if !full {
-                            addr = addr.wrapping_add(step);
+                            addr = addr.wrapping_add(4);
                         }
                     }
                 }
@@ -502,17 +553,21 @@ impl Core {
             }
         } else {
             if is_load {
-                let val = self.ldr_word(addr as u32, sb);
+                let val = self.ldr_word(addr, sb);
                 self.set_reg(REG_PC, val & !3);
                 self.flush_pipeline32(sb);
             } else {
-                self.write_32(addr as u32, self.pc + 4, sb);
+                self.write_32(addr, self.pc + 4, sb);
             }
-            addr = addr.wrapping_add(step * 0x10);
+            addr = addr.wrapping_add(0x40);
+        }
+
+        if user_bank_transfer {
+            self.change_mode(self.cpsr.mode(), old_mode);
         }
 
         if writeback {
-            self.set_reg(rn, addr as u32);
+            self.set_reg(base_reg, addr as u32);
         }
 
         Ok(())
@@ -614,9 +669,9 @@ impl Core {
             self.S_cycle8(sb, base_addr);
             self.set_reg(insn.rd(), t as u32);
         } else {
-            let t = sb.read_32(base_addr);
+            let t = self.ldr_word(base_addr, sb);
             self.N_cycle32(sb, base_addr);
-            sb.write_32(base_addr, self.get_reg(insn.rm()));
+            self.write_32(base_addr, self.get_reg(insn.rm()), sb);
             self.S_cycle32(sb, base_addr);
             self.set_reg(insn.rd(), t as u32);
         }
