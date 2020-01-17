@@ -12,10 +12,9 @@ fn push(cpu: &mut Core, bus: &mut SysBus, r: usize) {
     bus.write_32(stack_addr, cpu.get_reg(r))
 }
 fn pop(cpu: &mut Core, bus: &mut SysBus, r: usize) {
-    let stack_addr = cpu.gpr[REG_SP] & !3;
-    let val = cpu.ldr_word(stack_addr, bus);
+    let val = bus.read_32(cpu.gpr[REG_SP] & !3);
     cpu.set_reg(r, val);
-    cpu.gpr[REG_SP] = stack_addr + 4;
+    cpu.gpr[REG_SP] += 4;
 }
 
 impl Core {
