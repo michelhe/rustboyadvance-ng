@@ -1,12 +1,11 @@
-use std::ffi::OsStr;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
 use std::str::from_utf8;
 
 use serde::{Deserialize, Serialize};
-
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use memmem::{Searcher, TwoWaySearcher};
+use num::FromPrimitive;
 use zip::ZipArchive;
 
 use super::super::util::read_bin_file;
@@ -71,6 +70,15 @@ impl CartridgeHeader {
     }
 }
 
+#[derive(Debug, Primitive, Serialize, Deserialize, Clone)]
+pub enum BackupType {
+    Eeprom = 0,
+    Sram = 1,
+    Flash = 2,
+    Flash512 = 3,
+    Flash1M = 4,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Cartridge {
     pub header: CartridgeHeader,
@@ -109,16 +117,13 @@ fn load_rom(path: &Path) -> GBAResult<Vec<u8>> {
 impl Cartridge {
     pub fn from_path(rom_path: &Path) -> GBAResult<Cartridge> {
         let rom_bin = load_rom(rom_path)?;
-        let size = rom_bin.len();
-        let header = CartridgeHeader::parse(&rom_bin);
-        Ok(Cartridge {
-            header: header,
-            bytes: rom_bin.into_boxed_slice(),
-            size: size,
-        })
+        Ok(Cartridge::from_bytes(&rom_bin))
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Cartridge {
+        let backup = Cartridge::detect_backup_type(&bytes);
+        println!("Backup detected: {:?}", backup);
+
         let size = bytes.len();
         let header = CartridgeHeader::parse(&bytes);
 
@@ -127,6 +132,20 @@ impl Cartridge {
             bytes: bytes.into(),
             size: size,
         }
+    }
+
+    fn detect_backup_type(bin: &[u8]) -> Option<BackupType> {
+        const ID_STRINGS: &'static [&'static str] =
+            &["EEPROM_V", "SRAM_V", "FLASH_V", "FLASH512_V", "FLASH1M_V"];
+
+        for i in 0..5 {
+            let search = TwoWaySearcher::new(ID_STRINGS[i].as_bytes());
+            match search.search_in(bin) {
+                Some(_) => return Some(BackupType::from_u8(i as u8).unwrap()),
+                _ => {}
+            }
+        }
+        return None;
     }
 }
 

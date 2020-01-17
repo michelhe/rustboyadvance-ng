@@ -34,6 +34,8 @@ extern crate colored; // not needed in Rust 2018
 
 extern crate zip;
 
+extern crate memmem;
+
 #[macro_use]
 pub mod util;
 pub mod core;

@@ -29,6 +29,7 @@ bit-set = "0.5.1"
 ringbuf = "0.2.1"
 debug_stub_derive = "0.3.0"
 bytesize = "1.0.0"
+memmem = "0.1.1"
 
 rustyline = {version = "5.0.0", optional = true}
 nom = {version = "5.0.0", optional = true}
