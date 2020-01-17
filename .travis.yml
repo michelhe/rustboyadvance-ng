@@ -5,5 +5,11 @@ rust:
   - nightly
 matrix:
   allow_failures:
-    - rust: nightly
+    - rust: stable
+    - rust: beta
   fast_finish: true
+cache: cargo
+before_install:
+  - sudo apt-get update
+  - sudo apt-get -y install xorg-dev
+  - sudo apt-get -y install libsdl2-dev libsdl2-image-dev
