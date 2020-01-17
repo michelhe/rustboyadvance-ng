@@ -23,16 +23,19 @@ impl Core {
         sb: &mut SysBus,
         insn: ThumbInstruction,
     ) -> CpuExecResult {
+        let rd = (insn.raw & 0b111) as usize;
+        let rs = insn.raw.bit_range(3..6) as usize;
+
         let op2 = self
             .register_shift(ShiftedRegister {
-                reg: insn.rs(),
+                reg: rs,
                 shift_by: ShiftRegisterBy::ByAmount(insn.offset5() as u8 as u32),
                 bs_op: insn.format1_op(),
                 added: None,
             })
             .unwrap();
 
-        self.set_reg(insn.rd(), op2);
+        self.set_reg(rd, op2);
         self.alu_update_flags(op2, false, self.bs_carry_out, self.cpsr.V());
 
         self.S_cycle16(sb, self.pc + 2);
@@ -40,6 +43,7 @@ impl Core {
     }
 
     fn exec_thumb_add_sub(&mut self, sb: &mut SysBus, insn: ThumbInstruction) -> CpuExecResult {
+        let rd = (insn.raw & 0b111) as usize;
         let op1 = self.get_reg(insn.rs());
         let op2 = if insn.is_immediate_operand() {
             insn.rn() as u32
@@ -55,7 +59,7 @@ impl Core {
             self.alu_add_flags(op1, op2, &mut carry, &mut overflow)
         };
         self.alu_update_flags(result, true, carry, overflow);
-        self.set_reg(insn.rd(), result as u32);
+        self.set_reg(rd, result as u32);
 
         self.S_cycle16(sb, self.pc + 2);
         Ok(())
@@ -68,7 +72,8 @@ impl Core {
     ) -> CpuExecResult {
         use OpFormat3::*;
         let op = insn.format3_op();
-        let op1 = self.get_reg(insn.rd());
+        let rd = insn.raw.bit_range(8..11) as usize;
+        let op1 = self.gpr[rd];
         let op2_imm = (insn.raw & 0xff) as u32;
         let mut carry = self.cpsr.C();
         let mut overflow = self.cpsr.V();
@@ -80,14 +85,14 @@ impl Core {
         let arithmetic = op == ADD || op == SUB;
         self.alu_update_flags(result, arithmetic, carry, overflow);
         if op != CMP {
-            self.set_reg(insn.rd(), result as u32);
+            self.gpr[rd] = result as u32;
         }
         self.S_cycle16(sb, self.pc + 2);
         Ok(())
     }
 
     fn exec_thumb_alu_ops(&mut self, sb: &mut SysBus, insn: ThumbInstruction) -> CpuExecResult {
-        let rd = insn.rd();
+        let rd = (insn.raw & 0b111) as usize;
         let rs = insn.rs();
         let dst = self.get_reg(rd);
         let src = self.get_reg(rs);
@@ -164,10 +169,11 @@ impl Core {
         insn: ThumbInstruction,
     ) -> CpuExecResult {
         let op = insn.format5_op();
+        let rd = (insn.raw & 0b111) as usize;
         let dst_reg = if insn.flag(ThumbInstruction::FLAG_H1) {
-            insn.rd() + 8
+            rd + 8
         } else {
-            insn.rd()
+            rd
         };
         let src_reg = if insn.flag(ThumbInstruction::FLAG_H2) {
             insn.rs() + 8
@@ -203,12 +209,17 @@ impl Core {
     }
 
     fn exec_thumb_ldr_pc(&mut self, sb: &mut SysBus, insn: ThumbInstruction) -> CpuExecResult {
-        let addr = (insn.pc & !0b10) + 4 + (insn.word8() as Addr);
+        let rd = insn.raw.bit_range(8..11) as usize;
+
+        let ofs = insn.word8() as Addr;
+        let addr = (self.pc & !3) + ofs;
+
         self.S_cycle16(sb, self.pc + 2);
         let data = self.ldr_word(addr, sb);
         self.N_cycle16(sb, addr);
 
-        self.set_reg(insn.rd(), data);
+        self.gpr[rd] = data;
+
         // +1I
         self.add_cycle();
 
@@ -220,9 +231,11 @@ impl Core {
         sb: &mut SysBus,
         insn: ThumbInstruction,
         addr: Addr,
+        is_transferring_bytes: bool
     ) -> CpuExecResult {
+        let rd = (insn.raw & 0b111) as usize;
         if insn.is_load() {
-            let data = if insn.is_transferring_bytes() {
+            let data = if is_transferring_bytes {
                 self.S_cycle8(sb, addr);
                 sb.read_8(addr) as u32
             } else {
@@ -230,13 +243,13 @@ impl Core {
                 self.ldr_word(addr, sb)
             };
 
-            self.set_reg(insn.rd(), data);
+            self.gpr[rd] = data;
 
             // +1I
             self.add_cycle();
         } else {
-            let value = self.get_reg(insn.rd());
-            if insn.is_transferring_bytes() {
+            let value = self.get_reg(rd);
+            if is_transferring_bytes {
                 self.N_cycle8(sb, addr);
                 self.write_8(addr, value as u8, sb);
             } else {
@@ -254,17 +267,16 @@ impl Core {
         bus: &mut SysBus,
         insn: ThumbInstruction,
     ) -> CpuExecResult {
-        let addr = self
-            .get_reg(insn.rb())
-            .wrapping_add(self.get_reg(insn.ro()));
-        self.do_exec_thumb_ldr_str(bus, insn, addr)
+        let rb = insn.raw.bit_range(3..6) as usize;
+        let addr = self.gpr[rb].wrapping_add(self.gpr[insn.ro()]);
+        self.do_exec_thumb_ldr_str(bus, insn, addr, insn.raw.bit(10))
     }
 
     fn exec_thumb_ldr_str_shb(&mut self, sb: &mut SysBus, insn: ThumbInstruction) -> CpuExecResult {
-        let addr = self
-            .get_reg(insn.rb())
-            .wrapping_add(self.get_reg(insn.ro()));
-        let rd = insn.rd();
+        let rb = insn.raw.bit_range(3..6) as usize;
+        let rd = (insn.raw & 0b111) as usize;
+
+        let addr = self.gpr[rb].wrapping_add(self.gpr[insn.ro()]);
         match (
             insn.flag(ThumbInstruction::FLAG_SIGN_EXTEND),
             insn.flag(ThumbInstruction::FLAG_HALFWORD),
@@ -309,13 +321,15 @@ impl Core {
         sb: &mut SysBus,
         insn: ThumbInstruction,
     ) -> CpuExecResult {
+        let rb = insn.raw.bit_range(3..6) as usize;
+
         let offset = if insn.raw.bit(12) {
             insn.offset5()
         } else {
             (insn.offset5() << 3) >> 1
         };
-        let addr = self.get_reg(insn.rb()).wrapping_add(offset as u32);
-        self.do_exec_thumb_ldr_str(sb, insn, addr)
+        let addr = self.gpr[rb].wrapping_add(offset as u32);
+        self.do_exec_thumb_ldr_str(sb, insn, addr, insn.raw.bit(12))
     }
 
     fn exec_thumb_ldr_str_halfword(
@@ -323,15 +337,17 @@ impl Core {
         sb: &mut SysBus,
         insn: ThumbInstruction,
     ) -> CpuExecResult {
-        let base = self.gpr[insn.rb()] as i32;
+        let rb = insn.raw.bit_range(3..6) as usize;
+        let rd = (insn.raw & 0b111) as usize;
+        let base = self.gpr[rb] as i32;
         let addr = base.wrapping_add((insn.offset5() << 1) as i32) as Addr;
         if insn.is_load() {
             let data = self.ldr_half(addr, sb);
             self.S_cycle16(sb, addr);
             self.add_cycle();
-            self.gpr[insn.rd()] = data as u32;
+            self.gpr[rd] = data as u32;
         } else {
-            self.write_16(addr, self.gpr[insn.rd()] as u16, sb);
+            self.write_16(addr, self.gpr[rd] as u16, sb);
             self.N_cycle16(sb, addr);
         }
         self.N_cycle16(sb, self.pc + 2);
@@ -340,7 +356,7 @@ impl Core {
 
     fn exec_thumb_ldr_str_sp(&mut self, bus: &mut SysBus, insn: ThumbInstruction) -> CpuExecResult {
         let addr = self.gpr[REG_SP] + (insn.word8() as Addr);
-        self.do_exec_thumb_ldr_str_with_addr(bus, insn, addr)
+        self.do_exec_thumb_ldr_str_with_addr(bus, insn, addr, insn.raw.bit_range(8..11) as usize)
     }
 
     fn exec_thumb_load_address(
@@ -348,12 +364,13 @@ impl Core {
         sb: &mut SysBus,
         insn: ThumbInstruction,
     ) -> CpuExecResult {
+        let rd = insn.raw.bit_range(8..11) as usize;
         let result = if insn.flag(ThumbInstruction::FLAG_SP) {
             self.gpr[REG_SP] + (insn.word8() as Addr)
         } else {
             (insn.pc & !0b10) + 4 + (insn.word8() as Addr)
         };
-        self.gpr[insn.rd()] = result;
+        self.gpr[rd] = result;
         self.S_cycle16(sb, self.pc + 2);
         Ok(())
     }
@@ -363,14 +380,15 @@ impl Core {
         sb: &mut SysBus,
         insn: ThumbInstruction,
         addr: Addr,
+        rd: usize,
     ) -> CpuExecResult {
         if insn.is_load() {
             let data = self.ldr_word(addr, sb);
             self.S_cycle16(sb, addr);
             self.add_cycle();
-            self.gpr[insn.rd()] = data;
+            self.gpr[rd] = data;
         } else {
-            self.write_32(addr, self.gpr[insn.rd()], sb);
+            self.write_32(addr, self.gpr[rd], sb);
             self.N_cycle16(sb, addr);
         }
         self.N_cycle16(sb, self.pc + 2);
@@ -433,8 +451,9 @@ impl Core {
     fn exec_thumb_ldm_stm(&mut self, sb: &mut SysBus, insn: ThumbInstruction) -> CpuExecResult {
         // (From GBATEK) Execution Time: nS+1N+1I (POP), (n+1)S+2N+1I (POP PC), or (n-1)S+2N (PUSH).
 
+        let rb = insn.raw.bit_range(8..11) as usize;
+        let base_reg = rb;
         let is_load = insn.is_load();
-        let base_reg = insn.rb();
 
         let align_preserve = self.gpr[base_reg] & 3;
         let mut addr = self.gpr[base_reg] & !3;
