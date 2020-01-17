@@ -434,22 +434,20 @@ impl Core {
         // (From GBATEK) Execution Time: nS+1N+1I (POP), (n+1)S+2N+1I (POP PC), or (n-1)S+2N (PUSH).
 
         let is_load = insn.is_load();
-        let rb = insn.rb();
+        let base_reg = insn.rb();
 
-        let mut addr = self.gpr[rb] & !3;
+        let align_preserve = self.gpr[base_reg] & 3;
+        let mut addr = self.gpr[base_reg] & !3;
         let rlist = insn.register_list();
         self.N_cycle16(sb, self.pc);
         let mut first = true;
-        let mut writeback = true;
 
         if rlist != 0 {
             if is_load {
+                let writeback = !rlist.bit(base_reg);
                 for r in 0..8 {
                     if rlist.bit(r) {
-                        if r == rb {
-                            writeback = false;
-                        }
-                        let val = self.ldr_word(addr, sb);
+                        let val = sb.read_32(addr);
                         if first {
                             first = false;
                             self.add_cycle();
@@ -462,33 +460,43 @@ impl Core {
                     }
                 }
                 self.S_cycle16(sb, self.pc + 2);
+                if writeback {
+                    self.gpr[base_reg] = addr + align_preserve;
+                }
             } else {
                 for r in 0..8 {
                     if rlist.bit(r) {
+                        let v = if r != base_reg {
+                            self.gpr[r]
+                        } else {
+                            if first {
+                                addr
+                            } else {
+                                addr + (rlist.count_ones() - 1) * 4
+                            }
+                        };
                         if first {
                             first = false;
                         } else {
                             self.S_cycle16(sb, addr);
                         }
-                        self.write_32(addr, self.gpr[r], sb);
+                        sb.write_32(addr, v);
                         addr += 4;
                     }
+                    self.gpr[base_reg] = addr + align_preserve;
                 }
             }
         } else {
             // From gbatek.htm: Empty Rlist: R15 loaded/stored (ARMv4 only), and Rb=Rb+40h (ARMv4-v5).
             if is_load {
-                let val = self.ldr_word(addr, sb);
+                let val = sb.read_32(addr);
                 self.set_reg(REG_PC, val & !1);
                 self.flush_pipeline16(sb);
             } else {
-                self.write_32(addr, self.pc + 2, sb);
+                sb.write_32(addr, self.pc + 2);
             }
             addr += 0x40;
-        }
-
-        if writeback {
-            self.gpr[rb] = addr;
+            self.gpr[base_reg] = addr + align_preserve;
         }
 
         Ok(())
