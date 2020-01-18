@@ -52,7 +52,7 @@ No issues so far
 Won't boot unless binary patched to remove a loop querying the flash chip
 
 ### Dragon Ball - Legacy of Goku 2
-crashes when entering in-game menu, other than that works fine.
+~~crashes when entering in-game menu, other than that works fine.~~
 
 ## Screenshots
 

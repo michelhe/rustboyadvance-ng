@@ -47,7 +47,7 @@ impl AluOpCode {
     }
 }
 
-#[derive(Debug, PartialEq, Primitive)]
+#[derive(Debug, PartialEq, Primitive, Copy, Clone)]
 pub enum BarrelShiftOpCode {
     LSL = 0,
     LSR = 1,
@@ -55,13 +55,13 @@ pub enum BarrelShiftOpCode {
     ROR = 3,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum ShiftRegisterBy {
     ByAmount(u32),
     ByRegister(usize),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub struct ShiftedRegister {
     pub reg: usize,
     pub shift_by: ShiftRegisterBy,
@@ -69,7 +69,16 @@ pub struct ShiftedRegister {
     pub added: Option<bool>,
 }
 
-#[derive(Debug, PartialEq)]
+impl ShiftedRegister {
+    pub fn is_shifted_by_reg(&self) -> bool {
+        match self.shift_by {
+            ShiftRegisterBy::ByRegister(_) => true,
+            _ => false
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum BarrelShifterValue {
     ImmediateValue(u32),
     RotatedImmediate(u32, u32),

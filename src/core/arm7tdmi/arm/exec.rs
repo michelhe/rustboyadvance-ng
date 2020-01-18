@@ -183,8 +183,8 @@ impl Core {
 
         let op2 = insn.operand2()?;
         match op2 {
-            BarrelShifterValue::ShiftedRegister(_) => {
-                if insn.rn() == REG_PC {
+            BarrelShifterValue::ShiftedRegister(shifted_reg) => {
+                if insn.rn() == REG_PC && shifted_reg.is_shifted_by_reg() {
                     op1 += 4;
                 }
             }
