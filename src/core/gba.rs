@@ -189,8 +189,10 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
+    use super::super::bus::Bus;
     use super::super::arm7tdmi;
     use super::super::cartridge::Cartridge;
+
 
     struct DummyInterface {}
 
@@ -230,7 +232,8 @@ mod tests {
             gba.frame();
         }
 
-        assert_eq!(0x080019e0, gba.cpu.pc);
+        let insn = gba.sysbus.read_32(gba.cpu.pc);
+        assert_eq!(insn, 0xeafffffe); // loop
         assert_eq!(0, gba.cpu.gpr[12]);
     }
 
@@ -242,7 +245,8 @@ mod tests {
             gba.frame();
         }
 
-        assert_eq!(0x800091a, gba.cpu.pc);
+        let insn = gba.sysbus.read_16(gba.cpu.pc);
+        assert_eq!(insn, 0xe7fe); // loop
         assert_eq!(0, gba.cpu.gpr[7]);
     }
 }
