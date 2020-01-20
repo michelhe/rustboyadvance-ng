@@ -49,15 +49,18 @@ pub trait VideoInterface {
     fn render(&mut self, buffer: &[u32]) {}
 }
 
-pub type StereoSample = (i16, i16);
+pub type StereoSample<T> = (T, T);
 
 pub trait AudioInterface {
     fn get_sample_rate(&self) -> i32 {
         44100
     }
 
+    /// Pushes a stereo sample into the audio device
+    /// Sample should be normilized to siged 16bit values
+    /// Note: It is not guarentied that the sample will be played
     #[allow(unused_variables)]
-    fn push_sample(&mut self, samples: StereoSample) {}
+    fn push_sample(&mut self, samples: StereoSample<i16>) {}
 }
 
 pub trait InputInterface {

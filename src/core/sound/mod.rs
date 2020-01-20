@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::dma::DmaController;
 use super::iodev::consts::*;
 use super::iodev::io_reg_string;
-use crate::AudioInterface;
+use crate::{AudioInterface, StereoSample};
 
 mod fifo;
 use fifo::SoundFifo;
@@ -98,7 +98,7 @@ pub struct SoundController {
     dma_sound: [DmaSoundChannel; 2],
 
     resampler: CosineResampler,
-    pub output_buffer: Vec<i16>,
+    output_buffer: Vec<StereoSample<f32>>,
 }
 
 impl SoundController {
@@ -133,7 +133,7 @@ impl SoundController {
             dma_sound: [Default::default(), Default::default()],
 
             resampler: resampler,
-            output_buffer: Vec::with_capacity(10000),
+            output_buffer: Vec::with_capacity(1024),
         }
     }
 
@@ -325,24 +325,50 @@ impl SoundController {
 
             // time to push a new sample!
 
-            let mut sample = [0; 2];
+            let mut sample = [0f32; 2];
 
             for channel in 0..=1 {
+                let mut dma_sample = 0;
                 for dma in &mut self.dma_sound {
                     if dma.is_stereo_channel_enabled(channel) {
-                        sample[channel] += dma.value as i16;
+                        let value = dma.value as i16;
+                        dma_sample += value * (2 << dma.volume_shift);
                     }
                 }
+
+                apply_bias(&mut dma_sample, self.sound_bias.bit_range(0..10) as i16);
+                sample[channel] = dma_sample as i32 as f32;
             }
 
+            let stereo_sample = (sample[0], sample[1]);
+            self.resampler.feed(stereo_sample, &mut self.output_buffer);
+
             let mut audio = audio_device.borrow_mut();
-            self.resampler
-                .push_sample((sample[0], sample[1]), &mut *audio);
+            self.output_buffer.drain(..).for_each(|(left, right)| {
+                audio.push_sample((
+                    (left.round() as i16) * (std::i16::MAX / 512),
+                    (right.round() as i16) * (std::i16::MAX / 512),
+                ));
+            });
         }
         if self.cycles_per_sample < *cycles_to_next_event {
             *cycles_to_next_event = self.cycles_per_sample;
         }
     }
+}
+
+#[inline(always)]
+fn apply_bias(sample: &mut i16, level: i16) {
+    let mut s = *sample;
+    s += level;
+    // clamp
+    if s > 0x3ff {
+        s = 0x3ff;
+    } else if s < 0 {
+        s = 0;
+    }
+    s -= level;
+    *sample = s;
 }
 
 // TODO move
