@@ -8,7 +8,6 @@ use rustboyadvance_ng::VideoInterface;
 
 pub const SCREEN_WIDTH: u32 = DISPLAY_WIDTH as u32;
 pub const SCREEN_HEIGHT: u32 = DISPLAY_HEIGHT as u32;
-pub const SCALE: u32 = 3; // TODO control via CLI & support window resize
 
 pub struct Sdl2Video<'a> {
     _tc: TextureCreator<WindowContext>, // only kept alive because of the texture
@@ -35,7 +34,7 @@ impl<'a> VideoInterface for Sdl2Video<'a> {
             .copy(
                 &self.texture,
                 None,
-                Some(Rect::new(0, 0, SCREEN_WIDTH * SCALE, SCREEN_HEIGHT * SCALE)),
+                Some(Rect::new(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)),
             )
             .unwrap();
         self.canvas.present();

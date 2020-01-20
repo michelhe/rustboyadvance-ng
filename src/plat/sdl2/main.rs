@@ -26,7 +26,7 @@ mod video;
 
 use audio::create_audio_player;
 use input::create_input;
-use video::{create_video_interface, SCALE, SCREEN_HEIGHT, SCREEN_WIDTH};
+use video::{create_video_interface, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 extern crate rustboyadvance_ng;
 use rustboyadvance_ng::prelude::*;
@@ -61,21 +61,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let debug = matches.occurrences_of("debug") != 0;
 
     let sdl_context = sdl2::init().expect("failed to initialize sdl2");
-    let mut event_pump = sdl_context.event_pump().unwrap();
+    let mut event_pump = sdl_context.event_pump()?;
 
-    let video_subsystem = sdl_context.video().unwrap();
-    let _image_context = sdl2::image::init(InitFlag::PNG | InitFlag::JPG).unwrap();
+    let video_subsystem = sdl_context.video()?;
+    let _image_context = sdl2::image::init(InitFlag::PNG | InitFlag::JPG)?;
     let window = video_subsystem
-        .window(
-            "RustBoyAdvance",
-            SCREEN_WIDTH * SCALE,
-            SCREEN_HEIGHT * SCALE,
-        )
+        .window("RustBoyAdvance", SCREEN_WIDTH * 3, SCREEN_HEIGHT * 3)
         .opengl()
         .position_centered()
-        .build()
-        .unwrap();
-    let mut canvas = window.into_canvas().accelerated().build().unwrap();
+        .resizable()
+        .build()?;
+    let mut canvas = window.into_canvas().accelerated().build()?;
+
+    canvas.set_logical_size(SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32)?;
 
     // Display the icon as a placeholder
     canvas.set_draw_color(Color::RGB(0x40, 0x22, 0x20)); // default background color for the icon
@@ -84,18 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let icon_texture = texture_creator
         .load_texture("assets/icon.png")
         .expect("failed to load icon");
-    canvas
-        .copy(
-            &icon_texture,
-            None,
-            Some(Rect::new(
-                (SCREEN_WIDTH as i32) * ((SCALE as i32) - 1) / 2,
-                (SCREEN_HEIGHT as i32) * ((SCALE as i32) - 1) / 2,
-                SCREEN_WIDTH,
-                SCREEN_HEIGHT,
-            )),
-        )
-        .unwrap();
+    canvas.copy(&icon_texture, None, None).unwrap();
     canvas.present();
 
     // TODO also set window icon
