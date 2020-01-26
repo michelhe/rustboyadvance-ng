@@ -76,7 +76,7 @@ impl CartridgeHeader {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum BackupMedia {
     Sram(BackupMemory),
-    Flash,
+    Flash(Flash),
     Eeprom,
     Undetected,
 }
@@ -86,7 +86,7 @@ impl BackupMedia {
         use BackupMedia::*;
         match self {
             Sram(..) => "SRAM",
-            Flash => "FLASH",
+            Flash(..) => "FLASH",
             Eeprom => "EEPROM",
             Undetected => "Undetected",
         }
@@ -162,8 +162,11 @@ fn create_backup(bytes: &[u8], rom_path: &Path) -> BackupMedia {
     let backup_path = rom_path.with_extension(BACKUP_FILE_EXT);
     if let Some(backup_type) = detect_backup_type(bytes) {
         match backup_type {
-            BackupType::Flash | BackupType::Flash512 | BackupType::Flash1M => {
-                BackupMedia::Flash
+            BackupType::Flash | BackupType::Flash512 => {
+                BackupMedia::Flash(Flash::new(backup_path, FlashSize::Flash64k))
+            }
+            BackupType::Flash1M => {
+                BackupMedia::Flash(Flash::new(backup_path, FlashSize::Flash128k))
             }
             BackupType::Sram => BackupMedia::Sram(BackupMemory::new(0x8000, backup_path)),
             BackupType::Eeprom => BackupMedia::Eeprom,
@@ -196,6 +199,7 @@ impl Bus for Cartridge {
         match addr & 0xff000000 {
             SRAM_LO | SRAM_HI => match &self.backup {
                 BackupMedia::Sram(memory) => memory.read((addr & 0x7FFF) as usize),
+                BackupMedia::Flash(flash) => flash.read(addr),
                 _ => 0,
             },
             _ => {
@@ -212,6 +216,7 @@ impl Bus for Cartridge {
         let offset = (addr & 0x01ff_ffff) as usize;
         match addr & 0xff000000 {
             SRAM_LO | SRAM_HI => match &mut self.backup {
+                BackupMedia::Flash(flash) => flash.write(addr, value),
                 BackupMedia::Sram(memory) => memory.write((addr & 0x7FFF) as usize, value),
                 _ => {}
             },

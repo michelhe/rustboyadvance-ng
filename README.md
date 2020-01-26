@@ -48,8 +48,7 @@ You know what they say, *third time's a charm*.
 No issues so far
 
 ### Pokemon - Emerald
-
-Won't boot unless binary patched to remove a loop querying the flash chip
+~~Won't boot unless binary patched to remove a loop querying the flash chip~~
 
 ### Dragon Ball - Legacy of Goku 2
 ~~crashes when entering in-game menu, other than that works fine.~~
