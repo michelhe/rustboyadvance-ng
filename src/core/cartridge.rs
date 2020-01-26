@@ -1,15 +1,18 @@
 use std::fs::File;
 use std::io::prelude::*;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::from_utf8;
 
-use serde::{Deserialize, Serialize};
 use memmem::{Searcher, TwoWaySearcher};
 use num::FromPrimitive;
+use serde::{Deserialize, Serialize};
 use zip::ZipArchive;
 
 use super::super::util::read_bin_file;
 use super::{Addr, Bus, GBAResult};
+
+use super::backup::flash::*;
+use super::backup::{BackupMemory, BackupType, BACKUP_FILE_EXT};
 
 /// From GBATEK
 ///
@@ -70,13 +73,24 @@ impl CartridgeHeader {
     }
 }
 
-#[derive(Debug, Primitive, Serialize, Deserialize, Clone)]
-pub enum BackupType {
-    Eeprom = 0,
-    Sram = 1,
-    Flash = 2,
-    Flash512 = 3,
-    Flash1M = 4,
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum BackupMedia {
+    Sram(BackupMemory),
+    Flash,
+    Eeprom,
+    Undetected,
+}
+
+impl BackupMedia {
+    pub fn type_string(&self) -> &'static str {
+        use BackupMedia::*;
+        match self {
+            Sram(..) => "SRAM",
+            Flash => "FLASH",
+            Eeprom => "EEPROM",
+            Undetected => "Undetected",
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -84,6 +98,7 @@ pub struct Cartridge {
     pub header: CartridgeHeader,
     bytes: Box<[u8]>,
     size: usize,
+    backup: BackupMedia,
 }
 
 fn load_rom(path: &Path) -> GBAResult<Vec<u8>> {
@@ -117,48 +132,90 @@ fn load_rom(path: &Path) -> GBAResult<Vec<u8>> {
 impl Cartridge {
     pub fn from_path(rom_path: &Path) -> GBAResult<Cartridge> {
         let rom_bin = load_rom(rom_path)?;
-        Ok(Cartridge::from_bytes(&rom_bin))
+        Ok(Cartridge::from_bytes(
+            &rom_bin,
+            Some(rom_path.to_path_buf()),
+        ))
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Cartridge {
-        let backup = Cartridge::detect_backup_type(&bytes);
-        println!("Backup detected: {:?}", backup);
-
+    pub fn from_bytes(bytes: &[u8], rom_path: Option<PathBuf>) -> Cartridge {
         let size = bytes.len();
         let header = CartridgeHeader::parse(&bytes);
+
+        let backup = if let Some(path) = rom_path {
+            create_backup(bytes, &path)
+        } else {
+            BackupMedia::Undetected
+        };
+        println!("Backup: {}", backup.type_string());
 
         Cartridge {
             header: header,
             bytes: bytes.into(),
             size: size,
+            backup: backup,
         }
-    }
-
-    fn detect_backup_type(bin: &[u8]) -> Option<BackupType> {
-        const ID_STRINGS: &'static [&'static str] =
-            &["EEPROM_V", "SRAM_V", "FLASH_V", "FLASH512_V", "FLASH1M_V"];
-
-        for i in 0..5 {
-            let search = TwoWaySearcher::new(ID_STRINGS[i].as_bytes());
-            match search.search_in(bin) {
-                Some(_) => return Some(BackupType::from_u8(i as u8).unwrap()),
-                _ => {}
-            }
-        }
-        return None;
     }
 }
 
+fn create_backup(bytes: &[u8], rom_path: &Path) -> BackupMedia {
+    let backup_path = rom_path.with_extension(BACKUP_FILE_EXT);
+    if let Some(backup_type) = detect_backup_type(bytes) {
+        match backup_type {
+            BackupType::Flash | BackupType::Flash512 | BackupType::Flash1M => {
+                BackupMedia::Flash
+            }
+            BackupType::Sram => BackupMedia::Sram(BackupMemory::new(0x8000, backup_path)),
+            BackupType::Eeprom => BackupMedia::Eeprom,
+        }
+    } else {
+        BackupMedia::Undetected
+    }
+}
+
+fn detect_backup_type(bytes: &[u8]) -> Option<BackupType> {
+    const ID_STRINGS: &'static [&'static str] =
+        &["EEPROM", "SRAM", "FLASH_", "FLASH512_", "FLASH1M_"];
+
+    for i in 0..5 {
+        let search = TwoWaySearcher::new(ID_STRINGS[i].as_bytes());
+        match search.search_in(bytes) {
+            Some(_) => return Some(BackupType::from_u8(i as u8).unwrap()),
+            _ => {}
+        }
+    }
+    println!("Could not detect backup type");
+    return None;
+}
+
+use super::sysbus::{SRAM_HI, SRAM_LO};
+
 impl Bus for Cartridge {
     fn read_8(&self, addr: Addr) -> u8 {
-        if addr >= (self.size as u32) {
-            0xDD // TODO - open bus implementation
-        } else {
-            self.bytes[addr as usize]
+        let offset = (addr & 0x01ff_ffff) as usize;
+        match addr & 0xff000000 {
+            SRAM_LO | SRAM_HI => match &self.backup {
+                BackupMedia::Sram(memory) => memory.read((addr & 0x7FFF) as usize),
+                _ => 0,
+            },
+            _ => {
+                if offset >= self.size {
+                    0xDD // TODO - open bus implementation
+                } else {
+                    self.bytes[offset as usize]
+                }
+            }
         }
     }
 
-    fn write_8(&mut self, addr: Addr, value: u8) {
-        self.bytes[addr as usize] = value;
+    fn write_8(&mut self, addr: u32, value: u8) {
+        let offset = (addr & 0x01ff_ffff) as usize;
+        match addr & 0xff000000 {
+            SRAM_LO | SRAM_HI => match &mut self.backup {
+                BackupMedia::Sram(memory) => memory.write((addr & 0x7FFF) as usize, value),
+                _ => {}
+            },
+            _ => self.bytes[offset] = value,
+        };
     }
 }

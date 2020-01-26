@@ -189,10 +189,9 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use super::super::bus::Bus;
     use super::super::arm7tdmi;
+    use super::super::bus::Bus;
     use super::super::cartridge::Cartridge;
-
 
     struct DummyInterface {}
 
@@ -209,7 +208,7 @@ mod tests {
     fn make_mock_gba(rom: &[u8]) -> GameBoyAdvance {
         let bios = vec![0; 0x4000];
         let cpu = arm7tdmi::Core::new();
-        let cartridge = Cartridge::from_bytes(rom);
+        let cartridge = Cartridge::from_bytes(rom, None);
         let dummy = Rc::new(RefCell::new(DummyInterface::new()));
         let mut gba = GameBoyAdvance::new(
             cpu,

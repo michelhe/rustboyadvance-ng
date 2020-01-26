@@ -18,10 +18,14 @@ pub const IOMEM_ADDR: u32 = 0x0400_0000;
 pub const PALRAM_ADDR: u32 = 0x0500_0000;
 pub const VRAM_ADDR: u32 = 0x0600_0000;
 pub const OAM_ADDR: u32 = 0x0700_0000;
-pub const GAMEPAK_WS0_ADDR: u32 = 0x0800_0000;
-pub const GAMEPAK_MIRROR_WS0_ADDR: u32 = 0x0900_0000;
-pub const GAMEPAK_WS1_ADDR: u32 = 0x0A00_0000;
-pub const GAMEPAK_WS2_ADDR: u32 = 0x0C00_0000;
+pub const GAMEPAK_WS0_LO: u32 = 0x0800_0000;
+pub const GAMEPAK_WS0_HI: u32 = 0x0900_0000;
+pub const GAMEPAK_WS1_LO: u32 = 0x0A00_0000;
+pub const GAMEPAK_WS1_HI: u32 = 0x0B00_0000;
+pub const GAMEPAK_WS2_LO: u32 = 0x0C00_0000;
+pub const GAMEPAK_WS2_HI: u32 = 0x0D00_0000;
+pub const SRAM_LO: u32 = 0x0E00_0000;
+pub const SRAM_HI: u32 = 0x0F00_0000;
 
 #[derive(Debug, Copy, Clone)]
 pub enum MemoryAccessType {
@@ -107,21 +111,23 @@ pub struct SysBus {
     bios: BoxedMemory,
     onboard_work_ram: BoxedMemory,
     internal_work_ram: BoxedMemory,
-    gamepak: Cartridge,
+    cartridge: Cartridge,
     dummy: DummyBus,
 
     pub trace_access: bool,
 }
 
+use ansi_term::Colour;
+
 impl SysBus {
-    pub fn new(io: IoDevices, bios_rom: Vec<u8>, gamepak: Cartridge) -> SysBus {
+    pub fn new(io: IoDevices, bios_rom: Vec<u8>, cartridge: Cartridge) -> SysBus {
         SysBus {
             io: io,
 
             bios: BoxedMemory::new(bios_rom.into_boxed_slice()),
             onboard_work_ram: BoxedMemory::new(vec![0; WORK_RAM_SIZE].into_boxed_slice()),
             internal_work_ram: BoxedMemory::new(vec![0; INTERNAL_RAM_SIZE].into_boxed_slice()),
-            gamepak: gamepak,
+            cartridge: cartridge,
             dummy: DummyBus([0; 4]),
 
             trace_access: false,
@@ -129,67 +135,93 @@ impl SysBus {
     }
 
     fn map(&self, addr: Addr) -> (&dyn Bus, Addr) {
-        let ofs = addr & 0x00ff_ffff;
         match addr & 0xff000000 {
             BIOS_ADDR => {
-                if ofs >= 0x4000 {
-                    (&self.dummy, ofs) // TODO return last fetched opcode
+                if addr >= 0x4000 {
+                    (&self.dummy, addr) // TODO return last fetched opcode
                 } else {
-                    (&self.bios, ofs)
+                    (&self.bios, addr)
                 }
             }
-            EWRAM_ADDR => (&self.onboard_work_ram, ofs & 0x3_ffff),
-            IWRAM_ADDR => (&self.internal_work_ram, ofs & 0x7fff),
+            EWRAM_ADDR => (&self.onboard_work_ram, addr & 0x3_ffff),
+            IWRAM_ADDR => (&self.internal_work_ram, addr & 0x7fff),
             IOMEM_ADDR => (&self.io, {
-                if ofs & 0xffff == 0x8000 {
+                if addr & 0xffff == 0x8000 {
                     0x800
                 } else {
-                    ofs & 0x7ff
+                    addr & 0x7ff
                 }
             }),
-            PALRAM_ADDR => (&self.io.gpu.palette_ram, ofs & 0x3ff),
+            PALRAM_ADDR => (&self.io.gpu.palette_ram, addr & 0x3ff),
             VRAM_ADDR => (&self.io.gpu.vram, {
-                let mut ofs = ofs & ((VIDEO_RAM_SIZE as u32) - 1);
+                let mut ofs = addr & ((VIDEO_RAM_SIZE as u32) - 1);
                 if ofs > 0x18000 {
                     ofs -= 0x8000;
                 }
                 ofs
             }),
-            OAM_ADDR => (&self.io.gpu.oam, ofs & 0x3ff),
-            GAMEPAK_WS0_ADDR | GAMEPAK_MIRROR_WS0_ADDR | GAMEPAK_WS1_ADDR | GAMEPAK_WS2_ADDR => {
-                (&self.gamepak, addr & 0x01ff_ffff)
+            OAM_ADDR => (&self.io.gpu.oam, addr & 0x3ff),
+            GAMEPAK_WS0_LO | GAMEPAK_WS0_HI | GAMEPAK_WS1_LO | GAMEPAK_WS1_HI | GAMEPAK_WS2_LO => {
+                (&self.cartridge, addr)
             }
-            _ => (&self.dummy, ofs),
+            GAMEPAK_WS2_HI => {
+                // println!(
+                //     "[{}] Possible read form EEPROM",
+                //     Colour::Yellow.bold().paint("warn")
+                // );
+                (&self.cartridge, addr)
+            }
+            SRAM_LO | SRAM_HI => (&self.cartridge, addr),
+            _ => {
+                println!(
+                    "[{}] Trying to read address {:#x}",
+                    Colour::Yellow.bold().paint("warn"),
+                    addr
+                );
+                (&self.dummy, addr)
+            }
         }
     }
 
     /// TODO proc-macro for generating this function
     fn map_mut(&mut self, addr: Addr) -> (&mut dyn Bus, Addr) {
-        let ofs = addr & 0x00ff_ffff;
         match addr & 0xff000000 {
-            BIOS_ADDR => (&mut self.dummy, ofs),
-            EWRAM_ADDR => (&mut self.onboard_work_ram, ofs & 0x3_ffff),
-            IWRAM_ADDR => (&mut self.internal_work_ram, ofs & 0x7fff),
+            BIOS_ADDR => (&mut self.dummy, addr),
+            EWRAM_ADDR => (&mut self.onboard_work_ram, addr & 0x3_ffff),
+            IWRAM_ADDR => (&mut self.internal_work_ram, addr & 0x7fff),
             IOMEM_ADDR => (&mut self.io, {
-                if ofs & 0xffff == 0x8000 {
+                if addr & 0xffff == 0x8000 {
                     0x800
                 } else {
-                    ofs & 0x7ff
+                    addr & 0x7ff
                 }
             }),
-            PALRAM_ADDR => (&mut self.io.gpu.palette_ram, ofs & 0x3ff),
+            PALRAM_ADDR => (&mut self.io.gpu.palette_ram, addr & 0x3ff),
             VRAM_ADDR => (&mut self.io.gpu.vram, {
-                let mut ofs = ofs & ((VIDEO_RAM_SIZE as u32) - 1);
+                let mut ofs = addr & ((VIDEO_RAM_SIZE as u32) - 1);
                 if ofs > 0x18000 {
                     ofs -= 0x8000;
                 }
                 ofs
             }),
-            OAM_ADDR => (&mut self.io.gpu.oam, ofs & 0x3ff),
-            GAMEPAK_WS0_ADDR | GAMEPAK_MIRROR_WS0_ADDR | GAMEPAK_WS1_ADDR | GAMEPAK_WS2_ADDR => {
-                (&mut self.gamepak, addr & 0x01ff_ffff)
+            OAM_ADDR => (&mut self.io.gpu.oam, addr & 0x3ff),
+            GAMEPAK_WS0_LO | GAMEPAK_WS0_HI => (&mut self.dummy, addr),
+            GAMEPAK_WS2_HI => {
+                // println!(
+                //     "[{}] Possible write to EEPROM",
+                //     Colour::Yellow.bold().paint("warn")
+                // );
+                (&mut self.dummy, addr)
             }
-            _ => (&mut self.dummy, ofs),
+            SRAM_LO | SRAM_HI => (&mut self.cartridge, addr),
+            _ => {
+                println!(
+                    "[{}] Trying to write {:#x}",
+                    Colour::Yellow.bold().paint("warn"),
+                    addr
+                );
+                (&mut self.dummy, addr)
+            }
         }
     }
 
@@ -214,7 +246,7 @@ impl SysBus {
                     cycles += 1;
                 }
             }
-            GAMEPAK_WS0_ADDR | GAMEPAK_MIRROR_WS0_ADDR => match access.0 {
+            GAMEPAK_WS0_LO | GAMEPAK_WS0_HI => match access.0 {
                 MemoryAccessType::NonSeq => match access.1 {
                     MemoryAccessWidth::MemoryAccess32 => {
                         cycles += nonseq_cycles[self.io.waitcnt.ws0_first_access() as usize];
@@ -231,9 +263,40 @@ impl SysBus {
                     }
                 }
             },
-            GAMEPAK_WS1_ADDR | GAMEPAK_WS2_ADDR => {
-                panic!("unimplemented - need to refactor code with a nice macro :(")
-            }
+            GAMEPAK_WS1_LO | GAMEPAK_WS1_HI => match access.0 {
+                MemoryAccessType::NonSeq => match access.1 {
+                    MemoryAccessWidth::MemoryAccess32 => {
+                        cycles += nonseq_cycles[self.io.waitcnt.ws1_first_access() as usize];
+                        cycles += seq_cycles[self.io.waitcnt.ws1_second_access() as usize];
+                    }
+                    _ => {
+                        cycles += nonseq_cycles[self.io.waitcnt.ws1_first_access() as usize];
+                    }
+                },
+                MemoryAccessType::Seq => {
+                    cycles += seq_cycles[self.io.waitcnt.ws1_second_access() as usize];
+                    if access.1 == MemoryAccessWidth::MemoryAccess32 {
+                        cycles += seq_cycles[self.io.waitcnt.ws1_second_access() as usize];
+                    }
+                }
+            },
+            GAMEPAK_WS2_LO | GAMEPAK_WS2_HI => match access.0 {
+                MemoryAccessType::NonSeq => match access.1 {
+                    MemoryAccessWidth::MemoryAccess32 => {
+                        cycles += nonseq_cycles[self.io.waitcnt.ws2_first_access() as usize];
+                        cycles += seq_cycles[self.io.waitcnt.ws2_second_access() as usize];
+                    }
+                    _ => {
+                        cycles += nonseq_cycles[self.io.waitcnt.ws2_first_access() as usize];
+                    }
+                },
+                MemoryAccessType::Seq => {
+                    cycles += seq_cycles[self.io.waitcnt.ws2_second_access() as usize];
+                    if access.1 == MemoryAccessWidth::MemoryAccess32 {
+                        cycles += seq_cycles[self.io.waitcnt.ws2_second_access() as usize];
+                    }
+                }
+            },
             _ => {}
         }
 
@@ -243,32 +306,44 @@ impl SysBus {
 
 impl Bus for SysBus {
     fn read_32(&self, addr: Addr) -> u32 {
-        let (dev, addr) = self.map(addr);
-        dev.read_32(addr & 0x1ff_fffc)
+        if addr & 3 != 0 {
+            println!("warn: Unaligned read32 at {:#X}", addr);
+        }
+        let (dev, addr) = self.map(addr & !3);
+        dev.read_32(addr)
     }
 
     fn read_16(&self, addr: Addr) -> u16 {
-        let (dev, addr) = self.map(addr);
-        dev.read_16(addr & 0x1ff_fffe)
+        if addr & 1 != 0 {
+            println!("warn: Unaligned read16 at {:#X}", addr);
+        }
+        let (dev, addr) = self.map(addr & !1);
+        dev.read_16(addr)
     }
 
     fn read_8(&self, addr: Addr) -> u8 {
         let (dev, addr) = self.map(addr);
-        dev.read_8(addr & 0x1ff_ffff)
+        dev.read_8(addr)
     }
 
     fn write_32(&mut self, addr: Addr, value: u32) {
-        let (dev, addr) = self.map_mut(addr);
-        dev.write_32(addr & 0x1ff_fffc, value);
+        if addr & 3 != 0 {
+            println!("warn: Unaligned write32 at {:#X} (value={:#X}", addr, value);
+        }
+        let (dev, addr) = self.map_mut(addr & !3);
+        dev.write_32(addr, value);
     }
 
     fn write_16(&mut self, addr: Addr, value: u16) {
-        let (dev, addr) = self.map_mut(addr);
-        dev.write_16(addr & 0x1ff_fffe, value);
+        if addr & 1 != 0 {
+            println!("warn: Unaligned write16 at {:#X} (value={:#X}", addr, value);
+        }
+        let (dev, addr) = self.map_mut(addr & !1);
+        dev.write_16(addr, value);
     }
 
     fn write_8(&mut self, addr: Addr, value: u8) {
         let (dev, addr) = self.map_mut(addr);
-        dev.write_8(addr & 0x1ff_ffff, value);
+        dev.write_8(addr, value);
     }
 }
