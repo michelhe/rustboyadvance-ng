@@ -9,6 +9,7 @@ use serde::ser::{Serialize, SerializeStruct, Serializer};
 
 use crate::util::write_bin_file;
 
+pub mod eeprom;
 pub mod flash;
 
 pub const BACKUP_FILE_EXT: &'static str = "sav";
@@ -20,6 +21,11 @@ pub enum BackupType {
     Flash = 2,
     Flash512 = 3,
     Flash1M = 4,
+}
+
+pub trait BackupMemoryInterface: Sized + fmt::Debug {
+    fn write(&mut self, offset: usize, value: u8);
+    fn read(&self, offset: usize) -> u8;
 }
 
 #[derive(Debug)]
@@ -105,14 +111,16 @@ impl BackupMemory {
             buffer: buffer,
         }
     }
+}
 
-    pub fn write(&mut self, offset: usize, value: u8) {
+impl BackupMemoryInterface for BackupMemory {
+    fn write(&mut self, offset: usize, value: u8) {
         self.buffer[offset] = value;
         self.file.seek(SeekFrom::Start(offset as u64)).unwrap();
         self.file.write_all(&[value]).unwrap();
     }
 
-    pub fn read(&self, offset: usize) -> u8 {
+    fn read(&self, offset: usize) -> u8 {
         self.buffer[offset]
     }
 }

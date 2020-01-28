@@ -8,24 +8,28 @@ use super::gpu::{GpuState, VIDEO_RAM_SIZE};
 use super::iodev::IoDevices;
 use super::{Addr, Bus};
 
-const WORK_RAM_SIZE: usize = 256 * 1024;
-const INTERNAL_RAM_SIZE: usize = 32 * 1024;
+pub mod consts {
+    pub const WORK_RAM_SIZE: usize = 256 * 1024;
+    pub const INTERNAL_RAM_SIZE: usize = 32 * 1024;
 
-pub const BIOS_ADDR: u32 = 0x0000_0000;
-pub const EWRAM_ADDR: u32 = 0x0200_0000;
-pub const IWRAM_ADDR: u32 = 0x0300_0000;
-pub const IOMEM_ADDR: u32 = 0x0400_0000;
-pub const PALRAM_ADDR: u32 = 0x0500_0000;
-pub const VRAM_ADDR: u32 = 0x0600_0000;
-pub const OAM_ADDR: u32 = 0x0700_0000;
-pub const GAMEPAK_WS0_LO: u32 = 0x0800_0000;
-pub const GAMEPAK_WS0_HI: u32 = 0x0900_0000;
-pub const GAMEPAK_WS1_LO: u32 = 0x0A00_0000;
-pub const GAMEPAK_WS1_HI: u32 = 0x0B00_0000;
-pub const GAMEPAK_WS2_LO: u32 = 0x0C00_0000;
-pub const GAMEPAK_WS2_HI: u32 = 0x0D00_0000;
-pub const SRAM_LO: u32 = 0x0E00_0000;
-pub const SRAM_HI: u32 = 0x0F00_0000;
+    pub const BIOS_ADDR: u32 = 0x0000_0000;
+    pub const EWRAM_ADDR: u32 = 0x0200_0000;
+    pub const IWRAM_ADDR: u32 = 0x0300_0000;
+    pub const IOMEM_ADDR: u32 = 0x0400_0000;
+    pub const PALRAM_ADDR: u32 = 0x0500_0000;
+    pub const VRAM_ADDR: u32 = 0x0600_0000;
+    pub const OAM_ADDR: u32 = 0x0700_0000;
+    pub const GAMEPAK_WS0_LO: u32 = 0x0800_0000;
+    pub const GAMEPAK_WS0_HI: u32 = 0x0900_0000;
+    pub const GAMEPAK_WS1_LO: u32 = 0x0A00_0000;
+    pub const GAMEPAK_WS1_HI: u32 = 0x0B00_0000;
+    pub const GAMEPAK_WS2_LO: u32 = 0x0C00_0000;
+    pub const GAMEPAK_WS2_HI: u32 = 0x0D00_0000;
+    pub const SRAM_LO: u32 = 0x0E00_0000;
+    pub const SRAM_HI: u32 = 0x0F00_0000;
+}
+
+use consts::*;
 
 #[derive(Debug, Copy, Clone)]
 pub enum MemoryAccessType {
@@ -211,7 +215,7 @@ impl SysBus {
                 //     "[{}] Possible write to EEPROM",
                 //     Colour::Yellow.bold().paint("warn")
                 // );
-                (&mut self.dummy, addr)
+                (&mut self.cartridge, addr)
             }
             SRAM_LO | SRAM_HI => (&mut self.cartridge, addr),
             _ => {

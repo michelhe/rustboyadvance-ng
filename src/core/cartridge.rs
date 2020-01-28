@@ -11,8 +11,9 @@ use zip::ZipArchive;
 use super::super::util::read_bin_file;
 use super::{Addr, Bus, GBAResult};
 
+use super::backup::eeprom::*;
 use super::backup::flash::*;
-use super::backup::{BackupMemory, BackupType, BACKUP_FILE_EXT};
+use super::backup::{BackupMemory, BackupMemoryInterface, BackupType, BACKUP_FILE_EXT};
 
 /// From GBATEK
 ///
@@ -77,7 +78,7 @@ impl CartridgeHeader {
 pub enum BackupMedia {
     Sram(BackupMemory),
     Flash(Flash),
-    Eeprom,
+    Eeprom(SpiController<BackupMemory>),
     Undetected,
 }
 
@@ -87,7 +88,7 @@ impl BackupMedia {
         match self {
             Sram(..) => "SRAM",
             Flash(..) => "FLASH",
-            Eeprom => "EEPROM",
+            Eeprom(..) => "EEPROM",
             Undetected => "Undetected",
         }
     }
@@ -147,6 +148,8 @@ impl Cartridge {
         } else {
             BackupMedia::Undetected
         };
+
+        println!("Header: {:?}", header);
         println!("Backup: {}", backup.type_string());
 
         Cartridge {
@@ -169,7 +172,9 @@ fn create_backup(bytes: &[u8], rom_path: &Path) -> BackupMedia {
                 BackupMedia::Flash(Flash::new(backup_path, FlashSize::Flash128k))
             }
             BackupType::Sram => BackupMedia::Sram(BackupMemory::new(0x8000, backup_path)),
-            BackupType::Eeprom => BackupMedia::Eeprom,
+            BackupType::Eeprom => {
+                BackupMedia::Eeprom(SpiController::new(BackupMemory::new(0x200, backup_path)))
+            }
         }
     } else {
         BackupMedia::Undetected
@@ -191,7 +196,9 @@ fn detect_backup_type(bytes: &[u8]) -> Option<BackupType> {
     return None;
 }
 
-use super::sysbus::{SRAM_HI, SRAM_LO};
+use super::sysbus::consts::*;
+
+const EEPROM_BASE_ADDR: u32 = 0x0DFF_FF00;
 
 impl Bus for Cartridge {
     fn read_8(&self, addr: Addr) -> u8 {
@@ -212,15 +219,32 @@ impl Bus for Cartridge {
         }
     }
 
+    fn read_16(&self, addr: u32) -> u16 {
+        if addr & 0xff000000 == GAMEPAK_WS2_HI && (self.bytes.len() <= 16*1024*1024 || addr >= EEPROM_BASE_ADDR) {
+            if let BackupMedia::Eeprom(spi) = &self.backup {
+                return spi.read_half();
+            }
+        }
+        self.default_read_16(addr)
+    }
+
     fn write_8(&mut self, addr: u32, value: u8) {
-        let offset = (addr & 0x01ff_ffff) as usize;
         match addr & 0xff000000 {
             SRAM_LO | SRAM_HI => match &mut self.backup {
                 BackupMedia::Flash(flash) => flash.write(addr, value),
                 BackupMedia::Sram(memory) => memory.write((addr & 0x7FFF) as usize, value),
                 _ => {}
             },
-            _ => self.bytes[offset] = value,
+            _ => {}, // TODO allow the debugger to write
         };
+    }
+
+    fn write_16(&mut self, addr: u32, value: u16) {
+        if addr & 0xff000000 == GAMEPAK_WS2_HI && (self.bytes.len() <= 16*1024*1024 || addr >= EEPROM_BASE_ADDR) {
+            if let BackupMedia::Eeprom(spi) = &mut self.backup {
+                return spi.write_half(value);
+            }
+        }
+        self.default_write_16(addr, value);
     }
 }

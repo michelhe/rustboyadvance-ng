@@ -6,6 +6,11 @@ pub trait Bus {
     }
 
     fn read_16(&self, addr: Addr) -> u16 {
+        self.default_read_16(addr)
+    }
+
+    #[inline(always)]
+    fn default_read_16(&self, addr: Addr) -> u16 {
         self.read_8(addr) as u16 | (self.read_8(addr + 1) as u16) << 8
     }
 
@@ -17,6 +22,11 @@ pub trait Bus {
     }
 
     fn write_16(&mut self, addr: Addr, value: u16) {
+        self.default_write_16(addr, value)
+    }
+
+    #[inline(always)]
+    fn default_write_16(&mut self, addr: Addr, value: u16) {
         self.write_8(addr, (value & 0xff) as u8);
         self.write_8(addr + 1, ((value >> 8) & 0xff) as u8);
     }

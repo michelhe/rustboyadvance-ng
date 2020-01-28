@@ -1,4 +1,4 @@
-use super::BackupMemory;
+use super::{BackupMemory, BackupMemoryInterface};
 
 use num::FromPrimitive;
 use serde::{Deserialize, Serialize};
