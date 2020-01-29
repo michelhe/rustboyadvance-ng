@@ -1,5 +1,4 @@
 pub mod arm7tdmi;
-mod backup;
 pub mod cartridge;
 pub mod gpu;
 pub mod sound;

@@ -11,9 +11,10 @@ use zip::ZipArchive;
 use super::super::util::read_bin_file;
 use super::{Addr, Bus, GBAResult};
 
-use super::backup::eeprom::*;
-use super::backup::flash::*;
-use super::backup::{BackupMemory, BackupMemoryInterface, BackupType, BACKUP_FILE_EXT};
+mod backup;
+use backup::eeprom::*;
+use backup::flash::*;
+use backup::{BackupMemory, BackupMemoryInterface, BackupType, BACKUP_FILE_EXT};
 
 /// From GBATEK
 ///
