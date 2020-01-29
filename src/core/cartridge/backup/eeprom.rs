@@ -1,4 +1,4 @@
-use super::{BackupMemoryInterface};
+use super::BackupMemoryInterface;
 
 use num::FromPrimitive;
 use serde::{Deserialize, Serialize};
@@ -31,9 +31,9 @@ enum SpiState {
     RxInstruction,
     RxAddress(SpiInstruction),
     StopBit(SpiInstruction),
-    TxDummy(SpiInstruction),
-    TxData(usize),
-    RxData(usize),
+    TxDummy,
+    TxData,
+    RxData,
 }
 
 impl Default for SpiState {
@@ -54,7 +54,7 @@ where
     rx_buffer: u64,
 
     tx_count: usize,
-    tx_buffer: u8,
+    tx_buffer: u64,
 
     address: usize,
 }
@@ -78,22 +78,6 @@ where
         }
     }
 
-    fn rx(&mut self, bit: u8) {
-        // data is receieved MSB first
-        let bit = bit & 1;
-        self.rx_buffer = (self.rx_buffer << 1) | (if bit & 1 != 0 { 1 } else { 0 });
-        self.rx_count += 1;
-    }
-
-    fn tx(&mut self) -> u8 {
-        // data is transmitted MSB first
-        let bit = self.tx_buffer >> 7;
-        self.tx_buffer = self.tx_buffer << 1;
-        self.tx_count += 1;
-
-        bit
-    }
-
     fn reset_rx_buffer(&mut self) {
         self.rx_buffer = 0;
         self.rx_count = 0;
@@ -104,12 +88,26 @@ where
         self.tx_count = 0;
     }
 
+    fn fill_tx_buffer(&mut self) {
+        let mut tx_buffer = 0u64;
+        for i in 0..8 {
+            tx_buffer = tx_buffer << 8;
+            tx_buffer |= self.memory.read(self.address + i) as u64;
+        }
+        self.tx_buffer = tx_buffer;
+        self.tx_count = 0;
+    }
+
     fn clock_data_in(&mut self, si: u8) {
         use SpiInstruction::*;
         use SpiState::*;
 
         // Read the si signal into the rx_buffer
-        self.rx(si);
+        trace!("({:?}) RX bit {}", self.state, si);
+        self.rx_buffer = (self.rx_buffer << 1) | (if si & 1 != 0 { 1 } else { 0 });
+        self.rx_count += 1;
+
+        let mut next_state: Option<SpiState> = None;
 
         match self.state {
             RxInstruction => {
@@ -119,96 +117,97 @@ where
                         "invalid spi command {:#010b}",
                         self.rx_buffer as u8
                     ));
-                    self.state = RxAddress(insn);
+                    next_state = Some(RxAddress(insn));
                     self.reset_rx_buffer();
                 }
             }
             RxAddress(insn) => {
                 if self.rx_count == 6 {
                     self.address = (self.rx_buffer as usize) * 8;
-                    self.state = match insn {
-                        Read => StopBit(insn),
-                        Write => RxData(0),
-                    };
-                    self.reset_rx_buffer();
-                }
-            }
-            StopBit(Read) => {
-                if si != 0 {
-                    panic!(
-                        "SPI Read - bit 0 was expected for command termination (debug={:?})",
-                        *self
-                    );
-                }
-                self.state = TxDummy(Read);
-                self.reset_rx_buffer();
-                self.reset_tx_buffer();
-            }
-            RxData(rx_bytes) => {
-                if rx_bytes < 8 {
-                    if self.rx_count % 8 == 0 {
-                        if rx_bytes + 1 == 8 {
-                            self.state = StopBit(Write);
+                    debug!("recvd address = {:#x}", self.address);
+                    match insn {
+                        Read => {
                             self.reset_rx_buffer();
-                        } else {
-                            let byte = (self.rx_buffer & 0xff) as u8;
-                            self.memory.write(self.address, byte);
+                            self.reset_tx_buffer();
+                            next_state = Some(StopBit(insn));
+                        }
+                        Write => {
+                            next_state = Some(RxData);
                             self.reset_rx_buffer();
-                            self.address += 1;
-                            self.state = RxData(rx_bytes + 1);
                         }
                     }
                 }
             }
-            StopBit(Write) => {
-                if si != 0 {
-                    panic!(
-                        "SPI Write - bit 0 was expected for command termination (debug={:?})",
-                        *self
-                    );
+            StopBit(Read) => {
+                next_state = Some(TxDummy);
+                self.reset_rx_buffer();
+                self.reset_tx_buffer();
+            }
+            RxData => {
+                if self.rx_count == 64 {
+                    let mut data = self.rx_buffer;
+                    debug!("writing {:x} to memory", data);
+                    for i in 0..8 {
+                        self.memory
+                            .write(self.address + (7 - i), (data & 0xff) as u8);
+                        data = data >> 8;
+                    }
+                    next_state = Some(StopBit(Write));
+                    self.reset_rx_buffer();
                 }
+            }
+            StopBit(Write) => {
                 self.state = RxInstruction;
                 self.reset_rx_buffer();
                 self.reset_tx_buffer();
             }
             _ => {}
         }
+        if let Some(next_state) = next_state {
+            self.state = next_state;
+        }
     }
 
     fn clock_data_out(&mut self) -> u8 {
         use SpiState::*;
 
-        match self.state {
-            TxDummy(insn) => {
-                let bit = self.tx();
+        let mut next_state = None;
+        let result = match self.state {
+            TxDummy => {
+                self.tx_count += 1;
                 if self.tx_count == 4 {
-                    self.state = TxData(0);
-                    self.reset_tx_buffer();
+                    next_state = Some(TxData);
+                    self.fill_tx_buffer();
+                    debug!("transmitting data bits, tx_buffer = {:#x}", self.tx_buffer);
                 }
-                bit
+                0
             }
-            TxData(tx_bytes) => {
-                if tx_bytes < 8 {
-                    if self.tx_count % 8 == 0 {
-                        let byte = self.memory.read(self.address);
-                        self.tx_buffer = byte;
-                        self.address += 1;
-                        self.state = TxData(tx_bytes + 1);
-                    }
-                    self.tx()
-                } else {
-                    self.state = RxInstruction;
+            TxData => {
+                self.tx_count += 1;
+                if self.tx_count == 64 {
                     self.reset_rx_buffer();
                     self.reset_tx_buffer();
+                    next_state = Some(RxInstruction);
                     0
+                } else {
+                    let result = ((self.tx_buffer >> 63) & 1) as u8;
+                    self.tx_buffer = self.tx_buffer << 1;
+                    result
                 }
             }
-            _ => self.tx(),
+            _ => 0,
+        };
+
+        trace!("({:?}) TX bit {}", self.state, result);
+        if let Some(next_state) = next_state {
+            self.state = next_state;
         }
+
+        result
     }
 
     fn data_available(&self) -> bool {
-        if let SpiState::TxData(_) = self.state {
+        if let SpiState::TxData = self.state {
             true
         } else {
             false
