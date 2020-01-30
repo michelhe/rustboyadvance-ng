@@ -37,6 +37,9 @@ extern crate zip;
 extern crate memmem;
 
 #[macro_use]
+extern crate log;
+
+#[macro_use]
 pub mod util;
 pub mod core;
 pub mod disass;

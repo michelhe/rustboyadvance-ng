@@ -14,11 +14,16 @@ use std::rc::Rc;
 
 use std::path::{Path, PathBuf};
 use std::time;
-
 use std::process;
+use std::fs;
 
 #[macro_use]
 extern crate clap;
+
+#[macro_use]
+extern crate log;
+extern crate flexi_logger;
+use flexi_logger::*;
 
 mod audio;
 mod input;
@@ -31,6 +36,8 @@ use video::{create_video_interface, SCREEN_HEIGHT, SCREEN_WIDTH};
 extern crate rustboyadvance_ng;
 use rustboyadvance_ng::prelude::*;
 use rustboyadvance_ng::util::FpsCounter;
+
+const LOG_DIR: &str = ".logs";
 
 fn get_savestate_path(rom_filename: &Path) -> PathBuf {
     rom_filename.with_extension("savestate")
@@ -52,6 +59,16 @@ fn wait_for_rom(event_pump: &mut EventPump) -> String {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    fs::create_dir(LOG_DIR);
+    flexi_logger::Logger::with_env()
+        .log_to_file()
+        .directory(LOG_DIR)
+        .duplicate_to_stderr(Duplicate::Debug)
+        .format_for_files(default_format)
+        .format_for_stderr(colored_default_format)
+        .start()
+        .unwrap();
+
     let mut frame_limiter = true;
     let yaml = load_yaml!("cli.yml");
     let matches = clap::App::from_yaml(yaml).get_matches();
@@ -60,6 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let debug = matches.occurrences_of("debug") != 0;
 
+    info!("Initializing SDL2 context");
     let sdl_context = sdl2::init().expect("failed to initialize sdl2");
     let mut event_pump = sdl_context.event_pump()?;
 
@@ -97,7 +115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut rom_path = match matches.value_of("game_rom") {
         Some(path) => path.to_string(),
         _ => {
-            println!("[!] Rom file missing, please drag a rom file into the emulator window...");
+            info!("[!] Rom file missing, please drag a rom file into the emulator window...");
             wait_for_rom(&mut event_pump)
         }
     };
@@ -125,9 +143,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             gba.cpu.set_verbose(true);
             let mut debugger = Debugger::new(gba);
-            println!("starting debugger...");
+            info!("starting debugger...");
             debugger.repl(matches.value_of("script_file")).unwrap();
-            println!("ending debugger...");
+            info!("ending debugger...");
             return;
         }
         #[cfg(not(feature = "debugger"))]
@@ -161,20 +179,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ..
                 } => {
                     let mut debugger = Debugger::new(gba);
-                    println!("starting debugger...");
+                    info!("starting debugger...");
                     debugger.repl(matches.value_of("script_file")).unwrap();
                     gba = debugger.gba;
-                    println!("ending debugger...");
+                    info!("ending debugger...");
                     break;
                 }
                 Event::KeyUp {
                     keycode: Some(Keycode::F5),
                     ..
                 } => {
-                    println!("Saving state ...");
+                    info!("Saving state ...");
                     let save = gba.save_state()?;
                     write_bin_file(&savestate_path, &save)?;
-                    println!(
+                    info!(
                         "Saved to {:?} ({})",
                         savestate_path,
                         bytesize::ByteSize::b(save.len() as u64)
@@ -186,11 +204,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } => {
                     if savestate_path.is_file() {
                         let save = read_bin_file(&savestate_path)?;
-                        println!("Restoring state from {:?}...", savestate_path);
+                        info!("Restoring state from {:?}...", savestate_path);
                         gba.restore_state(&save)?;
-                        println!("Restored!");
+                        info!("Restored!");
                     } else {
-                        println!("Savestate not created, please create one by pressing F5");
+                        info!("Savestate not created, please create one by pressing F5");
                     }
                 }
                 Event::KeyDown {
