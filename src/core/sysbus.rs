@@ -121,8 +121,6 @@ pub struct SysBus {
     pub trace_access: bool,
 }
 
-use ansi_term::Colour;
-
 impl SysBus {
     pub fn new(io: IoDevices, bios_rom: Vec<u8>, cartridge: Cartridge) -> SysBus {
         SysBus {
@@ -168,20 +166,10 @@ impl SysBus {
             GAMEPAK_WS0_LO | GAMEPAK_WS0_HI | GAMEPAK_WS1_LO | GAMEPAK_WS1_HI | GAMEPAK_WS2_LO => {
                 (&self.cartridge, addr)
             }
-            GAMEPAK_WS2_HI => {
-                // println!(
-                //     "[{}] Possible read form EEPROM",
-                //     Colour::Yellow.bold().paint("warn")
-                // );
-                (&self.cartridge, addr)
-            }
+            GAMEPAK_WS2_HI => (&self.cartridge, addr),
             SRAM_LO | SRAM_HI => (&self.cartridge, addr),
             _ => {
-                println!(
-                    "[{}] Trying to read address {:#x}",
-                    Colour::Yellow.bold().paint("warn"),
-                    addr
-                );
+                warn!("trying to read invalid address {:#x}", addr);
                 (&self.dummy, addr)
             }
         }
@@ -210,20 +198,10 @@ impl SysBus {
             }),
             OAM_ADDR => (&mut self.io.gpu.oam, addr & 0x3ff),
             GAMEPAK_WS0_LO | GAMEPAK_WS0_HI => (&mut self.dummy, addr),
-            GAMEPAK_WS2_HI => {
-                // println!(
-                //     "[{}] Possible write to EEPROM",
-                //     Colour::Yellow.bold().paint("warn")
-                // );
-                (&mut self.cartridge, addr)
-            }
+            GAMEPAK_WS2_HI => (&mut self.cartridge, addr),
             SRAM_LO | SRAM_HI => (&mut self.cartridge, addr),
             _ => {
-                println!(
-                    "[{}] Trying to write {:#x}",
-                    Colour::Yellow.bold().paint("warn"),
-                    addr
-                );
+                warn!("trying to write invalid address {:#x}", addr);
                 (&mut self.dummy, addr)
             }
         }
@@ -311,7 +289,7 @@ impl SysBus {
 impl Bus for SysBus {
     fn read_32(&self, addr: Addr) -> u32 {
         if addr & 3 != 0 {
-            println!("warn: Unaligned read32 at {:#X}", addr);
+            warn!("Unaligned read32 at {:#X}", addr);
         }
         let (dev, addr) = self.map(addr & !3);
         dev.read_32(addr)
@@ -319,7 +297,7 @@ impl Bus for SysBus {
 
     fn read_16(&self, addr: Addr) -> u16 {
         if addr & 1 != 0 {
-            println!("warn: Unaligned read16 at {:#X}", addr);
+            warn!("Unaligned read16 at {:#X}", addr);
         }
         let (dev, addr) = self.map(addr & !1);
         dev.read_16(addr)
@@ -332,7 +310,7 @@ impl Bus for SysBus {
 
     fn write_32(&mut self, addr: Addr, value: u32) {
         if addr & 3 != 0 {
-            println!("warn: Unaligned write32 at {:#X} (value={:#X}", addr, value);
+            warn!("Unaligned write32 at {:#X} (value={:#X}", addr, value);
         }
         let (dev, addr) = self.map_mut(addr & !3);
         dev.write_32(addr, value);
@@ -340,7 +318,7 @@ impl Bus for SysBus {
 
     fn write_16(&mut self, addr: Addr, value: u16) {
         if addr & 1 != 0 {
-            println!("warn: Unaligned write16 at {:#X} (value={:#X}", addr, value);
+            warn!("Unaligned write16 at {:#X} (value={:#X}", addr, value);
         }
         let (dev, addr) = self.map_mut(addr & !1);
         dev.write_16(addr, value);

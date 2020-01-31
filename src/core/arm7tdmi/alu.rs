@@ -73,7 +73,7 @@ impl ShiftedRegister {
     pub fn is_shifted_by_reg(&self) -> bool {
         match self.shift_by {
             ShiftRegisterBy::ByRegister(_) => true,
-            _ => false
+            _ => false,
         }
     }
 }

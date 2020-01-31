@@ -104,8 +104,8 @@ impl Timers {
         } else {
             self.running_timers &= !(1 << id);
         }
-        if self.trace && old_enabled != new_enabled {
-            println!(
+        if old_enabled != new_enabled {
+            trace!(
                 "TMR{} {}",
                 id,
                 if new_enabled { "enabled" } else { "disabled" }

@@ -61,7 +61,7 @@ pub fn create_audio_player(sdl: &sdl2::Sdl) -> Sdl2AudioPlayer {
 
     let device = audio_subsystem
         .open_playback(None, &desired_spec, |spec| {
-            println!("Found audio device: {:?}", spec);
+            info!("Found audio device: {:?}", spec);
             freq = spec.freq;
 
             // Create a thread-safe SPSC fifo

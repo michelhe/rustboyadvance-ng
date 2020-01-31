@@ -94,11 +94,11 @@ impl Bus for IoDevices {
             REG_KEYINPUT => io.keyinput as u16,
 
             _ => {
-                // println!(
-                //     "Unimplemented read from {:x} {}",
-                //     io_addr,
-                //     io_reg_string(io_addr)
-                // );
+                trace!(
+                    "Unimplemented read from {:x} {}",
+                    io_addr,
+                    io_reg_string(io_addr)
+                );
                 0
             }
         }
@@ -244,11 +244,11 @@ impl Bus for IoDevices {
             }
 
             _ => {
-                // println!(
-                //     "Unimplemented write to {:x} {}",
-                //     io_addr,
-                //     io_reg_string(io_addr)
-                // );
+                trace!(
+                    "Unimplemented write to {:x} {}",
+                    io_addr,
+                    io_reg_string(io_addr)
+                );
             }
         }
     }

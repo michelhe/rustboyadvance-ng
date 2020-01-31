@@ -163,7 +163,7 @@ impl Flash {
     }
 
     pub fn write(&mut self, addr: u32, value: u8) {
-        // println!("[FLASH] write {:#x}={:#x}", addr, value);
+        trace!("[FLASH] write {:#x}={:#x}", addr, value);
         match self.wrseq {
             FlashWriteSequence::Initial => {
                 if addr == 0x0E00_5555 && value == 0xAA {

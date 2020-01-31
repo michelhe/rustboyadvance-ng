@@ -12,10 +12,10 @@ extern crate spin_sleep;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use std::path::{Path, PathBuf};
-use std::time;
-use std::process;
 use std::fs;
+use std::path::{Path, PathBuf};
+use std::process;
+use std::time;
 
 #[macro_use]
 extern crate clap;
@@ -60,7 +60,7 @@ fn wait_for_rom(event_pump: &mut EventPump) -> String {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir(LOG_DIR);
-    flexi_logger::Logger::with_env()
+    flexi_logger::Logger::with_env_or_str("info")
         .log_to_file()
         .directory(LOG_DIR)
         .duplicate_to_stderr(Duplicate::Debug)

@@ -363,7 +363,6 @@ impl Core {
         // TODO - confirm this
         let old_mode = self.cpsr.mode();
         if !pre_index && writeback {
-            println!("SPECIAL CHANGE MODE");
             self.change_mode(old_mode, CpuMode::User);
         }
 

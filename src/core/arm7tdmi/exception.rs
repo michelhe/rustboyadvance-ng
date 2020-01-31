@@ -31,7 +31,7 @@ impl Core {
             Fiq => (CpuMode::Fiq, true, true),
         };
         if self.trace_exceptions {
-            println!(
+            trace!(
                 "{}: {:?}, pc: {:#x}, new_mode: {:?} old_mode: {:?}",
                 "Exception".cyan(),
                 e,

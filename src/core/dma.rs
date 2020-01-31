@@ -1,6 +1,6 @@
 use super::iodev::consts::{REG_FIFO_A, REG_FIFO_B};
 use super::sysbus::SysBus;
-use super::{Addr, Bus, Interrupt, IrqBitmask};
+use super::{Bus, Interrupt, IrqBitmask};
 
 use num::FromPrimitive;
 use serde::{Deserialize, Serialize};
@@ -86,6 +86,14 @@ impl DmaChannel {
         let timing = ctrl.timing();
         let mut start_immediately = false;
         if ctrl.is_enabled() && !self.ctrl.is_enabled() {
+            trace!(
+                "DMA{} enabled! timing={} src={:#x} dst={:#x} cnt={}",
+                self.id,
+                timing,
+                self.src,
+                self.dst,
+                self.wc
+            );
             self.start_cycles = self.cycles;
             self.running = true;
             start_immediately = timing == 0;

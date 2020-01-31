@@ -150,8 +150,8 @@ impl Cartridge {
             BackupMedia::Undetected
         };
 
-        println!("Header: {:?}", header);
-        println!("Backup: {}", backup.type_string());
+        info!("Header: {:?}", header);
+        info!("Backup: {}", backup.type_string());
 
         Cartridge {
             header: header,
@@ -193,7 +193,7 @@ fn detect_backup_type(bytes: &[u8]) -> Option<BackupType> {
             _ => {}
         }
     }
-    println!("Could not detect backup type");
+    warn!("could not detect backup type");
     return None;
 }
 

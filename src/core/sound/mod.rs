@@ -192,12 +192,12 @@ impl SoundController {
         if io_addr == REG_SOUNDCNT_X {
             if value & bit(7) != 0 {
                 if !self.mse {
-                    println!("MSE enabled!");
+                    trace!("MSE enabled!");
                     self.mse = true;
                 }
             } else {
                 if self.mse {
-                    println!("MSE disabled!");
+                    trace!("MSE disabled!");
                     self.mse = false;
                 }
             }
@@ -207,7 +207,7 @@ impl SoundController {
         }
 
         if !self.mse {
-            // println!("MSE disabled, refusing to write");
+            warn!("MSE disabled, refusing to write");
             return;
         }
 
