@@ -6,10 +6,10 @@ mod header;
 use header::CartridgeHeader;
 
 mod backup;
-use backup::eeprom::SpiController;
+use backup::eeprom::EepromController;
 use backup::flash::Flash;
-use backup::{BackupFile, BackupMemoryInterface};
 pub use backup::BackupType;
+use backup::{BackupFile, BackupMemoryInterface};
 
 mod builder;
 pub use builder::GamepakBuilder;
@@ -18,7 +18,7 @@ pub use builder::GamepakBuilder;
 pub enum BackupMedia {
     Sram(BackupFile),
     Flash(Flash),
-    Eeprom(SpiController<BackupFile>),
+    Eeprom(EepromController),
     Undetected,
 }
 

@@ -1,5 +1,5 @@
-use std::fmt;
 use std::convert::TryFrom;
+use std::fmt;
 
 mod backup_file;
 pub use backup_file::BackupFile;
@@ -27,7 +27,7 @@ impl TryFrom<&str> for BackupType {
             "flash128k" => Ok(Flash1M),
             "flash64k" => Ok(Flash512),
             "eeprom" => Ok(Eeprom),
-            _ => Err(format!("{} is not a valid save type", s))
+            _ => Err(format!("{} is not a valid save type", s)),
         }
     }
 }
@@ -35,4 +35,5 @@ impl TryFrom<&str> for BackupType {
 pub trait BackupMemoryInterface: Sized + fmt::Debug {
     fn write(&mut self, offset: usize, value: u8);
     fn read(&self, offset: usize) -> u8;
+    fn resize(&mut self, new_size: usize);
 }

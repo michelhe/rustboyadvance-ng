@@ -125,9 +125,7 @@ fn create_backup(backup_type: BackupType, rom_path: Option<PathBuf>) -> BackupMe
         }
         BackupType::Flash1M => BackupMedia::Flash(Flash::new(backup_path, FlashSize::Flash128k)),
         BackupType::Sram => BackupMedia::Sram(BackupFile::new(0x8000, backup_path)),
-        BackupType::Eeprom => {
-            BackupMedia::Eeprom(SpiController::new(BackupFile::new(0x200, backup_path)))
-        }
+        BackupType::Eeprom => BackupMedia::Eeprom(EepromController::new(backup_path)),
         BackupType::AutoDetect => panic!("called create_backup with backup_type==AutoDetect"),
     }
 }

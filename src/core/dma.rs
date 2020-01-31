@@ -130,15 +130,6 @@ impl DmaChannel {
     }
 
     fn xfer(&mut self, sb: &mut SysBus, irqs: &mut IrqBitmask) {
-        if self.id == 3 {
-            if let BackupMedia::Eeprom(eeprom) = &mut sb.cartridge.backup {
-                // this might be a eeprom request, so we need to reset the eeprom state machine if its dirty (due to bad behaving games, or tests roms)
-                if !eeprom.chip.borrow().is_transmitting() {
-                    eeprom.chip.borrow_mut().reset();
-                }
-            }
-        }
-
         let word_size = if self.ctrl.is_32bit() { 4 } else { 2 };
         let count = match self.internal.count {
             0 => match self.id {
@@ -147,6 +138,17 @@ impl DmaChannel {
             },
             _ => self.internal.count,
         };
+
+        if self.id == 3 && word_size == 2 {
+            if let BackupMedia::Eeprom(eeprom) = &mut sb.cartridge.backup {
+                eeprom.on_dma3_transfer(
+                    self.internal.src_addr,
+                    self.internal.dst_addr,
+                    count as usize,
+                )
+            }
+        }
+
         let fifo_mode = self.fifo_mode;
 
         if fifo_mode {

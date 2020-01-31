@@ -102,6 +102,21 @@ impl BackupFile {
             buffer: buffer,
         }
     }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.buffer
+    }
+
+    pub fn bytes_mut(&mut self) -> &mut [u8] {
+        &mut self.buffer
+    }
+
+    pub fn flush(&mut self) {
+        if let Some(file) = &mut self.file {
+            file.seek(SeekFrom::Start(0)).unwrap();
+            file.write_all(&self.buffer).unwrap();
+        }
+    }
 }
 
 impl BackupMemoryInterface for BackupFile {
@@ -115,5 +130,11 @@ impl BackupMemoryInterface for BackupFile {
 
     fn read(&self, offset: usize) -> u8 {
         self.buffer[offset]
+    }
+
+    fn resize(&mut self, new_size: usize) {
+        self.size = new_size;
+        self.buffer.resize(new_size, 0xff);
+        self.flush();
     }
 }

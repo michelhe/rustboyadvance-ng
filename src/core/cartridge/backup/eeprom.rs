@@ -1,21 +1,44 @@
-use super::BackupMemoryInterface;
+use super::{BackupFile, BackupMemoryInterface};
 
 use num::FromPrimitive;
 use serde::{Deserialize, Serialize};
 
 use std::cell::RefCell;
+use std::fs;
+use std::path::PathBuf;
 
-#[derive(Debug)]
-pub enum EepromSize {
+#[derive(Debug, Clone, Copy)]
+pub enum EepromType {
     Eeprom512,
     Eeprom8k,
 }
 
-impl Into<usize> for EepromSize {
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+enum EepromAddressBits {
+    Eeprom6bit,
+    Eeprom14bit,
+}
+
+impl EepromType {
+    fn size(&self) -> usize {
+        match self {
+            EepromType::Eeprom512 => 0x0200,
+            EepromType::Eeprom8k => 0x2000,
+        }
+    }
+    fn bits(&self) -> EepromAddressBits {
+        match self {
+            EepromType::Eeprom512 => EepromAddressBits::Eeprom6bit,
+            EepromType::Eeprom8k => EepromAddressBits::Eeprom14bit,
+        }
+    }
+}
+
+impl Into<usize> for EepromAddressBits {
     fn into(self) -> usize {
         match self {
-            EepromSize::Eeprom512 => 0x0200,
-            EepromSize::Eeprom8k => 0x2000,
+            EepromAddressBits::Eeprom6bit => 6,
+            EepromAddressBits::Eeprom14bit => 14,
         }
     }
 }
@@ -24,6 +47,12 @@ impl Into<usize> for EepromSize {
 enum SpiInstruction {
     Read = 0b011,
     Write = 0b010,
+}
+
+impl Default for SpiInstruction {
+    fn default() -> SpiInstruction {
+        SpiInstruction::Read /* TODO this is an arbitrary choice */
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
@@ -43,11 +72,9 @@ impl Default for SpiState {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct EepromChip<M>
-where
-    M: BackupMemoryInterface,
-{
-    memory: M,
+pub struct EepromChip {
+    memory: BackupFile,
+    addr_bits: EepromAddressBits,
 
     state: SpiState,
     rx_count: usize,
@@ -63,13 +90,13 @@ where
                       // But we do it right away.
 }
 
-impl<M> EepromChip<M>
-where
-    M: BackupMemoryInterface,
-{
-    fn new(memory: M) -> EepromChip<M> {
+impl EepromChip {
+    fn new(eeprom_type: EepromType, mut memory: BackupFile) -> EepromChip {
+        memory.resize(eeprom_type.size());
         EepromChip {
             memory: memory,
+            addr_bits: eeprom_type.bits(),
+
             state: SpiState::RxInstruction,
 
             rx_count: 0,
@@ -82,6 +109,11 @@ where
 
             chip_ready: false,
         }
+    }
+
+    fn set_type(&mut self, eeprom_type: EepromType) {
+        self.addr_bits = eeprom_type.bits();
+        self.memory.resize(eeprom_type.size());
     }
 
     fn reset_rx_buffer(&mut self) {
@@ -128,11 +160,13 @@ where
                 }
             }
             RxAddress(insn) => {
-                if self.rx_count == 6 {
+                if self.rx_count == self.addr_bits.into() {
                     self.address = (self.rx_buffer as usize) * 8;
-                    debug!(
+                    trace!(
                         "{:?} mode , recvd address = {:#x} (rx_buffer={:#x})",
-                        insn, self.address, self.rx_buffer
+                        insn,
+                        self.address,
+                        self.rx_buffer
                     );
                     match insn {
                         Read => {
@@ -187,7 +221,7 @@ where
                 if self.tx_count == 4 {
                     next_state = Some(TxData);
                     self.fill_tx_buffer();
-                    debug!("transmitting data bits, tx_buffer = {:#x}", self.tx_buffer);
+                    trace!("transmitting data bits, tx_buffer = {:#x}", self.tx_buffer);
                 }
                 0
             }
@@ -234,60 +268,110 @@ where
     }
 }
 
+// #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Default)]
+// struct ChipSizeDetectionState {
+//     insn: SpiInstruction,
+//     rx_buffer: u64,
+//     rx_count: usize,
+// }
+
 /// The Eeprom controller is usually mapped to the top 256 bytes of the cartridge memory
 /// Eeprom controller can programmed with DMA accesses in 16bit mode
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct SpiController<M>
-where
-    M: BackupMemoryInterface,
-{
-    pub(in crate) chip: RefCell<EepromChip<M>>,
+pub struct EepromController {
+    pub(in crate) chip: RefCell<EepromChip>,
+    detect: bool,
 }
 
-impl<M> SpiController<M>
-where
-    M: BackupMemoryInterface,
-{
-    pub fn new(m: M) -> SpiController<M> {
-        SpiController {
-            chip: RefCell::new(EepromChip::new(m)),
+impl EepromController {
+    pub fn new(path: Option<PathBuf>) -> EepromController {
+        let mut detect = true;
+
+        let eeprom_type = if let Some(path) = &path {
+            let metadata = fs::metadata(&path).unwrap();
+            let eeprom_type = match metadata.len() {
+                512 => EepromType::Eeprom512,
+                8192 => EepromType::Eeprom8k,
+                _ => panic!("invalid file size ({}) for eeprom save", metadata.len()),
+            };
+            detect = false;
+            eeprom_type
+        } else {
+            EepromType::Eeprom512
+        };
+
+        let mut result = EepromController::new_with_type(path, eeprom_type);
+        result.detect = detect;
+
+        result
+    }
+
+    pub fn new_with_type(path: Option<PathBuf>, eeprom_type: EepromType) -> EepromController {
+        let memory = BackupFile::new(eeprom_type.size(), path);
+        EepromController {
+            chip: RefCell::new(EepromChip::new(eeprom_type, memory)),
+            detect: false,
         }
     }
 
     pub fn write_half(&mut self, address: u32, value: u16) {
+        assert!(!self.detect);
         self.chip.borrow_mut().clock_data_in(address, value as u8);
     }
 
     pub fn read_half(&self, address: u32) -> u16 {
+        assert!(!self.detect);
         let mut chip = self.chip.borrow_mut();
         chip.clock_data_out(address) as u16
+    }
+
+    pub fn on_dma3_transfer(&mut self, src: u32, dst: u32, count: usize) {
+        use EepromType::*;
+        if self.detect {
+            match (src, dst) {
+                // DMA to EEPROM
+                (_, 0x0d000000..0x0dffffff) => {
+                    debug!("caught eeprom dma transfer src={:#x} dst={:#x} count={}", src, dst, count);
+                    let eeprom_type = match count {
+                        // Read(11) + 6bit address + stop bit
+                        9 => Eeprom512,
+                        // Read(11) + 14bit address + stop bit
+                        17 => Eeprom8k,
+                        // Write(11) + 6bit address + 64bit value + stop bit
+                        73 => Eeprom512,
+                        // Write(11) + 14bit address + 64bit value + stop bit
+                        81 => Eeprom8k,
+                        _ => panic!("unexpected bit count ({}) when detecting eeprom size", count)
+                    };
+                    info!("detected eeprom type: {:?}", eeprom_type);
+                    self.chip.borrow_mut().set_type(eeprom_type);
+                    self.detect = false;
+                }
+                // EEPROM to DMA
+                (0x0d000000..0x0dffffff, _) => {
+                    panic!("reading from eeprom when real size is not detected yet is not supported by this emulator")
+                }
+                _ => {/* Not a eeprom dma, doing nothing */}
+            }
+        } else {
+            // this might be a eeprom request, so we need to reset the eeprom state machine if its dirty (due to bad behaving games, or tests roms)
+            let mut chip = self.chip.borrow_mut();
+            if !chip.is_transmitting() {
+                chip.reset();
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::super::EEPROM_BASE_ADDR;
-    use super::super::BackupMemoryInterface;
+    use super::super::BackupFile;
     use super::*;
 
     use bit::BitIndex;
 
-    #[derive(Debug)]
-    struct MockMemory {
-        buffer: Vec<u8>,
-    }
-
-    impl BackupMemoryInterface for MockMemory {
-        fn write(&mut self, offset: usize, value: u8) {
-            self.buffer[offset] = value;
-        }
-
-        fn read(&self, offset: usize) -> u8 {
-            self.buffer[offset]
-        }
-    }
-
-    impl SpiController<MockMemory> {
+    impl EepromController {
         fn consume_dummy_cycles(&self) {
             // ignore the dummy bits
             self.read_half(EEPROM_BASE_ADDR);
@@ -308,17 +392,6 @@ mod tests {
             }
             bytes
         }
-    }
-
-    fn make_mock_memory() -> MockMemory {
-        let mut buffer = vec![0; 512];
-        buffer[16] = 'T' as u8;
-        buffer[17] = 'E' as u8;
-        buffer[18] = 'S' as u8;
-        buffer[19] = 'T' as u8;
-        buffer[20] = '!' as u8;
-
-        MockMemory { buffer }
     }
 
     fn make_spi_read_request(address: usize) -> Vec<u16> {
@@ -374,36 +447,21 @@ mod tests {
     }
 
     #[test]
-    fn test_spi_read() {
-        let memory = make_mock_memory();
-        let mut spi = SpiController::<MockMemory>::new(memory);
-
-        // 1 bit "0" - stop bit
-        let stream = make_spi_read_request(2);
-        for half in stream.into_iter() {
-            spi.write_half(EEPROM_BASE_ADDR, half);
-        }
-
-        spi.consume_dummy_cycles();
-
-        assert!(spi.chip.borrow().is_transmitting());
-
-        let data = spi.rx_data();
-
-        assert_eq!(data[0], 'T' as u8);
-        assert_eq!(data[1], 'E' as u8);
-        assert_eq!(data[2], 'S' as u8);
-        assert_eq!(data[3], 'T' as u8);
-        assert_eq!(data[4], '!' as u8);
-
-        assert_eq!(spi.chip.borrow().state, SpiState::RxInstruction);
-        assert_eq!(spi.chip.borrow().rx_count, 0);
-    }
-
-    #[test]
     fn test_spi_read_write() {
-        let memory = make_mock_memory();
-        let mut spi = SpiController::<MockMemory>::new(memory);
+        let mut spi = EepromController::new_with_type(None, EepromType::Eeprom512);
+        // hacky way to initialize the backup file with contents.
+        // TODO - implement EepromController initialization with data buffer and not files
+        {
+            let mut chip = spi.chip.borrow_mut();
+            let mut bytes = chip.memory.bytes_mut();
+            bytes[16] = 'T' as u8;
+            bytes[17] = 'E' as u8;
+            bytes[18] = 'S' as u8;
+            bytes[19] = 'T' as u8;
+            bytes[20] = '!' as u8;
+            drop(bytes);
+            chip.memory.flush();
+        }
 
         let expected = "Work.".as_bytes();
 
@@ -437,7 +495,7 @@ mod tests {
 
         {
             let chip = spi.chip.borrow();
-            assert_eq!(expected, &chip.memory.buffer[0x10..0x15]);
+            assert_eq!(expected, &chip.memory.bytes()[0x10..0x15]);
             assert_eq!(SpiState::RxInstruction, chip.state);
             assert_eq!(0, chip.rx_count);
             assert_eq!(0, chip.tx_count);
