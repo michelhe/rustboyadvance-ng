@@ -115,7 +115,7 @@ pub struct SysBus {
     bios: BoxedMemory,
     onboard_work_ram: BoxedMemory,
     internal_work_ram: BoxedMemory,
-    cartridge: Cartridge,
+    pub cartridge: Cartridge,
     dummy: DummyBus,
 
     pub trace_access: bool,

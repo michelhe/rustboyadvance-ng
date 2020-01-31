@@ -100,7 +100,7 @@ pub struct Cartridge {
     pub header: CartridgeHeader,
     bytes: Box<[u8]>,
     size: usize,
-    backup: BackupMedia,
+    pub(in crate) backup: BackupMedia,
 }
 
 fn load_rom(path: &Path) -> GBAResult<Vec<u8>> {
@@ -199,7 +199,7 @@ fn detect_backup_type(bytes: &[u8]) -> Option<BackupType> {
 
 use super::sysbus::consts::*;
 
-const EEPROM_BASE_ADDR: u32 = 0x0DFF_FF00;
+pub const EEPROM_BASE_ADDR: u32 = 0x0DFF_FF00;
 
 impl Bus for Cartridge {
     fn read_8(&self, addr: Addr) -> u8 {
@@ -221,9 +221,11 @@ impl Bus for Cartridge {
     }
 
     fn read_16(&self, addr: u32) -> u16 {
-        if addr & 0xff000000 == GAMEPAK_WS2_HI && (self.bytes.len() <= 16*1024*1024 || addr >= EEPROM_BASE_ADDR) {
+        if addr & 0xff000000 == GAMEPAK_WS2_HI
+            && (self.bytes.len() <= 16 * 1024 * 1024 || addr >= EEPROM_BASE_ADDR)
+        {
             if let BackupMedia::Eeprom(spi) = &self.backup {
-                return spi.read_half();
+                return spi.read_half(addr);
             }
         }
         self.default_read_16(addr)
@@ -236,14 +238,16 @@ impl Bus for Cartridge {
                 BackupMedia::Sram(memory) => memory.write((addr & 0x7FFF) as usize, value),
                 _ => {}
             },
-            _ => {}, // TODO allow the debugger to write
+            _ => {} // TODO allow the debugger to write
         };
     }
 
     fn write_16(&mut self, addr: u32, value: u16) {
-        if addr & 0xff000000 == GAMEPAK_WS2_HI && (self.bytes.len() <= 16*1024*1024 || addr >= EEPROM_BASE_ADDR) {
+        if addr & 0xff000000 == GAMEPAK_WS2_HI
+            && (self.bytes.len() <= 16 * 1024 * 1024 || addr >= EEPROM_BASE_ADDR)
+        {
             if let BackupMedia::Eeprom(spi) = &mut self.backup {
-                return spi.write_half(value);
+                return spi.write_half(addr, value);
             }
         }
         self.default_write_16(addr, value);

@@ -43,7 +43,7 @@ impl Default for SpiState {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-struct EepromChip<M>
+pub struct EepromChip<M>
 where
     M: BackupMemoryInterface,
 {
@@ -57,6 +57,10 @@ where
     tx_buffer: u64,
 
     address: usize,
+
+    chip_ready: bool, // used to signal that the eeprom program was finished
+                      // In real hardware, it takes some time for the values to be programmed into the eeprom,
+                      // But we do it right away.
 }
 
 impl<M> EepromChip<M>
@@ -75,6 +79,8 @@ where
             tx_buffer: 0,
 
             address: 0,
+
+            chip_ready: false,
         }
     }
 
@@ -98,12 +104,12 @@ where
         self.tx_count = 0;
     }
 
-    fn clock_data_in(&mut self, si: u8) {
+    fn clock_data_in(&mut self, address: u32, si: u8) {
         use SpiInstruction::*;
         use SpiState::*;
 
         // Read the si signal into the rx_buffer
-        trace!("({:?}) RX bit {}", self.state, si);
+        trace!("({:?}) addr={:#x} RX bit {}", self.state, address, si);
         self.rx_buffer = (self.rx_buffer << 1) | (if si & 1 != 0 { 1 } else { 0 });
         self.rx_count += 1;
 
@@ -124,15 +130,17 @@ where
             RxAddress(insn) => {
                 if self.rx_count == 6 {
                     self.address = (self.rx_buffer as usize) * 8;
-                    debug!("recvd address = {:#x}", self.address);
+                    debug!(
+                        "{:?} mode , recvd address = {:#x} (rx_buffer={:#x})",
+                        insn, self.address, self.rx_buffer
+                    );
                     match insn {
                         Read => {
-                            self.reset_rx_buffer();
-                            self.reset_tx_buffer();
-                            next_state = Some(StopBit(insn));
+                            next_state = Some(StopBit(Read));
                         }
                         Write => {
                             next_state = Some(RxData);
+                            self.chip_ready = false;
                             self.reset_rx_buffer();
                         }
                     }
@@ -146,7 +154,7 @@ where
             RxData => {
                 if self.rx_count == 64 {
                     let mut data = self.rx_buffer;
-                    debug!("writing {:x} to memory", data);
+                    debug!("writing {:#x} to memory address {:#x}", data, self.address);
                     for i in 0..8 {
                         self.memory
                             .write(self.address + (7 - i), (data & 0xff) as u8);
@@ -157,6 +165,7 @@ where
                 }
             }
             StopBit(Write) => {
+                self.chip_ready = true;
                 self.state = RxInstruction;
                 self.reset_rx_buffer();
                 self.reset_tx_buffer();
@@ -168,7 +177,7 @@ where
         }
     }
 
-    fn clock_data_out(&mut self) -> u8 {
+    fn clock_data_out(&mut self, address: u32) -> u8 {
         use SpiState::*;
 
         let mut next_state = None;
@@ -183,22 +192,26 @@ where
                 0
             }
             TxData => {
+                let result = ((self.tx_buffer >> 63) & 1) as u8;
+                self.tx_buffer = self.tx_buffer.wrapping_shl(1);
                 self.tx_count += 1;
                 if self.tx_count == 64 {
-                    self.reset_rx_buffer();
                     self.reset_tx_buffer();
+                    self.reset_rx_buffer();
                     next_state = Some(RxInstruction);
-                    0
+                }
+                result
+            }
+            _ => {
+                if self.chip_ready {
+                    1
                 } else {
-                    let result = ((self.tx_buffer >> 63) & 1) as u8;
-                    self.tx_buffer = self.tx_buffer << 1;
-                    result
+                    0
                 }
             }
-            _ => 0,
         };
 
-        trace!("({:?}) TX bit {}", self.state, result);
+        trace!("({:?}) addr={:#x} TX bit {}", self.state, address, result);
         if let Some(next_state) = next_state {
             self.state = next_state;
         }
@@ -206,12 +219,18 @@ where
         result
     }
 
-    fn data_available(&self) -> bool {
-        if let SpiState::TxData = self.state {
-            true
-        } else {
-            false
+    pub(in crate) fn is_transmitting(&self) -> bool {
+        use SpiState::*;
+        match self.state {
+            TxData | TxDummy => true,
+            _ => false,
         }
+    }
+
+    pub(in crate) fn reset(&mut self) {
+        self.state = SpiState::RxInstruction;
+        self.reset_rx_buffer();
+        self.reset_tx_buffer();
     }
 }
 
@@ -222,7 +241,7 @@ pub struct SpiController<M>
 where
     M: BackupMemoryInterface,
 {
-    chip: RefCell<EepromChip<M>>,
+    pub(in crate) chip: RefCell<EepromChip<M>>,
 }
 
 impl<M> SpiController<M>
@@ -235,53 +254,23 @@ where
         }
     }
 
-    pub fn write_half(&mut self, value: u16) {
-        self.chip.borrow_mut().clock_data_in(value as u8);
+    pub fn write_half(&mut self, address: u32, value: u16) {
+        self.chip.borrow_mut().clock_data_in(address, value as u8);
     }
 
-    pub fn read_half(&self) -> u16 {
+    pub fn read_half(&self, address: u32) -> u16 {
         let mut chip = self.chip.borrow_mut();
-        let bit = chip.clock_data_out() as u16;
-        if chip.data_available() {
-            bit
-        } else {
-            0
-        }
-    }
-
-    #[cfg(test)]
-    fn consume_dummy_cycles(&self) {
-        // ignore the dummy bits
-        self.read_half();
-        self.read_half();
-        self.read_half();
-        self.read_half();
-    }
-
-    #[cfg(test)]
-    fn rx_data(&self) -> [u8; 8] {
-        let mut bytes = [0; 8];
-        for byte_index in 0..8 {
-            let mut byte = 0;
-            for _ in 0..8 {
-                let bit = self.read_half() as u8;
-                byte = (byte << 1) | bit;
-            }
-            bytes[byte_index] = byte;
-        }
-        bytes
+        chip.clock_data_out(address) as u16
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::super::EEPROM_BASE_ADDR;
     use super::super::BackupMemoryInterface;
     use super::*;
 
     use bit::BitIndex;
-    use hexdump;
-
-    use std::io::Write;
 
     #[derive(Debug)]
     struct MockMemory {
@@ -295,6 +284,29 @@ mod tests {
 
         fn read(&self, offset: usize) -> u8 {
             self.buffer[offset]
+        }
+    }
+
+    impl SpiController<MockMemory> {
+        fn consume_dummy_cycles(&self) {
+            // ignore the dummy bits
+            self.read_half(EEPROM_BASE_ADDR);
+            self.read_half(EEPROM_BASE_ADDR);
+            self.read_half(EEPROM_BASE_ADDR);
+            self.read_half(EEPROM_BASE_ADDR);
+        }
+
+        fn rx_data(&self) -> [u8; 8] {
+            let mut bytes = [0; 8];
+            for byte_index in 0..8 {
+                let mut byte = 0u8;
+                for _ in 0..8 {
+                    let bit = self.read_half(EEPROM_BASE_ADDR) as u8;
+                    byte = (byte.wrapping_shl(1)) | bit;
+                }
+                bytes[byte_index] = byte;
+            }
+            bytes
         }
     }
 
@@ -369,12 +381,12 @@ mod tests {
         // 1 bit "0" - stop bit
         let stream = make_spi_read_request(2);
         for half in stream.into_iter() {
-            spi.write_half(half);
+            spi.write_half(EEPROM_BASE_ADDR, half);
         }
 
         spi.consume_dummy_cycles();
 
-        assert!(spi.chip.borrow().data_available());
+        assert!(spi.chip.borrow().is_transmitting());
 
         let data = spi.rx_data();
 
@@ -398,7 +410,7 @@ mod tests {
         // First, lets test a read request
         let stream = make_spi_read_request(2);
         for half in stream.into_iter() {
-            spi.write_half(half);
+            spi.write_half(EEPROM_BASE_ADDR, half);
         }
         spi.consume_dummy_cycles();
         let data = spi.rx_data();
@@ -420,7 +432,7 @@ mod tests {
         bytes[4] = expected[4];
         let stream = make_spi_write_request(2, bytes);
         for half in stream.into_iter() {
-            spi.write_half(half);
+            spi.write_half(EEPROM_BASE_ADDR, half);
         }
 
         {
@@ -434,10 +446,16 @@ mod tests {
         // Also lets again read the result
         let stream = make_spi_read_request(2);
         for half in stream.into_iter() {
-            spi.write_half(half);
+            spi.write_half(EEPROM_BASE_ADDR, half);
         }
         spi.consume_dummy_cycles();
         let data = spi.rx_data();
         assert_eq!(expected, &data[0..5]);
+        {
+            let chip = spi.chip.borrow();
+            assert_eq!(SpiState::RxInstruction, chip.state);
+            assert_eq!(0, chip.rx_count);
+            assert_eq!(0, chip.tx_count);
+        }
     }
 }

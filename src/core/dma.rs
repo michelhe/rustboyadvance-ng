@@ -1,3 +1,4 @@
+use super::cartridge::BackupMedia;
 use super::iodev::consts::{REG_FIFO_A, REG_FIFO_B};
 use super::sysbus::SysBus;
 use super::{Bus, Interrupt, IrqBitmask};
@@ -129,6 +130,15 @@ impl DmaChannel {
     }
 
     fn xfer(&mut self, sb: &mut SysBus, irqs: &mut IrqBitmask) {
+        if self.id == 3 {
+            if let BackupMedia::Eeprom(eeprom) = &mut sb.cartridge.backup {
+                // this might be a eeprom request, so we need to reset the eeprom state machine if its dirty (due to bad behaving games, or tests roms)
+                if !eeprom.chip.borrow().is_transmitting() {
+                    eeprom.chip.borrow_mut().reset();
+                }
+            }
+        }
+
         let word_size = if self.ctrl.is_32bit() { 4 } else { 2 };
         let count = match self.internal.count {
             0 => match self.id {
