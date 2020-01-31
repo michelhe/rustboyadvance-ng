@@ -13,6 +13,17 @@ args:
         help: Sets the game-rom file to use
         required: false
         index: 1
+    - save_type:
+        short: s
+        help: Override save type, useful for troublemaking games that fool the auto detection
+        required: false
+        default_value: autodetect
+        possible_values:
+            - sram
+            - flash128k
+            - flash64k
+            - eeprom
+            - autodetect
     - skip_bios:
         long: skip-bios
         help: Skip running bios and start from the ROM instead

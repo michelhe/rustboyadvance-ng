@@ -9,6 +9,7 @@ mod backup;
 use backup::eeprom::SpiController;
 use backup::flash::Flash;
 use backup::{BackupFile, BackupMemoryInterface};
+pub use backup::BackupType;
 
 mod builder;
 pub use builder::GamepakBuilder;

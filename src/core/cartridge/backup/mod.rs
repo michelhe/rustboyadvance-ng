@@ -1,4 +1,5 @@
 use std::fmt;
+use std::convert::TryFrom;
 
 mod backup_file;
 pub use backup_file::BackupFile;
@@ -13,6 +14,22 @@ pub enum BackupType {
     Flash512 = 3,
     Flash1M = 4,
     AutoDetect = 5,
+}
+
+impl TryFrom<&str> for BackupType {
+    type Error = String;
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        use BackupType::*;
+        match s {
+            "autodetect" => Ok(AutoDetect),
+            "sram" => Ok(Sram),
+            "flash128k" => Ok(Flash1M),
+            "flash64k" => Ok(Flash512),
+            "eeprom" => Ok(Eeprom),
+            _ => Err(format!("{} is not a valid save type", s))
+        }
+    }
 }
 
 pub trait BackupMemoryInterface: Sized + fmt::Debug {

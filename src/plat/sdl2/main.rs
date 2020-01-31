@@ -17,6 +17,8 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::time;
 
+use std::convert::TryFrom;
+
 #[macro_use]
 extern crate clap;
 
@@ -34,6 +36,7 @@ use input::create_input;
 use video::{create_video_interface, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 extern crate rustboyadvance_ng;
+use rustboyadvance_ng::core::cartridge::BackupType;
 use rustboyadvance_ng::prelude::*;
 use rustboyadvance_ng::util::FpsCounter;
 
@@ -123,7 +126,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut savestate_path = get_savestate_path(&Path::new(&rom_path));
 
     let mut rom_name = Path::new(&rom_path).file_name().unwrap().to_str().unwrap();
-    let gamepak = GamepakBuilder::new().file(Path::new(&rom_path)).build()?;
+
+    let gamepak = GamepakBuilder::new()
+        .save_type(BackupType::try_from(
+            matches.value_of("save_type").unwrap(),
+        )?)
+        .file(Path::new(&rom_path))
+        .build()?;
 
     let mut gba = GameBoyAdvance::new(
         arm7tdmi::Core::new(),
