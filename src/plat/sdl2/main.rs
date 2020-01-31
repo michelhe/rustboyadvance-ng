@@ -123,12 +123,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut savestate_path = get_savestate_path(&Path::new(&rom_path));
 
     let mut rom_name = Path::new(&rom_path).file_name().unwrap().to_str().unwrap();
-    let cart = Cartridge::from_path(Path::new(&rom_path)).unwrap();
+    let gamepak = GamepakBuilder::new().file(Path::new(&rom_path)).build()?;
 
     let mut gba = GameBoyAdvance::new(
         arm7tdmi::Core::new(),
         bios_bin,
-        cart,
+        gamepak,
         video.clone(),
         audio.clone(),
         input.clone(),
@@ -229,14 +229,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     rom_path = filename;
                     savestate_path = get_savestate_path(&Path::new(&rom_path));
                     rom_name = Path::new(&rom_path).file_name().unwrap().to_str().unwrap();
-                    let cart = Cartridge::from_path(Path::new(&rom_path)).unwrap();
+                    let gamepak = GamepakBuilder::new().file(Path::new(&rom_path)).build()?;
                     let bios_bin = read_bin_file(bios_path).unwrap();
 
                     // create a new emulator - TODO, export to a function
                     gba = GameBoyAdvance::new(
                         arm7tdmi::Core::new(),
                         bios_bin,
-                        cart,
+                        gamepak,
                         video.clone(),
                         audio.clone(),
                         input.clone(),

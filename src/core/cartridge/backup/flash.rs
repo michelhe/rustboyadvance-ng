@@ -1,4 +1,4 @@
-use super::{BackupMemory, BackupMemoryInterface};
+use super::{BackupFile, BackupMemoryInterface};
 
 use num::FromPrimitive;
 use serde::{Deserialize, Serialize};
@@ -56,7 +56,7 @@ pub struct Flash {
     mode: FlashMode,
     bank: usize,
 
-    memory: BackupMemory,
+    memory: BackupFile,
 }
 
 const MACRONIX_64K_CHIP_ID: u16 = 0x1CC2;
@@ -66,14 +66,14 @@ const SECTOR_SIZE: usize = 0x1000;
 const BANK_SIZE: usize = 0x10000;
 
 impl Flash {
-    pub fn new(flash_path: PathBuf, flash_size: FlashSize) -> Flash {
+    pub fn new(flash_path: Option<PathBuf>, flash_size: FlashSize) -> Flash {
         let chip_id = match flash_size {
             FlashSize::Flash64k => MACRONIX_64K_CHIP_ID,
             FlashSize::Flash128k => MACRONIX_128K_CHIP_ID,
         };
 
         let size: usize = flash_size.into();
-        let memory = BackupMemory::new(size, flash_path);
+        let memory = BackupFile::new(size, flash_path);
 
         Flash {
             chip_id: chip_id,

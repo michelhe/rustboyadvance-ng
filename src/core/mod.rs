@@ -23,12 +23,28 @@ use crate::debugger;
 
 use zip;
 
+use std::error::Error;
+use std::fmt;
+
 #[derive(Debug)]
 pub enum GBAError {
     IO(::std::io::Error),
     CpuError(arm7tdmi::CpuError),
+    CartridgeLoadError(String),
     #[cfg(feature = "debugger")]
     DebuggerError(debugger::DebuggerError),
+}
+
+impl fmt::Display for GBAError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "error: {:?}", self)
+    }
+}
+
+impl Error for GBAError {
+    fn description(&self) -> &str {
+        "emulator error"
+    }
 }
 
 pub type GBAResult<T> = Result<T, GBAError>;

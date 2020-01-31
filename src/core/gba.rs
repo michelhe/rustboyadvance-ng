@@ -191,7 +191,7 @@ mod tests {
 
     use super::super::arm7tdmi;
     use super::super::bus::Bus;
-    use super::super::cartridge::Cartridge;
+    use super::super::cartridge::GamepakBuilder;
 
     struct DummyInterface {}
 
@@ -208,7 +208,12 @@ mod tests {
     fn make_mock_gba(rom: &[u8]) -> GameBoyAdvance {
         let bios = vec![0; 0x4000];
         let cpu = arm7tdmi::Core::new();
-        let cartridge = Cartridge::from_bytes(rom, None);
+        let cartridge = GamepakBuilder::new()
+            .buffer(rom)
+            .with_sram()
+            .without_backup_to_file()
+            .build()
+            .unwrap();
         let dummy = Rc::new(RefCell::new(DummyInterface::new()));
         let mut gba = GameBoyAdvance::new(
             cpu,

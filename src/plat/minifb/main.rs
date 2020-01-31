@@ -90,7 +90,7 @@ fn main() {
     let rom_name = rom_path.file_name().unwrap().to_str().unwrap();
 
     let bios_bin = read_bin_file(bios_path).unwrap();
-    let cart = Cartridge::from_path(rom_path).unwrap();
+    let cart = GamepakBuilder::new().file(rom_path).build().unwrap();
     let mut cpu = arm7tdmi::Core::new();
     if skip_bios {
         cpu.skip_bios();
