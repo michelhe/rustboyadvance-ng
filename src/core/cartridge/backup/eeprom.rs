@@ -2,6 +2,7 @@ use super::{BackupFile, BackupMemoryInterface};
 
 use num::FromPrimitive;
 use serde::{Deserialize, Serialize};
+extern crate bytesize;
 
 use std::cell::RefCell;
 use std::fs;
@@ -289,12 +290,14 @@ impl EepromController {
 
         let eeprom_type = if let Some(path) = &path {
             let metadata = fs::metadata(&path).unwrap();
+            let human_size = bytesize::ByteSize::b(metadata.len());
             let eeprom_type = match metadata.len() {
                 512 => EepromType::Eeprom512,
                 8192 => EepromType::Eeprom8k,
-                _ => panic!("invalid file size ({}) for eeprom save", metadata.len()),
+                _ => panic!("invalid file size ({}) for eeprom save", human_size),
             };
             detect = false;
+            info!("save file is size {}, assuming eeprom type is {:?}", human_size, eeprom_type);
             eeprom_type
         } else {
             EepromType::Eeprom512
@@ -366,7 +369,6 @@ impl EepromController {
 #[cfg(test)]
 mod tests {
     use super::super::super::EEPROM_BASE_ADDR;
-    use super::super::BackupFile;
     use super::*;
 
     use bit::BitIndex;
@@ -453,7 +455,7 @@ mod tests {
         // TODO - implement EepromController initialization with data buffer and not files
         {
             let mut chip = spi.chip.borrow_mut();
-            let mut bytes = chip.memory.bytes_mut();
+            let bytes = chip.memory.bytes_mut();
             bytes[16] = 'T' as u8;
             bytes[17] = 'E' as u8;
             bytes[18] = 'S' as u8;
