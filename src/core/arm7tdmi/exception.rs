@@ -30,16 +30,14 @@ impl Core {
             Irq => (CpuMode::Irq, true, false),
             Fiq => (CpuMode::Fiq, true, true),
         };
-        if self.trace_exceptions {
-            trace!(
-                "{}: {:?}, pc: {:#x}, new_mode: {:?} old_mode: {:?}",
-                "Exception".cyan(),
-                e,
-                self.pc,
-                new_mode,
-                self.cpsr.mode(),
-            );
-        }
+        trace!(
+            "{}: {:?}, pc: {:#x}, new_mode: {:?} old_mode: {:?}",
+            "Exception".cyan(),
+            e,
+            self.pc,
+            new_mode,
+            self.cpsr.mode(),
+        );
 
         let new_bank = new_mode.bank_index();
         self.spsr_bank[new_bank] = self.cpsr;
