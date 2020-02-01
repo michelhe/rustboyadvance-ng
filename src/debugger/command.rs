@@ -80,9 +80,9 @@ impl Debugger {
                     if !self.ctrlc_flag.load(Ordering::SeqCst) {
                         break;
                     }
-                    self.gba.step();
+                    self.gba.cpu.step(&mut self.gba.sysbus);
                     while self.gba.cpu.last_executed.is_none() {
-                        self.gba.step();
+                        self.gba.cpu.step(&mut self.gba.sysbus);
                     }
                     let last_executed = self.gba.cpu.last_executed.unwrap();
                     print!(
@@ -114,7 +114,7 @@ impl Debugger {
                             break;
                         }
                         _ => {
-                            self.gba.step();
+                            self.gba.cpu.step(&mut self.gba.sysbus);
                         }
                     }
                 }
