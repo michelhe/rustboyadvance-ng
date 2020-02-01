@@ -17,7 +17,7 @@ clap = {version = "2.33", features = ["color", "yaml"]}
 colored = "1.8"
 ansi_term = "0.11.0"
 hexdump = "0.1.0"
-sdl2 = {version = "0.32.2", features = ["image"]}
+sdl2 = {version = "0.33.0", features = ["image"]}
 minifb = "0.11.2"
 time = "0.1.42"
 bitfield = "0.13.1"
