@@ -287,21 +287,23 @@ pub struct EepromController {
 impl EepromController {
     pub fn new(path: Option<PathBuf>) -> EepromController {
         let mut detect = true;
-
-        let eeprom_type = if let Some(path) = &path {
-            let metadata = fs::metadata(&path).unwrap();
-            let human_size = bytesize::ByteSize::b(metadata.len());
-            let eeprom_type = match metadata.len() {
-                512 => EepromType::Eeprom512,
-                8192 => EepromType::Eeprom8k,
-                _ => panic!("invalid file size ({}) for eeprom save", human_size),
-            };
-            detect = false;
-            info!("save file is size {}, assuming eeprom type is {:?}", human_size, eeprom_type);
-            eeprom_type
-        } else {
-            EepromType::Eeprom512
-        };
+        let mut eeprom_type = EepromType::Eeprom512;
+        if let Some(path) = &path {
+            if let Ok(metadata) = fs::metadata(&path) {
+                let human_size = bytesize::ByteSize::b(metadata.len());
+                let assumed_type = match metadata.len() {
+                    512 => EepromType::Eeprom512,
+                    8192 => EepromType::Eeprom8k,
+                    _ => panic!("invalid file size ({}) for eeprom save", human_size),
+                };
+                detect = false;
+                info!(
+                    "save file is size {}, assuming eeprom type is {:?}",
+                    human_size, assumed_type
+                );
+                eeprom_type = assumed_type;
+            }
+        }
 
         let mut result = EepromController::new_with_type(path, eeprom_type);
         result.detect = detect;

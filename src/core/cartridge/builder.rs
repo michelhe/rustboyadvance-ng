@@ -94,10 +94,12 @@ impl GamepakBuilder {
         }
 
         if self.save_type == BackupType::AutoDetect {
-            let detected = detect_backup_type(&bytes)?;
-            info!("Detected Backup: {:?}", detected);
-
-            self.save_type = detected;
+            if let Some(detected) = detect_backup_type(&bytes) {
+                info!("Detected Backup: {:?}", detected);
+                self.save_type = detected;
+            } else {
+                warn!("could not detect backup save type");
+            }
         }
 
         let backup = create_backup(self.save_type, self.path);
@@ -126,25 +128,22 @@ fn create_backup(backup_type: BackupType, rom_path: Option<PathBuf>) -> BackupMe
         BackupType::Flash1M => BackupMedia::Flash(Flash::new(backup_path, FlashSize::Flash128k)),
         BackupType::Sram => BackupMedia::Sram(BackupFile::new(0x8000, backup_path)),
         BackupType::Eeprom => BackupMedia::Eeprom(EepromController::new(backup_path)),
-        BackupType::AutoDetect => panic!("called create_backup with backup_type==AutoDetect"),
+        BackupType::AutoDetect => BackupMedia::Undetected,
     }
 }
 
-fn detect_backup_type(bytes: &[u8]) -> GBAResult<BackupType> {
+fn detect_backup_type(bytes: &[u8]) -> Option<BackupType> {
     const ID_STRINGS: &'static [&'static str] =
         &["EEPROM", "SRAM", "FLASH_", "FLASH512_", "FLASH1M_"];
 
     for i in 0..5 {
         let search = TwoWaySearcher::new(ID_STRINGS[i].as_bytes());
         match search.search_in(bytes) {
-            Some(_) => return Ok(BackupType::from_u8(i as u8).unwrap()),
+            Some(_) => return Some(BackupType::from_u8(i as u8).unwrap()),
             _ => {}
         }
     }
-    warn!("could not detect backup save type");
-    return Err(GBAError::CartridgeLoadError(
-        "could not detect backup save type".to_string(),
-    ));
+    None
 }
 
 fn load_rom(path: &Path) -> GBAResult<Vec<u8>> {
