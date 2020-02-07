@@ -14,7 +14,7 @@ num-traits = "0.2"
 enum-primitive-derive = "^0.1"
 bit = "^0.1"
 clap = {version = "2.33", features = ["color", "yaml"]}
-colored = "1.8"
+colored = "1.9"
 ansi_term = "0.11.0"
 hexdump = "0.1.0"
 sdl2 = {version = "0.33.0", features = ["image"]}
