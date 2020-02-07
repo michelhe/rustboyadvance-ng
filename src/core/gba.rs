@@ -84,7 +84,6 @@ impl GameBoyAdvance {
 
     pub fn frame(&mut self) {
         self.key_poll();
-        self.sysbus.io.gpu.clear();
         while self.sysbus.io.gpu.vcount != DISPLAY_HEIGHT {
             self.step();
         }

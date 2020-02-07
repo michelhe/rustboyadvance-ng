@@ -1,6 +1,8 @@
+use super::layer::{RenderLayer, RenderLayerKind};
 use super::sfx::BldMode;
 use super::*;
 
+use num::ToPrimitive;
 use serde::{Deserialize, Serialize};
 
 pub const SCREEN_BLOCK_SIZE: u32 = 0x800;
@@ -12,11 +14,11 @@ pub enum ObjMapping {
 }
 
 impl DisplayControl {
-    pub fn disp_bg(&self, bg: usize) -> bool {
+    pub fn enable_bg(&self, bg: usize) -> bool {
         self.0.bit(8 + bg)
     }
     pub fn is_using_windows(&self) -> bool {
-        self.disp_window0() || self.disp_window1() || self.disp_obj_window()
+        self.enable_window0() || self.enable_window1() || self.enable_obj_window()
     }
     pub fn obj_mapping(&self) -> ObjMapping {
         if self.obj_character_vram_mapping() {
@@ -71,14 +73,14 @@ bitfield! {
     pub hblank_interval_free, _: 5;
     pub obj_character_vram_mapping, _: 6;
     pub forst_vblank, _: 7;
-    pub disp_bg0, _ : 8;
-    pub disp_bg1, _ : 9;
-    pub disp_bg2, _ : 10;
-    pub disp_bg3, _ : 11;
-    pub disp_obj, _ : 12;
-    pub disp_window0, _ : 13;
-    pub disp_window1, _ : 14;
-    pub disp_obj_window, _ : 15;
+    pub enable_bg0, _ : 8;
+    pub enable_bg1, _ : 9;
+    pub enable_bg2, _ : 10;
+    pub enable_bg3, _ : 11;
+    pub enable_obj, _ : 12;
+    pub enable_window0, _ : 13;
+    pub enable_window1, _ : 14;
+    pub enable_obj_window, _ : 15;
 }
 
 bitfield! {
@@ -149,6 +151,15 @@ impl BlendFlags {
     pub fn from_bg(bg: usize) -> BlendFlags {
         Self::BG_LAYER_FLAG[bg]
     }
+
+    pub fn obj_enabled(&self) -> bool {
+        self.contains(BlendFlags::OBJ)
+    }
+
+    pub fn contains_render_layer(&self, layer: &RenderLayer) -> bool {
+        let layer_flags = BlendFlags::from_bits(layer.kind.to_u32().unwrap()).unwrap();
+        self.contains(layer_flags)
+    }
 }
 
 bitfield! {
@@ -193,6 +204,9 @@ impl WindowFlags {
     }
     pub fn bg_enabled(&self, bg: usize) -> bool {
         self.contains(BG_WIN_FLAG[bg])
+    }
+    pub fn obj_enabled(&self) -> bool {
+        self.contains(WindowFlags::OBJ)
     }
 }
 

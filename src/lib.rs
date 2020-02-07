@@ -1,3 +1,4 @@
+#![warn(unused_extern_crates)]
 #![feature(asm)]
 #![feature(core_intrinsics)]
 #![feature(exclusive_range_pattern)]

@@ -16,10 +16,14 @@ mod render;
 
 use render::Point;
 
+mod layer;
 mod mosaic;
 mod rgb15;
 mod sfx;
+mod window;
+
 pub use rgb15::Rgb15;
+pub use window::*;
 
 pub mod regs;
 pub use regs::*;
@@ -109,42 +113,6 @@ pub struct Background {
     mosaic_first_row: Scanline,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub struct Window {
-    pub left: u8,
-    pub right: u8,
-    pub top: u8,
-    pub bottom: u8,
-    pub flags: WindowFlags,
-}
-
-impl Window {
-    pub fn inside(&self, x: usize, y: usize) -> bool {
-        let left = self.left as usize;
-        let mut right = self.right as usize;
-        let top = self.top as usize;
-        let mut bottom = self.bottom as usize;
-
-        if right > DISPLAY_WIDTH || right < left {
-            right = DISPLAY_WIDTH;
-        }
-        if bottom > DISPLAY_HEIGHT || bottom < top {
-            bottom = DISPLAY_HEIGHT;
-        }
-
-        (x >= left && x < right) && (y >= top && y < bottom)
-    }
-}
-
-#[derive(Debug)]
-pub enum WindowType {
-    Win0,
-    Win1,
-    WinObj,
-    WinOut,
-    WinNone,
-}
-
 #[derive(Debug, Default, Copy, Clone)]
 pub struct AffineMatrix {
     pub pa: i32,
@@ -167,15 +135,17 @@ pub struct BgAffine {
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 pub struct ObjBufferEntry {
+    pub(super) window: bool,
+    pub(super) alpha: bool,
     pub(super) color: Rgb15,
     pub(super) priority: u16,
-    pub(super) window: bool,
 }
 
 impl Default for ObjBufferEntry {
     fn default() -> ObjBufferEntry {
         ObjBufferEntry {
             window: false,
+            alpha: false,
             color: Rgb15::TRANSPARENT,
             priority: 4,
         }
@@ -250,6 +220,7 @@ impl Gpu {
             oam: BoxedMemory::new(vec![0; OAM_SIZE].into_boxed_slice()),
 
             obj_buffer: vec![Default::default(); DISPLAY_WIDTH * DISPLAY_HEIGHT],
+
             frame_buffer: vec![0; DISPLAY_WIDTH * DISPLAY_HEIGHT],
         }
     }
@@ -289,16 +260,14 @@ impl Gpu {
         )
     }
 
+    #[inline]
     pub(super) fn obj_buffer_get(&self, x: usize, y: usize) -> &ObjBufferEntry {
         &self.obj_buffer[index2d!(x, y, DISPLAY_WIDTH)]
     }
 
+    #[inline]
     pub(super) fn obj_buffer_get_mut(&mut self, x: usize, y: usize) -> &mut ObjBufferEntry {
         &mut self.obj_buffer[index2d!(x, y, DISPLAY_WIDTH)]
-    }
-
-    pub(super) fn render_pixel(&mut self, x: i32, y: i32, p: Rgb15) {
-        self.frame_buffer[index2d!(usize, x, y, DISPLAY_WIDTH)] = p.to_rgb24();
     }
 
     pub fn get_ref_point(&self, bg: usize) -> Point {
@@ -310,46 +279,50 @@ impl Gpu {
     }
 
     pub fn render_scanline(&mut self) {
+        if self.dispcnt.enable_obj() {
+            self.render_objs();
+        }
         match self.dispcnt.mode() {
             0 => {
-                for bg in 0..4 {
-                    if self.dispcnt.disp_bg(bg) {
+                for bg in 0..=3 {
+                    if self.dispcnt.enable_bg(bg) {
                         self.render_reg_bg(bg);
                     }
                 }
+                self.finalize_scanline(0, 3);
             }
             1 => {
-                if self.dispcnt.disp_bg(2) {
+                if self.dispcnt.enable_bg(2) {
                     self.render_aff_bg(2);
                 }
-                if self.dispcnt.disp_bg(1) {
+                if self.dispcnt.enable_bg(1) {
                     self.render_reg_bg(1);
                 }
-                if self.dispcnt.disp_bg(0) {
+                if self.dispcnt.enable_bg(0) {
                     self.render_reg_bg(0);
                 }
+                self.finalize_scanline(0, 2);
             }
             2 => {
-                if self.dispcnt.disp_bg(3) {
+                if self.dispcnt.enable_bg(3) {
                     self.render_aff_bg(3);
                 }
-                if self.dispcnt.disp_bg(2) {
+                if self.dispcnt.enable_bg(2) {
                     self.render_aff_bg(2);
                 }
+                self.finalize_scanline(2, 3);
             }
             3 => {
                 self.render_mode3(2);
+                self.finalize_scanline(2, 2);
             }
             4 => {
                 self.render_mode4(2);
+                self.finalize_scanline(2, 2);
             }
             _ => panic!("{:?} not supported", self.dispcnt.mode()),
         }
-        if self.dispcnt.disp_obj() {
-            self.render_objs();
-        }
-        self.mosaic_sfx();
-        self.composite_sfx_to_framebuffer();
+        // self.mosaic_sfx();
     }
 
     fn update_vcount(&mut self, value: usize, irqs: &mut IrqBitmask) {
@@ -363,8 +336,8 @@ impl Gpu {
         }
     }
 
-    // Clears the gpu internal buffer
-    pub fn clear(&mut self) {
+    /// Clears the gpu obj buffer
+    pub fn obj_buffer_reset(&mut self) {
         for x in self.obj_buffer.iter_mut() {
             *x = Default::default();
         }
@@ -377,7 +350,7 @@ impl Gpu {
         irqs: &mut IrqBitmask,
         video_device: &VideoDeviceRcRefCell,
     ) {
-        match self.state {
+        match completed {
             HDraw => {
                 // Transition to HBlank
                 self.state = HBlank;
@@ -419,6 +392,7 @@ impl Gpu {
 
                     sb.io.dmac.notify_vblank();
                     video_device.borrow_mut().render(&self.frame_buffer);
+                    self.obj_buffer_reset();
                     self.cycles_left_for_current_state = CYCLES_SCANLINE;
                 }
             }

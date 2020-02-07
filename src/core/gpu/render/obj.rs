@@ -45,18 +45,12 @@ impl ObjAttrs {
             (0x20, PixelFormat::BPP4)
         }
     }
-    fn is_affine(&self) -> bool {
-        match self.0.objtype() {
-            ObjType::Affine | ObjType::AffineDoubleSize => true,
-            _ => false,
-        }
-    }
     fn affine_index(&self) -> u32 {
         let attr1 = (self.1).0;
         ((attr1 >> 9) & 0x1f) as u32
     }
-    fn is_hidden(&self) -> bool {
-        self.0.objtype() == ObjType::Hidden
+    fn is_obj_window(&self) -> bool {
+        self.0.objmode() == ObjMode::Window
     }
 }
 
@@ -89,14 +83,14 @@ impl Gpu {
         ObjAttrs(attr0, attr1, attr2)
     }
 
-    fn render_affine_obj(&mut self, obj: ObjAttrs, _obj_num: usize) {
+    fn render_affine_obj(&mut self, attrs: ObjAttrs, _obj_num: usize) {
         let screen_y = self.vcount as i32;
 
-        let (ref_x, ref_y) = obj.coords();
+        let (ref_x, ref_y) = attrs.coords();
 
-        let (obj_w, obj_h) = obj.size();
+        let (obj_w, obj_h) = attrs.size();
 
-        let (bbox_w, bbox_h) = match obj.0.objtype() {
+        let (bbox_w, bbox_h) = match attrs.0.objtype() {
             ObjType::AffineDoubleSize => (2 * obj_w, 2 * obj_h),
             _ => (obj_w, obj_h),
         };
@@ -106,18 +100,18 @@ impl Gpu {
             return;
         }
 
-        let tile_base = self.obj_tile_base() + 0x20 * (obj.2.tile() as u32);
+        let tile_base = self.obj_tile_base() + 0x20 * (attrs.2.tile() as u32);
 
-        let (tile_size, pixel_format) = obj.tile_format();
+        let (tile_size, pixel_format) = attrs.tile_format();
         let palette_bank = match pixel_format {
-            PixelFormat::BPP4 => obj.2.palette(),
+            PixelFormat::BPP4 => attrs.2.palette(),
             _ => 0u32,
         };
 
         let tile_array_width = match self.dispcnt.obj_mapping() {
             ObjMapping::OneDimension => obj_w / 8,
             ObjMapping::TwoDimension => {
-                if obj.0.is_8bpp() {
+                if attrs.0.is_8bpp() {
                     16
                 } else {
                     32
@@ -125,7 +119,7 @@ impl Gpu {
             }
         };
 
-        let affine_matrix = self.get_affine_matrix(obj.affine_index());
+        let affine_matrix = self.get_affine_matrix(attrs.affine_index());
 
         let half_width = bbox_w / 2;
         let half_height = bbox_h / 2;
@@ -142,7 +136,8 @@ impl Gpu {
             if self
                 .obj_buffer_get(screen_x as usize, screen_y as usize)
                 .priority
-                <= obj.2.priority()
+                <= attrs.2.priority()
+                && !attrs.is_obj_window()
             {
                 continue;
             }
@@ -161,34 +156,36 @@ impl Gpu {
                     self.read_pixel_index(tile_addr, tile_x as u32, tile_y as u32, pixel_format);
                 let pixel_color =
                     self.get_palette_color(pixel_index as u32, palette_bank, PALRAM_OFS_FG);
-                self.write_obj_pixel(screen_x as usize, screen_y as usize, pixel_color, &obj);
+                if pixel_color != Rgb15::TRANSPARENT {
+                    self.write_obj_pixel(screen_x as usize, screen_y as usize, pixel_color, &attrs);
+                }
             }
         }
     }
 
-    fn render_normal_obj(&mut self, obj: ObjAttrs, _obj_num: usize) {
+    fn render_normal_obj(&mut self, attrs: ObjAttrs, _obj_num: usize) {
         let screen_y = self.vcount as i32;
 
-        let (ref_x, ref_y) = obj.coords();
-        let (obj_w, obj_h) = obj.size();
+        let (ref_x, ref_y) = attrs.coords();
+        let (obj_w, obj_h) = attrs.size();
 
         // skip this obj if not within its vertical bounds.
         if !(screen_y >= ref_y && screen_y < ref_y + obj_h) {
             return;
         }
 
-        let tile_base = self.obj_tile_base() + 0x20 * (obj.2.tile() as u32);
+        let tile_base = self.obj_tile_base() + 0x20 * (attrs.2.tile() as u32);
 
-        let (tile_size, pixel_format) = obj.tile_format();
+        let (tile_size, pixel_format) = attrs.tile_format();
         let palette_bank = match pixel_format {
-            PixelFormat::BPP4 => obj.2.palette(),
+            PixelFormat::BPP4 => attrs.2.palette(),
             _ => 0u32,
         };
 
         let tile_array_width = match self.dispcnt.obj_mapping() {
             ObjMapping::OneDimension => obj_w / 8,
             ObjMapping::TwoDimension => {
-                if obj.0.is_8bpp() {
+                if attrs.0.is_8bpp() {
                     16
                 } else {
                     32
@@ -209,18 +206,19 @@ impl Gpu {
             if self
                 .obj_buffer_get(screen_x as usize, screen_y as usize)
                 .priority
-                <= obj.2.priority()
+                <= attrs.2.priority()
+                && !attrs.is_obj_window()
             {
                 continue;
             }
             let mut sprite_y = screen_y - ref_y;
             let mut sprite_x = screen_x - ref_x;
-            sprite_y = if obj.1.v_flip() {
+            sprite_y = if attrs.1.v_flip() {
                 obj_h - sprite_y - 1
             } else {
                 sprite_y
             };
-            sprite_x = if obj.1.h_flip() {
+            sprite_x = if attrs.1.h_flip() {
                 obj_w - sprite_x - 1
             } else {
                 sprite_x
@@ -233,18 +231,20 @@ impl Gpu {
                 self.read_pixel_index(tile_addr, tile_x as u32, tile_y as u32, pixel_format);
             let pixel_color =
                 self.get_palette_color(pixel_index as u32, palette_bank, PALRAM_OFS_FG);
-            self.write_obj_pixel(screen_x as usize, screen_y as usize, pixel_color, &obj);
+            if pixel_color != Rgb15::TRANSPARENT {
+                self.write_obj_pixel(screen_x as usize, screen_y as usize, pixel_color, &attrs);
+            }
         }
     }
 
     fn write_obj_pixel(&mut self, x: usize, y: usize, pixel_color: Rgb15, attrs: &ObjAttrs) {
         let mut current_obj = self.obj_buffer_get_mut(x, y);
-        match attrs.0.objmode() {
+        let obj_mode = attrs.0.objmode();
+        match obj_mode {
             ObjMode::Normal | ObjMode::Sfx => {
-                if pixel_color != Rgb15::TRANSPARENT {
-                    current_obj.color = pixel_color;
-                    current_obj.priority = attrs.2.priority();
-                }
+                current_obj.color = pixel_color;
+                current_obj.priority = attrs.2.priority();
+                current_obj.alpha = obj_mode == ObjMode::Sfx;
             }
             ObjMode::Window => {
                 current_obj.window = true;

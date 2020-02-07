@@ -1,9 +1,14 @@
 use std::cmp;
 
+use arrayvec::ArrayVec;
+use num::FromPrimitive;
+
 use super::regs::*;
+
+use super::layer::*;
 use super::*;
 
-#[derive(Debug, Primitive, Clone, Copy)]
+#[derive(Debug, Primitive, PartialEq, Clone, Copy)]
 pub enum BldMode {
     BldNone = 0b00,
     BldAlpha = 0b01,
@@ -32,159 +37,210 @@ impl From<WindowFlags> for BlendFlags {
     }
 }
 
-#[derive(Debug, Default)]
-struct Layer {
-    color: Rgb15,
-    blend_flag: BlendFlags,
-}
-
 impl Gpu {
-    fn get_top_layer(
+    /// returns a none sorted array of background indexes that are enabled
+    fn active_backgrounds_sorted(
         &self,
-        screen_x: usize,
-        bflags: BlendFlags,
-        wflags: WindowFlags,
-    ) -> Option<Layer> {
-        // priorities are 0-4 when 0 is the highest
-        'outer: for priority in 0..4 {
-            let obj = self.obj_buffer_get(screen_x, self.vcount);
-            if bflags.contains(BlendFlags::OBJ)
-                && wflags.contains(WindowFlags::OBJ)
-                && !obj.color.is_transparent()
-                && obj.priority == priority
-            {
-                return Some(Layer {
-                    color: obj.color,
-                    blend_flag: BlendFlags::OBJ,
-                });
-            }
-            for bg in 0..4 {
-                let c = self.bg[bg].line[screen_x];
-                let bflag = BlendFlags::from_bg(bg);
-                if self.dispcnt.disp_bg(bg)
-                    && !c.is_transparent()
-                    && bflags.contains(bflag)
-                    && wflags.bg_enabled(bg)
-                    && self.bg[bg].bgcnt.priority() == priority
-                {
-                    return Some(Layer {
-                        color: c,
-                        blend_flag: bflag,
-                    });
+        bg_start: usize,
+        bg_end: usize,
+        window_flags: WindowFlags,
+    ) -> ArrayVec<[usize; 4]> {
+        let mut backgrounds = ArrayVec::<[usize; 4]>::new();
+
+        for bg in bg_start..=bg_end {
+            if self.dispcnt.enable_bg(bg) && window_flags.bg_enabled(bg) {
+                unsafe {
+                    backgrounds.push_unchecked(bg);
                 }
             }
         }
-        let backdrop = self.palette_ram.read_16(0);
-        if bflags.contains(BlendFlags::BACKDROP) {
-            return Some(Layer {
-                color: Rgb15(backdrop),
-                blend_flag: BlendFlags::BACKDROP,
-            });
-        }
-        None
+        backgrounds.sort_by_key(|bg| (self.bg[*bg].bgcnt.priority(), *bg));
+
+        backgrounds
     }
 
-    fn get_active_window_type(&self, x: usize, y: usize) -> WindowType {
-        if !self.dispcnt.is_using_windows() {
-            WindowType::WinNone
-        } else {
-            if self.dispcnt.disp_window0() && self.win0.inside(x, y) {
-                return WindowType::Win0;
-            }
-            if self.dispcnt.disp_window1() && self.win1.inside(x, y) {
-                return WindowType::Win1;
-            }
-            // TODO win_obj
-            return WindowType::WinOut;
+    #[allow(unused)]
+    fn layer_to_pixel(&self, x: usize, y: usize, layer: &RenderLayer) -> Rgb15 {
+        match layer.kind {
+            RenderLayerKind::Background0 => self.bg[0].line[x],
+            RenderLayerKind::Background1 => self.bg[1].line[x],
+            RenderLayerKind::Background2 => self.bg[2].line[x],
+            RenderLayerKind::Background3 => self.bg[3].line[x],
+            RenderLayerKind::Objects => self.obj_buffer_get(x, y).color,
+            RenderLayerKind::Backdrop => Rgb15(self.palette_ram.read_16(0)),
         }
     }
 
-    fn get_window_flags(&self, wintyp: WindowType) -> WindowFlags {
-        match wintyp {
-            WindowType::Win0 => self.win0.flags,
-            WindowType::Win1 => self.win1.flags,
-            WindowType::WinObj => self.winobj_flags,
-            WindowType::WinOut => self.winout_flags,
-            WindowType::WinNone => WindowFlags::all(),
-        }
-    }
-
-    fn sfx_blend_alpha(&self, x: usize, _y: usize, wflags: WindowFlags) -> Option<Rgb15> {
-        let top_layers = self.bldcnt.top();
-        let bottom_layers = self.bldcnt.bottom();
-        if let Some(top_layer) = self.get_top_layer(x, top_layers, wflags) {
-            if let Some(bot_layer) = self.get_top_layer(x, bottom_layers, wflags) {
-                let eva = self.bldalpha.eva();
-                let evb = self.bldalpha.evb();
-                return Some(top_layer.color.blend_with(bot_layer.color, eva, evb));
-            } else {
-                return Some(top_layer.color);
-            }
-        }
-        None
-    }
-
-    fn sfx_blend_bw(
-        &self,
-        fadeto: Rgb15,
-        x: usize,
-        _y: usize,
-        wflags: WindowFlags,
-    ) -> Option<Rgb15> {
-        let top_layers = self.bldcnt.top();
-        let evy = self.bldy;
-
-        if let Some(layer) = self.get_top_layer(x, top_layers, wflags) {
-            return Some(layer.color.blend_with(fadeto, 16 - evy, evy));
-        }
-        None
-    }
-
-    pub fn composite_sfx_to_framebuffer(&mut self) {
+    /// Composes the render layers into a final scanline while applying needed special effects, and render it to the frame buffer
+    pub fn finalize_scanline(&mut self, bg_start: usize, bg_end: usize) {
         let y = self.vcount;
-
-        for x in 0..DISPLAY_WIDTH {
-            let window = self.get_active_window_type(x, y);
-            let wflags = self.get_window_flags(window);
-            let toplayer = self.get_top_layer(x, BlendFlags::all(), wflags).unwrap();
-
-            let bldmode = if wflags.sfx_enabled() {
-                self.bldcnt.mode()
-            } else {
-                BldMode::BldNone
-            };
-
-            let pixel = match bldmode {
-                BldMode::BldAlpha => {
-                    if self.bldcnt.top().contains(toplayer.blend_flag)
-                        || self.bldcnt.bottom().contains(toplayer.blend_flag)
-                    {
-                        self.sfx_blend_alpha(x, y, wflags).unwrap_or(toplayer.color)
-                    } else {
-                        toplayer.color
+        let output = unsafe {
+            let ptr = self.frame_buffer[y * DISPLAY_WIDTH..].as_mut_ptr();
+            std::slice::from_raw_parts_mut(ptr, DISPLAY_WIDTH)
+        };
+        if !self.dispcnt.is_using_windows() {
+            let win = WindowInfo::new(WindowType::WinNone, WindowFlags::all());
+            let backgrounds = self.active_backgrounds_sorted(bg_start, bg_end, win.flags);
+            for x in 0..DISPLAY_WIDTH {
+                let pixel = self.compose_pixel(x, y, &win, &backgrounds);
+                output[x] = pixel.to_rgb24();
+            }
+        } else {
+            let mut occupied = [false; DISPLAY_WIDTH];
+            let mut occupied_count = 0;
+            if self.dispcnt.enable_window0() && self.win0.contains_y(y) {
+                let win = WindowInfo::new(WindowType::Win0, self.win0.flags);
+                let backgrounds = self.active_backgrounds_sorted(bg_start, bg_end, win.flags);
+                for x in self.win0.left()..self.win0.right() {
+                    let pixel = self.compose_pixel(x, y, &win, &backgrounds);
+                    output[x] = pixel.to_rgb24();
+                    occupied[x] = true;
+                    occupied_count += 1;
+                }
+            }
+            if occupied_count == DISPLAY_WIDTH {
+                return;
+            }
+            if self.dispcnt.enable_window1() && self.win1.contains_y(y) {
+                let win = WindowInfo::new(WindowType::Win1, self.win1.flags);
+                let backgrounds = self.active_backgrounds_sorted(bg_start, bg_end, win.flags);
+                for x in self.win1.left()..self.win1.right() {
+                    if !occupied[x] {
+                        let pixel = self.compose_pixel(x, y, &win, &backgrounds);
+                        output[x] = pixel.to_rgb24();
+                        occupied[x] = true;
+                        occupied_count += 1;
                     }
                 }
-                BldMode::BldWhite => {
-                    let result = if self.bldcnt.top().contains(toplayer.blend_flag) {
-                        self.sfx_blend_bw(Rgb15::WHITE, x, y, wflags)
-                            .unwrap_or(toplayer.color)
+            }
+            if occupied_count == DISPLAY_WIDTH {
+                return;
+            }
+            let win_out = WindowInfo::new(WindowType::WinOut, self.winout_flags);
+            let win_out_backgrounds =
+                self.active_backgrounds_sorted(bg_start, bg_end, win_out.flags);
+            if self.dispcnt.enable_obj_window() {
+                let win_obj = WindowInfo::new(WindowType::WinObj, self.winobj_flags);
+                let win_obj_backgrounds =
+                    self.active_backgrounds_sorted(bg_start, bg_end, win_obj.flags);
+                for x in 0..DISPLAY_WIDTH {
+                    if occupied[x] {
+                        continue;
+                    }
+                    let obj_entry = self.obj_buffer_get(x, y);
+                    if obj_entry.window {
+                        // WinObj
+                        let pixel = self.compose_pixel(x, y, &win_obj, &win_obj_backgrounds);
+                        output[x] = pixel.to_rgb24();
+                        occupied[x] = true;
+                        occupied_count += 1;
                     } else {
-                        toplayer.color
-                    };
-                    result
+                        // WinOut
+                        let pixel = self.compose_pixel(x, y, &win_out, &win_out_backgrounds);
+                        output[x] = pixel.to_rgb24();
+                        occupied[x] = true;
+                        occupied_count += 1;
+                    }
                 }
-                BldMode::BldBlack => {
-                    let result = if self.bldcnt.top().contains(toplayer.blend_flag) {
-                        self.sfx_blend_bw(Rgb15::BLACK, x, y, wflags)
-                            .unwrap_or(toplayer.color)
-                    } else {
-                        toplayer.color
-                    };
-                    result
+            } else {
+                for x in 0..DISPLAY_WIDTH {
+                    if occupied[x] {
+                        continue;
+                    }
+                    let pixel = self.compose_pixel(x, y, &win_out, &win_out_backgrounds);
+                    output[x] = pixel.to_rgb24();
+                    occupied[x] = true;
+                    occupied_count += 1;
                 }
-                BldMode::BldNone => toplayer.color,
-            };
-            self.render_pixel(x as i32, y as i32, pixel);
+            }
         }
+    }
+
+    fn compose_pixel(&self, x: usize, y: usize, win: &WindowInfo, backgrounds: &[usize]) -> Rgb15 {
+        let backdrop_color = Rgb15(self.palette_ram.read_16(0));
+
+        let mut layers = ArrayVec::<[_; 7]>::new();
+        unsafe {
+            layers.push_unchecked(RenderLayer::backdrop(backdrop_color));
+        }
+
+        for bg in backgrounds.into_iter() {
+            let bg_pixel = self.bg[*bg].line[x];
+            if !bg_pixel.is_transparent() {
+                unsafe {
+                    layers.push_unchecked(RenderLayer::background(
+                        *bg,
+                        bg_pixel,
+                        self.bg[*bg].bgcnt.priority(),
+                    ));
+                }
+            }
+        }
+
+        let obj_entry = self.obj_buffer_get(x, y);
+        if self.dispcnt.enable_obj() && win.flags.obj_enabled() && !obj_entry.color.is_transparent()
+        {
+            unsafe {
+                layers.push_unchecked(RenderLayer::objects(obj_entry.color, obj_entry.priority))
+            }
+        }
+
+        // now, sort the layers
+        layers.sort_by_key(|k| (k.priority, k.priority_by_type));
+
+        let top_pixel = layers[0].pixel; // self.layer_to_pixel(x, y, &layers[0]);
+        let mut result = top_pixel;
+        'blend: loop {
+            /* loop hack so we can leave this block early */
+            let obj_sfx = obj_entry.alpha && layers[0].is_object();
+            if win.flags.sfx_enabled() || obj_sfx {
+                let top_layer_flags = self.bldcnt.top();
+                let bot_layer_flags = self.bldcnt.bottom();
+
+                if !(top_layer_flags.contains_render_layer(&layers[0]) || obj_sfx) {
+                    break 'blend;
+                }
+                if layers.len() > 1 && !(bot_layer_flags.contains_render_layer(&layers[1])) {
+                    break 'blend;
+                }
+
+                let mut blend_mode = self.bldcnt.mode();
+
+                // push another backdrop layer in case there is only 1 layer
+                // unsafe { layers.push_unchecked(RenderLayer::backdrop(backdrop_color)); }
+                // if this is object alpha blending, ensure that the bottom layer contains a color to blend with
+                if obj_sfx && layers.len() > 1 && bot_layer_flags.contains_render_layer(&layers[1])
+                {
+                    blend_mode = BldMode::BldAlpha;
+                }
+
+                match blend_mode {
+                    BldMode::BldAlpha => {
+                        let bot_pixel = if layers.len() > 1 {
+                            layers[1].pixel //self.layer_to_pixel(x, y, &layers[1])
+                        } else {
+                            backdrop_color
+                        };
+
+                        let eva = self.bldalpha.eva();
+                        let evb = self.bldalpha.evb();
+                        result = top_pixel.blend_with(bot_pixel, eva, evb);
+                    }
+                    BldMode::BldWhite => {
+                        let evy = self.bldy;
+                        result = top_pixel.blend_with(Rgb15::WHITE, 16 - evy, evy);
+                    }
+                    BldMode::BldBlack => {
+                        let evy = self.bldy;
+                        result = top_pixel.blend_with(Rgb15::BLACK, 16 - evy, evy);
+                    }
+                    BldMode::BldNone => {
+                        result = top_pixel;
+                    }
+                }
+            }
+            break 'blend;
+        }
+        result
     }
 }

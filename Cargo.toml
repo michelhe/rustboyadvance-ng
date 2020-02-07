@@ -32,6 +32,7 @@ bytesize = "1.0.0"
 memmem = "0.1.1"
 log = "0.4.8"
 flexi_logger = {version = "0.14", features = ["colors"]}
+arrayvec = "0.5.1"
 
 rustyline = {version = "5.0.0", optional = true}
 nom = {version = "5.0.0", optional = true}
