@@ -34,7 +34,7 @@ log = "0.4.8"
 flexi_logger = {version = "0.14", features = ["colors"]}
 arrayvec = "0.5.1"
 
-rustyline = {version = "5.0.0", optional = true}
+rustyline = {version = "6.0.0", optional = true}
 nom = {version = "5.0.0", optional = true}
 
 [[bin]]
