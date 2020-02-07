@@ -106,12 +106,14 @@ impl Core {
     pub fn set_reg(&mut self, r: usize, val: u32) {
         match r {
             0...14 => self.gpr[r] = val,
-            15 => self.pc = {
-                match self.cpsr.state() {
-                    CpuState::THUMB => val & !1,
-                    CpuState::ARM => val & !3
+            15 => {
+                self.pc = {
+                    match self.cpsr.state() {
+                        CpuState::THUMB => val & !1,
+                        CpuState::ARM => val & !3,
+                    }
                 }
-            },
+            }
             _ => panic!("invalid register"),
         }
     }

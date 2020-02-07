@@ -231,7 +231,7 @@ impl Core {
         sb: &mut SysBus,
         insn: ThumbInstruction,
         addr: Addr,
-        is_transferring_bytes: bool
+        is_transferring_bytes: bool,
     ) -> CpuExecResult {
         let rd = (insn.raw & 0b111) as usize;
         if insn.is_load() {
