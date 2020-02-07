@@ -47,7 +47,7 @@ impl Bus for Cartridge {
                 if offset >= self.size {
                     0xDD // TODO - open bus implementation
                 } else {
-                    self.bytes[offset as usize]
+                    unsafe { *self.bytes.get_unchecked(offset as usize) }
                 }
             }
         }
