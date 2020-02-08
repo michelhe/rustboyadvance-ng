@@ -1,17 +1,20 @@
+#[cfg(feature = "debugger")]
 use std::fmt;
-
+#[cfg(feature = "debugger")]
 use ansi_term::{Colour, Style};
+#[cfg(feature = "debugger")]
+use super::reg_string;
 use serde::{Deserialize, Serialize};
 
 pub use super::exception::Exception;
 use super::{
-    arm::*, psr::RegPSR, reg_string, thumb::ThumbInstruction, Addr, CpuMode, CpuResult, CpuState,
+    arm::*, psr::RegPSR, thumb::ThumbInstruction, Addr, CpuMode, CpuResult, CpuState,
     DecodedInstruction, InstructionDecoder,
 };
 
 use crate::core::bus::Bus;
 use crate::core::sysbus::{
-    MemoryAccess, MemoryAccessType, MemoryAccessType::*, MemoryAccessWidth::*, SysBus,
+    MemoryAccessType::*, MemoryAccessWidth::*, SysBus,
 };
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
@@ -67,7 +70,7 @@ pub type CpuExecResult = CpuResult<()>;
 
 impl Core {
     pub fn new() -> Core {
-        let mut cpsr = RegPSR::new(0x0000_00D3);
+        let cpsr = RegPSR::new(0x0000_00D3);
         Core {
             memreq: 0xffff_0000, // set memreq to an invalid addr so the first load cycle will be non-sequential
             cpsr: cpsr,
@@ -105,7 +108,7 @@ impl Core {
 
     pub fn set_reg(&mut self, r: usize, val: u32) {
         match r {
-            0...14 => self.gpr[r] = val,
+            0..=14 => self.gpr[r] = val,
             15 => {
                 self.pc = {
                     match self.cpsr.state() {
@@ -236,20 +239,6 @@ impl Core {
         self.cycles += 1;
     }
 
-    pub(super) fn add_cycles(&mut self, addr: Addr, bus: &SysBus, access: MemoryAccess) {
-        let cycles_to_add = 1 + bus.get_cycles(addr, access);
-        // println!("<cycle {:#x} {}> took: {}", addr, access, cycles_to_add);
-        self.cycles += cycles_to_add;
-    }
-
-    pub(super) fn cycle_type(&self, addr: Addr) -> MemoryAccessType {
-        if addr == self.memreq || addr == self.memreq.wrapping_add(self.word_size() as Addr) {
-            Seq
-        } else {
-            NonSeq
-        }
-    }
-
     pub(super) fn get_required_multipiler_array_cycles(&self, rs: u32) -> usize {
         if rs & 0xff == rs {
             1
@@ -323,7 +312,7 @@ impl Core {
         self.pipeline_state != PipelineState::Execute
     }
 
-    fn step_arm_exec(&mut self, insn: u32, sb: &mut SysBus) -> CpuResult<()> {
+    fn step_arm_exec(&mut self, insn: u32, sb: &mut SysBus) {
         let pc = self.pc;
         match self.pipeline_state {
             PipelineState::Refill1 => {
@@ -337,19 +326,21 @@ impl Core {
                 self.last_executed = None;
             }
             PipelineState::Execute => {
-                let decoded_arm = ArmInstruction::decode(insn, self.pc.wrapping_sub(8))?;
-                self.gpr_previous = self.get_registers();
-                self.exec_arm(sb, decoded_arm)?;
+                let decoded_arm = ArmInstruction::decode(insn, self.pc.wrapping_sub(8)).unwrap();
+                #[cfg(feature = "debugger")]
+                {
+                    self.gpr_previous = self.get_registers();
+                }
+                self.exec_arm(sb, decoded_arm);
                 if !self.did_pipeline_flush() {
                     self.pc = pc.wrapping_add(4);
                 }
                 self.last_executed = Some(DecodedInstruction::Arm(decoded_arm));
             }
         }
-        Ok(())
     }
 
-    fn step_thumb_exec(&mut self, insn: u16, sb: &mut SysBus) -> CpuResult<()> {
+    fn step_thumb_exec(&mut self, insn: u16, sb: &mut SysBus) {
         let pc = self.pc;
         match self.pipeline_state {
             PipelineState::Refill1 => {
@@ -363,16 +354,18 @@ impl Core {
                 self.last_executed = None;
             }
             PipelineState::Execute => {
-                let decoded_thumb = ThumbInstruction::decode(insn, self.pc.wrapping_sub(4))?;
-                self.gpr_previous = self.get_registers();
-                self.exec_thumb(sb, decoded_thumb)?;
+                let decoded_thumb = ThumbInstruction::decode(insn, self.pc.wrapping_sub(4)).unwrap();
+                #[cfg(feature = "debugger")]
+                {
+                    self.gpr_previous = self.get_registers();
+                }
+                self.exec_thumb(sb, decoded_thumb);
                 if !self.did_pipeline_flush() {
                     self.pc = pc.wrapping_add(2);
                 }
                 self.last_executed = Some(DecodedInstruction::Thumb(decoded_thumb));
             }
         }
-        Ok(())
     }
 
     pub(super) fn flush_pipeline16(&mut self, sb: &mut SysBus) {
@@ -387,41 +380,43 @@ impl Core {
         self.S_cycle32(sb, self.pc + 4);
     }
 
-    fn trace_opcode(&self, insn: u32) {
-        if self.trace_opcodes && self.pipeline_state == PipelineState::Execute {
-            print!("[{:08X}] PC=0x{:08x} | ", insn, self.pc);
-            for r in 0..15 {
-                print!("R{}=0x{:08x} ", r, self.gpr[r]);
-            }
-            print!(
-                " N={} Z={} C={} V={} T={}\n",
-                self.cpsr.N() as u8,
-                self.cpsr.Z() as u8,
-                self.cpsr.C() as u8,
-                self.cpsr.V() as u8,
-                self.cpsr.state() as u8,
-            );
-        }
-    }
+    // fn trace_opcode(&self, insn: u32) {
+    //     if self.trace_opcodes && self.pipeline_state == PipelineState::Execute {
+    //         println!("[{:08X}] PC=0x{:08x} | ", insn, self.pc);
+    //         for r in 0..15 {
+    //             println!("R{}=0x{:08x} ", r, self.gpr[r]);
+    //         }
+    //         println!(
+    //             " N={} Z={} C={} V={} T={}\n",
+    //             self.cpsr.N() as u8,
+    //             self.cpsr.Z() as u8,
+    //             self.cpsr.C() as u8,
+    //             self.cpsr.V() as u8,
+    //             self.cpsr.state() as u8,
+    //         );
+    //     }
+    // }
+
     /// Perform a pipeline step
     /// If an instruction was executed in this step, return it.
-    pub fn step(&mut self, bus: &mut SysBus) -> CpuResult<()> {
+    pub fn step(&mut self, bus: &mut SysBus) {
         let pc = self.pc;
 
-        let fetched_now = match self.cpsr.state() {
-            CpuState::ARM => bus.read_32(pc),
-            CpuState::THUMB => bus.read_16(pc) as u32,
-        };
-
-        let insn = self.pipeline[0];
-        self.pipeline[0] = self.pipeline[1];
-        self.pipeline[1] = fetched_now;
-
-        self.trace_opcode(insn.into());
-
         match self.cpsr.state() {
-            CpuState::ARM => self.step_arm_exec(insn, bus),
-            CpuState::THUMB => self.step_thumb_exec(insn as u16, bus),
+            CpuState::ARM => {
+                let fetched_now = bus.read_32(pc);
+                let insn = self.pipeline[0];
+                self.pipeline[0] = self.pipeline[1];
+                self.pipeline[1] = fetched_now;
+                self.step_arm_exec(insn, bus)
+            }
+            CpuState::THUMB => {
+                let fetched_now = bus.read_16(pc);
+                let insn = self.pipeline[0];
+                self.pipeline[0] = self.pipeline[1];
+                self.pipeline[1] = fetched_now as u32;
+                self.step_thumb_exec(insn as u16, bus)
+            }
         }
     }
 
@@ -432,23 +427,6 @@ impl Core {
             PipelineState::Refill1 => self.pc,
             PipelineState::Refill2 => self.pc - insn_size,
             PipelineState::Execute => self.pc - 2 * insn_size,
-        }
-    }
-
-    /// A step that returns only once an instruction was executed.
-    /// Returns the address of PC before executing an instruction,
-    /// and the address of the next instruction to be executed;
-    pub fn step_one(&mut self, bus: &mut SysBus) -> CpuResult<DecodedInstruction> {
-        loop {
-            match self.pipeline_state {
-                PipelineState::Execute => {
-                    self.step(bus)?;
-                    return Ok(self.last_executed.unwrap());
-                }
-                _ => {
-                    self.step(bus)?;
-                }
-            }
         }
     }
 
@@ -471,6 +449,7 @@ impl Core {
     }
 }
 
+#[cfg(feature = "debugger")]
 impl fmt::Display for Core {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "ARM7TDMI Core Status:")?;

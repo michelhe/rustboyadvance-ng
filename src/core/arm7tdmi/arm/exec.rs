@@ -1,19 +1,18 @@
 use crate::bit::BitIndex;
 
 use super::super::alu::*;
-use crate::core::arm7tdmi::cpu::{Core, CpuExecResult};
 use crate::core::arm7tdmi::psr::RegPSR;
-use crate::core::arm7tdmi::{Addr, CpuError, CpuMode, CpuResult, CpuState, REG_LR, REG_PC};
+use crate::core::arm7tdmi::{Core, Addr, CpuMode, CpuState, REG_LR, REG_PC};
 use crate::core::sysbus::SysBus;
 use crate::core::Bus;
 
 use super::*;
 
 impl Core {
-    pub fn exec_arm(&mut self, bus: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
+    pub fn exec_arm(&mut self, bus: &mut SysBus, insn: ArmInstruction) {
         if !self.check_arm_cond(insn.cond) {
             self.S_cycle32(bus, self.pc);
-            return Ok(());
+            return;
         }
         match insn.fmt {
             ArmFormat::BX => self.exec_bx(bus, insn),
@@ -21,7 +20,6 @@ impl Core {
             ArmFormat::DP => self.exec_data_processing(bus, insn),
             ArmFormat::SWI => {
                 self.software_interrupt(bus, self.pc - 4, insn.swi_comment());
-                Ok(())
             }
             ArmFormat::LDR_STR => self.exec_ldr_str(bus, insn),
             ArmFormat::LDR_STR_HS_IMM => self.exec_ldr_str_hs(bus, insn),
@@ -37,7 +35,7 @@ impl Core {
     }
 
     /// Cycles 2S+1N
-    fn exec_b_bl(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
+    fn exec_b_bl(&mut self, sb: &mut SysBus, insn: ArmInstruction) {
         self.S_cycle32(sb, self.pc);
         if insn.link_flag() {
             self.set_reg(REG_LR, (insn.pc + (self.word_size() as u32)) & !0b1);
@@ -46,10 +44,9 @@ impl Core {
         self.pc = (self.pc as i32).wrapping_add(insn.branch_offset()) as u32 & !1;
         self.flush_pipeline32(sb);
 
-        Ok(())
     }
 
-    pub fn branch_exchange(&mut self, sb: &mut SysBus, mut addr: Addr) -> CpuExecResult {
+    pub fn branch_exchange(&mut self, sb: &mut SysBus, mut addr: Addr) {
         match self.cpsr.state() {
             CpuState::ARM => self.S_cycle32(sb, self.pc),
             CpuState::THUMB => self.S_cycle16(sb, self.pc),
@@ -65,11 +62,10 @@ impl Core {
         self.pc = addr;
         self.flush_pipeline32(sb); // +1S+1N
 
-        Ok(())
     }
 
     /// Cycles 2S+1N
-    fn exec_bx(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
+    fn exec_bx(&mut self, sb: &mut SysBus, insn: ArmInstruction) {
         self.branch_exchange(sb, self.get_reg(insn.rn()))
     }
 
@@ -78,7 +74,7 @@ impl Core {
         sb: &mut SysBus,
         rd: usize,
         is_spsr: bool,
-    ) -> CpuExecResult {
+    ) {
         let result = if is_spsr {
             self.spsr.get()
         } else {
@@ -86,10 +82,9 @@ impl Core {
         };
         self.set_reg(rd, result);
         self.S_cycle32(sb, self.pc);
-        Ok(())
     }
 
-    fn exec_msr_reg(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
+    fn exec_msr_reg(&mut self, sb: &mut SysBus, insn: ArmInstruction) {
         self.write_status_register(sb, insn.spsr_flag(), self.get_reg(insn.rm()))
     }
 
@@ -98,7 +93,7 @@ impl Core {
         sb: &mut SysBus,
         is_spsr: bool,
         value: u32,
-    ) -> CpuExecResult {
+    ) {
         let new_status_reg = RegPSR::new(value);
         match self.cpsr.mode() {
             CpuMode::User => {
@@ -125,32 +120,27 @@ impl Core {
             }
         }
         self.S_cycle32(sb, self.pc);
-        Ok(())
     }
 
-    fn exec_msr_flags(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
+    fn exec_msr_flags(&mut self, sb: &mut SysBus, insn: ArmInstruction) {
         self.S_cycle32(sb, self.pc);
-        let op = insn.operand2()?;
-        let op = self.decode_operand2(op)?;
+        let op = insn.operand2();
+        let op = self.decode_operand2(op);
 
-        let old_mode = self.cpsr.mode();
         if insn.spsr_flag() {
             self.spsr.set_flag_bits(op);
         } else {
             self.cpsr.set_flag_bits(op);
         }
-        Ok(())
     }
 
-    fn decode_operand2(&mut self, op2: BarrelShifterValue) -> CpuResult<u32> {
+    fn decode_operand2(&mut self, op2: BarrelShifterValue) -> u32 {
         match op2 {
             BarrelShifterValue::RotatedImmediate(val, amount) => {
-                let result = self.ror(val, amount, self.cpsr.C(), false, true);
-                Ok(result)
+                self.ror(val, amount, self.cpsr.C(), false, true)
             }
             BarrelShifterValue::ShiftedRegister(x) => {
-                let result = self.register_shift(x)?;
-                Ok(result)
+                self.register_shift(x)
             }
             _ => unreachable!(),
         }
@@ -168,7 +158,7 @@ impl Core {
     ///
     /// Cycles: 1S+x+y (from GBATEK)
     ///         Add x=1I cycles if Op2 shifted-by-register. Add y=1S+1N cycles if Rd=R15.
-    fn exec_data_processing(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
+    fn exec_data_processing(&mut self, sb: &mut SysBus, insn: ArmInstruction) {
         use AluOpCode::*;
 
         self.S_cycle32(sb, self.pc);
@@ -181,7 +171,7 @@ impl Core {
         let mut s_flag = insn.set_cond_flag();
         let opcode = insn.opcode().unwrap();
 
-        let op2 = insn.operand2()?;
+        let op2 = insn.operand2();
         match op2 {
             BarrelShifterValue::ShiftedRegister(shifted_reg) => {
                 if insn.rn() == REG_PC && shifted_reg.is_shifted_by_reg() {
@@ -190,7 +180,7 @@ impl Core {
             }
             _ => {}
         }
-        let op2 = self.decode_operand2(op2)?;
+        let op2 = self.decode_operand2(op2);
 
         let reg_rd = insn.rd();
         if !s_flag {
@@ -212,7 +202,7 @@ impl Core {
             s_flag = false;
         }
 
-        let C = self.cpsr.C() as u32;
+        let carry = self.cpsr.C() as u32;
         let alu_res = if s_flag {
             let mut carry = self.bs_carry_out;
             let mut overflow = self.cpsr.V();
@@ -245,9 +235,9 @@ impl Core {
                 SUB => op1.wrapping_sub(op2),
                 RSB => op2.wrapping_sub(op1),
                 ADD => op1.wrapping_add(op2),
-                ADC => op1.wrapping_add(op2).wrapping_add(C),
-                SBC => op1.wrapping_sub(op2.wrapping_add(1 - C)),
-                RSC => op2.wrapping_sub(op1.wrapping_add(1 - C)),
+                ADC => op1.wrapping_add(op2).wrapping_add(carry),
+                SBC => op1.wrapping_sub(op2.wrapping_add(1 - carry)),
+                RSC => op2.wrapping_sub(op1.wrapping_add(1 - carry)),
                 ORR => op1 | op2,
                 MOV => op2,
                 BIC => op1 & (!op2),
@@ -263,7 +253,6 @@ impl Core {
             self.set_reg(reg_rd, result as u32);
         }
 
-        Ok(())
     }
 
     /// Memory Load/Store
@@ -273,7 +262,7 @@ impl Core {
     /// STR{cond}{B}{T} Rd,<Address>    | 2N            | ----  |  [Rn+/-<offset>]=Rd
     /// ------------------------------------------------------------------------------
     /// For LDR, add y=1S+1N if Rd=R15.
-    fn exec_ldr_str(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
+    fn exec_ldr_str(&mut self, sb: &mut SysBus, insn: ArmInstruction) {
         let load = insn.load_flag();
         let pre_index = insn.pre_index_flag();
         let writeback = insn.write_back_flag();
@@ -344,10 +333,9 @@ impl Core {
             self.change_mode(self.cpsr.mode(), old_mode);
         }
 
-        Ok(())
     }
 
-    fn exec_ldr_str_hs(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
+    fn exec_ldr_str_hs(&mut self, sb: &mut SysBus, insn: ArmInstruction) {
         let load = insn.load_flag();
         let pre_index = insn.pre_index_flag();
         let writeback = insn.write_back_flag();
@@ -423,10 +411,9 @@ impl Core {
             }
         }
 
-        Ok(())
     }
 
-    fn exec_ldm_stm(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
+    fn exec_ldm_stm(&mut self, sb: &mut SysBus, insn: ArmInstruction) {
         let mut full = insn.pre_index_flag();
         let ascending = insn.add_offset_flag();
         let s_flag = insn.raw.bit(22);
@@ -569,19 +556,14 @@ impl Core {
             self.set_reg(base_reg, addr as u32);
         }
 
-        Ok(())
     }
 
-    fn exec_mul_mla(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
+    fn exec_mul_mla(&mut self, sb: &mut SysBus, insn: ArmInstruction) {
         let (rd, rn, rs, rm) = (insn.rd(), insn.rn(), insn.rs(), insn.rm());
 
         // check validity
-        if REG_PC == rd || REG_PC == rn || REG_PC == rs || REG_PC == rm {
-            return Err(CpuError::IllegalInstruction);
-        }
-        if rd == rm {
-            return Err(CpuError::IllegalInstruction);
-        }
+        assert!(!(REG_PC == rd || REG_PC == rn || REG_PC == rs || REG_PC == rm));
+        assert!(rd != rm);
 
         let op1 = self.get_reg(rm);
         let op2 = self.get_reg(rs);
@@ -607,20 +589,15 @@ impl Core {
         }
 
         self.S_cycle32(sb, self.pc);
-        Ok(())
     }
 
-    fn exec_mull_mlal(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
+    fn exec_mull_mlal(&mut self, sb: &mut SysBus, insn: ArmInstruction) {
         let (rd_hi, rd_lo, rn, rs, rm) =
             (insn.rd_hi(), insn.rd_lo(), insn.rn(), insn.rs(), insn.rm());
 
         // check validity
-        if REG_PC == rd_hi || REG_PC == rd_lo || REG_PC == rn || REG_PC == rs || REG_PC == rm {
-            return Err(CpuError::IllegalInstruction);
-        }
-        if rd_hi != rd_hi && rd_hi != rm && rd_lo != rm {
-            return Err(CpuError::IllegalInstruction);
-        }
+        assert!(!(REG_PC == rd_hi || REG_PC == rd_lo || REG_PC == rn || REG_PC == rs || REG_PC == rm));
+        assert!(!(rd_hi != rd_hi && rd_hi != rm && rd_lo != rm));
 
         let op1 = self.get_reg(rm);
         let op2 = self.get_reg(rs);
@@ -655,10 +632,9 @@ impl Core {
         }
 
         self.S_cycle32(sb, self.pc);
-        Ok(())
     }
 
-    fn exec_arm_swp(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuExecResult {
+    fn exec_arm_swp(&mut self, sb: &mut SysBus, insn: ArmInstruction) {
         let base_addr = self.get_reg(insn.rn());
         self.add_cycle();
         if insn.transfer_size() == 1 {
@@ -675,6 +651,5 @@ impl Core {
             self.set_reg(insn.rd(), t as u32);
         }
         self.N_cycle32(sb, self.pc);
-        Ok(())
     }
 }

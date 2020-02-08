@@ -1,6 +1,6 @@
 use bit::BitIndex;
 
-use super::{Core, CpuError, CpuResult, REG_PC};
+use super::{Core, REG_PC};
 
 #[derive(Debug, Primitive, PartialEq)]
 pub enum AluOpCode {
@@ -246,26 +246,25 @@ impl Core {
         }
     }
 
-    pub fn register_shift(&mut self, shift: ShiftedRegister) -> CpuResult<u32> {
-        let mut val = self.get_reg(shift.reg);
+    pub fn shift_by_register(&mut self, bs_op: BarrelShiftOpCode, reg: usize, rs: usize, carry: bool) -> u32 {
+        let mut val = self.get_reg(reg);
+        self.add_cycle(); // +1I
+        if reg == REG_PC {
+            val += 4; // PC prefetching
+        }
+        let amount = self.get_reg(rs) & 0xff;
+        self.barrel_shift_op(bs_op, val, amount, carry, false)
+    }
+
+    pub fn register_shift(&mut self, shift: ShiftedRegister) -> u32 {
         let carry = self.cpsr.C();
         match shift.shift_by {
             ShiftRegisterBy::ByAmount(amount) => {
-                let result = self.barrel_shift_op(shift.bs_op, val, amount, carry, true);
-                Ok(result)
+                let result = self.barrel_shift_op(shift.bs_op, self.get_reg(shift.reg), amount, carry, true);
+                result
             }
             ShiftRegisterBy::ByRegister(rs) => {
-                self.add_cycle(); // +1I
-                if shift.reg == REG_PC {
-                    val = val + 4; // PC prefetching
-                }
-                if rs != REG_PC {
-                    let amount = self.get_reg(rs) & 0xff;
-                    let result = self.barrel_shift_op(shift.bs_op, val, amount, carry, false);
-                    Ok(result)
-                } else {
-                    Err(CpuError::IllegalInstruction)
-                }
+                self.shift_by_register(shift.bs_op, shift.reg, rs, carry)
             }
         }
     }
@@ -276,7 +275,7 @@ impl Core {
             BarrelShifterValue::ImmediateValue(offset) => offset as u32,
             BarrelShifterValue::ShiftedRegister(shifted_reg) => {
                 let added = shifted_reg.added.unwrap_or(true);
-                let abs = self.register_shift(shifted_reg).unwrap() as u32;
+                let abs = self.register_shift(shifted_reg) as u32;
                 if added {
                     abs as u32
                 } else {
@@ -337,7 +336,7 @@ impl Core {
         self.alu_adc_flags(a, !b, carry, overflow)
     }
 
-    pub fn alu_update_flags(&mut self, result: u32, is_arithmetic: bool, c: bool, v: bool) {
+    pub fn alu_update_flags(&mut self, result: u32, _is_arithmetic: bool, c: bool, v: bool) {
         self.cpsr.set_N((result as i32) < 0);
         self.cpsr.set_Z(result == 0);
         self.cpsr.set_C(c);

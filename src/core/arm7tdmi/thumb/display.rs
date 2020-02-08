@@ -1,10 +1,13 @@
 use std::fmt;
 
+#[cfg(feature = "debugger")]
 use crate::bit::BitIndex;
 
 use super::*;
+#[cfg(feature = "debugger")]
 use crate::core::arm7tdmi::*;
 
+#[cfg(feature = "debugger")]
 impl ThumbInstruction {
     fn fmt_thumb_move_shifted_reg(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
@@ -268,6 +271,7 @@ impl ThumbInstruction {
     }
 }
 
+#[cfg(feature = "debugger")]
 impl fmt::Display for ThumbInstruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.fmt {

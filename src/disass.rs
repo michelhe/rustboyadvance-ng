@@ -1,3 +1,4 @@
+use std::fmt;
 use std::marker::PhantomData;
 
 use super::core::arm7tdmi::{InstructionDecoder, InstructionDecoderError};
@@ -32,7 +33,7 @@ where
 
 impl<'a, D> Iterator for Disassembler<'a, D>
 where
-    D: InstructionDecoder,
+    D: InstructionDecoder + fmt::Display,
     <D as InstructionDecoder>::IntType: std::fmt::LowerHex,
 {
     type Item = (Addr, String);

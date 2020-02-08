@@ -15,12 +15,13 @@ pub mod alu;
 pub use alu::*;
 pub mod exception;
 pub mod psr;
+pub use psr::*;
 
 pub const REG_PC: usize = 15;
 pub const REG_LR: usize = 14;
 pub const REG_SP: usize = 13;
 
-pub(self) use crate::core::{Addr, Bus};
+pub(self) use crate::core::Addr;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
 pub enum DecodedInstruction {
@@ -36,6 +37,8 @@ impl DecodedInstruction {
         }
     }
 }
+
+#[cfg(feature = "debugger")]
 impl fmt::Display for DecodedInstruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -64,7 +67,7 @@ impl From<ThumbDecodeError> for InstructionDecoderError {
     }
 }
 
-pub trait InstructionDecoder: Sized + fmt::Display {
+pub trait InstructionDecoder: Sized {
     type IntType: Num;
 
     fn decode(n: Self::IntType, addr: Addr) -> Result<Self, InstructionDecoderError>;

@@ -338,12 +338,12 @@ impl ArmInstruction {
         }
     }
 
-    pub fn operand2(&self) -> Result<BarrelShifterValue, ArmDecodeError> {
+    pub fn operand2(&self) -> BarrelShifterValue {
         let op2 = self.raw.bit_range(0..12);
         if self.raw.bit(25) {
             let immediate = op2 & 0xff;
             let rotate = 2 * op2.bit_range(8..12);
-            Ok(BarrelShifterValue::RotatedImmediate(immediate, rotate))
+            BarrelShifterValue::RotatedImmediate(immediate, rotate)
         } else {
             let reg = op2 & 0xf;
             let shifted_reg = ShiftedRegister {
@@ -352,7 +352,7 @@ impl ArmInstruction {
                 shift_by: self.get_shift_reg_by(op2),
                 added: None,
             }; // TODO error handling
-            Ok(BarrelShifterValue::ShiftedRegister(shifted_reg))
+            BarrelShifterValue::ShiftedRegister(shifted_reg)
         }
     }
 

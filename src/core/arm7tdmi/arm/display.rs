@@ -1,10 +1,12 @@
 use std::fmt;
 
+#[cfg(feature = "debugger")]
 use crate::bit::BitIndex;
 
-use super::{AluOpCode, ArmCond, ArmFormat, ArmHalfwordTransferType, ArmInstruction};
-use crate::core::arm7tdmi::alu::*;
-use crate::core::arm7tdmi::psr::RegPSR;
+#[cfg(feature = "debugger")]
+use super::{ArmFormat, ArmInstruction};
+
+use super::{AluOpCode, ArmCond, ArmHalfwordTransferType};
 use crate::core::arm7tdmi::*;
 
 impl fmt::Display for ArmCond {
@@ -100,6 +102,7 @@ impl fmt::Display for ShiftedRegister {
     }
 }
 
+#[cfg(feature = "debugger")]
 impl ArmInstruction {
     fn fmt_bx(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "bx\t{Rn}", Rn = reg_string(self.rn()))
@@ -408,6 +411,7 @@ impl ArmInstruction {
     }
 }
 
+#[cfg(feature = "debugger")]
 impl fmt::Display for ArmInstruction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use ArmFormat::*;

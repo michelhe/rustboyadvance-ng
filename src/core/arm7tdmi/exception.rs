@@ -69,19 +69,11 @@ impl Core {
         }
     }
 
-    pub fn software_interrupt(&mut self, sb: &mut SysBus, lr: u32, cmt: u32) {
+    pub fn software_interrupt(&mut self, sb: &mut SysBus, lr: u32, _cmt: u32) {
         match self.cpsr.state() {
             CpuState::ARM => self.N_cycle32(sb, self.pc),
             CpuState::THUMB => self.N_cycle16(sb, self.pc),
         };
-        if cmt == 0x55 {
-            #[cfg(debug_assertions)]
-            {
-                println!("Special breakpoint detected!");
-                host_breakpoint!();
-            }
-        } else {
-            self.exception(sb, Exception::SoftwareInterrupt, lr);
-        }
+        self.exception(sb, Exception::SoftwareInterrupt, lr);
     }
 }
