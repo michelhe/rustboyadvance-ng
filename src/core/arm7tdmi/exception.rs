@@ -1,5 +1,5 @@
 use super::super::sysbus::SysBus;
-use super::cpu::{Core, PipelineState};
+use super::cpu::Core;
 use super::{CpuMode, CpuState};
 use colored::*;
 
@@ -59,13 +59,10 @@ impl Core {
     }
 
     pub fn irq(&mut self, sb: &mut SysBus) {
-        if self.pipeline_state != PipelineState::Execute {
-            panic!("IRQ when pipeline refilling! {:?}", self.pipeline_state);
-        }
         if !self.cpsr.irq_disabled() {
             let lr = self.get_next_pc() + 4;
             self.exception(sb, Exception::Irq, lr);
-            self.flush_pipeline32(sb);
+            self.reload_pipeline32(sb);
         }
     }
 

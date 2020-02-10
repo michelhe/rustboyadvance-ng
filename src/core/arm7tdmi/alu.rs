@@ -246,7 +246,13 @@ impl Core {
         }
     }
 
-    pub fn shift_by_register(&mut self, bs_op: BarrelShiftOpCode, reg: usize, rs: usize, carry: bool) -> u32 {
+    pub fn shift_by_register(
+        &mut self,
+        bs_op: BarrelShiftOpCode,
+        reg: usize,
+        rs: usize,
+        carry: bool,
+    ) -> u32 {
         let mut val = self.get_reg(reg);
         self.add_cycle(); // +1I
         if reg == REG_PC {
@@ -260,7 +266,8 @@ impl Core {
         let carry = self.cpsr.C();
         match shift.shift_by {
             ShiftRegisterBy::ByAmount(amount) => {
-                let result = self.barrel_shift_op(shift.bs_op, self.get_reg(shift.reg), amount, carry, true);
+                let result =
+                    self.barrel_shift_op(shift.bs_op, self.get_reg(shift.reg), amount, carry, true);
                 result
             }
             ShiftRegisterBy::ByRegister(rs) => {

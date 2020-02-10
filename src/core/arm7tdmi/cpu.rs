@@ -1,35 +1,20 @@
 #[cfg(feature = "debugger")]
-use std::fmt;
+use super::reg_string;
 #[cfg(feature = "debugger")]
 use ansi_term::{Colour, Style};
-#[cfg(feature = "debugger")]
-use super::reg_string;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "debugger")]
+use std::fmt;
 
-use super::CpuAction;
 pub use super::exception::Exception;
+use super::CpuAction;
 use super::{
     arm::*, psr::RegPSR, thumb::ThumbInstruction, Addr, CpuMode, CpuResult, CpuState,
     DecodedInstruction, InstructionDecoder,
 };
 
 use crate::core::bus::Bus;
-use crate::core::sysbus::{
-    MemoryAccessType::*, MemoryAccessWidth::*, SysBus,
-};
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
-pub enum PipelineState {
-    Refill1,
-    Refill2,
-    Execute,
-}
-
-impl Default for PipelineState {
-    fn default() -> PipelineState {
-        PipelineState::Refill1
-    }
-}
+use crate::core::sysbus::{MemoryAccessType::*, MemoryAccessWidth::*, SysBus};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Core {
@@ -48,7 +33,6 @@ pub struct Core {
 
     pub(super) bs_carry_out: bool,
 
-    pub pipeline_state: PipelineState,
     pipeline: [u32; 2],
     pub last_executed: Option<DecodedInstruction>,
 
@@ -309,91 +293,77 @@ impl Core {
         }
     }
 
-    pub fn did_pipeline_flush(&self) -> bool {
-        self.pipeline_state != PipelineState::Execute
-    }
-
-    fn handle_exec_result(&mut self, sb: &mut SysBus, exec_result: CpuAction) {
-        match self.cpsr.state() {
-            CpuState::ARM => {
-                match exec_result {
-                    CpuAction::AdvancePC => self.advance_arm(),
-                    CpuAction::FlushPipeline => self.flush_pipeline32(sb),
-                }
-            }
-            CpuState::THUMB => {
-                match exec_result {
-                    CpuAction::AdvancePC => self.advance_thumb(),
-                    CpuAction::FlushPipeline => self.flush_pipeline16(sb),
-                }
-            }
-        }
-    }
+    // fn handle_exec_result(&mut self, sb: &mut SysBus, exec_result: CpuAction) {
+    //     match self.cpsr.state() {
+    //         CpuState::ARM => {
+    //             match exec_result {
+    //                 CpuAction::AdvancePC => self.advance_arm(),
+    //                 CpuAction::FlushPipeline => self.reload_pipeline32(sb),
+    //             }
+    //         }
+    //         CpuState::THUMB => {
+    //             match exec_result {
+    //                 CpuAction::AdvancePC => self.advance_thumb(),
+    //                 CpuAction::FlushPipeline => self.reload_pipeline16(sb),
+    //             }
+    //         }
+    //     }
+    // }
 
     fn step_arm_exec(&mut self, insn: u32, sb: &mut SysBus) {
-        let pc = self.pc;
-        match self.pipeline_state {
-            PipelineState::Refill1 => {
-                self.pc = pc.wrapping_add(4);
-                self.pipeline_state = PipelineState::Refill2;
-                self.last_executed = None;
-            }
-            PipelineState::Refill2 => {
-                self.pc = pc.wrapping_add(4);
-                self.pipeline_state = PipelineState::Execute;
-                self.last_executed = None;
-            }
-            PipelineState::Execute => {
-                let decoded_arm = ArmInstruction::decode(insn, self.pc.wrapping_sub(8)).unwrap();
-                #[cfg(feature = "debugger")]
-                {
-                    self.gpr_previous = self.get_registers();
-                }
-                self.last_executed = Some(DecodedInstruction::Arm(decoded_arm));
-                let result = self.exec_arm(sb, decoded_arm);
-                self.handle_exec_result(sb, result);
-            }
+        let decoded_arm = ArmInstruction::decode(insn, self.pc.wrapping_sub(8)).unwrap();
+        #[cfg(feature = "debugger")]
+        {
+            self.gpr_previous = self.get_registers();
+        }
+        self.last_executed = Some(DecodedInstruction::Arm(decoded_arm));
+        let result = self.exec_arm(sb, decoded_arm);
+        match result {
+            CpuAction::AdvancePC => self.advance_arm(),
+            CpuAction::FlushPipeline => self.reload_pipeline(sb),
         }
     }
 
     fn step_thumb_exec(&mut self, insn: u16, sb: &mut SysBus) {
-        let pc = self.pc;
-        match self.pipeline_state {
-            PipelineState::Refill1 => {
-                self.pc = pc.wrapping_add(2);
-                self.pipeline_state = PipelineState::Refill2;
-                self.last_executed = None;
-            }
-            PipelineState::Refill2 => {
-                self.pc = pc.wrapping_add(2);
-                self.pipeline_state = PipelineState::Execute;
-                self.last_executed = None;
-            }
-            PipelineState::Execute => {
-                let decoded_thumb = ThumbInstruction::decode(insn, self.pc.wrapping_sub(4)).unwrap();
-                #[cfg(feature = "debugger")]
-                {
-                    self.gpr_previous = self.get_registers();
-                }
-                self.last_executed = Some(DecodedInstruction::Thumb(decoded_thumb));
-                let result = self.exec_thumb(sb, decoded_thumb);
-                self.handle_exec_result(sb, result);
-            }
+        let decoded_thumb = ThumbInstruction::decode(insn, self.pc.wrapping_sub(4)).unwrap();
+        #[cfg(feature = "debugger")]
+        {
+            self.gpr_previous = self.get_registers();
+        }
+        self.last_executed = Some(DecodedInstruction::Thumb(decoded_thumb));
+        let result = self.exec_thumb(sb, decoded_thumb);
+        match result {
+            CpuAction::AdvancePC => self.advance_thumb(),
+            CpuAction::FlushPipeline => self.reload_pipeline(sb),
         }
     }
 
     #[inline]
-    pub(super) fn flush_pipeline16(&mut self, sb: &mut SysBus) {
-        self.pipeline_state = PipelineState::Refill1;
+    pub(super) fn reload_pipeline16(&mut self, sb: &mut SysBus) {
+        self.pipeline[0] = sb.read_16(self.pc) as u32;
         self.N_cycle16(sb, self.pc);
-        self.S_cycle16(sb, self.pc + 2);
+        self.advance_thumb();
+        self.pipeline[1] = sb.read_16(self.pc) as u32;
+        self.S_cycle16(sb, self.pc);
+        self.advance_thumb();
     }
 
     #[inline]
-    pub(super) fn flush_pipeline32(&mut self, sb: &mut SysBus) {
-        self.pipeline_state = PipelineState::Refill1;
-        self.N_cycle32(sb, self.pc);
-        self.S_cycle32(sb, self.pc + 4);
+    pub(super) fn reload_pipeline32(&mut self, sb: &mut SysBus) {
+        self.pipeline[0] = sb.read_32(self.pc);
+        self.N_cycle16(sb, self.pc);
+        self.advance_arm();
+        self.pipeline[1] = sb.read_32(self.pc);
+        self.S_cycle16(sb, self.pc);
+        self.advance_arm();
+    }
+
+    #[inline]
+    pub(super) fn reload_pipeline(&mut self, sb: &mut SysBus) {
+        match self.cpsr.state() {
+            CpuState::THUMB => self.reload_pipeline16(sb),
+            CpuState::ARM => self.reload_pipeline32(sb),
+        }
     }
 
     #[inline]
@@ -405,23 +375,6 @@ impl Core {
     pub(super) fn advance_arm(&mut self) {
         self.pc = self.pc.wrapping_add(4)
     }
-
-    // fn trace_opcode(&self, insn: u32) {
-    //     if self.trace_opcodes && self.pipeline_state == PipelineState::Execute {
-    //         println!("[{:08X}] PC=0x{:08x} | ", insn, self.pc);
-    //         for r in 0..15 {
-    //             println!("R{}=0x{:08x} ", r, self.gpr[r]);
-    //         }
-    //         println!(
-    //             " N={} Z={} C={} V={} T={}\n",
-    //             self.cpsr.N() as u8,
-    //             self.cpsr.Z() as u8,
-    //             self.cpsr.C() as u8,
-    //             self.cpsr.V() as u8,
-    //             self.cpsr.state() as u8,
-    //         );
-    //     }
-    // }
 
     /// Perform a pipeline step
     /// If an instruction was executed in this step, return it.
@@ -449,11 +402,7 @@ impl Core {
     /// Get's the address of the next instruction that is going to be executed
     pub fn get_next_pc(&self) -> Addr {
         let insn_size = self.word_size() as u32;
-        match self.pipeline_state {
-            PipelineState::Refill1 => self.pc,
-            PipelineState::Refill2 => self.pc - insn_size,
-            PipelineState::Execute => self.pc - 2 * insn_size,
-        }
+        self.pc - 2 * insn_size
     }
 
     pub fn get_cpu_state(&self) -> CpuState {

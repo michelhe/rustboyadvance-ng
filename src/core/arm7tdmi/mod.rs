@@ -25,7 +25,7 @@ pub(self) use crate::core::Addr;
 
 pub enum CpuAction {
     AdvancePC,
-    FlushPipeline
+    FlushPipeline,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]

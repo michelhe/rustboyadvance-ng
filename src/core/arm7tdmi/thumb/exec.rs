@@ -22,13 +22,18 @@ impl Core {
         &mut self,
         sb: &mut SysBus,
         insn: ThumbInstruction,
-    )  -> CpuAction {
+    ) -> CpuAction {
         let rd = (insn.raw & 0b111) as usize;
         let rs = insn.raw.bit_range(3..6) as usize;
 
-
         let shift_amount = insn.offset5() as u8 as u32;
-        let op2 = self.barrel_shift_op(insn.format1_op(), self.gpr[rs], shift_amount, self.cpsr.C(), true);
+        let op2 = self.barrel_shift_op(
+            insn.format1_op(),
+            self.gpr[rs],
+            shift_amount,
+            self.cpsr.C(),
+            true,
+        );
         self.gpr[rd] = op2;
         self.alu_update_flags(op2, false, self.bs_carry_out, self.cpsr.V());
 
@@ -148,11 +153,7 @@ impl Core {
     }
 
     /// Format 5
-    fn exec_thumb_hi_reg_op_or_bx(
-        &mut self,
-        sb: &mut SysBus,
-        insn: ThumbInstruction,
-    ) -> CpuAction {
+    fn exec_thumb_hi_reg_op_or_bx(&mut self, sb: &mut SysBus, insn: ThumbInstruction) -> CpuAction {
         let op = insn.format5_op();
         let rd = (insn.raw & 0b111) as usize;
         let dst_reg = if insn.flag(ThumbInstruction::FLAG_H1) {
@@ -172,7 +173,7 @@ impl Core {
         match op {
             OpFormat5::BX => {
                 return self.branch_exchange(sb, self.get_reg(src_reg));
-            },
+            }
             OpFormat5::ADD => {
                 self.set_reg(dst_reg, op1.wrapping_add(op2));
                 if dst_reg == REG_PC {
@@ -370,11 +371,7 @@ impl Core {
     }
 
     /// Format 12
-    fn exec_thumb_load_address(
-        &mut self,
-        sb: &mut SysBus,
-        insn: ThumbInstruction,
-    ) -> CpuAction {
+    fn exec_thumb_load_address(&mut self, sb: &mut SysBus, insn: ThumbInstruction) -> CpuAction {
         let rd = insn.raw.bit_range(8..11) as usize;
         let result = if insn.flag(ThumbInstruction::FLAG_SP) {
             self.gpr[REG_SP] + (insn.word8() as Addr)
@@ -539,11 +536,7 @@ impl Core {
     }
 
     /// Format 17
-    fn exec_thumb_swi(
-        &mut self,
-        sb: &mut SysBus,
-        _insn: ThumbInstruction,
-    ) -> CpuAction {
+    fn exec_thumb_swi(&mut self, sb: &mut SysBus, _insn: ThumbInstruction) -> CpuAction {
         self.N_cycle16(sb, self.pc);
         self.exception(sb, Exception::SoftwareInterrupt, self.pc - 2);
 

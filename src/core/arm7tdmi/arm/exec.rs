@@ -3,7 +3,7 @@ use crate::bit::BitIndex;
 use super::super::alu::*;
 use crate::core::arm7tdmi::psr::RegPSR;
 use crate::core::arm7tdmi::CpuAction;
-use crate::core::arm7tdmi::{Core, Addr, CpuMode, CpuState, REG_LR, REG_PC};
+use crate::core::arm7tdmi::{Addr, Core, CpuMode, CpuState, REG_LR, REG_PC};
 use crate::core::sysbus::SysBus;
 use crate::core::Bus;
 
@@ -92,12 +92,7 @@ impl Core {
         self.write_status_register(sb, insn.spsr_flag(), self.get_reg(insn.rm()))
     }
 
-    fn write_status_register(
-        &mut self,
-        sb: &mut SysBus,
-        is_spsr: bool,
-        value: u32,
-    ) -> CpuAction {
+    fn write_status_register(&mut self, sb: &mut SysBus, is_spsr: bool, value: u32) -> CpuAction {
         let new_status_reg = RegPSR::new(value);
         match self.cpsr.mode() {
             CpuMode::User => {
@@ -146,9 +141,7 @@ impl Core {
             BarrelShifterValue::RotatedImmediate(val, amount) => {
                 self.ror(val, amount, self.cpsr.C(), false, true)
             }
-            BarrelShifterValue::ShiftedRegister(x) => {
-                self.register_shift(x)
-            }
+            BarrelShifterValue::ShiftedRegister(x) => self.register_shift(x),
             _ => unreachable!(),
         }
     }
@@ -616,7 +609,9 @@ impl Core {
             (insn.rd_hi(), insn.rd_lo(), insn.rn(), insn.rs(), insn.rm());
 
         // check validity
-        assert!(!(REG_PC == rd_hi || REG_PC == rd_lo || REG_PC == rn || REG_PC == rs || REG_PC == rm));
+        assert!(
+            !(REG_PC == rd_hi || REG_PC == rd_lo || REG_PC == rn || REG_PC == rs || REG_PC == rm)
+        );
         assert!(!(rd_hi != rd_hi && rd_hi != rm && rd_lo != rm));
 
         let op1 = self.get_reg(rm);

@@ -1,3 +1,4 @@
+
 /// Struct containing everything
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -121,10 +122,7 @@ impl GameBoyAdvance {
     }
 
     fn step_cpu(&mut self, io: &mut IoDevices) -> usize {
-        if io.intc.irq_pending()
-            && self.cpu.last_executed.is_some()
-            && !self.cpu.did_pipeline_flush()
-        {
+        if io.intc.irq_pending() && self.cpu.last_executed.is_some() {
             self.cpu.irq(&mut self.sysbus);
             io.haltcnt = HaltState::Running;
         }
@@ -215,13 +213,8 @@ mod tests {
             .build()
             .unwrap();
         let dummy = Rc::new(RefCell::new(DummyInterface::new()));
-        let mut gba = GameBoyAdvance::new(
-            bios,
-            cartridge,
-            dummy.clone(),
-            dummy.clone(),
-            dummy.clone(),
-        );
+        let mut gba =
+            GameBoyAdvance::new(bios, cartridge, dummy.clone(), dummy.clone(), dummy.clone());
         gba.skip_bios();
 
         gba
