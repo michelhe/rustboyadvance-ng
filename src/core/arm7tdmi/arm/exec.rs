@@ -54,14 +54,14 @@ impl Core {
         if addr.bit(0) {
             addr = addr & !0x1;
             self.cpsr.set_state(CpuState::THUMB);
+            self.pc = addr;
+            self.flush_pipeline16(sb);
         } else {
             addr = addr & !0x3;
             self.cpsr.set_state(CpuState::ARM);
+            self.pc = addr;
+            self.flush_pipeline32(sb);
         }
-
-        self.pc = addr;
-        self.flush_pipeline32(sb); // +1S+1N
-
     }
 
     /// Cycles 2S+1N
