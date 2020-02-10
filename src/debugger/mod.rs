@@ -203,8 +203,12 @@ impl Debugger {
             match readline {
                 Ok(line) => {
                     if line.is_empty() {
-                        self.previous_command = None;
-                        continue;
+                        if let Some(Command::Step(1)) = self.previous_command {
+                            self.run_command(Command::Step(1));
+                        } else {
+                            self.previous_command = None;
+                            continue;
+                        }
                     }
                     rl.add_history_entry(line.as_str());
                     let expr = parse_expr(&line);

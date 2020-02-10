@@ -1,3 +1,5 @@
+use std::fs;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time;
@@ -8,7 +10,7 @@ use crate::core::arm7tdmi::CpuState;
 use crate::core::GBAError;
 use crate::core::{Addr, Bus};
 use crate::disass::Disassembler;
-use crate::{AudioInterface, InputInterface, VideoInterface};
+use crate::util::{read_bin_file, write_bin_file};
 
 // use super::palette_view::create_palette_view;
 // use super::tile_view::create_tile_view;
@@ -61,6 +63,8 @@ pub enum Command {
     Reset,
     Quit,
     TraceToggle(TraceFlags),
+    SaveState(String),
+    LoadState(String),
 }
 
 impl Debugger {
@@ -126,7 +130,7 @@ impl Debugger {
                     self.gba.frame();
                 }
                 let end = PreciseTime::now();
-                println!("that took {} seconds", start.to(end));
+                println!("that took {:?} seconds", start.to(end));
             }
             HexDump(addr, nbytes) => {
                 let bytes = self.gba.sysbus.get_bytes(addr..addr + nbytes);
@@ -178,17 +182,6 @@ impl Debugger {
                 println!("cpu is restarted!")
             }
             TraceToggle(flags) => {
-                if flags.contains(TraceFlags::TRACE_SYSBUS) {
-                    self.gba.sysbus.trace_access = !self.gba.sysbus.trace_access;
-                    println!(
-                        "[*] sysbus tracing {}",
-                        if self.gba.sysbus.trace_access {
-                            "on"
-                        } else {
-                            "off"
-                        }
-                    )
-                }
                 if flags.contains(TraceFlags::TRACE_OPCODE) {
                     self.gba.cpu.trace_opcodes = !self.gba.cpu.trace_opcodes;
                     println!(
@@ -217,6 +210,18 @@ impl Debugger {
                 if flags.contains(TraceFlags::TRACE_TIMERS) {
                     self.gba.sysbus.io.timers.trace = !self.gba.sysbus.io.timers.trace;
                 }
+            }
+            SaveState(save_path) => {
+                let state = self.gba.save_state().expect("failed to serialize");
+                write_bin_file(&Path::new(&save_path), &state)
+                    .expect("failed to save state to file");
+            }
+            LoadState(load_path) => {
+                let save = read_bin_file(&Path::new(&load_path))
+                    .expect("failed to read save state from file");
+                self.gba
+                    .restore_state(&save)
+                    .expect("failed to deserialize");
             }
             _ => println!("Not Implemented",),
         }
@@ -442,6 +447,22 @@ impl Debugger {
                             _ => return Err(usage),
                         };
                         Ok(Command::TraceToggle(flags))
+                    } else {
+                        Err(usage)
+                    }
+                }
+            }
+            "save" | "load" => {
+                let usage = DebuggerError::InvalidCommandFormat(String::from("save/load <path>"));
+                if args.len() != 1 {
+                    Err(usage)
+                } else {
+                    if let Value::Identifier(path) = &args[0] {
+                        match command.as_ref() {
+                            "save" => Ok(Command::SaveState(path.to_string())),
+                            "load" => Ok(Command::LoadState(path.to_string())),
+                            _ => unreachable!(),
+                        }
                     } else {
                         Err(usage)
                     }

@@ -155,7 +155,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             info!("starting debugger...");
             debugger.repl(matches.value_of("script_file")).unwrap();
             info!("ending debugger...");
-            return;
+            return Ok(());
         }
         #[cfg(not(feature = "debugger"))]
         {

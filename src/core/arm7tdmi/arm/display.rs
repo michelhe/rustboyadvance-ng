@@ -127,7 +127,7 @@ impl ArmInstruction {
     }
 
     fn fmt_operand2(&self, f: &mut fmt::Formatter) -> Result<Option<u32>, fmt::Error> {
-        let operand2 = self.operand2().unwrap();
+        let operand2 = self.operand2();
         match operand2 {
             BarrelShifterValue::RotatedImmediate(_, _) => {
                 let value = operand2.decode_rotated_immediate().unwrap();
