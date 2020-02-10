@@ -5,7 +5,7 @@ use std::rc::Rc;
 use bincode;
 use serde::{Deserialize, Serialize};
 
-use super::arm7tdmi::Core;
+use super::arm7tdmi;
 use super::cartridge::Cartridge;
 use super::gpu::*;
 use super::interrupt::*;
@@ -17,7 +17,7 @@ use super::super::{AudioInterface, InputInterface, VideoInterface};
 
 pub struct GameBoyAdvance {
     pub sysbus: Box<SysBus>,
-    pub cpu: Core,
+    pub cpu: arm7tdmi::Core,
 
     video_device: Rc<RefCell<dyn VideoInterface>>,
     audio_device: Rc<RefCell<dyn AudioInterface>>,
@@ -29,12 +29,11 @@ pub struct GameBoyAdvance {
 #[derive(Serialize, Deserialize)]
 struct SaveState {
     sysbus: Box<SysBus>,
-    cpu: Core,
+    cpu: arm7tdmi::Core,
 }
 
 impl GameBoyAdvance {
     pub fn new(
-        cpu: Core,
         bios_rom: Vec<u8>,
         gamepak: Cartridge,
         video_device: Rc<RefCell<dyn VideoInterface>>,
@@ -46,9 +45,12 @@ impl GameBoyAdvance {
             audio_device.borrow().get_sample_rate() as f32,
         ));
         let io = IoDevices::new(gpu, sound_controller);
+        let sysbus = Box::new(SysBus::new(io, bios_rom, gamepak));
+        let cpu = arm7tdmi::Core::new();
+
         GameBoyAdvance {
             cpu: cpu,
-            sysbus: Box::new(SysBus::new(io, bios_rom, gamepak)),
+            sysbus: sysbus,
 
             video_device: video_device,
             audio_device: audio_device,
@@ -206,7 +208,6 @@ mod tests {
 
     fn make_mock_gba(rom: &[u8]) -> GameBoyAdvance {
         let bios = vec![0; 0x4000];
-        let cpu = arm7tdmi::Core::new();
         let cartridge = GamepakBuilder::new()
             .buffer(rom)
             .with_sram()
@@ -215,7 +216,6 @@ mod tests {
             .unwrap();
         let dummy = Rc::new(RefCell::new(DummyInterface::new()));
         let mut gba = GameBoyAdvance::new(
-            cpu,
             bios,
             cartridge,
             dummy.clone(),

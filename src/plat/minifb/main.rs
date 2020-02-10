@@ -91,11 +91,6 @@ fn main() {
 
     let bios_bin = read_bin_file(bios_path).unwrap();
     let cart = GamepakBuilder::new().file(rom_path).build().unwrap();
-    let mut cpu = arm7tdmi::Core::new();
-    if skip_bios {
-        cpu.skip_bios();
-    }
-    let cpu = cpu;
 
     let minifb = Rc::new(RefCell::new(MiniFb {
         window: Window::new(
@@ -113,13 +108,16 @@ fn main() {
 
     let mut fps_counter = FpsCounter::default();
     let mut gba = GameBoyAdvance::new(
-        cpu,
         bios_bin,
         cart,
         minifb.clone(),
         minifb.clone(),
         minifb.clone(),
     );
+
+    if skip_bios {
+        gba.skip_bios();
+    }
 
     let frame_time = time::Duration::new(0, 1_000_000_000u32 / 60);
     loop {
