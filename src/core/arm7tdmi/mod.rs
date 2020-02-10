@@ -23,6 +23,11 @@ pub const REG_SP: usize = 13;
 
 pub(self) use crate::core::Addr;
 
+pub enum CpuAction {
+    AdvancePC,
+    FlushPipeline
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
 pub enum DecodedInstruction {
     Arm(ArmInstruction),

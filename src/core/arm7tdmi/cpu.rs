@@ -6,6 +6,7 @@ use ansi_term::{Colour, Style};
 use super::reg_string;
 use serde::{Deserialize, Serialize};
 
+use super::CpuAction;
 pub use super::exception::Exception;
 use super::{
     arm::*, psr::RegPSR, thumb::ThumbInstruction, Addr, CpuMode, CpuResult, CpuState,
@@ -312,6 +313,23 @@ impl Core {
         self.pipeline_state != PipelineState::Execute
     }
 
+    fn handle_exec_result(&mut self, sb: &mut SysBus, exec_result: CpuAction) {
+        match self.cpsr.state() {
+            CpuState::ARM => {
+                match exec_result {
+                    CpuAction::AdvancePC => self.advance_arm(),
+                    CpuAction::FlushPipeline => self.flush_pipeline32(sb),
+                }
+            }
+            CpuState::THUMB => {
+                match exec_result {
+                    CpuAction::AdvancePC => self.advance_thumb(),
+                    CpuAction::FlushPipeline => self.flush_pipeline16(sb),
+                }
+            }
+        }
+    }
+
     fn step_arm_exec(&mut self, insn: u32, sb: &mut SysBus) {
         let pc = self.pc;
         match self.pipeline_state {
@@ -331,11 +349,9 @@ impl Core {
                 {
                     self.gpr_previous = self.get_registers();
                 }
-                self.exec_arm(sb, decoded_arm);
-                if !self.did_pipeline_flush() {
-                    self.pc = pc.wrapping_add(4);
-                }
                 self.last_executed = Some(DecodedInstruction::Arm(decoded_arm));
+                let result = self.exec_arm(sb, decoded_arm);
+                self.handle_exec_result(sb, result);
             }
         }
     }
@@ -359,25 +375,35 @@ impl Core {
                 {
                     self.gpr_previous = self.get_registers();
                 }
-                self.exec_thumb(sb, decoded_thumb);
-                if !self.did_pipeline_flush() {
-                    self.pc = pc.wrapping_add(2);
-                }
                 self.last_executed = Some(DecodedInstruction::Thumb(decoded_thumb));
+                let result = self.exec_thumb(sb, decoded_thumb);
+                self.handle_exec_result(sb, result);
             }
         }
     }
 
+    #[inline]
     pub(super) fn flush_pipeline16(&mut self, sb: &mut SysBus) {
         self.pipeline_state = PipelineState::Refill1;
         self.N_cycle16(sb, self.pc);
         self.S_cycle16(sb, self.pc + 2);
     }
 
+    #[inline]
     pub(super) fn flush_pipeline32(&mut self, sb: &mut SysBus) {
         self.pipeline_state = PipelineState::Refill1;
         self.N_cycle32(sb, self.pc);
         self.S_cycle32(sb, self.pc + 4);
+    }
+
+    #[inline]
+    pub(super) fn advance_thumb(&mut self) {
+        self.pc = self.pc.wrapping_add(2)
+    }
+
+    #[inline]
+    pub(super) fn advance_arm(&mut self) {
+        self.pc = self.pc.wrapping_add(4)
     }
 
     // fn trace_opcode(&self, insn: u32) {

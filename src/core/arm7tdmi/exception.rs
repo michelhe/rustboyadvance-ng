@@ -56,7 +56,6 @@ impl Core {
 
         // Set PC to vector address
         self.pc = e as u32;
-        self.flush_pipeline32(sb);
     }
 
     pub fn irq(&mut self, sb: &mut SysBus) {
@@ -65,7 +64,8 @@ impl Core {
         }
         if !self.cpsr.irq_disabled() {
             let lr = self.get_next_pc() + 4;
-            self.exception(sb, Exception::Irq, lr)
+            self.exception(sb, Exception::Irq, lr);
+            self.flush_pipeline32(sb);
         }
     }
 
