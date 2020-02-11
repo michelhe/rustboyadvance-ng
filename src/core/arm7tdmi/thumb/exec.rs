@@ -177,7 +177,8 @@ impl Core {
             OpFormat5::ADD => {
                 self.set_reg(dst_reg, op1.wrapping_add(op2));
                 if dst_reg == REG_PC {
-                    result = CpuAction::FlushPipeline
+                    result = CpuAction::FlushPipeline;
+                    self.reload_pipeline16(sb);
                 }
             }
             OpFormat5::CMP => {
@@ -190,6 +191,7 @@ impl Core {
                 self.set_reg(dst_reg, op2 as u32);
                 if dst_reg == REG_PC {
                     result = CpuAction::FlushPipeline;
+                    self.reload_pipeline16(sb);
                 }
             }
         }
@@ -421,6 +423,7 @@ impl Core {
                 pop(self, sb, REG_PC);
                 self.pc = self.pc & !1;
                 result = CpuAction::FlushPipeline;
+                self.reload_pipeline16(sb);
             }
             self.S_cycle16(sb, self.pc + 2);
         } else {
@@ -508,6 +511,7 @@ impl Core {
                 let val = sb.read_32(addr);
                 self.set_reg(REG_PC, val & !1);
                 result = CpuAction::FlushPipeline;
+                self.reload_pipeline16(sb);
             } else {
                 sb.write_32(addr, self.pc + 2);
             }
@@ -531,6 +535,7 @@ impl Core {
             let offset = insn.bcond_offset();
             self.S_cycle16(sb, self.pc);
             self.pc = (self.pc as i32).wrapping_add(offset) as u32;
+            self.reload_pipeline16(sb);
             CpuAction::FlushPipeline
         }
     }
@@ -539,7 +544,6 @@ impl Core {
     fn exec_thumb_swi(&mut self, sb: &mut SysBus, _insn: ThumbInstruction) -> CpuAction {
         self.N_cycle16(sb, self.pc);
         self.exception(sb, Exception::SoftwareInterrupt, self.pc - 2);
-
         CpuAction::FlushPipeline
     }
 
@@ -548,7 +552,7 @@ impl Core {
         let offset = ((insn.offset11() << 21) >> 20) as i32;
         self.pc = (self.pc as i32).wrapping_add(offset) as u32;
         self.S_cycle16(sb, self.pc);
-
+        self.reload_pipeline16(sb);
         CpuAction::FlushPipeline
     }
 
@@ -565,7 +569,7 @@ impl Core {
             let next_pc = (self.pc - 2) | 1;
             self.pc = ((self.gpr[REG_LR] & !1) as i32).wrapping_add(off) as u32;
             self.gpr[REG_LR] = next_pc;
-
+            self.reload_pipeline16(sb);
             CpuAction::FlushPipeline
         } else {
             off = (off << 21) >> 9;

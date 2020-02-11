@@ -320,7 +320,7 @@ impl Core {
         let result = self.exec_arm(sb, decoded_arm);
         match result {
             CpuAction::AdvancePC => self.advance_arm(),
-            CpuAction::FlushPipeline => self.reload_pipeline(sb),
+            CpuAction::FlushPipeline => {},
         }
     }
 
@@ -334,7 +334,7 @@ impl Core {
         let result = self.exec_thumb(sb, decoded_thumb);
         match result {
             CpuAction::AdvancePC => self.advance_thumb(),
-            CpuAction::FlushPipeline => self.reload_pipeline(sb),
+            CpuAction::FlushPipeline => {},
         }
     }
 

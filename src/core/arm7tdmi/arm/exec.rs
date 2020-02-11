@@ -45,6 +45,7 @@ impl Core {
 
         self.pc = (self.pc as i32).wrapping_add(insn.branch_offset()) as u32 & !1;
 
+        self.reload_pipeline32(sb);
         CpuAction::FlushPipeline
     }
 
@@ -56,12 +57,14 @@ impl Core {
         if addr.bit(0) {
             addr = addr & !0x1;
             self.cpsr.set_state(CpuState::THUMB);
+            self.pc = addr;
+            self.reload_pipeline16(sb);
         } else {
             addr = addr & !0x3;
             self.cpsr.set_state(CpuState::ARM);
+            self.pc = addr;
+            self.reload_pipeline32(sb);
         }
-
-        self.pc = addr;
 
         CpuAction::FlushPipeline
     }
@@ -250,6 +253,11 @@ impl Core {
         if let Some(alu_res) = alu_res {
             self.set_reg(reg_rd, alu_res as u32);
             if reg_rd == REG_PC {
+                // T bit might have changed
+                match self.cpsr.state() {
+                    CpuState::ARM => self.reload_pipeline32(sb),
+                    CpuState::THUMB => self.reload_pipeline16(sb),
+                };
                 result = CpuAction::FlushPipeline;
             }
         }
@@ -307,6 +315,7 @@ impl Core {
             self.add_cycle();
 
             if dest_reg == REG_PC {
+                self.reload_pipeline32(sb);
                 result = CpuAction::FlushPipeline;
             }
         } else {
@@ -391,6 +400,7 @@ impl Core {
             self.add_cycle();
 
             if dest_reg == REG_PC {
+                self.reload_pipeline32(sb);
                 result = CpuAction::FlushPipeline;
             }
         } else {
@@ -497,6 +507,7 @@ impl Core {
                             if psr_transfer {
                                 self.transfer_spsr_mode();
                             }
+                            self.reload_pipeline32(sb);
                             result = CpuAction::FlushPipeline;
                         }
 
@@ -551,6 +562,7 @@ impl Core {
             if is_load {
                 let val = self.ldr_word(addr, sb);
                 self.set_reg(REG_PC, val & !3);
+                self.reload_pipeline32(sb);
                 result = CpuAction::FlushPipeline;
             } else {
                 self.write_32(addr, self.pc + 4, sb);
