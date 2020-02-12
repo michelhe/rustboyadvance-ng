@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Michel Heily <michelheily@gmail.com>"]
 edition = "2018"
 default-run= "rba-sdl2"
+build = "src/build.rs"
 
 [dependencies]
 serde = {version = "1.0.104", features = ["derive"] }
@@ -40,6 +41,9 @@ nom = {version = "5.0.0", optional = true}
 [[bin]]
 name = "rba-sdl2"
 path = "src/plat/sdl2/main.rs"
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
 
 [[bin]]
 name = "rba-minifb"
