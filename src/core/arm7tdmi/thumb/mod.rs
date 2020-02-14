@@ -87,63 +87,61 @@ pub struct ThumbInstruction {
 impl InstructionDecoder for ThumbInstruction {
     type IntType = u16;
 
-    fn decode(raw: u16, addr: Addr) -> Result<Self, InstructionDecoderError> {
+    fn decode(raw: u16, addr: Addr) -> Self {
         use self::ThumbFormat::*;
 
         let fmt = if raw & 0xf800 == 0x1800 {
-            Ok(AddSub)
+            AddSub
         } else if raw & 0xe000 == 0x0000 {
-            Ok(MoveShiftedReg)
+            MoveShiftedReg
         } else if raw & 0xe000 == 0x2000 {
-            Ok(DataProcessImm)
+            DataProcessImm
         } else if raw & 0xfc00 == 0x4000 {
-            Ok(AluOps)
+            AluOps
         } else if raw & 0xfc00 == 0x4400 {
-            Ok(HiRegOpOrBranchExchange)
+            HiRegOpOrBranchExchange
         } else if raw & 0xf800 == 0x4800 {
-            Ok(LdrPc)
+            LdrPc
         } else if raw & 0xf200 == 0x5000 {
-            Ok(LdrStrRegOffset)
+            LdrStrRegOffset
         } else if raw & 0xf200 == 0x5200 {
-            Ok(LdrStrSHB)
+            LdrStrSHB
         } else if raw & 0xe000 == 0x6000 {
-            Ok(LdrStrImmOffset)
+            LdrStrImmOffset
         } else if raw & 0xf000 == 0x8000 {
-            Ok(LdrStrHalfWord)
+            LdrStrHalfWord
         } else if raw & 0xf000 == 0x9000 {
-            Ok(LdrStrSp)
+            LdrStrSp
         } else if raw & 0xf000 == 0xa000 {
-            Ok(LoadAddress)
+            LoadAddress
         } else if raw & 0xff00 == 0xb000 {
-            Ok(AddSp)
+            AddSp
         } else if raw & 0xf600 == 0xb400 {
-            Ok(PushPop)
+            PushPop
         } else if raw & 0xf000 == 0xc000 {
-            Ok(LdmStm)
+            LdmStm
         } else if raw & 0xff00 == 0xdf00 {
-            Ok(Swi)
+            Swi
         } else if raw & 0xf000 == 0xd000 {
-            Ok(BranchConditional)
+            BranchConditional
         } else if raw & 0xf800 == 0xe000 {
-            Ok(Branch)
+            Branch
         } else if raw & 0xf000 == 0xf000 {
-            Ok(BranchLongWithLink)
+            BranchLongWithLink
         } else {
-            Err(ThumbDecodeError::new(UnknownInstructionFormat, raw, addr))
-        }?;
+            panic!("unknown thumb instruction {:#x} at @{:#x}", raw, addr);
+        };
 
-        Ok(ThumbInstruction {
+        ThumbInstruction {
             fmt: fmt,
             raw: raw,
             pc: addr,
-        })
+        }
     }
 
-    fn decode_from_bytes(bytes: &[u8], addr: Addr) -> Result<Self, InstructionDecoderError> {
+    fn decode_from_bytes(bytes: &[u8], addr: Addr) -> Self {
         let mut rdr = std::io::Cursor::new(bytes);
-        let raw = rdr
-            .read_u16::<LittleEndian>()
-            .map_err(|e| InstructionDecoderError::IoError(e.kind()))?;
+        let raw = rdr.read_u16::<LittleEndian>().unwrap();
         Self::decode(raw, addr)
     }
 

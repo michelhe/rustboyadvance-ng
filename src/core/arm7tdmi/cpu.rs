@@ -293,25 +293,8 @@ impl Core {
         }
     }
 
-    // fn handle_exec_result(&mut self, sb: &mut SysBus, exec_result: CpuAction) {
-    //     match self.cpsr.state() {
-    //         CpuState::ARM => {
-    //             match exec_result {
-    //                 CpuAction::AdvancePC => self.advance_arm(),
-    //                 CpuAction::FlushPipeline => self.reload_pipeline32(sb),
-    //             }
-    //         }
-    //         CpuState::THUMB => {
-    //             match exec_result {
-    //                 CpuAction::AdvancePC => self.advance_thumb(),
-    //                 CpuAction::FlushPipeline => self.reload_pipeline16(sb),
-    //             }
-    //         }
-    //     }
-    // }
-
     fn step_arm_exec(&mut self, insn: u32, sb: &mut SysBus) {
-        let decoded_arm = ArmInstruction::decode(insn, self.pc.wrapping_sub(8)).unwrap();
+        let decoded_arm = ArmInstruction::decode(insn, self.pc.wrapping_sub(8));
         #[cfg(feature = "debugger")]
         {
             self.gpr_previous = self.get_registers();
@@ -320,12 +303,12 @@ impl Core {
         let result = self.exec_arm(sb, decoded_arm);
         match result {
             CpuAction::AdvancePC => self.advance_arm(),
-            CpuAction::FlushPipeline => {},
+            CpuAction::FlushPipeline => {}
         }
     }
 
     fn step_thumb_exec(&mut self, insn: u16, sb: &mut SysBus) {
-        let decoded_thumb = ThumbInstruction::decode(insn, self.pc.wrapping_sub(4)).unwrap();
+        let decoded_thumb = ThumbInstruction::decode(insn, self.pc.wrapping_sub(4));
         #[cfg(feature = "debugger")]
         {
             self.gpr_previous = self.get_registers();
@@ -334,7 +317,7 @@ impl Core {
         let result = self.exec_thumb(sb, decoded_thumb);
         match result {
             CpuAction::AdvancePC => self.advance_thumb(),
-            CpuAction::FlushPipeline => {},
+            CpuAction::FlushPipeline => {}
         }
     }
 
@@ -356,14 +339,6 @@ impl Core {
         self.pipeline[1] = sb.read_32(self.pc);
         self.S_cycle16(sb, self.pc);
         self.advance_arm();
-    }
-
-    #[inline]
-    pub(super) fn reload_pipeline(&mut self, sb: &mut SysBus) {
-        match self.cpsr.state() {
-            CpuState::THUMB => self.reload_pipeline16(sb),
-            CpuState::ARM => self.reload_pipeline32(sb),
-        }
     }
 
     #[inline]

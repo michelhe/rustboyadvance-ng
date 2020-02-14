@@ -42,27 +42,14 @@ where
         let mut line = String::new();
 
         let addr = self.base + self.pos as Addr;
-        let decoded: Option<D> =
-            match D::decode_from_bytes(&self.bytes[(self.pos as usize)..], addr) {
-                Ok(decoded) => {
-                    self.pos += self.word_size;
-                    Some(decoded)
-                }
-                Err(InstructionDecoderError::IoError(ErrorKind::UnexpectedEof)) => {
-                    return None;
-                }
-                _ => {
-                    self.pos += self.word_size;
-                    None
-                }
-            };
-
-        match decoded {
-            Some(insn) => {
-                line.push_str(&format!("{:8x}:\t{:08x} \t{}", addr, insn.get_raw(), insn))
-            }
-            _ => line.push_str(&format!("{:8x}:\t \t<UNDEFINED>", addr)),
-        };
+        let decoded: D = D::decode_from_bytes(&self.bytes[(self.pos as usize)..], addr);
+        self.pos += self.word_size;
+        line.push_str(&format!(
+            "{:8x}:\t{:08x} \t{}",
+            addr,
+            decoded.get_raw(),
+            decoded
+        ));
 
         Some((self.pos as Addr, line))
     }

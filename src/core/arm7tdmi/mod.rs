@@ -75,9 +75,9 @@ impl From<ThumbDecodeError> for InstructionDecoderError {
 pub trait InstructionDecoder: Sized {
     type IntType: Num;
 
-    fn decode(n: Self::IntType, addr: Addr) -> Result<Self, InstructionDecoderError>;
+    fn decode(n: Self::IntType, addr: Addr) -> Self;
     /// Helper functions for the Disassembler
-    fn decode_from_bytes(bytes: &[u8], addr: Addr) -> Result<Self, InstructionDecoderError>;
+    fn decode_from_bytes(bytes: &[u8], addr: Addr) -> Self;
     fn get_raw(&self) -> Self::IntType;
 }
 

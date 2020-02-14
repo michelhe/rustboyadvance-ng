@@ -110,65 +110,56 @@ pub struct ArmInstruction {
 impl InstructionDecoder for ArmInstruction {
     type IntType = u32;
 
-    fn decode(raw: u32, addr: Addr) -> Result<Self, InstructionDecoderError> {
+    fn decode(raw: u32, addr: Addr) -> Self {
         use ArmFormat::*;
         let cond_code = raw.bit_range(28..32) as u8;
-        let cond = match ArmCond::from_u8(cond_code) {
-            Some(cond) => Ok(cond),
-            None => Err(ArmDecodeError::new(
-                UndefinedConditionCode(cond_code as u32),
-                raw,
-                addr,
-            )),
-        }?;
+        let cond = ArmCond::from_u8(cond_code).expect("invalid arm condition");
 
         let fmt = if (0x0fff_fff0 & raw) == 0x012f_ff10 {
-            Ok(BX)
+            BX
         } else if (0x0e00_0000 & raw) == 0x0a00_0000 {
-            Ok(B_BL)
+            B_BL
         } else if (0xe000_0010 & raw) == 0x0600_0000 {
-            Err(ArmDecodeError::new(UnknownInstructionFormat, raw, addr))
+            panic!("unknown instruction {:#x} at @{:#x}", raw, addr);
         } else if (0x0fb0_0ff0 & raw) == 0x0100_0090 {
-            Ok(SWP)
+            SWP
         } else if (0x0fc0_00f0 & raw) == 0x0000_0090 {
-            Ok(MUL_MLA)
+            MUL_MLA
         } else if (0x0f80_00f0 & raw) == 0x0080_0090 {
-            Ok(MULL_MLAL)
+            MULL_MLAL
         } else if (0x0fbf_0fff & raw) == 0x010f_0000 {
-            Ok(MRS)
+            MRS
         } else if (0x0fbf_fff0 & raw) == 0x0129_f000 {
-            Ok(MSR_REG)
+            MSR_REG
         } else if (0x0dbf_f000 & raw) == 0x0128_f000 {
-            Ok(MSR_FLAGS)
+            MSR_FLAGS
         } else if (0x0c00_0000 & raw) == 0x0400_0000 {
-            Ok(LDR_STR)
+            LDR_STR
         } else if (0x0e40_0F90 & raw) == 0x0000_0090 {
-            Ok(LDR_STR_HS_REG)
+            LDR_STR_HS_REG
         } else if (0x0e40_0090 & raw) == 0x0040_0090 {
-            Ok(LDR_STR_HS_IMM)
+            LDR_STR_HS_IMM
         } else if (0x0e00_0000 & raw) == 0x0800_0000 {
-            Ok(LDM_STM)
+            LDM_STM
         } else if (0x0f00_0000 & raw) == 0x0f00_0000 {
-            Ok(SWI)
+            SWI
         } else if (0x0c00_0000 & raw) == 0x0000_0000 {
-            Ok(DP)
+            DP
         } else {
-            Err(ArmDecodeError::new(UnknownInstructionFormat, raw, addr))
-        }?;
+            panic!("unknown arm instruction {:#x} at @{:#x}", raw, addr);
+        };
 
-        Ok(ArmInstruction {
+        ArmInstruction {
             cond: cond,
             fmt: fmt,
             raw: raw,
             pc: addr,
-        })
+        }
     }
 
-    fn decode_from_bytes(bytes: &[u8], addr: Addr) -> Result<Self, InstructionDecoderError> {
+    fn decode_from_bytes(bytes: &[u8], addr: Addr) -> Self {
         let mut rdr = std::io::Cursor::new(bytes);
-        let raw = rdr
-            .read_u32::<LittleEndian>()
-            .map_err(|e| InstructionDecoderError::IoError(e.kind()))?;
+        let raw = rdr.read_u32::<LittleEndian>().unwrap();
         Self::decode(raw, addr)
     }
 
