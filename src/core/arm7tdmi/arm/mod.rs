@@ -4,7 +4,7 @@ pub mod exec;
 use serde::{Deserialize, Serialize};
 
 use super::alu::*;
-use crate::core::arm7tdmi::{Addr, InstructionDecoder, InstructionDecoderError};
+use crate::core::arm7tdmi::{Addr, InstructionDecoder};
 
 use crate::bit::BitIndex;
 use crate::byteorder::{LittleEndian, ReadBytesExt};
@@ -214,7 +214,7 @@ impl ArmInstruction {
     }
 
     pub fn branch_offset(&self) -> i32 {
-        (((self.raw.bit_range(0..24) << 8) as i32) >> 6)
+        ((self.raw.bit_range(0..24) << 8) as i32) >> 6
     }
 
     pub fn load_flag(&self) -> bool {
@@ -288,7 +288,7 @@ impl ArmInstruction {
             let ofs = if self.add_offset_flag() {
                 ofs as u32
             } else {
-                (-(ofs as i32) as u32)
+                -(ofs as i32) as u32
             };
             BarrelShifterValue::ImmediateValue(ofs)
         }

@@ -3,7 +3,7 @@ use sdl2::keyboard::Keycode;
 use rustboyadvance_ng::core::keypad as gba_keypad;
 use rustboyadvance_ng::InputInterface;
 
-extern crate bit;
+use bit;
 use bit::BitIndex;
 
 pub struct Sdl2Input {

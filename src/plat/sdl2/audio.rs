@@ -3,7 +3,7 @@ use sdl2::audio::{AudioCallback, AudioDevice, AudioSpec, AudioSpecDesired};
 
 use rustboyadvance_ng::{AudioInterface, StereoSample};
 
-extern crate ringbuf;
+use ringbuf;
 use ringbuf::{Consumer, Producer, RingBuffer};
 
 struct GbaAudioCallback {

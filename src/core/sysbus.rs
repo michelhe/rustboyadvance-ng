@@ -38,7 +38,7 @@ pub enum MemoryAccessType {
 }
 
 impl fmt::Display for MemoryAccessType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{}",
@@ -69,7 +69,7 @@ impl Add<MemoryAccessWidth> for MemoryAccessType {
 pub struct MemoryAccess(pub MemoryAccessType, pub MemoryAccessWidth);
 
 impl fmt::Display for MemoryAccess {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}-Cycle ({:?})", self.0, self.1)
     }
 }

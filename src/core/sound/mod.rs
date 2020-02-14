@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::dma::DmaController;
 use super::iodev::consts::*;
-use super::iodev::io_reg_string;
+
 use crate::{AudioInterface, StereoSample};
 
 mod fifo;
@@ -62,8 +62,7 @@ type AudioDeviceRcRefCell = Rc<RefCell<dyn AudioInterface>>;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SoundController {
-    sample_rate_to_cpu_freq: usize, // how many "cycles" are a sample?
-    cycles: usize,                  // cycles count when we last provided a new sample.
+    cycles: usize, // cycles count when we last provided a new sample.
 
     mse: bool,
 
@@ -105,7 +104,6 @@ impl SoundController {
     pub fn new(audio_device_sample_rate: f32) -> SoundController {
         let resampler = CosineResampler::new(32768_f32, audio_device_sample_rate);
         SoundController {
-            sample_rate_to_cpu_freq: 12345,
             cycles: 0,
             mse: false,
             left_volume: 0,
@@ -294,7 +292,7 @@ impl SoundController {
         &mut self,
         dmac: &mut DmaController,
         timer_id: usize,
-        num_overflows: usize,
+        _num_overflows: usize,
     ) {
         if !self.mse {
             return;
@@ -383,10 +381,4 @@ fn cbit(idx: u8, value: bool) -> u16 {
 // TODO mvoe
 fn bit(idx: u8) -> u16 {
     1 << idx
-}
-
-fn rate_to_freq(rate: u16) -> usize {
-    assert!(rate < 2048);
-
-    (2 << 17) as usize / (2048 - rate) as usize
 }

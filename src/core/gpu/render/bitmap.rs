@@ -10,7 +10,7 @@ use crate::core::Bus;
 
 impl Gpu {
     pub(in super::super) fn render_mode3(&mut self, bg: usize) {
-        let y = self.vcount;
+        let _y = self.vcount;
 
         let pa = self.bg_aff[bg - 2].pa as i32;
         let pc = self.bg_aff[bg - 2].pc as i32;
@@ -37,7 +37,7 @@ impl Gpu {
             _ => unreachable!(),
         };
 
-        let y = self.vcount;
+        let _y = self.vcount;
 
         let pa = self.bg_aff[bg - 2].pa as i32;
         let pc = self.bg_aff[bg - 2].pc as i32;

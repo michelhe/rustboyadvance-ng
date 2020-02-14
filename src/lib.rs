@@ -1,41 +1,25 @@
-#![warn(unused_extern_crates)]
 #![feature(asm)]
 #![feature(core_intrinsics)]
 #![feature(exclusive_range_pattern)]
 
 #[macro_use]
 extern crate serde;
-extern crate bincode;
 
 #[macro_use]
 extern crate debug_stub_derive;
 
 #[macro_use]
 extern crate enum_primitive_derive;
-extern crate num;
-extern crate num_traits;
+use num;
+use num_traits;
 
-extern crate bit;
+use bit;
 #[macro_use]
 extern crate bitfield;
 #[macro_use]
 extern crate bitflags;
-extern crate bit_set;
 
-extern crate byteorder;
-
-#[cfg(feature = "debugger")]
-extern crate rustyline;
-
-#[cfg(feature = "debugger")]
-extern crate nom;
-
-extern crate ansi_term;
-extern crate colored; // not needed in Rust 2018
-
-extern crate zip;
-
-extern crate memmem;
+use byteorder;
 
 #[macro_use]
 extern crate log;

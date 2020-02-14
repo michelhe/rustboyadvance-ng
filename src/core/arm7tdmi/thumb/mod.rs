@@ -1,39 +1,13 @@
-use std::io;
-
 use crate::bit::BitIndex;
 use crate::byteorder::{LittleEndian, ReadBytesExt};
 use crate::num::FromPrimitive;
 
 use super::alu::*;
 use super::arm::*;
-use super::{Addr, InstructionDecoder, InstructionDecoderError};
+use super::{Addr, InstructionDecoder};
 
 pub mod display;
 pub mod exec;
-
-#[derive(Debug, PartialEq)]
-pub enum ThumbDecodeErrorKind {
-    UnknownInstructionFormat,
-    IoError(io::ErrorKind),
-}
-use ThumbDecodeErrorKind::*;
-
-#[derive(Debug, PartialEq)]
-pub struct ThumbDecodeError {
-    pub kind: ThumbDecodeErrorKind,
-    pub insn: u16,
-    pub addr: Addr,
-}
-
-impl ThumbDecodeError {
-    fn new(kind: ThumbDecodeErrorKind, insn: u16, addr: Addr) -> ThumbDecodeError {
-        ThumbDecodeError {
-            kind: kind,
-            insn: insn,
-            addr: addr,
-        }
-    }
-}
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
 pub enum ThumbFormat {

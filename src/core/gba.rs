@@ -1,4 +1,3 @@
-
 /// Struct containing everything
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -188,7 +187,6 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use super::super::arm7tdmi;
     use super::super::bus::Bus;
     use super::super::cartridge::GamepakBuilder;
 

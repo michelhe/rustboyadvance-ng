@@ -29,7 +29,6 @@ use std::fmt;
 #[derive(Debug)]
 pub enum GBAError {
     IO(::std::io::Error),
-    CpuError(arm7tdmi::CpuError),
     CartridgeLoadError(String),
     #[cfg(feature = "debugger")]
     DebuggerError(debugger::DebuggerError),
@@ -55,12 +54,6 @@ impl From<::std::io::Error> for GBAError {
     }
 }
 
-impl From<arm7tdmi::CpuError> for GBAError {
-    fn from(err: arm7tdmi::CpuError) -> GBAError {
-        GBAError::CpuError(err)
-    }
-}
-
 #[cfg(feature = "debugger")]
 impl From<debugger::DebuggerError> for GBAError {
     fn from(err: debugger::DebuggerError) -> GBAError {
@@ -69,7 +62,7 @@ impl From<debugger::DebuggerError> for GBAError {
 }
 
 impl From<zip::result::ZipError> for GBAError {
-    fn from(err: zip::result::ZipError) -> GBAError {
+    fn from(_err: zip::result::ZipError) -> GBAError {
         GBAError::IO(::std::io::Error::from(::std::io::ErrorKind::InvalidInput))
     }
 }

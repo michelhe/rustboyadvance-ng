@@ -1,13 +1,10 @@
-use std::fs;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time;
 
 use crate::core::arm7tdmi::arm::ArmInstruction;
 use crate::core::arm7tdmi::thumb::ThumbInstruction;
 use crate::core::arm7tdmi::CpuState;
-use crate::core::GBAError;
 use crate::core::{Addr, Bus};
 use crate::disass::Disassembler;
 use crate::util::{read_bin_file, write_bin_file};
@@ -18,7 +15,6 @@ use super::{parser::Value, Debugger, DebuggerError, DebuggerResult};
 
 use ansi_term::Colour;
 
-use colored::*;
 use hexdump;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -70,6 +66,7 @@ pub enum Command {
 impl Debugger {
     pub fn run_command(&mut self, command: Command) {
         use Command::*;
+        #[allow(unreachable_patterns)]
         match command {
             Info => {
                 println!("{}", self.gba.cpu);
@@ -124,13 +121,12 @@ impl Debugger {
                 }
             }
             Frame(count) => {
-                use super::time::PreciseTime;
-                let start = PreciseTime::now();
+                let start = time::Instant::now();
                 for _ in 0..count {
                     self.gba.frame();
                 }
-                let end = PreciseTime::now();
-                println!("that took {:?} seconds", start.to(end));
+                let end = time::Instant::now();
+                println!("that took {:?} seconds", end - start);
             }
             HexDump(addr, nbytes) => {
                 let bytes = self.gba.sysbus.get_bytes(addr..addr + nbytes);

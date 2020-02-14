@@ -1,15 +1,14 @@
-extern crate ctrlc;
 use std::fs::File;
 use std::io::{prelude::*, BufReader};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use ctrlc;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
 use colored::*;
 
-use super::core::arm7tdmi::CpuError;
 use super::core::GameBoyAdvance;
 use super::core::{Addr, Bus};
 
@@ -21,22 +20,14 @@ use command::Command;
 
 mod palette_view;
 mod tile_view;
-extern crate time;
 
 #[derive(Debug)]
 pub enum DebuggerError {
     ParsingError(String),
-    CpuError(CpuError),
     InvalidCommand(String),
     InvalidArgument(String),
     InvalidCommandFormat(String),
     IoError(::std::io::Error),
-}
-
-impl From<CpuError> for DebuggerError {
-    fn from(e: CpuError) -> DebuggerError {
-        DebuggerError::CpuError(e)
-    }
 }
 
 impl From<::std::io::Error> for DebuggerError {

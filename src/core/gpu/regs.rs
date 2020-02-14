@@ -1,4 +1,4 @@
-use super::layer::{RenderLayer, RenderLayerKind};
+use super::layer::RenderLayer;
 use super::sfx::BldMode;
 use super::*;
 

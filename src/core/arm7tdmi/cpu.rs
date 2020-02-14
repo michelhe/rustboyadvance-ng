@@ -9,8 +9,8 @@ use std::fmt;
 pub use super::exception::Exception;
 use super::CpuAction;
 use super::{
-    arm::*, psr::RegPSR, thumb::ThumbInstruction, Addr, CpuMode, CpuResult, CpuState,
-    DecodedInstruction, InstructionDecoder,
+    arm::*, psr::RegPSR, thumb::ThumbInstruction, Addr, CpuMode, CpuState, DecodedInstruction,
+    InstructionDecoder,
 };
 
 use crate::core::bus::Bus;
@@ -50,8 +50,6 @@ pub struct Core {
 
     pub trace_exceptions: bool,
 }
-
-pub type CpuExecResult = CpuResult<()>;
 
 impl Core {
     pub fn new() -> Core {
@@ -401,7 +399,7 @@ impl Core {
 
 #[cfg(feature = "debugger")]
 impl fmt::Display for Core {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "ARM7TDMI Core Status:")?;
         writeln!(f, "\tCycles: {}", self.cycles)?;
         writeln!(f, "\tCPSR: {}", self.cpsr)?;

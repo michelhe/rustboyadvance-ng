@@ -1,9 +1,8 @@
 use std::fmt;
 use std::marker::PhantomData;
 
-use super::core::arm7tdmi::{InstructionDecoder, InstructionDecoderError};
+use super::core::arm7tdmi::InstructionDecoder;
 use super::core::Addr;
-use std::io::ErrorKind;
 
 pub struct Disassembler<'a, D>
 where
@@ -20,7 +19,7 @@ impl<'a, D> Disassembler<'a, D>
 where
     D: InstructionDecoder,
 {
-    pub fn new(base: Addr, bytes: &'a [u8]) -> Disassembler<D> {
+    pub fn new(base: Addr, bytes: &'a [u8]) -> Disassembler<'_, D> {
         Disassembler {
             base: base as Addr,
             pos: 0,

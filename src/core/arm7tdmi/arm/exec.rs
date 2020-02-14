@@ -166,7 +166,7 @@ impl Core {
 
         self.S_cycle32(sb, self.pc);
         let mut op1 = if insn.rn() == REG_PC {
-            (insn.pc + 8)
+            insn.pc + 8
         } else {
             self.get_reg(insn.rn())
         };

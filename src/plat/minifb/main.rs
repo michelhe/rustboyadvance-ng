@@ -13,9 +13,8 @@ use rustboyadvance_ng::core::keypad;
 use rustboyadvance_ng::prelude::*;
 use rustboyadvance_ng::util::FpsCounter;
 
-extern crate bit;
 use bit::BitIndex;
-extern crate minifb;
+use minifb;
 use minifb::{Key, Window, WindowOptions};
 
 struct MiniFb {

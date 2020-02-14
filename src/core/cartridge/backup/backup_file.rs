@@ -46,7 +46,7 @@ impl<'de> Deserialize<'de> for BackupFile {
         impl<'de> Visitor<'de> for BackupFileVisitor {
             type Value = BackupFile;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str("struct BackupFile")
             }
 

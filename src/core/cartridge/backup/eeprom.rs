@@ -1,8 +1,8 @@
 use super::{BackupFile, BackupMemoryInterface};
 
+use bytesize;
 use num::FromPrimitive;
 use serde::{Deserialize, Serialize};
-extern crate bytesize;
 
 use std::cell::RefCell;
 use std::fs;

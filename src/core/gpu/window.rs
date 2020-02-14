@@ -53,7 +53,7 @@ impl Window {
     pub fn contains_y(&self, y: usize) -> bool {
         let top = self.top();
         let bottom = self.bottom();
-        (y >= top && y < bottom)
+        y >= top && y < bottom
     }
 }
 

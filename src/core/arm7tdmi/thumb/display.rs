@@ -9,7 +9,7 @@ use crate::core::arm7tdmi::*;
 
 #[cfg(feature = "debugger")]
 impl ThumbInstruction {
-    fn fmt_thumb_move_shifted_reg(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_move_shifted_reg(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{op}\t{Rd}, {Rs}, #{Offset5}",
@@ -20,7 +20,7 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_thumb_data_process_imm(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_data_process_imm(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{op}\t{Rd}, #{Offset8:#x}",
@@ -30,7 +30,7 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_thumb_alu_ops(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_alu_ops(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{op}\t{Rd}, {Rs}",
@@ -40,7 +40,7 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_thumb_high_reg_op_or_bx(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_high_reg_op_or_bx(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let op = self.format5_op();
         let dst_reg = if self.flag(ThumbInstruction::FLAG_H1) {
             self.rd() + 8
@@ -65,7 +65,7 @@ impl ThumbInstruction {
         }
     }
 
-    fn fmt_thumb_ldr_pc(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_ldr_pc(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "ldr\t{Rd}, [pc, #{Imm:#x}] ; = #{effective:#x}",
@@ -75,7 +75,7 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_thumb_ldr_str_reg_offset(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_ldr_str_reg_offset(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{op}{b}\t{Rd}, [{Rb}, {Ro}]",
@@ -91,7 +91,7 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_thumb_ldr_str_shb(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_ldr_str_shb(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{op}\t{Rd}, [{Rb}, {Ro}]",
@@ -112,7 +112,7 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_thumb_ldr_str_imm_offset(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_ldr_str_imm_offset(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{op}{b}\t{Rd}, [{Rb}, #{imm:#x}]",
@@ -135,7 +135,7 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_thumb_ldr_str_halfword(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_ldr_str_halfword(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{op}\t{Rd}, [{Rb}, #{imm:#x}]",
@@ -146,7 +146,7 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_thumb_ldr_str_sp(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_ldr_str_sp(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{op}\t{Rd}, [sp, #{Imm:#x}]",
@@ -156,7 +156,7 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_thumb_load_address(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_load_address(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "add\t{Rd}, {r}, #{Imm:#x}",
@@ -170,7 +170,7 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_thumb_add_sub(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_add_sub(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let operand = if self.is_immediate_operand() {
             format!("#{:x}", self.raw.bit_range(6..9))
         } else {
@@ -187,11 +187,11 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_thumb_add_sp(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_add_sp(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "add\tsp, #{imm:x}", imm = self.sword7())
     }
 
-    fn fmt_register_list(&self, f: &mut fmt::Formatter, rlist: u8) -> fmt::Result {
+    fn fmt_register_list(&self, f: &mut fmt::Formatter<'_>, rlist: u8) -> fmt::Result {
         let mut has_first = false;
         for i in 0..8 {
             if rlist.bit(i) {
@@ -206,7 +206,7 @@ impl ThumbInstruction {
         Ok(())
     }
 
-    fn fmt_thumb_push_pop(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_push_pop(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}\t{{", if self.is_load() { "pop" } else { "push" })?;
         let rlist = self.register_list();
         self.fmt_register_list(f, rlist)?;
@@ -221,7 +221,7 @@ impl ThumbInstruction {
         write!(f, "}}")
     }
 
-    fn fmt_thumb_ldm_stm(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_ldm_stm(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{op}\t{Rb}!, {{",
@@ -232,7 +232,7 @@ impl ThumbInstruction {
         write!(f, "}}")
     }
 
-    fn fmt_thumb_branch_with_cond(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_branch_with_cond(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "b{cond}\t{addr:#x}",
@@ -244,11 +244,11 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_thumb_swi(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_swi(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "swi\t{value:#x}", value = self.raw & 0xff,)
     }
 
-    fn fmt_thumb_branch(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_branch(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "b\t{addr:#x}",
@@ -259,7 +259,7 @@ impl ThumbInstruction {
         )
     }
 
-    fn fmt_thumb_branch_long_with_link(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_thumb_branch_long_with_link(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "bl\t#0x{:08x}", {
             let offset11 = self.offset11();
             if self.flag(ThumbInstruction::FLAG_LOW_OFFSET) {
@@ -273,7 +273,7 @@ impl ThumbInstruction {
 
 #[cfg(feature = "debugger")]
 impl fmt::Display for ThumbInstruction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.fmt {
             ThumbFormat::MoveShiftedReg => self.fmt_thumb_move_shifted_reg(f),
             ThumbFormat::AddSub => self.fmt_thumb_add_sub(f),
@@ -299,7 +299,7 @@ impl fmt::Display for ThumbInstruction {
 }
 
 impl fmt::Display for OpFormat3 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             OpFormat3::MOV => write!(f, "mov"),
             OpFormat3::CMP => write!(f, "cmp"),
@@ -310,7 +310,7 @@ impl fmt::Display for OpFormat3 {
 }
 
 impl fmt::Display for OpFormat5 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             OpFormat5::ADD => write!(f, "add"),
             OpFormat5::CMP => write!(f, "cmp"),
@@ -321,7 +321,7 @@ impl fmt::Display for OpFormat5 {
 }
 
 impl fmt::Display for ThumbAluOps {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use ThumbAluOps::*;
         match self {
             AND => write!(f, "and"),

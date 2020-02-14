@@ -10,7 +10,7 @@ use super::{AluOpCode, ArmCond, ArmHalfwordTransferType};
 use crate::core::arm7tdmi::*;
 
 impl fmt::Display for ArmCond {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use ArmCond::*;
         match self {
             EQ => write!(f, "eq"),
@@ -33,7 +33,7 @@ impl fmt::Display for ArmCond {
 }
 
 impl fmt::Display for AluOpCode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use AluOpCode::*;
         match self {
             AND => write!(f, "and"),
@@ -57,7 +57,7 @@ impl fmt::Display for AluOpCode {
 }
 
 impl fmt::Display for BarrelShiftOpCode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use BarrelShiftOpCode::*;
         match self {
             LSL => write!(f, "lsl"),
@@ -69,7 +69,7 @@ impl fmt::Display for BarrelShiftOpCode {
 }
 
 impl fmt::Display for ArmHalfwordTransferType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use ArmHalfwordTransferType::*;
         match self {
             UnsignedHalfwords => write!(f, "h"),
@@ -87,7 +87,7 @@ fn is_lsl0(shift: &ShiftedRegister) -> bool {
 }
 
 impl fmt::Display for ShiftedRegister {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let reg = reg_string(self.reg).to_string();
         if !is_lsl0(&self) {
             write!(f, "{}", reg)
@@ -104,11 +104,11 @@ impl fmt::Display for ShiftedRegister {
 
 #[cfg(feature = "debugger")]
 impl ArmInstruction {
-    fn fmt_bx(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_bx(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "bx\t{Rn}", Rn = reg_string(self.rn()))
     }
 
-    fn fmt_branch(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_branch(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "b{link}{cond}\t{ofs:#x}",
@@ -126,7 +126,7 @@ impl ArmInstruction {
         }
     }
 
-    fn fmt_operand2(&self, f: &mut fmt::Formatter) -> Result<Option<u32>, fmt::Error> {
+    fn fmt_operand2(&self, f: &mut fmt::Formatter<'_>) -> Result<Option<u32>, fmt::Error> {
         let operand2 = self.operand2();
         match operand2 {
             BarrelShifterValue::RotatedImmediate(_, _) => {
@@ -142,7 +142,7 @@ impl ArmInstruction {
         }
     }
 
-    fn fmt_data_processing(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_data_processing(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use AluOpCode::*;
 
         let opcode = self.opcode().unwrap();
@@ -186,7 +186,7 @@ impl ArmInstruction {
         }
     }
 
-    fn fmt_rn_offset(&self, f: &mut fmt::Formatter, offset: BarrelShifterValue) -> fmt::Result {
+    fn fmt_rn_offset(&self, f: &mut fmt::Formatter<'_>, offset: BarrelShifterValue) -> fmt::Result {
         write!(f, "[{Rn}", Rn = reg_string(self.rn()))?;
         let (ofs_string, comment) = match offset {
             BarrelShifterValue::ImmediateValue(value) => {
@@ -224,7 +224,7 @@ impl ArmInstruction {
         }
     }
 
-    fn fmt_ldr_str(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_ldr_str(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{mnem}{B}{T}{cond}\t{Rd}, ",
@@ -242,7 +242,7 @@ impl ArmInstruction {
         self.fmt_rn_offset(f, self.ldr_str_offset())
     }
 
-    fn fmt_ldm_stm(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_ldm_stm(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{mnem}{inc_dec}{pre_post}{cond}\t{Rn}{auto_inc}, {{",
@@ -279,7 +279,7 @@ impl ArmInstruction {
     }
 
     /// MRS - transfer PSR contents to a register
-    fn fmt_mrs(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_mrs(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "mrs{cond}\t{Rd}, {psr}",
@@ -290,7 +290,7 @@ impl ArmInstruction {
     }
 
     /// MSR - transfer register contents to PSR
-    fn fmt_msr_reg(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_msr_reg(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "msr{cond}\t{psr}, {Rm}",
@@ -300,7 +300,7 @@ impl ArmInstruction {
         )
     }
 
-    fn fmt_msr_flags(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_msr_flags(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "msr{cond}\t{psr}, ",
@@ -321,7 +321,7 @@ impl ArmInstruction {
         Ok(())
     }
 
-    fn fmt_mul_mla(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_mul_mla(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.accumulate_flag() {
             write!(
                 f,
@@ -354,7 +354,7 @@ impl ArmInstruction {
         }
     }
 
-    fn fmt_mull_mlal(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_mull_mlal(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{sign}{mnem}{S}{cond}\t{RdLo}, {RdHi}, {Rm}, {Rs}",
@@ -373,7 +373,7 @@ impl ArmInstruction {
         )
     }
 
-    fn fmt_ldr_str_hs(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_ldr_str_hs(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Ok(transfer_type) = self.halfword_data_transfer_type() {
             write!(
                 f,
@@ -389,7 +389,7 @@ impl ArmInstruction {
         }
     }
 
-    fn fmt_swi(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_swi(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "swi{cond}\t#{comm:#x}",
@@ -398,7 +398,7 @@ impl ArmInstruction {
         )
     }
 
-    fn fmt_swp(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt_swp(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "swp{B}{cond}\t{Rd}, {Rm}, [{Rn}]",
@@ -413,7 +413,7 @@ impl ArmInstruction {
 
 #[cfg(feature = "debugger")]
 impl fmt::Display for ArmInstruction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use ArmFormat::*;
         match self.fmt {
             BX => self.fmt_bx(f),

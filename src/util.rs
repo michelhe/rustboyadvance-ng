@@ -56,6 +56,7 @@ macro_rules! index2d {
     };
 }
 
+#[allow(unused_macros)]
 macro_rules! host_breakpoint {
     () => {
         #[cfg(debug_assertions)]

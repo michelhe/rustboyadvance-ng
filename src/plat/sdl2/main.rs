@@ -1,13 +1,13 @@
-extern crate sdl2;
+use sdl2;
 use sdl2::event::Event;
 use sdl2::image::{InitFlag, LoadTexture};
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
-use sdl2::rect::Rect;
+
 use sdl2::EventPump;
 
-extern crate bytesize;
-extern crate spin_sleep;
+use bytesize;
+use spin_sleep;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -24,7 +24,7 @@ extern crate clap;
 
 #[macro_use]
 extern crate log;
-extern crate flexi_logger;
+use flexi_logger;
 use flexi_logger::*;
 
 mod audio;
@@ -35,7 +35,6 @@ use audio::create_audio_player;
 use input::create_input;
 use video::{create_video_interface, SCREEN_HEIGHT, SCREEN_WIDTH};
 
-extern crate rustboyadvance_ng;
 use rustboyadvance_ng::core::cartridge::BackupType;
 use rustboyadvance_ng::prelude::*;
 use rustboyadvance_ng::util::FpsCounter;
@@ -48,7 +47,7 @@ fn get_savestate_path(rom_filename: &Path) -> PathBuf {
 
 /// Waits for the user to drag a rom file to window
 fn wait_for_rom(event_pump: &mut EventPump) -> String {
-    'running: loop {
+    loop {
         for event in event_pump.poll_iter() {
             match event {
                 Event::DropFile { filename, .. } => {
@@ -62,7 +61,7 @@ fn wait_for_rom(event_pump: &mut EventPump) -> String {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    fs::create_dir(LOG_DIR);
+    fs::create_dir(LOG_DIR).expect(&format!("could not create log directory ({})", LOG_DIR));
     flexi_logger::Logger::with_env_or_str("info")
         .log_to_file()
         .directory(LOG_DIR)

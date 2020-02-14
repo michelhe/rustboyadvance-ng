@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 pub mod arm;
 pub mod thumb;
 
-use arm::{ArmDecodeError, ArmInstruction};
-use thumb::{ThumbDecodeError, ThumbInstruction};
+use arm::ArmInstruction;
+use thumb::ThumbInstruction;
 
 pub mod cpu;
 pub use cpu::*;
@@ -45,30 +45,11 @@ impl DecodedInstruction {
 
 #[cfg(feature = "debugger")]
 impl fmt::Display for DecodedInstruction {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DecodedInstruction::Arm(a) => write!(f, "{}", a),
             DecodedInstruction::Thumb(t) => write!(f, "{}", t),
         }
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub enum InstructionDecoderError {
-    ArmDecodeError(ArmDecodeError),
-    ThumbDecodeError(ThumbDecodeError),
-    IoError(std::io::ErrorKind),
-}
-
-impl From<ArmDecodeError> for InstructionDecoderError {
-    fn from(e: ArmDecodeError) -> InstructionDecoderError {
-        InstructionDecoderError::ArmDecodeError(e)
-    }
-}
-
-impl From<ThumbDecodeError> for InstructionDecoderError {
-    fn from(e: ThumbDecodeError) -> InstructionDecoderError {
-        InstructionDecoderError::ThumbDecodeError(e)
     }
 }
 
@@ -97,7 +78,7 @@ pub enum CpuState {
 }
 
 impl fmt::Display for CpuState {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use CpuState::*;
         match self {
             ARM => write!(f, "ARM"),
@@ -142,7 +123,7 @@ impl CpuMode {
 }
 
 impl fmt::Display for CpuMode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use CpuMode::*;
         match self {
             User => write!(f, "USR"),
@@ -155,54 +136,3 @@ impl fmt::Display for CpuMode {
         }
     }
 }
-
-#[derive(Debug, PartialEq)]
-pub enum CpuError {
-    DecodeError(InstructionDecoderError),
-    IllegalInstruction,
-    UnimplementedCpuInstruction(Addr, u32, DecodedInstruction),
-}
-
-impl From<InstructionDecoderError> for CpuError {
-    fn from(e: InstructionDecoderError) -> CpuError {
-        CpuError::DecodeError(e)
-    }
-}
-
-impl From<ArmDecodeError> for CpuError {
-    fn from(e: ArmDecodeError) -> CpuError {
-        CpuError::DecodeError(InstructionDecoderError::ArmDecodeError(e))
-    }
-}
-
-impl From<ThumbDecodeError> for CpuError {
-    fn from(e: ThumbDecodeError) -> CpuError {
-        CpuError::DecodeError(InstructionDecoderError::ThumbDecodeError(e))
-    }
-}
-
-impl fmt::Display for CpuError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            CpuError::DecodeError(InstructionDecoderError::ArmDecodeError(e)) => write!(
-                f,
-                "arm decoding error at address @0x{:08x} (instruction 0x{:08x}): {:?}",
-                e.addr, e.insn, e.kind
-            ),
-            CpuError::DecodeError(InstructionDecoderError::ThumbDecodeError(e)) => write!(
-                f,
-                "thumb decoding error at address @0x{:08x} (instruction 0x{:08x}): {:?}",
-                e.addr, e.insn, e.kind
-            ),
-            CpuError::UnimplementedCpuInstruction(addr, raw, d) => write!(
-                f,
-                "unimplemented instruction: 0x{:08x}:\t0x{:08x}\t{:?}",
-                addr, raw, d
-            ),
-            CpuError::IllegalInstruction => write!(f, "illegal instruction"),
-            e => write!(f, "error: {:#x?}", e),
-        }
-    }
-}
-
-pub type CpuResult<T> = Result<T, CpuError>;
