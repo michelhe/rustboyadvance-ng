@@ -335,7 +335,7 @@ impl EepromController {
         if self.detect {
             match (src, dst) {
                 // DMA to EEPROM
-                (_, 0x0d000000..0x0dffffff) => {
+                (_, 0x0d000000..=0x0dffffff) => {
                     debug!("caught eeprom dma transfer src={:#x} dst={:#x} count={}", src, dst, count);
                     let eeprom_type = match count {
                         // Read(11) + 6bit address + stop bit
@@ -353,7 +353,7 @@ impl EepromController {
                     self.detect = false;
                 }
                 // EEPROM to DMA
-                (0x0d000000..0x0dffffff, _) => {
+                (0x0d000000..=0x0dffffff, _) => {
                     panic!("reading from eeprom when real size is not detected yet is not supported by this emulator")
                 }
                 _ => {/* Not a eeprom dma, doing nothing */}

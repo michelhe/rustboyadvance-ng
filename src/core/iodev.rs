@@ -81,7 +81,7 @@ impl Bus for IoDevices {
 
             REG_TM0CNT_L..=REG_TM3CNT_H => io.timers.handle_read(io_addr),
 
-            REG_SOUND1CNT_L..DMA_BASE => io.sound.handle_read(io_addr),
+            SOUND_BASE..=SOUND_END => io.sound.handle_read(io_addr),
             REG_DMA0CNT_H => io.dmac.channels[0].ctrl.0,
             REG_DMA1CNT_H => io.dmac.channels[1].ctrl.0,
             REG_DMA2CNT_H => io.dmac.channels[2].ctrl.0,
@@ -221,7 +221,7 @@ impl Bus for IoDevices {
 
             REG_TM0CNT_L..=REG_TM3CNT_H => io.timers.handle_write(io_addr, value),
 
-            REG_SOUND1CNT_L..DMA_BASE => {
+            SOUND_BASE..=SOUND_END => {
                 io.sound.handle_write(io_addr, value);
             }
 
@@ -329,6 +329,7 @@ pub mod consts {
     pub const REG_BLDCNT: Addr = 0x0400_0050;       //  2    R/W    Color Special Effects Selection
     pub const REG_BLDALPHA: Addr = 0x0400_0052;     //  2    R/W    Alpha Blending Coefficients
     pub const REG_BLDY: Addr = 0x0400_0054;         //  2    W      Brightness (Fade-In/Out) Coefficient
+    pub const SOUND_BASE: Addr = REG_SOUND1CNT_L;
     pub const REG_SOUND1CNT_L: Addr = 0x0400_0060;  //  2  R/W      Channel 1 Sweep register       (NR10)
     pub const REG_SOUND1CNT_H: Addr = 0x0400_0062;  //  2  R/W      Channel 1 Duty/Length/Envelope (NR11, NR12)
     pub const REG_SOUND1CNT_X: Addr = 0x0400_0064;  //  2  R/W      Channel 1 Frequency/Control    (NR13, NR14)
@@ -346,6 +347,7 @@ pub mod consts {
     pub const REG_WAVE_RAM: Addr = 0x0400_0090;     //              Channel 3 Wave Pattern RAM (2 banks!!)
     pub const REG_FIFO_A: Addr = 0x0400_00A0;       //  4    W      Channel A FIFO, Data 0-3
     pub const REG_FIFO_B: Addr = 0x0400_00A4;       //  4    W      Channel B FIFO, Data 0-3
+    pub const SOUND_END: Addr = REG_FIFO_B+4;
     pub const DMA_BASE: Addr = REG_DMA0SAD;
     pub const REG_DMA0SAD: Addr = 0x0400_00B0;      //  4    W      DMA 0 Source Address
     pub const REG_DMA0DAD: Addr = 0x0400_00B4;      //  4    W      DMA 0 Destination Address

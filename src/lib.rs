@@ -1,7 +1,3 @@
-#![feature(asm)]
-#![feature(core_intrinsics)]
-#![feature(exclusive_range_pattern)]
-
 #[macro_use]
 extern crate serde;
 
