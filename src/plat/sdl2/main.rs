@@ -61,7 +61,7 @@ fn wait_for_rom(event_pump: &mut EventPump) -> String {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    fs::create_dir(LOG_DIR).expect(&format!("could not create log directory ({})", LOG_DIR));
+    fs::create_dir_all(LOG_DIR).expect(&format!("could not create log directory ({})", LOG_DIR));
     flexi_logger::Logger::with_env_or_str("info")
         .log_to_file()
         .directory(LOG_DIR)
