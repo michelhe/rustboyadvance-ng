@@ -228,7 +228,7 @@ mod tests {
             gba.frame();
         }
 
-        let insn = gba.sysbus.read_32(gba.cpu.pc);
+        let insn = gba.sysbus.read_32(gba.cpu.pc - 8);
         assert_eq!(insn, 0xeafffffe); // loop
         assert_eq!(0, gba.cpu.gpr[12]);
     }
@@ -241,7 +241,7 @@ mod tests {
             gba.frame();
         }
 
-        let insn = gba.sysbus.read_16(gba.cpu.pc);
+        let insn = gba.sysbus.read_16(gba.cpu.pc - 4);
         assert_eq!(insn, 0xe7fe); // loop
         assert_eq!(0, gba.cpu.gpr[7]);
     }
