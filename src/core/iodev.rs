@@ -121,7 +121,7 @@ impl Bus for IoDevices {
         let io_addr = addr + IO_BASE;
         match io_addr {
             REG_DISPCNT => io.gpu.dispcnt.0 = value,
-            REG_DISPSTAT => io.gpu.dispstat.0 |= value & !3,
+            REG_DISPSTAT => io.gpu.dispstat.0 = value & !3,
             REG_BG0CNT => io.gpu.backgrounds[0].bgcnt.0 = value,
             REG_BG1CNT => io.gpu.backgrounds[1].bgcnt.0 = value,
             REG_BG2CNT => io.gpu.backgrounds[2].bgcnt.0 = value,
