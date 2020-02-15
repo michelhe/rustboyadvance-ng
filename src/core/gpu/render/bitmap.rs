@@ -19,14 +19,14 @@ impl Gpu {
         for x in 0..DISPLAY_WIDTH {
             let t = utils::transform_bg_point(ref_point, x as i32, pa, pc);
             if !SCREEN_VIEWPORT.contains_point(t) {
-                self.bg[bg].line[x] = Rgb15::TRANSPARENT;
+                self.backgrounds[bg].line[x] = Rgb15::TRANSPARENT;
                 continue;
             }
 
             let pixel_index = index2d!(u32, t.0, t.1, DISPLAY_WIDTH);
             let pixel_ofs = 2 * pixel_index;
             let color = Rgb15(self.vram.read_16(pixel_ofs));
-            self.bg[bg].line[x] = color;
+            self.backgrounds[bg].line[x] = color;
         }
     }
 
@@ -46,14 +46,14 @@ impl Gpu {
         for x in 0..DISPLAY_WIDTH {
             let t = utils::transform_bg_point(ref_point, x as i32, pa, pc);
             if !SCREEN_VIEWPORT.contains_point(t) {
-                self.bg[bg].line[x] = Rgb15::TRANSPARENT;
+                self.backgrounds[bg].line[x] = Rgb15::TRANSPARENT;
                 continue;
             }
             let bitmap_index = index2d!(u32, t.0, t.1, DISPLAY_WIDTH);
             let bitmap_ofs = page_ofs + (bitmap_index as u32);
             let index = self.vram.read_8(bitmap_ofs) as u32;
             let color = self.get_palette_color(index, 0, 0);
-            self.bg[bg].line[x] = color;
+            self.backgrounds[bg].line[x] = color;
         }
     }
 }

@@ -166,7 +166,7 @@ pub struct Gpu {
     pub dispcnt: DisplayControl,
     pub dispstat: DisplayStatus,
 
-    pub bg: [Background; 4],
+    pub backgrounds: [Background; 4],
     pub bg_aff: [BgAffine; 2],
 
     pub win0: Window,
@@ -195,7 +195,7 @@ impl Gpu {
         Gpu {
             dispcnt: DisplayControl(0x80),
             dispstat: DisplayStatus(0),
-            bg: [
+            backgrounds: [
                 Background::default(),
                 Background::default(),
                 Background::default(),

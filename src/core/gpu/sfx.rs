@@ -54,7 +54,7 @@ impl Gpu {
                 }
             }
         }
-        backgrounds.sort_by_key(|bg| (self.bg[*bg].bgcnt.priority(), *bg));
+        backgrounds.sort_by_key(|bg| (self.backgrounds[*bg].bgcnt.priority(), *bg));
 
         backgrounds
     }
@@ -62,10 +62,10 @@ impl Gpu {
     #[allow(unused)]
     fn layer_to_pixel(&self, x: usize, y: usize, layer: &RenderLayer) -> Rgb15 {
         match layer.kind {
-            RenderLayerKind::Background0 => self.bg[0].line[x],
-            RenderLayerKind::Background1 => self.bg[1].line[x],
-            RenderLayerKind::Background2 => self.bg[2].line[x],
-            RenderLayerKind::Background3 => self.bg[3].line[x],
+            RenderLayerKind::Background0 => self.backgrounds[0].line[x],
+            RenderLayerKind::Background1 => self.backgrounds[1].line[x],
+            RenderLayerKind::Background2 => self.backgrounds[2].line[x],
+            RenderLayerKind::Background3 => self.backgrounds[3].line[x],
             RenderLayerKind::Objects => self.obj_buffer_get(x, y).color,
             RenderLayerKind::Backdrop => Rgb15(self.palette_ram.read_16(0)),
         }
@@ -164,14 +164,14 @@ impl Gpu {
             layers.push_unchecked(RenderLayer::backdrop(backdrop_color));
         }
 
-        for bg in backgrounds.into_iter() {
-            let bg_pixel = self.bg[*bg].line[x];
+        for bg in backgrounds.iter() {
+            let bg_pixel = self.backgrounds[*bg].line[x];
             if !bg_pixel.is_transparent() {
                 unsafe {
                     layers.push_unchecked(RenderLayer::background(
                         *bg,
                         bg_pixel,
-                        self.bg[*bg].bgcnt.priority(),
+                        self.backgrounds[*bg].bgcnt.priority(),
                     ));
                 }
             }
