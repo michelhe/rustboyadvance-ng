@@ -55,13 +55,6 @@ impl ObjAttrs {
 }
 
 impl Gpu {
-    fn obj_tile_base(&self) -> u32 {
-        match self.dispcnt.mode() {
-            mode if mode > 2 => OVRAM + 0x4000,
-            _ => OVRAM,
-        }
-    }
-
     fn get_affine_matrix(&self, affine_index: u32) -> AffineMatrix {
         let mut offset = AFFINE_FILL + affine_index * 16 * 2;
         let pa = self.oam.read_16(offset) as i16 as i32;
@@ -100,7 +93,7 @@ impl Gpu {
             return;
         }
 
-        let tile_base = self.obj_tile_base() + 0x20 * (attrs.2.tile() as u32);
+        let tile_base = OVRAM + 0x20 * (attrs.2.tile() as u32);
 
         let (tile_size, pixel_format) = attrs.tile_format();
         let palette_bank = match pixel_format {
@@ -174,7 +167,7 @@ impl Gpu {
             return;
         }
 
-        let tile_base = self.obj_tile_base() + 0x20 * (attrs.2.tile() as u32);
+        let tile_base = OVRAM + 0x20 * (attrs.2.tile() as u32);
 
         let (tile_size, pixel_format) = attrs.tile_format();
         let palette_bank = match pixel_format {
