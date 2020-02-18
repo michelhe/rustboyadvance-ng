@@ -254,13 +254,19 @@ impl Bus for IoDevices {
     }
 
     fn write_8(&mut self, addr: Addr, value: u8) {
-        let t = self.read_16(addr & !1);
-        let t = if addr & 1 != 0 {
-            (t & 0xff) | (value as u16) << 8
-        } else {
-            (t & 0xff00) | (value as u16)
-        };
-        self.write_16(addr & !1, t);
+        match addr + IO_BASE {
+            /* FIFO_A */ 0x0400_00A0 | 0x0400_00A1 | 0x0400_00A2 | 0x0400_00A3 => self.sound.write_fifo(0, value as i8),
+            /* FIFO_B */ 0x0400_00A4 | 0x0400_00A5 | 0x0400_00A6 | 0x0400_00A7 => self.sound.write_fifo(1, value as i8),
+            _ => {
+                let t = self.read_16(addr & !1);
+                let t = if addr & 1 != 0 {
+                    (t & 0xff) | (value as u16) << 8
+                } else {
+                    (t & 0xff00) | (value as u16)
+                };
+                self.write_16(addr & !1, t);
+            }
+        }
     }
 }
 

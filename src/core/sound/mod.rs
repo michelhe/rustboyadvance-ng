@@ -204,10 +204,11 @@ impl SoundController {
             return;
         }
 
-        if !self.mse {
-            warn!("MSE disabled, refusing to write");
-            return;
-        }
+        // TODO - figure out which writes should be disabled when MSE is off
+        // if !self.mse {
+        //     warn!("MSE disabled, refusing to write");
+        //     return;
+        // }
 
         match io_addr {
             REG_SOUNDCNT_L => {
@@ -286,6 +287,11 @@ impl SoundController {
                 // );
             }
         }
+    }
+
+    pub fn write_fifo(&mut self, id: usize, val: i8) {
+        assert!(id == 0 || id == 1);
+        self.dma_sound[id].fifo.write(val);
     }
 
     pub fn handle_timer_overflow(
