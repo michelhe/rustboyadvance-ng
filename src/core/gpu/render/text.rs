@@ -9,7 +9,10 @@ use crate::core::Bus;
 
 impl Gpu {
     pub(in super::super) fn render_reg_bg(&mut self, bg: usize) {
-        let (h_ofs, v_ofs) = (self.backgrounds[bg].bghofs as u32, self.backgrounds[bg].bgvofs as u32);
+        let (h_ofs, v_ofs) = (
+            self.backgrounds[bg].bghofs as u32,
+            self.backgrounds[bg].bgvofs as u32,
+        );
         let tileset_base = self.backgrounds[bg].bgcnt.char_block();
         let tilemap_base = self.backgrounds[bg].bgcnt.screen_block();
         let (tile_size, pixel_format) = self.backgrounds[bg].bgcnt.tile_format();

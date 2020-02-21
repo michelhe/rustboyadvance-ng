@@ -190,12 +190,12 @@ impl SoundController {
         if io_addr == REG_SOUNDCNT_X {
             if value & bit(7) != 0 {
                 if !self.mse {
-                    trace!("MSE enabled!");
+                    info!("MSE enabled!");
                     self.mse = true;
                 }
             } else {
                 if self.mse {
-                    trace!("MSE disabled!");
+                    info!("MSE disabled!");
                     self.mse = false;
                 }
             }
