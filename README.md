@@ -84,6 +84,8 @@ Special key bindings
 | Key          	| Function          	|
 |--------------	|--------------------	|
 | Space (hold) 	| Disable 60fps cap  	|
+| F1		| Custom debugger (requires --features debugger) |
+| F2		| Spawn gdbserver (experimetnal, requires --features gdb) |
 | F5           	| Save snapshot file 	|
 | F9           	| Load snapshot file 	|
 

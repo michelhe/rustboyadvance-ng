@@ -29,7 +29,12 @@ args:
         help: Skip running bios and start from the ROM instead
     - debug:
         long: debug
-        help: Start with the debugger attached
+        help: Use the custom debugger
+    - with_gdbserver:
+        long: with-gdbserver
+        help: Start with experimental gdbserver
+        conflicts_with:
+            - debug
     - script_file:
         long: script-file
         short: f

@@ -37,6 +37,8 @@ arrayvec = "0.5.1"
 
 rustyline = {version = "6.0.0", optional = true}
 nom = {version = "5.0.0", optional = true}
+gdbstub = {git = "https://github.com/daniel5151/gdbstub.git", optional = true, features = ["std"], rev = "9686df6d74c4bf45cbc5746273b82640e8852b6d"}
+
 
 [[bin]]
 name = "rba-sdl2"
@@ -51,6 +53,7 @@ path = "src/plat/minifb/main.rs"
 
 [features]
 debugger = ["nom", "rustyline"]
+gdb = ["gdbstub"]
 
 [profile.dev]
 opt-level = 0

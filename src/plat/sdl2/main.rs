@@ -27,6 +27,9 @@ extern crate log;
 use flexi_logger;
 use flexi_logger::*;
 
+#[cfg(feature = "gdb")]
+use gdbstub;
+
 mod audio;
 mod input;
 mod video;
@@ -36,6 +39,8 @@ use input::create_input;
 use video::{create_video_interface, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 use rustboyadvance_ng::core::cartridge::BackupType;
+#[cfg(feature = "gdb")]
+use rustboyadvance_ng::gdb::spawn_gdb_server;
 use rustboyadvance_ng::prelude::*;
 use rustboyadvance_ng::util::FpsCounter;
 
@@ -60,6 +65,29 @@ fn wait_for_rom(event_pump: &mut EventPump) -> String {
     }
 }
 
+fn spawn_and_run_gdb_server(gba: &mut GameBoyAdvance) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(feature = "gdb")]
+    {
+        let mut gdb = spawn_gdb_server(format!("localhost:{}", 1337))?;
+        let result = match gdb.run(gba) {
+            Ok(state) => {
+                info!("Disconnected from GDB. Target state: {:?}", state);
+                Ok(())
+            }
+            Err(gdbstub::Error::TargetError(e)) => Err(e),
+            Err(e) => return Err(e.into()),
+        };
+
+        info!("Debugger session ended, result={:?}", result);
+    }
+    #[cfg(not(feature = "gdb"))]
+    {
+        error!("Please compile me with 'gdb' feature")
+    }
+
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(LOG_DIR).expect(&format!("could not create log directory ({})", LOG_DIR));
     flexi_logger::Logger::with_env_or_str("info")
@@ -78,6 +106,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let skip_bios = matches.occurrences_of("skip_bios") != 0;
 
     let debug = matches.occurrences_of("debug") != 0;
+    let with_gdbserver = matches.occurrences_of("with_gdbserver") != 0;
 
     info!("Initializing SDL2 context");
     let sdl_context = sdl2::init().expect("failed to initialize sdl2");
@@ -161,6 +190,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    if with_gdbserver {
+        spawn_and_run_gdb_server(&mut gba)?;
+    }
+
     let mut fps_counter = FpsCounter::default();
     let frame_time = time::Duration::new(0, 1_000_000_000u32 / 60);
     'running: loop {
@@ -191,6 +224,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     gba = debugger.gba;
                     info!("ending debugger...");
                     break;
+                }
+                #[cfg(feature = "gdb")]
+                Event::KeyUp {
+                    keycode: Some(Keycode::F2),
+                    ..
+                } => {
+                    spawn_and_run_gdb_server(&mut gba)?;
                 }
                 Event::KeyUp {
                     keycode: Some(Keycode::F5),
