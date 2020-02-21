@@ -19,11 +19,11 @@ pub struct GameBoyAdvance {
     pub sysbus: Box<SysBus>,
     pub cpu: arm7tdmi::Core,
 
-    video_device: Rc<RefCell<dyn VideoInterface>>,
-    audio_device: Rc<RefCell<dyn AudioInterface>>,
-    input_device: Rc<RefCell<dyn InputInterface>>,
+    pub video_device: Rc<RefCell<dyn VideoInterface>>,
+    pub audio_device: Rc<RefCell<dyn AudioInterface>>,
+    pub input_device: Rc<RefCell<dyn InputInterface>>,
 
-    cycles_to_next_event: usize,
+    pub cycles_to_next_event: usize,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -120,8 +120,8 @@ impl GameBoyAdvance {
         self.sysbus.io.gpu.skip_bios();
     }
 
-    fn step_cpu(&mut self, io: &mut IoDevices) -> usize {
-        if io.intc.irq_pending() && self.cpu.last_executed.is_some() {
+    pub fn step_cpu(&mut self, io: &mut IoDevices) -> usize {
+        if io.intc.irq_pending() {
             self.cpu.irq(&mut self.sysbus);
             io.haltcnt = HaltState::Running;
         }
@@ -131,7 +131,7 @@ impl GameBoyAdvance {
     }
 
     pub fn step(&mut self) {
-        // // I hate myself for doing this, but rust left me no choice.
+        // I hate myself for doing this, but rust left me no choice.
         let io = unsafe {
             let ptr = &mut *self.sysbus as *mut SysBus;
             &mut (*ptr).io as &mut IoDevices

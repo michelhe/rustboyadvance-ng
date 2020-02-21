@@ -8,9 +8,10 @@ use std::fmt;
 
 pub use super::exception::Exception;
 use super::CpuAction;
+#[cfg(feature = "debugger")]
+use super::DecodedInstruction;
 use super::{
-    arm::*, psr::RegPSR, thumb::ThumbInstruction, Addr, CpuMode, CpuState, DecodedInstruction,
-    InstructionDecoder,
+    arm::*, psr::RegPSR, thumb::ThumbInstruction, Addr, CpuMode, CpuState, InstructionDecoder,
 };
 
 use crate::core::bus::Bus;
@@ -34,6 +35,8 @@ pub struct Core {
     pub(super) bs_carry_out: bool,
 
     pipeline: [u32; 2],
+
+    #[cfg(feature = "debugger")]
     pub last_executed: Option<DecodedInstruction>,
 
     pub cycles: usize,
@@ -296,8 +299,8 @@ impl Core {
         #[cfg(feature = "debugger")]
         {
             self.gpr_previous = self.get_registers();
+            self.last_executed = Some(DecodedInstruction::Arm(decoded_arm));
         }
-        self.last_executed = Some(DecodedInstruction::Arm(decoded_arm));
         let result = self.exec_arm(sb, decoded_arm);
         match result {
             CpuAction::AdvancePC => self.advance_arm(),
@@ -310,8 +313,8 @@ impl Core {
         #[cfg(feature = "debugger")]
         {
             self.gpr_previous = self.get_registers();
+            self.last_executed = Some(DecodedInstruction::Thumb(decoded_thumb));
         }
-        self.last_executed = Some(DecodedInstruction::Thumb(decoded_thumb));
         let result = self.exec_thumb(sb, decoded_thumb);
         match result {
             CpuAction::AdvancePC => self.advance_thumb(),
@@ -320,7 +323,7 @@ impl Core {
     }
 
     #[inline]
-    pub(super) fn reload_pipeline16(&mut self, sb: &mut SysBus) {
+    pub fn reload_pipeline16(&mut self, sb: &mut SysBus) {
         self.pipeline[0] = sb.read_16(self.pc) as u32;
         self.N_cycle16(sb, self.pc);
         self.advance_thumb();
@@ -330,7 +333,7 @@ impl Core {
     }
 
     #[inline]
-    pub(super) fn reload_pipeline32(&mut self, sb: &mut SysBus) {
+    pub fn reload_pipeline32(&mut self, sb: &mut SysBus) {
         self.pipeline[0] = sb.read_32(self.pc);
         self.N_cycle16(sb, self.pc);
         self.advance_arm();
