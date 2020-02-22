@@ -1,0 +1,16 @@
+[package]
+name = "rustboyadvance-jni"
+version = "0.1.0"
+authors = ["Michel Heily <michelheily@gmail.com>"]
+edition = "2018"
+description = "JNI bindings for rustboyadvance core"
+publish = false
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+rustboyadvance-ng = {path = "../"}
+jni = { version = "0.14", default-features = false }
+log = "0.4.8"
+env_logger = "0.7.1"

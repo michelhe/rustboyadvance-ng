@@ -58,7 +58,8 @@ pub trait InputInterface {
 
 pub mod prelude {
     pub use super::core::arm7tdmi;
-    pub use super::core::cartridge::GamepakBuilder;
+    pub use super::core::cartridge::{Cartridge, GamepakBuilder};
+    pub use super::core::gpu::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
     pub use super::core::Bus;
     pub use super::core::{GBAError, GBAResult, GameBoyAdvance};
     #[cfg(feature = "debugger")]
