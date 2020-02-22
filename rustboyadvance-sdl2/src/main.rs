@@ -27,9 +27,6 @@ extern crate log;
 use flexi_logger;
 use flexi_logger::*;
 
-#[cfg(feature = "gdb")]
-use gdbstub;
-
 mod audio;
 mod input;
 mod video;
@@ -39,12 +36,12 @@ use input::create_input;
 use video::{create_video_interface, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 use rustboyadvance_ng::core::cartridge::BackupType;
-#[cfg(feature = "gdb")]
-use rustboyadvance_ng::gdb::spawn_gdb_server;
 use rustboyadvance_ng::prelude::*;
+use rustboyadvance_ng::util::spawn_and_run_gdb_server;
 use rustboyadvance_ng::util::FpsCounter;
 
 const LOG_DIR: &str = ".logs";
+const DEFAULT_GDB_SERVER_ADDR: &'static str = "localhost:1337";
 
 fn get_savestate_path(rom_filename: &Path) -> PathBuf {
     rom_filename.with_extension("savestate")
@@ -63,29 +60,6 @@ fn wait_for_rom(event_pump: &mut EventPump) -> String {
             }
         }
     }
-}
-
-fn spawn_and_run_gdb_server(gba: &mut GameBoyAdvance) -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(feature = "gdb")]
-    {
-        let mut gdb = spawn_gdb_server(format!("localhost:{}", 1337))?;
-        let result = match gdb.run(gba) {
-            Ok(state) => {
-                info!("Disconnected from GDB. Target state: {:?}", state);
-                Ok(())
-            }
-            Err(gdbstub::Error::TargetError(e)) => Err(e),
-            Err(e) => return Err(e.into()),
-        };
-
-        info!("Debugger session ended, result={:?}", result);
-    }
-    #[cfg(not(feature = "gdb"))]
-    {
-        error!("Please compile me with 'gdb' feature")
-    }
-
-    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -131,7 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let icon_texture = texture_creator
         .load_texture("assets/icon.png")
         .expect("failed to load icon");
-    canvas.copy(&icon_texture, None, None).unwrap();
+    canvas.copy(&icon_texture, None, None)?;
     canvas.present();
 
     // TODO also set window icon
@@ -141,7 +115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input = Rc::new(RefCell::new(create_input()));
 
     let bios_path = Path::new(matches.value_of("bios").unwrap_or_default());
-    let bios_bin = read_bin_file(bios_path).unwrap();
+    let bios_bin = read_bin_file(bios_path).expect("cannot read bios file");
 
     let mut rom_path = match matches.value_of("game_rom") {
         Some(path) => path.to_string(),
@@ -191,7 +165,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if with_gdbserver {
-        spawn_and_run_gdb_server(&mut gba)?;
+        spawn_and_run_gdb_server(&mut gba, DEFAULT_GDB_SERVER_ADDR)?;
     }
 
     let mut fps_counter = FpsCounter::default();
@@ -230,7 +204,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     keycode: Some(Keycode::F2),
                     ..
                 } => {
-                    spawn_and_run_gdb_server(&mut gba)?;
+                    spawn_and_run_gdb_server(&mut gba, DEFAULT_GDB_SERVER_ADDR)?;
                 }
                 Event::KeyUp {
                     keycode: Some(Keycode::F5),

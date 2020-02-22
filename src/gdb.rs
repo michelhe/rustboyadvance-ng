@@ -6,25 +6,9 @@ use super::core::Bus;
 use super::core::GameBoyAdvance;
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use gdbstub::{Access, GdbStub, Target, TargetState};
+use gdbstub::{Access, Target, TargetState};
 
-use std::fmt;
 use std::io::Cursor;
-use std::net::{TcpListener, TcpStream, ToSocketAddrs};
-
-pub type GdbServer = GdbStub<GameBoyAdvance, TcpStream>;
-
-pub fn spawn_gdb_server<A: ToSocketAddrs + fmt::Display>(
-    addr: A,
-) -> Result<GdbServer, Box<dyn std::error::Error>> {
-    info!("spawning gdbserver, listening on {}", addr);
-
-    let sock = TcpListener::bind(addr)?;
-    let (stream, addr) = sock.accept()?;
-    info!("got connection from {}", addr);
-
-    Ok(GdbServer::new(stream))
-}
 
 impl Target for GameBoyAdvance {
     type Usize = u32;

@@ -55,7 +55,7 @@ Place the bios file in the repository root and name it `gba_bios.bin` (or altern
 
 Build and run in release mode (performance is terrible in the `dev` profile)
 ```bash
-$ cargo run --release -- path/to/rom
+$ cargo run --release -p rustboyadvance-sdl2 -- path/to/rom
 ```
 
 
