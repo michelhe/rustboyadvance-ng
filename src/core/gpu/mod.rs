@@ -343,6 +343,10 @@ impl Gpu {
         }
     }
 
+    pub fn get_frame_buffer(&self) -> &[u32] {
+        &self.frame_buffer
+    }
+
     pub fn on_state_completed(
         &mut self,
         completed: GpuState,

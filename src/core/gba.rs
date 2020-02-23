@@ -179,6 +179,12 @@ impl GameBoyAdvance {
         self.cycles_to_next_event = cycles_to_next_event;
         io.intc.request_irqs(irqs);
     }
+
+    /// Query the emulator for the recently drawn framebuffer.
+    /// for use with implementations where the VideoInterface is not a viable option.
+    pub fn get_frame_buffer(&self) -> &[u32] {
+        self.sysbus.io.gpu.get_frame_buffer()
+    }
 }
 
 #[cfg(test)]
