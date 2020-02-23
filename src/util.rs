@@ -10,9 +10,9 @@ use gdbstub;
 #[cfg(feature = "gdb")]
 use gdbstub::GdbStub;
 use std::fmt;
-use std::net::ToSocketAddrs;
 #[cfg(feature = "gdb")]
 use std::net::TcpListener;
+use std::net::ToSocketAddrs;
 
 pub fn spawn_and_run_gdb_server<A: ToSocketAddrs + fmt::Display>(
     target: &mut GameBoyAdvance,
