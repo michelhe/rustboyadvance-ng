@@ -75,6 +75,7 @@ impl fmt::Display for MemoryAccess {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[repr(transparent)]
 pub struct BoxedMemory {
     pub mem: Box<[u8]>,
 }
