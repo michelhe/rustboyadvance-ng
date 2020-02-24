@@ -146,7 +146,7 @@ pub mod bindings {
         let hw = Hardware { key_state: 0xffff };
         let hw = Rc::new(RefCell::new(hw));
 
-        let mut gba = GameBoyAdvance::new(bios_rom, gamepak, hw.clone(), hw.clone(), hw.clone());
+        let mut gba = GameBoyAdvance::new(bios_rom.into_boxed_slice(), gamepak, hw.clone(), hw.clone(), hw.clone());
         if skip_bios != 0 {
             gba.skip_bios();
         }

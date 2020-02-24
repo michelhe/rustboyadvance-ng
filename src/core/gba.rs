@@ -34,7 +34,7 @@ struct SaveState {
 
 impl GameBoyAdvance {
     pub fn new(
-        bios_rom: Vec<u8>,
+        bios_rom: Box<[u8]>,
         gamepak: Cartridge,
         video_device: Rc<RefCell<dyn VideoInterface>>,
         audio_device: Rc<RefCell<dyn AudioInterface>>,
@@ -209,7 +209,7 @@ mod tests {
     impl InputInterface for DummyInterface {}
 
     fn make_mock_gba(rom: &[u8]) -> GameBoyAdvance {
-        let bios = vec![0; 0x4000];
+        let bios = vec![0; 0x4000].into_boxed_slice();
         let cartridge = GamepakBuilder::new()
             .buffer(rom)
             .with_sram()

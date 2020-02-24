@@ -123,11 +123,11 @@ pub struct SysBus {
 }
 
 impl SysBus {
-    pub fn new(io: IoDevices, bios_rom: Vec<u8>, cartridge: Cartridge) -> SysBus {
+    pub fn new(io: IoDevices, bios_rom: Box<[u8]>, cartridge: Cartridge) -> SysBus {
         SysBus {
             io: io,
 
-            bios: BoxedMemory::new(bios_rom.into_boxed_slice()),
+            bios: BoxedMemory::new(bios_rom),
             onboard_work_ram: BoxedMemory::new(vec![0; WORK_RAM_SIZE].into_boxed_slice()),
             internal_work_ram: BoxedMemory::new(vec![0; INTERNAL_RAM_SIZE].into_boxed_slice()),
             cartridge: cartridge,

@@ -137,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let mut gba = GameBoyAdvance::new(
-        bios_bin,
+        bios_bin.into_boxed_slice(),
         gamepak,
         video.clone(),
         audio.clone(),
@@ -255,7 +255,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     // create a new emulator - TODO, export to a function
                     gba = GameBoyAdvance::new(
-                        bios_bin,
+                        bios_bin.into_boxed_slice(),
                         gamepak,
                         video.clone(),
                         audio.clone(),

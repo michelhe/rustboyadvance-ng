@@ -107,7 +107,7 @@ fn main() {
 
     let mut fps_counter = FpsCounter::default();
     let mut gba = GameBoyAdvance::new(
-        bios_bin,
+        bios_bin.into_boxed_slice(),
         cart,
         minifb.clone(),
         minifb.clone(),
