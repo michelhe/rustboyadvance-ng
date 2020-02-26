@@ -1,32 +1,13 @@
-/// JNI Bindings to rustboyadvance
-/// For use with the following example java class
-///
-/// package com.mrmichel.rustboyadvance;
-////
-/// public class EmulatorBindings {
-///
-///     public static native int openEmulator(String biosPath, String romPath, boolean skipBiosAnimation);
-///
-///     public static native void closeEmulator();
-///
-///     public static native int runFrame(int[] frame_buffer);
-///
-///     public static native int log();
-///
-///     static {
-///         System.loadLibrary("rustboyadvance_jni");
-///     }
-/// }
+/// JNI Bindings for rustboyadvance
 ///
 use std::cell::RefCell;
 use std::os::raw::c_void;
+use std::path::Path;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::{Mutex, MutexGuard};
 
-use jni;
-
-use jni::objects::{JClass, JString};
-use jni::sys::{jboolean, jint, jintArray, JNI_VERSION_1_6};
+use jni::objects::*;
+use jni::sys::*;
 use jni::{JNIEnv, JavaVM};
 
 #[macro_use]
@@ -40,6 +21,7 @@ use env_logger;
 use rustboyadvance_ng::prelude::*;
 
 struct Hardware {
+    jvm: JavaVM,
     // frame_buffer: [u32; DISPLAY_WIDTH * DISPLAY_HEIGHT],
     key_state: u16,
 }
@@ -52,43 +34,85 @@ impl InputInterface for Hardware {
     }
 }
 
-struct Emulator {
+struct Context {
     hwif: Rc<RefCell<Hardware>>,
     gba: GameBoyAdvance,
 }
 
-static mut JVM_PTR: Option<Arc<Mutex<*mut JavaVM>>> = None;
-static mut EMULATOR: Option<Arc<Mutex<Emulator>>> = None;
 static mut DID_LOAD: bool = false;
 
-macro_rules! get_static_global {
-    ($GLBL:ident: &mut $v:ident => $ok:block else $err:block) => {
-        if let Some(lock) = &mut $GLBL {
-            let mut $v = lock.lock().unwrap();
+const NATIVE_EXCEPTION_CLASS: &'static str =
+    "com/mrmichel/rustboyadvance/EmulatorBindings/NativeBindingException";
 
-            $ok
-        } else {
-            error!("{} not initialized", stringify!($GLBL));
-            $err
-        }
-    };
-    ($GLBL:ident: &$v:ident => $ok:block else $err:block) => {
-        if let Some(lock) = &mut $GLBL {
-            let $v = lock.lock().unwrap();
+unsafe fn internal_open_context(
+    env: &JNIEnv,
+    bios: jbyteArray,
+    rom: jbyteArray,
+    save_file: JString,
+) -> Result<Context, String> {
+    let bios = env
+        .convert_byte_array(bios)
+        .map_err(|e| format!("could not get bios buffer, error {}", e))?
+        .into_boxed_slice();
+    let rom = env
+        .convert_byte_array(rom)
+        .map_err(|e| format!("could not get rom buffer, error {}", e))?
+        .into_boxed_slice();
+    let save_file: String = env
+        .get_string(save_file)
+        .map_err(|_| String::from("could not get save path"))?
+        .into();
 
-            $ok
-        } else {
-            error!("{} not initialized", stringify!($GLBL));
-            $err
-        }
+    let gamepak = GamepakBuilder::new()
+        .take_buffer(rom)
+        .save_path(&Path::new(&save_file))
+        .build()
+        .map_err(|e| format!("failed to load rom, gba result: {:?}", e))?;
+
+    info!("Loaded ROM file {:?}", gamepak.header);
+
+    let hw = Hardware {
+        jvm: env.get_java_vm().unwrap(),
+        key_state: 0xffff,
     };
+    let hw = Rc::new(RefCell::new(hw));
+
+    let gba = GameBoyAdvance::new(bios, gamepak, hw.clone(), hw.clone(), hw.clone());
+
+    debug!("creating context");
+    let context = Context {
+        gba: gba,
+        hwif: hw.clone(),
+    };
+
+    Ok(context)
+}
+
+fn save_state(env: &JNIEnv, gba: &mut GameBoyAdvance) -> Result<jbyteArray, String> {
+    let saved_state = gba
+        .save_state()
+        .map_err(|e| format!("failed to serielize state, error: {:?}", e))?;
+    let byte_array = env
+        .byte_array_from_slice(&saved_state)
+        .map_err(|e| format!("failed to create byte array, error: {:?}", e))?;
+    Ok(byte_array)
+}
+
+fn load_state(env: &JNIEnv, gba: &mut GameBoyAdvance, state: jbyteArray) -> Result<(), String> {
+    let state = env
+        .convert_byte_array(state)
+        .map_err(|e| format!("failed to convert byte array, error: {:?}", e))?;
+    gba.restore_state(&state)
+        .map_err(|e| format!("failed to restore state, error: {:?}", e))
 }
 
 #[allow(non_snake_case)]
 pub mod bindings {
     use super::*;
 
-    use std::path::Path;
+    unsafe fn lock_ctx<'a>(ctx: jlong) -> MutexGuard<'a, Context> {
+        (*(ctx as *mut Mutex<Context>)).lock().unwrap()
+    }
 
     #[no_mangle]
     pub unsafe extern "C" fn JNI_OnLoad(vm: *mut JavaVM, _reserved: *mut c_void) -> jint {
@@ -103,9 +127,6 @@ pub mod bindings {
         debug!("library loaded and logger initialized!");
         debug!("JVM: {:?}", vm);
 
-        // save JVM_PTR
-        JVM_PTR = Some(Arc::new(Mutex::new(vm)));
-
         DID_LOAD = true;
 
         JNI_VERSION_1_6
@@ -114,103 +135,103 @@ pub mod bindings {
     #[no_mangle]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_openEmulator(
         env: JNIEnv,
-        _: JClass,
-        bios_path: JString,
-        rom_path: JString,
-        skip_bios: jboolean,
-    ) -> jint {
-        let bios_path: String = env
-            .get_string(bios_path)
-            .expect("invalid bios path object")
-            .into();
-
-        let bios_rom = read_bin_file(&Path::new(&bios_path)).expect("failed to load bios file");
-
-        let rom_path: String = env
-            .get_string(rom_path)
-            .expect("invalid rom path object")
-            .into();
-
-        debug!("trying to load {}", rom_path);
-
-        let gamepak = match GamepakBuilder::new().file(&Path::new(&rom_path)).build() {
-            Ok(gamepak) => gamepak,
-            Err(err) => {
-                error!("failed to load rom, error: {:?}", err);
-                return -1;
+        _obj: JClass,
+        bios: jbyteArray,
+        rom: jbyteArray,
+        save_file: JString,
+    ) -> jlong {
+        match internal_open_context(&env, bios, rom, save_file) {
+            Ok(ctx) => Box::into_raw(Box::new(Mutex::new(ctx))) as jlong,
+            Err(msg) => {
+                env.throw_new(NATIVE_EXCEPTION_CLASS, msg).unwrap();
+                0
             }
-        };
-
-        info!("Loaded ROM file {:?}", gamepak.header);
-
-        let hw = Hardware { key_state: 0xffff };
-        let hw = Rc::new(RefCell::new(hw));
-
-        let mut gba = GameBoyAdvance::new(bios_rom.into_boxed_slice(), gamepak, hw.clone(), hw.clone(), hw.clone());
-        if skip_bios != 0 {
-            gba.skip_bios();
         }
-
-        EMULATOR = Some(Arc::new(Mutex::new(Emulator {
-            hwif: hw.clone(),
-            gba,
-        })));
-
-        return 0;
     }
 
     #[no_mangle]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_closeEmulator(
         _env: JNIEnv,
-        _: JClass,
+        _obj: JClass,
+        ctx: jlong,
     ) {
-        EMULATOR = None;
+        info!("destroying context {:#x}", ctx);
+        // consume the wrapped content
+        let _ = Box::from_raw(ctx as *mut Mutex<Context>);
     }
 
     #[no_mangle]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_runFrame(
         env: JNIEnv,
-        _: JClass,
+        _obj: JClass,
+        ctx: jlong,
         frame_buffer: jintArray,
-    ) -> jint {
-        get_static_global!(EMULATOR: &mut e => {
-                e.gba.frame();
-                // let our_buffer = std::mem::transmute::<&[u32], &[i32]>(&e.hwif.borrow().frame_buffer as &[u32]);
-                env.set_int_array_region(frame_buffer, 0, std::mem::transmute::<&[u32], &[i32]>(&e.gba.get_frame_buffer() as &[u32]))
-                    .expect("failed to copy frame buffer to java");
+    ) {
+        let mut ctx = lock_ctx(ctx);
 
-                return 0;
-            } else {
-                return -1;
-            }
-        );
+        ctx.gba.frame();
+        let gpu_buffer =
+            std::mem::transmute::<&[u32], &[i32]>(&ctx.gba.get_frame_buffer() as &[u32]);
+        let result = env.set_int_array_region(frame_buffer, 0, gpu_buffer);
+        if let Err(e) = result {
+            env.throw_new(
+                NATIVE_EXCEPTION_CLASS,
+                format!("failed to copy framebuffer into Java, error: {}", e),
+            )
+            .unwrap();
+        }
     }
 
     #[no_mangle]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_setKeyState(
-        env: JNIEnv,
-        _: JClass,
+        _env: JNIEnv,
+        _obj: JClass,
+        ctx: jlong,
         key_state: jint,
-    ) -> jint {
-        get_static_global!(EMULATOR: &mut e => {
-                e.hwif.borrow_mut().key_state = key_state as u16;
-                return 0;
-            } else {
-                return -1;
+    ) {
+        let mut ctx = lock_ctx(ctx);
+        ctx.hwif.borrow_mut().key_state = key_state as u16;
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_saveState(
+        env: JNIEnv,
+        _obj: JClass,
+        ctx: jlong,
+    ) -> jbyteArray {
+        let mut ctx = lock_ctx(ctx);
+        match save_state(&env, &mut ctx.gba) {
+            Ok(result) => {
+                return result;
             }
-        );
+            Err(msg) => {
+                env.throw_new(NATIVE_EXCEPTION_CLASS, msg).unwrap();
+                return JObject::null().into_inner();
+            }
+        }
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_loadState(
+        env: JNIEnv,
+        _obj: JClass,
+        ctx: jlong,
+        state: jbyteArray,
+    ) {
+        let mut ctx = lock_ctx(ctx);
+        match load_state(&env, &mut ctx.gba, state) {
+            Ok(_) => {}
+            Err(msg) => env.throw_new(NATIVE_EXCEPTION_CLASS, msg).unwrap(),
+        }
     }
 
     #[no_mangle]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_log(
         _env: JNIEnv,
-        _: JClass,
-    ) -> jint {
-        get_static_global!(EMULATOR: &e => {
-            info!("CPU LOG: {:#x?}", e.gba.cpu);
-            return 0;
-        } else {
-            return -1;
-        });
+        _obj: JClass,
+        ctx: jlong,
+    ) {
+        let ctx = lock_ctx(ctx);
+        info!("CPU LOG: {:#x?}", ctx.gba.cpu);
     }
 }
