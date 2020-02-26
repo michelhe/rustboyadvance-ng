@@ -20,6 +20,7 @@ use crate::util::read_bin_file;
 pub struct GamepakBuilder {
     path: Option<PathBuf>,
     bytes: Option<Box<[u8]>>,
+    save_path: Option<PathBuf>,
     save_type: BackupType,
     create_backup_file: bool,
 }
@@ -29,9 +30,15 @@ impl GamepakBuilder {
         GamepakBuilder {
             save_type: BackupType::AutoDetect,
             path: None,
+            save_path: None,
             bytes: None,
             create_backup_file: true,
         }
+    }
+
+    pub fn take_buffer(mut self, bytes: Box<[u8]>) -> Self {
+        self.bytes = Some(bytes);
+        self
     }
 
     pub fn buffer(mut self, bytes: &[u8]) -> Self {
@@ -41,6 +48,11 @@ impl GamepakBuilder {
 
     pub fn file(mut self, path: &Path) -> Self {
         self.path = Some(path.to_path_buf());
+        self
+    }
+
+    pub fn save_path(mut self, path: &Path) -> Self {
+        self.save_path = Some(path.to_path_buf());
         self
     }
 
@@ -90,7 +102,13 @@ impl GamepakBuilder {
         info!("Loaded ROM: {:?}", header);
 
         if !self.create_backup_file {
-            self.path = None;
+            self.save_path = None;
+        } else if self.save_path.is_none() {
+            if let Some(path) = &self.path {
+                self.save_path = Some(path.with_extension(BACKUP_FILE_EXT));
+            } else {
+                warn!("can't create save file as no save path was provided")
+            }
         }
 
         if self.save_type == BackupType::AutoDetect {
@@ -102,7 +120,7 @@ impl GamepakBuilder {
             }
         }
 
-        let backup = create_backup(self.save_type, self.path);
+        let backup = create_backup(self.save_type, self.save_path);
 
         let size = bytes.len();
         Ok(Cartridge {
