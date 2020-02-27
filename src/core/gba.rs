@@ -89,6 +89,14 @@ impl GameBoyAdvance {
         Ok(())
     }
 
+    pub fn get_game_title(&self) -> String {
+        self.sysbus.cartridge.header.game_title.clone()
+    }
+
+    pub fn get_game_code(&self) -> String {
+        self.sysbus.cartridge.header.game_code.clone()
+    }
+
     #[inline]
     pub fn key_poll(&mut self) {
         self.sysbus.io.keyinput = self.input_device.borrow_mut().poll();

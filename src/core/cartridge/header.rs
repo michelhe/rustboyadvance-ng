@@ -29,11 +29,11 @@ use std::str::from_utf8;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CartridgeHeader {
     // rom_entry_point: Addr,
-    game_title: String,
-    game_code: String,
-    maker_code: String,
-    software_version: u8,
-    checksum: u8,
+    pub game_title: String,
+    pub game_code: String,
+    pub maker_code: String,
+    pub software_version: u8,
+    pub checksum: u8,
     // ram_entry_point: Addr,
     // joybus_entry_point: Addr,
 }
