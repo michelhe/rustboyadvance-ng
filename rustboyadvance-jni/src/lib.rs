@@ -22,11 +22,24 @@ use rustboyadvance_ng::prelude::*;
 
 struct Hardware {
     jvm: JavaVM,
+    frame_buffer_global_ref: GlobalRef,
     // frame_buffer: [u32; DISPLAY_WIDTH * DISPLAY_HEIGHT],
     key_state: u16,
 }
 
-impl VideoInterface for Hardware {}
+impl VideoInterface for Hardware {
+    fn render(&mut self, buffer: &[u32]) {
+        let env = self.jvm.get_env().unwrap();
+        unsafe {
+            env.set_int_array_region(
+                self.frame_buffer_global_ref.as_obj().into_inner(),
+                0,
+                std::mem::transmute::<&[u32], &[i32]>(buffer),
+            )
+            .unwrap();
+        }
+    }
+}
 impl AudioInterface for Hardware {}
 impl InputInterface for Hardware {
     fn poll(&mut self) -> u16 {
@@ -48,6 +61,7 @@ unsafe fn internal_open_context(
     env: &JNIEnv,
     bios: jbyteArray,
     rom: jbyteArray,
+    frame_buffer: jintArray,
     save_file: JString,
 ) -> Result<Context, String> {
     let bios = env
@@ -71,8 +85,13 @@ unsafe fn internal_open_context(
 
     info!("Loaded ROM file {:?}", gamepak.header);
 
+    let frame_buffer_global_ref = env
+        .new_global_ref(JObject::from(frame_buffer))
+        .map_err(|e| format!("failed to add new global ref, error: {:?}", e))?;
+
     let hw = Hardware {
         jvm: env.get_java_vm().unwrap(),
+        frame_buffer_global_ref: frame_buffer_global_ref,
         key_state: 0xffff,
     };
     let hw = Rc::new(RefCell::new(hw));
@@ -138,9 +157,10 @@ pub mod bindings {
         _obj: JClass,
         bios: jbyteArray,
         rom: jbyteArray,
+        frame_buffer: jintArray,
         save_file: JString,
     ) -> jlong {
-        match internal_open_context(&env, bios, rom, save_file) {
+        match internal_open_context(&env, bios, rom, frame_buffer, save_file) {
             Ok(ctx) => Box::into_raw(Box::new(Mutex::new(ctx))) as jlong,
             Err(msg) => {
                 env.throw_new(NATIVE_EXCEPTION_CLASS, msg).unwrap();
@@ -151,7 +171,7 @@ pub mod bindings {
 
     #[no_mangle]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_closeEmulator(
-        _env: JNIEnv,
+        env: JNIEnv,
         _obj: JClass,
         ctx: jlong,
     ) {
@@ -170,16 +190,16 @@ pub mod bindings {
         let mut ctx = lock_ctx(ctx);
 
         ctx.gba.frame();
-        let gpu_buffer =
-            std::mem::transmute::<&[u32], &[i32]>(&ctx.gba.get_frame_buffer() as &[u32]);
-        let result = env.set_int_array_region(frame_buffer, 0, gpu_buffer);
-        if let Err(e) = result {
-            env.throw_new(
-                NATIVE_EXCEPTION_CLASS,
-                format!("failed to copy framebuffer into Java, error: {}", e),
-            )
-            .unwrap();
-        }
+        // let gpu_buffer =
+        //     std::mem::transmute::<&[u32], &[i32]>(&ctx.gba.get_frame_buffer() as &[u32]);
+        // let result = env.set_int_array_region(frame_buffer, 0, gpu_buffer);
+        // if let Err(e) = result {
+        //     env.throw_new(
+        //         NATIVE_EXCEPTION_CLASS,
+        //         format!("failed to copy framebuffer into Java, error: {}", e),
+        //     )
+        //     .unwrap();
+        // }
     }
 
     #[no_mangle]
@@ -223,6 +243,26 @@ pub mod bindings {
             Ok(_) => {}
             Err(msg) => env.throw_new(NATIVE_EXCEPTION_CLASS, msg).unwrap(),
         }
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_getGameTitle(
+        env: JNIEnv,
+        _obj: JClass,
+        ctx: jlong,
+    ) -> jstring {
+        let ctx = lock_ctx(ctx);
+        env.new_string(ctx.gba.get_game_title()).unwrap().into_inner()
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_getGameCode(
+        env: JNIEnv,
+        _obj: JClass,
+        ctx: jlong,
+    ) -> jstring {
+        let ctx = lock_ctx(ctx);
+        env.new_string(ctx.gba.get_game_code()).unwrap().into_inner()
     }
 
     #[no_mangle]
