@@ -18,12 +18,29 @@ use android_log;
 #[cfg(not(target_os = "android"))]
 use env_logger;
 
+use ringbuf::{Consumer, Producer, RingBuffer};
+
 use rustboyadvance_ng::prelude::*;
+use rustboyadvance_ng::StereoSample;
+
+struct AudioRingBuffer {
+    pub prod: Producer<i16>,
+    pub cons: Consumer<i16>,
+}
+
+impl AudioRingBuffer {
+    fn new() -> AudioRingBuffer {
+        let rb = RingBuffer::new(4096 * 2);
+        let (prod, cons) = rb.split();
+
+        AudioRingBuffer { prod, cons }
+    }
+}
 
 struct Hardware {
     jvm: JavaVM,
     frame_buffer_global_ref: GlobalRef,
-    // frame_buffer: [u32; DISPLAY_WIDTH * DISPLAY_HEIGHT],
+    audio_buffer: AudioRingBuffer,
     key_state: u16,
 }
 
@@ -40,7 +57,12 @@ impl VideoInterface for Hardware {
         }
     }
 }
-impl AudioInterface for Hardware {}
+impl AudioInterface for Hardware {
+    fn push_sample(&mut self, sample: StereoSample<i16>) {
+        self.audio_buffer.prod.push(sample.0);
+        self.audio_buffer.prod.push(sample.1);
+    }
+}
 impl InputInterface for Hardware {
     fn poll(&mut self) -> u16 {
         self.key_state
@@ -92,6 +114,7 @@ unsafe fn internal_open_context(
     let hw = Hardware {
         jvm: env.get_java_vm().unwrap(),
         frame_buffer_global_ref: frame_buffer_global_ref,
+        audio_buffer: AudioRingBuffer::new(),
         key_state: 0xffff,
     };
     let hw = Rc::new(RefCell::new(hw));
@@ -190,16 +213,28 @@ pub mod bindings {
         let mut ctx = lock_ctx(ctx);
 
         ctx.gba.frame();
-        // let gpu_buffer =
-        //     std::mem::transmute::<&[u32], &[i32]>(&ctx.gba.get_frame_buffer() as &[u32]);
-        // let result = env.set_int_array_region(frame_buffer, 0, gpu_buffer);
-        // if let Err(e) = result {
-        //     env.throw_new(
-        //         NATIVE_EXCEPTION_CLASS,
-        //         format!("failed to copy framebuffer into Java, error: {}", e),
-        //     )
-        //     .unwrap();
-        // }
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_collectAudioSamples(
+        env: JNIEnv,
+        _obj: JClass,
+        ctx: jlong,
+    ) -> jshortArray {
+        let mut ctx = lock_ctx(ctx);
+
+        let mut hw = ctx.hwif.borrow_mut();
+
+        let mut samples = Vec::with_capacity(1024);
+
+        while let Some(sample) = hw.audio_buffer.cons.pop() {
+            samples.push(sample);
+        }
+
+        let arr = env.new_short_array(samples.len() as jsize).unwrap();
+        env.set_short_array_region(arr, 0, &samples);
+
+        return arr;
     }
 
     #[no_mangle]
@@ -252,7 +287,9 @@ pub mod bindings {
         ctx: jlong,
     ) -> jstring {
         let ctx = lock_ctx(ctx);
-        env.new_string(ctx.gba.get_game_title()).unwrap().into_inner()
+        env.new_string(ctx.gba.get_game_title())
+            .unwrap()
+            .into_inner()
     }
 
     #[no_mangle]
@@ -262,7 +299,9 @@ pub mod bindings {
         ctx: jlong,
     ) -> jstring {
         let ctx = lock_ctx(ctx);
-        env.new_string(ctx.gba.get_game_code()).unwrap().into_inner()
+        env.new_string(ctx.gba.get_game_code())
+            .unwrap()
+            .into_inner()
     }
 
     #[no_mangle]
