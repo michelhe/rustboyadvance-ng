@@ -2,7 +2,6 @@ package com.mrmichel.rustdroid_emu.core;
 
 import android.graphics.Bitmap;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 
 public class Snapshot {
