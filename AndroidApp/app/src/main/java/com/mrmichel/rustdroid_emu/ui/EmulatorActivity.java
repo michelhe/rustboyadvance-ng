@@ -1,25 +1,37 @@
 package com.mrmichel.rustdroid_emu.ui;
 
+import android.app.Activity;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.util.Log;
+import android.view.ContextMenu;
+import android.view.Menu;
+import android.view.MenuInflater;
+import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.WindowManager;
 import android.widget.ImageView;
-import android.widget.ToggleButton;
+import android.widget.Switch;
+import android.widget.Toast;
 
 import com.mrmichel.rustboyadvance.EmulatorBindings;
 import com.mrmichel.rustdroid_emu.core.Emulator;
 import com.mrmichel.rustdroid_emu.core.Keypad;
 import com.mrmichel.rustdroid_emu.R;
+import com.mrmichel.rustdroid_emu.core.Snapshot;
+import com.mrmichel.rustdroid_emu.core.SnapshotManager;
+import com.mrmichel.rustdroid_emu.ui.snapshots.ChosenSnapshot;
+import com.mrmichel.rustdroid_emu.ui.snapshots.SnapshotActivity;
 
 import java.io.File;
 import java.io.InputStream;
@@ -28,19 +40,20 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
 
     private static final String TAG = "EmulatorActivty";
     private static final int LOAD_ROM_REQUESTCODE = 123;
+    private static final int LOAD_SNAPSHOT_REQUESTCODE = 124;
 
     private byte[] bios;
     private Emulator emulator = null;
     private EmulationRunnable runnable;
     private Thread emulationThread;
-    private byte[] snapshot = null;
+    private byte[] on_resume_saved_state = null;
     private ImageView screen;
     private boolean turboMode = false;
 
     @Override
     public void onClick(View v) {
         if (v.getId() == R.id.tbTurbo) {
-            ToggleButton tbTurbo = (ToggleButton) findViewById(R.id.tbTurbo);
+            Switch tbTurbo = (Switch) findViewById(R.id.tbTurbo);
             this.turboMode = tbTurbo.isChecked();
         }
     }
@@ -131,6 +144,16 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
                     showAlertDiaglogAndExit(e);
                 }
             }
+            if (requestCode == LOAD_SNAPSHOT_REQUESTCODE) {
+                byte[] state = ChosenSnapshot.takeSnapshot().load();
+                if (emulator.isOpen()) {
+                    try {
+                        emulator.loadState(state);
+                    } catch (EmulatorBindings.NativeBindingException e) {
+                        showAlertDiaglogAndExit(e);
+                    }
+                }
+            }
         } else {
             Log.e(TAG, "got error for request code " + requestCode);
         }
@@ -187,9 +210,24 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_emulator);
 
+        this.getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
+
+
         this.bios = getIntent().getByteArrayExtra("bios");
         this.screen = findViewById(R.id.gbaMockImageView);
         this.emulator = new Emulator();
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        super.onCreateOptionsMenu(menu);
+        getMenuInflater().inflate(R.menu.menu_emulator, menu);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(@NonNull MenuItem item) {
+        return super.onOptionsItemSelected(item);
     }
 
     @Override
@@ -200,29 +238,56 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
                 runnable.pauseEmulation();
             }
             Log.d(TAG, "onPause - saving emulator state");
-            try {
-                snapshot = emulator.saveState();
-            } catch (EmulatorBindings.NativeBindingException e) {
-                showAlertDiaglogAndExit(e);
-            }
+//            try {
+//                on_resume_saved_state = emulator.saveState();
+//            } catch (EmulatorBindings.NativeBindingException e) {
+//                showAlertDiaglogAndExit(e);
+//            }
         }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (emulator.isOpen() && snapshot != null) {
+        if (emulator.isOpen()) {
             Log.d(TAG, "onResume - loading emulator state");
-            try {
-                emulator.loadState(snapshot);
-            } catch (EmulatorBindings.NativeBindingException e) {
-                showAlertDiaglogAndExit(e);
-            }
-            snapshot = null;
+//            try {
+//                emulator.loadState(on_resume_saved_state);
+//            } catch (EmulatorBindings.NativeBindingException e) {
+//                showAlertDiaglogAndExit(e);
+//            }
+//            on_resume_saved_state = null;
             if (runnable != null) {
                 runnable.resumeEmulation();
             }
         }
+    }
+
+    public void onSaveSnapshot(View v) {
+        SnapshotManager snapshotManager = SnapshotManager.getInstance(this);
+
+        runnable.pauseEmulation();
+        try {
+            String gameCode = emulator.getGameCode();
+            String gameTitle = emulator.getGameTitle();
+            byte[] saveState = emulator.saveState();
+            Bitmap preview = Bitmap.createBitmap(emulator.getFrameBuffer(), 240, 160, Bitmap.Config.RGB_565);
+
+            snapshotManager.saveSnapshot(gameCode, gameTitle, preview, saveState);
+            Toast.makeText(this, "Snapshot saved", Toast.LENGTH_LONG).show();
+
+        } catch (EmulatorBindings.NativeBindingException e) {
+            Log.e(TAG, e.toString());
+            showAlertDiaglogAndExit(e);
+        } finally {
+            runnable.resumeEmulation();
+        }
+    }
+
+
+    public void onViewSnapshots(View v) {
+        Intent intent = new Intent(this, SnapshotActivity.class);
+        startActivityForResult(intent, LOAD_SNAPSHOT_REQUESTCODE);
     }
 
     public void updateScreen(Bitmap bmp) {
@@ -247,19 +312,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
 
         private void emulate() {
             long startTimer = System.nanoTime();
-
-            try {
-                emulator.runFrame();
-            } catch (final EmulatorBindings.NativeBindingException e) {
-                this.running = false;
-                emulatorActivity.runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        showAlertDiaglogAndExit(e);
-                    }
-                });
-            }
-
+            emulator.runFrame();
             if (!emulatorActivity.turboMode) {
                 long currentTime = System.nanoTime();
                 long timePassed = currentTime - startTimer;
