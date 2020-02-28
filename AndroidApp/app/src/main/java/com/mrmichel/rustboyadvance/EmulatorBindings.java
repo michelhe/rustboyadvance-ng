@@ -46,6 +46,13 @@ public class EmulatorBindings {
     public static native void runFrame(long ctx, int[] frame_buffer);
 
     /**
+     * Collect pending audio samples
+     * @param ctx
+     * @return sample buffer
+     */
+    public static native short[] collectAudioSamples(long ctx);
+
+    /**
      * @param ctx
      * @return The loaded ROM title
      */

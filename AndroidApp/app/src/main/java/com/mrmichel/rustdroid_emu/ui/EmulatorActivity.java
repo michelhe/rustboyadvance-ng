@@ -1,10 +1,13 @@
 package com.mrmichel.rustdroid_emu.ui;
 
-import android.app.Activity;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.media.AudioFormat;
+import android.media.AudioManager;
+import android.media.AudioTrack;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 
 import androidx.annotation.NonNull;
@@ -13,9 +16,7 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import android.util.Log;
-import android.view.ContextMenu;
 import android.view.Menu;
-import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
@@ -25,10 +26,10 @@ import android.widget.Switch;
 import android.widget.Toast;
 
 import com.mrmichel.rustboyadvance.EmulatorBindings;
+import com.mrmichel.rustdroid_emu.core.AudioThread;
 import com.mrmichel.rustdroid_emu.core.Emulator;
 import com.mrmichel.rustdroid_emu.core.Keypad;
 import com.mrmichel.rustdroid_emu.R;
-import com.mrmichel.rustdroid_emu.core.Snapshot;
 import com.mrmichel.rustdroid_emu.core.SnapshotManager;
 import com.mrmichel.rustdroid_emu.ui.snapshots.ChosenSnapshot;
 import com.mrmichel.rustdroid_emu.ui.snapshots.SnapshotActivity;
@@ -39,13 +40,18 @@ import java.io.InputStream;
 public class EmulatorActivity extends AppCompatActivity implements View.OnClickListener, View.OnTouchListener {
 
     private static final String TAG = "EmulatorActivty";
+
     private static final int LOAD_ROM_REQUESTCODE = 123;
     private static final int LOAD_SNAPSHOT_REQUESTCODE = 124;
+
+    private static int SAMPLE_RATE_HZ = 44100;
 
     private byte[] bios;
     private Emulator emulator = null;
     private EmulationRunnable runnable;
     private Thread emulationThread;
+    private AudioThread audioThread;
+    private AudioTrack audioTrack;
     private byte[] on_resume_saved_state = null;
     private ImageView screen;
     private boolean turboMode = false;
@@ -169,6 +175,16 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
             }
             emulationThread = null;
         }
+        if (audioThread != null) {
+            audioThread.setStopping(true);
+            try {
+                audioThread.join();
+            } catch (InterruptedException e) {
+                Log.e(TAG, "audio thread join interrupted");
+            };
+            audioThread = null;
+        }
+
         if (emulator.isOpen()) {
             emulator.close();
         }
@@ -193,6 +209,9 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
         runnable = new EmulationRunnable(this.emulator, this);
         emulationThread = new Thread(runnable);
         emulationThread.start();
+
+        audioThread = new AudioThread(audioTrack, emulator);
+        audioThread.start();
     }
 
     public void loadRomButton(View v) {
@@ -216,6 +235,31 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
         this.bios = getIntent().getByteArrayExtra("bios");
         this.screen = findViewById(R.id.gbaMockImageView);
         this.emulator = new Emulator();
+
+        if (Build.VERSION.SDK_INT >= 23) {
+            AudioTrack.Builder audioTrackBuilder = new AudioTrack.Builder()
+                    .setAudioFormat(new AudioFormat.Builder()
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setSampleRate(SAMPLE_RATE_HZ)
+                            .setChannelMask(AudioFormat.CHANNEL_IN_STEREO | AudioFormat.CHANNEL_OUT_STEREO)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(4096)
+                    .setTransferMode(AudioTrack.MODE_STREAM);
+            if (Build.VERSION.SDK_INT >= 26) {
+                audioTrackBuilder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY);
+            }
+            this.audioTrack = audioTrackBuilder.build();
+        } else {
+            this.audioTrack = new AudioTrack(
+                    AudioManager.STREAM_MUSIC,
+                    SAMPLE_RATE_HZ,
+                    AudioFormat.CHANNEL_IN_STEREO | AudioFormat.CHANNEL_OUT_STEREO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    4096,
+                    AudioTrack.MODE_STREAM);
+        }
+        this.audioTrack.play();
     }
 
     @Override
@@ -233,6 +277,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
     @Override
     protected void onPause() {
         super.onPause();
+        audioTrack.stop();
         if (emulator.isOpen()) {
             if (runnable != null) {
                 runnable.pauseEmulation();
@@ -261,6 +306,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
                 runnable.resumeEmulation();
             }
         }
+        audioTrack.play();
     }
 
     public void onSaveSnapshot(View v) {

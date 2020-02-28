@@ -5,7 +5,6 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ArrayAdapter;
-import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.TextView;
 
@@ -14,8 +13,6 @@ import androidx.annotation.Nullable;
 
 import com.mrmichel.rustdroid_emu.R;
 import com.mrmichel.rustdroid_emu.core.Snapshot;
-
-import org.w3c.dom.Text;
 
 import java.sql.Timestamp;
 import java.util.ArrayList;

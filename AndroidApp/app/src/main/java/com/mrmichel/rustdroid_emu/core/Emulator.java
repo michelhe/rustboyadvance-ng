@@ -1,7 +1,5 @@
 package com.mrmichel.rustdroid_emu.core;
 
-import android.graphics.Bitmap;
-
 import com.mrmichel.rustboyadvance.EmulatorBindings;
 
 public class Emulator {
@@ -32,8 +30,12 @@ public class Emulator {
     }
 
     public synchronized void runFrame() {
-        EmulatorBindings.setKeyState(this.ctx, this.keypad.getKeyState());
-        EmulatorBindings.runFrame(this.ctx, this.frameBuffer);
+        EmulatorBindings.setKeyState(ctx, keypad.getKeyState());
+        EmulatorBindings.runFrame(ctx, frameBuffer);
+    }
+
+    public synchronized short[] collectAudioSamples() {
+        return EmulatorBindings.collectAudioSamples(ctx);
     }
 
     public synchronized void setKeyState(int keyState) {
