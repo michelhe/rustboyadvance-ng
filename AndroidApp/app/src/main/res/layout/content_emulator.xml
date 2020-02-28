@@ -28,7 +28,7 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.517"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/bSave" />
+        app:layout_constraintTop_toBottomOf="@+id/bSnapshotSave" />
 
     <Button
         android:id="@+id/buttonB"
@@ -129,26 +129,32 @@
         app:layout_constraintTop_toTopOf="parent" />
 
     <Button
-        android:id="@+id/bSave"
+        android:id="@+id/bSnapshotSave"
+        style="@style/Widget.AppCompat.Button.Small"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:layout_marginEnd="32dp"
-        android:text="Save"
+        android:layout_marginEnd="4dp"
+        android:onClick="onSaveSnapshot"
+        android:text="@string/action_save_snapshot"
         app:layout_constraintEnd_toStartOf="@+id/bRestore"
+        app:layout_constraintStart_toEndOf="@+id/bLoadRom"
         app:layout_constraintTop_toTopOf="parent" />
 
     <Button
         android:id="@+id/bRestore"
+        style="@style/Widget.AppCompat.Button.Small"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
         android:layout_marginEnd="16dp"
         android:layout_marginBottom="12dp"
-        android:text="Button"
+        android:onClick="onViewSnapshots"
+        android:text="@string/action_view_snapshot"
         app:layout_constraintBottom_toTopOf="@+id/gbaMockImageView"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_bias="0.0" />
 
     <TextView
         android:id="@+id/tvFPS"

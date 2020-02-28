@@ -13,10 +13,17 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
         <activity
-            android:name="com.mrmichel.rustdroid_emu.ui.EmulatorActivity"
+            android:name=".ui.snapshots.SnapshotActivity"
+            android:label="@string/title_activity_snapshot"
+            ></activity>
+        <activity
+            android:name=".ui.RomListActivity"
+            android:label="@string/title_activity_rom_list" />
+        <activity
+            android:name=".ui.EmulatorActivity"
             android:label="@string/title_activity_emulator"
-            android:theme="@style/AppTheme.NoActionBar"></activity>
-        <activity android:name="com.mrmichel.rustdroid_emu.ui.SplashActivity">
+            android:theme="@style/AppTheme.NoActionBar" />
+        <activity android:name=".ui.SplashActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

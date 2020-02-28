@@ -15,11 +15,12 @@ public class EmulatorBindings {
      * Open a new emulator context
      * @param bios bytearray of the GBA bios
      * @param rom bytearray of the rom to run
+     * @param frameBuffer frameBuffer render target
      * @param save_name name of the save file TODO remove this
      * @return the emulator context to use pass to other methods in this class
      * @throws NativeBindingException
      */
-    public static native long openEmulator(byte[] bios, byte[] rom, String save_name) throws NativeBindingException;
+    public static native long openEmulator(byte[] bios, byte[] rom, int[] frameBuffer, String save_name) throws NativeBindingException;
 
     /**
      * Make the emulator boot directly into the cartridge
@@ -41,15 +42,25 @@ public class EmulatorBindings {
      * Runs the emulation for a single frame.
      * @param ctx
      * @param frame_buffer will be filled with the frame buffer to render
-     * @return
-     * @throws NativeBindingException
      */
-    public static native void runFrame(long ctx, int[] frame_buffer) throws NativeBindingException;
+    public static native void runFrame(long ctx, int[] frame_buffer);
+
+    /**
+     * @param ctx
+     * @return The loaded ROM title
+     */
+    public static native String getGameTitle(long ctx);
+
+    /**
+     * @param ctx
+     * @return The loaded ROM game code
+     */
+    public static native String getGameCode(long ctx);
+
 
     /**
      * Sets the keystate
      * @param keyState
-     * @return non-zero value on failure
      */
     public static native void setKeyState(long ctx, int keyState);
 
