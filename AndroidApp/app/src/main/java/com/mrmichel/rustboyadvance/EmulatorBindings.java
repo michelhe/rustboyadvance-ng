@@ -5,6 +5,10 @@ package com.mrmichel.rustboyadvance;
  */
 public class EmulatorBindings {
 
+    static {
+        System.loadLibrary("rustboyadvance_jni");
+    }
+
     public class NativeBindingException extends Exception {
         public NativeBindingException(String errorMessage) {
             super(errorMessage);
@@ -17,10 +21,20 @@ public class EmulatorBindings {
      * @param rom bytearray of the rom to run
      * @param frameBuffer frameBuffer render target
      * @param save_name name of the save file TODO remove this
+     * @param skipBios skip bios
      * @return the emulator context to use pass to other methods in this class
      * @throws NativeBindingException
      */
-    public static native long openEmulator(byte[] bios, byte[] rom, int[] frameBuffer, String save_name) throws NativeBindingException;
+    public static native long openEmulator(byte[] bios, byte[] rom, int[] frameBuffer, String save_name, boolean skipBios) throws NativeBindingException;
+
+    /**
+     * Open a new emulator context from a saved state buffer
+     * @param savedState
+     * @param frameBuffer
+     * @return
+     * @throws NativeBindingException
+     */
+    public static native long openSavedState(byte[] savedState, int[] frameBuffer) throws NativeBindingException;
 
     /**
      * Make the emulator boot directly into the cartridge

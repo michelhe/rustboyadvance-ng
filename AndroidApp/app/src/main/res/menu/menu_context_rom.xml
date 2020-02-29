@@ -1,0 +1,31 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+
+    android:id="@+id/menu_context_rom"
+    tools:context="com.mrmichel.rustdroid_emu.ui.library.RomListActivity">
+
+
+    <item
+        android:id="@+id/action_play"
+        android:icon="@android:drawable/ic_media_play"
+        android:title="@string/action_load_rom"
+        app:showAsAction="ifRoom|withText" />
+
+    <item
+        android:id="@+id/action_set_screenshot"
+        android:title="@string/action_set_screenshot"
+    />
+
+    <item
+        android:title="@string/action_view_snapshot"
+        app:showAsAction="withText"
+        android:id="@+id/action_view_snapshots" />
+
+
+    <item
+        android:id="@+id/action_delete"
+        android:icon="@android:drawable/ic_menu_delete"
+        android:title="@string/action_delete"
+        app:showAsAction="ifRoom|withText" />
+</menu>

@@ -1,12 +1,5 @@
 package com.mrmichel.rustdroid_emu.ui;
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.appcompat.app.AlertDialog;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
-
 import android.Manifest;
 import android.app.ActivityManager;
 import android.content.Context;
@@ -19,7 +12,15 @@ import android.os.Bundle;
 import android.util.Log;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+
 import com.mrmichel.rustdroid_emu.R;
+import com.mrmichel.rustdroid_emu.ui.library.RomListActivity;
 
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -49,7 +50,7 @@ public class SplashActivity extends AppCompatActivity {
     }
 
     private void checkOpenGLES20() {
-        ActivityManager am = (ActivityManager)getSystemService(Context.ACTIVITY_SERVICE);
+        ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
         ConfigurationInfo configurationInfo = am.getDeviceConfigurationInfo();
         if (configurationInfo.reqGlEsVersion >= 0x20000) {
             // Supported
@@ -81,7 +82,7 @@ public class SplashActivity extends AppCompatActivity {
             // No explanation needed; request the permission
             ActivityCompat.requestPermissions(this
                     ,
-                    new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
+                    new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE},
                     REQUEST_PERMISSION_CODE);
         } else {
             // Permission has already been granted
@@ -90,7 +91,7 @@ public class SplashActivity extends AppCompatActivity {
         }
     }
 
-    private void cacheBiosInAppFiles(byte[] bios) throws FileNotFoundException, IOException {
+    private void cacheBiosInAppFiles(byte[] bios) throws IOException {
         FileOutputStream fos = openFileOutput("gba_bios.bin", MODE_PRIVATE);
         fos.write(bios);
         fos.close();
@@ -110,7 +111,7 @@ public class SplashActivity extends AppCompatActivity {
 
                     cacheBiosInAppFiles(bios);
 
-                    initEmulator(bios);
+                    startLibraryActivity(bios);
                 } catch (Exception e) {
                     Log.e(TAG, "can't open bios file");
                     this.finishAffinity();
@@ -126,7 +127,7 @@ public class SplashActivity extends AppCompatActivity {
             FileInputStream fis = openFileInput("gba_bios.bin");
             byte[] bios = new byte[fis.available()];
             fis.read(bios);
-            initEmulator(bios);
+            startLibraryActivity(bios);
         } catch (FileNotFoundException e) {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.setType("*/*");
@@ -138,9 +139,10 @@ public class SplashActivity extends AppCompatActivity {
         }
     }
 
-    private void initEmulator(byte[] bios) {
-        Intent intent = new Intent(this, EmulatorActivity.class);
+    private void startLibraryActivity(byte[] bios) {
+        Intent intent = new Intent(this, RomListActivity.class);
         intent.putExtra("bios", bios);
         startActivity(intent);
+        finish();
     }
 }

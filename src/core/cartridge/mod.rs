@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Addr, Bus};
 
-mod header;
+pub mod header;
 use header::CartridgeHeader;
 
 mod backup;

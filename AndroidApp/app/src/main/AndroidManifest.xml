@@ -2,7 +2,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.mrmichel.rustdroid_emu">
 
-    <uses-feature android:glEsVersion="0x00200000" android:required="true"></uses-feature>
+    <uses-feature
+        android:glEsVersion="0x00200000"
+        android:required="true" />
+
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
@@ -13,17 +16,18 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
+        <activity android:name=".ui.snapshots.SnapshotPickerActivity"></activity>
         <activity
-            android:name=".ui.snapshots.SnapshotActivity"
-            android:label="@string/title_activity_snapshot"
-            ></activity>
+            android:name=".ui.snapshots.SnapshotListFragment"
+            android:label="@string/title_activity_snapshot" />
         <activity
-            android:name=".ui.RomListActivity"
+            android:name=".ui.library.RomListActivity"
             android:label="@string/title_activity_rom_list" />
         <activity
             android:name=".ui.EmulatorActivity"
-            android:label="@string/title_activity_emulator"
-            android:theme="@style/AppTheme.NoActionBar" />
+            android:label="@string/title_activity_emulator" />
+        <activity android:name=".ui.SettingsActivity"
+            android:label="Settings" />
         <activity android:name=".ui.SplashActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

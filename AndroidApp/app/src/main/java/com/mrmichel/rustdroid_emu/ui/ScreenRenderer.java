@@ -1,12 +1,9 @@
 package com.mrmichel.rustdroid_emu.ui;
 
-import android.content.Context;
 import android.graphics.Bitmap;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
 import android.opengl.GLUtils;
-import android.util.AttributeSet;
-import android.view.SurfaceHolder;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -15,8 +12,10 @@ import java.nio.FloatBuffer;
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
 
-public class GbaScreenView extends GLSurfaceView implements GLSurfaceView.Renderer {
-    ScreenTexture texture;
+public class ScreenRenderer implements GLSurfaceView.Renderer {
+
+    private ScreenTexture texture;
+    private boolean ready = false;
 
     /**
      * Private class to manage the screen texture rendering
@@ -72,7 +71,8 @@ public class GbaScreenView extends GLSurfaceView implements GLSurfaceView.Render
                         "uniform sampler2D s_texture;                        \n" +
                         "void main()                                         \n" +
                         "{                                                   \n" +
-                        "  gl_FragColor = texture2D( s_texture, v_texCoord );\n" +
+                        "  vec4 color = texture2D( s_texture, v_texCoord );  \n" +
+                        "  gl_FragColor = color;                             \n" +
                         "}                                                   \n";
 
 
@@ -191,34 +191,20 @@ public class GbaScreenView extends GLSurfaceView implements GLSurfaceView.Render
         }
     }
 
-    public GbaScreenView(Context context) {
-        super(context);
-        init();
-    }
-
-    public GbaScreenView(Context context, AttributeSet attrs) {
-        super(context, attrs);
-        init();
-    }
-
-    private void init() {
-        this.setEGLContextClientVersion(2);
-        this.setPreserveEGLContextOnPause(true);
-        this.setRenderer(this);
-        this.setRenderMode(RENDERMODE_WHEN_DIRTY);
-    }
-
-    public void updateFrame(int[] frameBuffer) {
+    public void updateTexture(int[] frameBuffer) {
         this.texture.update(frameBuffer);
-        requestRender();
     }
 
+    public void initTextureIfNotInitialized() {
+        if (this.texture == null) {
+            this.texture = new ScreenTexture();
+        }
+    }
 
     @Override
     public void onSurfaceCreated(GL10 gl, EGLConfig config) {
-        texture = new ScreenTexture();
-
-        getHolder().setKeepScreenOn(true);
+        initTextureIfNotInitialized();
+        ready = true;
     }
 
     @Override
@@ -231,10 +217,7 @@ public class GbaScreenView extends GLSurfaceView implements GLSurfaceView.Render
         this.texture.render();
     }
 
-    @Override
-    public void surfaceDestroyed(SurfaceHolder holder) {
-        holder.setKeepScreenOn(false);
-        this.texture.destroy();
-        super.surfaceDestroyed(holder);
+    public boolean isReady() {
+        return ready;
     }
 }

@@ -68,6 +68,26 @@ impl GameBoyAdvance {
         gba
     }
 
+    pub fn from_saved_state(
+        savestate: &[u8],
+        video_device: Rc<RefCell<dyn VideoInterface>>,
+        audio_device: Rc<RefCell<dyn AudioInterface>>,
+        input_device: Rc<RefCell<dyn InputInterface>>,
+    ) -> bincode::Result<GameBoyAdvance> {
+        let decoded: Box<SaveState> = bincode::deserialize_from(savestate)?;
+
+        Ok(GameBoyAdvance {
+            cpu: decoded.cpu,
+            sysbus: decoded.sysbus,
+
+            video_device: video_device,
+            audio_device: audio_device,
+            input_device: input_device,
+
+            cycles_to_next_event: 1,
+        })
+    }
+
     pub fn save_state(&self) -> bincode::Result<Vec<u8>> {
         let s = SaveState {
             cpu: self.cpu.clone(),

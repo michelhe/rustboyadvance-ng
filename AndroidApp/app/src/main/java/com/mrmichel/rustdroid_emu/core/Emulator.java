@@ -16,13 +16,23 @@ public class Emulator {
     private int[] frameBuffer;
     public Keypad keypad;
 
-    static {
-        System.loadLibrary("rustboyadvance_jni");
+    public Emulator() {
+        this.frameBuffer = new int[240 * 160];
+        this.keypad = new Keypad();
     }
 
-    public Emulator() {
-        frameBuffer = new int[240 * 160];
-        keypad = new Keypad();
+    public Emulator(long ctx) {
+        this.ctx = ctx;
+        this.frameBuffer = new int[240 * 160];
+        this.keypad = new Keypad();
+
+    }
+
+    /**
+     * Get the native emulator handle for caching
+     */
+    public long getCtx() {
+        return ctx;
     }
 
     public int[] getFrameBuffer() {
@@ -49,12 +59,20 @@ public class Emulator {
 
 
     public synchronized void loadState(byte[] state) throws EmulatorBindings.NativeBindingException {
-        EmulatorBindings.loadState(this.ctx, state);
+        if (ctx != -1) {
+            EmulatorBindings.loadState(this.ctx, state);
+        } else {
+            openSavedState(state);
+        }
     }
 
 
-    public synchronized void open(byte[] bios, byte[] rom, String saveName) throws EmulatorBindings.NativeBindingException {
-        this.ctx = EmulatorBindings.openEmulator(bios, rom, this.frameBuffer, saveName);
+    public synchronized void open(byte[] bios, byte[] rom, String saveName, boolean skipBios) throws EmulatorBindings.NativeBindingException {
+        this.ctx = EmulatorBindings.openEmulator(bios, rom, this.frameBuffer, saveName, skipBios);
+    }
+
+    public synchronized void openSavedState(byte[] savedState) throws EmulatorBindings.NativeBindingException {
+        this.ctx = EmulatorBindings.openSavedState(savedState, this.frameBuffer);
     }
 
     public synchronized void close() {
@@ -66,11 +84,19 @@ public class Emulator {
     }
 
     public String getGameCode() {
-        return EmulatorBindings.getGameCode(ctx);
+        if (ctx != -1) {
+            return EmulatorBindings.getGameCode(ctx);
+        } else {
+            return null;
+        }
     }
 
     public String getGameTitle() {
-        return EmulatorBindings.getGameTitle(ctx);
+        if (ctx != -1) {
+            return EmulatorBindings.getGameTitle(ctx);
+        } else {
+            return null;
+        }
     }
 
     public boolean isOpen() {

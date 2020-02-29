@@ -1,20 +1,40 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
-    tools:context="com.mrmichel.rustdroid_emu.ui.RomListActivity">
+    tools:context="com.mrmichel.rustdroid_emu.ui.EmulatorActivity">
+
+
+    <item
+        android:id="@+id/action_load_rom"
+        android:orderInCategory="1"
+        android:title="@string/action_load_rom" />
+
+<!--    <item-->
+<!--        android:title="@string/submenu_snapshots"-->
+<!--        android:orderInCategory="2"-->
+<!--        >-->
+<!--        <menu>-->
+    <item
+        android:id="@+id/action_save_snapshot"
+        android:enabled="false"
+        android:icon="@android:drawable/ic_menu_save"
+        android:orderInCategory="100"
+        android:title="@string/action_save_snapshot"
+        app:showAsAction="ifRoom|withText" />
+    <item
+        android:id="@+id/action_view_snapshots"
+        android:icon="@android:drawable/ic_menu_gallery"
+        android:orderInCategory="101"
+        android:title="@string/action_view_snapshot"
+        app:showAsAction="ifRoom|withText" />
+<!--        </menu>-->
+<!--    </item>-->
+
     <item
         android:id="@+id/action_settings"
         android:orderInCategory="100"
+        android:menuCategory="system"
         android:title="@string/action_settings"
         app:showAsAction="never" />
-    <item
-        android:id="@+id/action_save_snapshot"
-        android:icon="@android:drawable/ic_input_add"
-        android:orderInCategory="101"
-        android:title="@string/action_save_snapshot"
-        app:showAsAction="withText" />
-    <item
-        android:id="@+id/action_view_snapshots"
-        android:orderInCategory="102"
-        android:title="@string/action_view_snapshot" />
+
 </menu>

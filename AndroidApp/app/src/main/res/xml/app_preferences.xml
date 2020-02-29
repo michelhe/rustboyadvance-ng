@@ -1,0 +1,8 @@
+<PreferenceScreen
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <CheckBoxPreference
+        app:key="skip_bios"
+        app:title="Skip bios boot animation"/>
+
+</PreferenceScreen>
