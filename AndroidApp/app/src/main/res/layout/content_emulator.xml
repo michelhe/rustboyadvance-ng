@@ -17,14 +17,12 @@
         app:layout_constraintStart_toStartOf="parent" />
 
 
-    <ImageView
-        android:id="@+id/gbaMockImageView"
-        android:layout_width="400dp"
-        android:layout_height="296dp"
-        android:layout_marginStart="20dp"
-        android:layout_marginTop="12dp"
-        android:layout_marginEnd="20dp"
-        android:background="#2D2D33"
+    <com.mrmichel.rustdroid_emu.ui.GbaScreenView
+        android:id="@+id/gba_view"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="120dp"
+        app:layout_constraintDimensionRatio="H, 3:2"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintHorizontal_bias="0.517"
         app:layout_constraintStart_toStartOf="parent"
@@ -90,7 +88,7 @@
         android:layout_marginTop="24dp"
         android:text="L"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/gbaMockImageView" />
+        app:layout_constraintTop_toBottomOf="@+id/gba_view" />
 
     <Button
         android:id="@+id/buttonR"
@@ -100,7 +98,7 @@
         android:layout_marginEnd="2dp"
         android:text="R"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/gbaMockImageView" />
+        app:layout_constraintTop_toBottomOf="@+id/gba_view" />
 
     <Switch
         android:id="@+id/tbTurbo"
