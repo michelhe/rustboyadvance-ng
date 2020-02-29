@@ -21,7 +21,6 @@ import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
-import android.widget.ImageView;
 import android.widget.Switch;
 import android.widget.Toast;
 
@@ -53,8 +52,8 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
     private AudioThread audioThread;
     private AudioTrack audioTrack;
     private byte[] on_resume_saved_state = null;
-    private ImageView screen;
     private boolean turboMode = false;
+    private GbaScreenView gbaScreenView;
 
     @Override
     public void onClick(View v) {
@@ -233,7 +232,6 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
 
 
         this.bios = getIntent().getByteArrayExtra("bios");
-        this.screen = findViewById(R.id.gbaMockImageView);
         this.emulator = new Emulator();
 
         if (Build.VERSION.SDK_INT >= 23) {
@@ -260,6 +258,8 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
                     AudioTrack.MODE_STREAM);
         }
         this.audioTrack.play();
+
+        this.gbaScreenView = findViewById(R.id.gba_view);
     }
 
     @Override
@@ -336,10 +336,6 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
         startActivityForResult(intent, LOAD_SNAPSHOT_REQUESTCODE);
     }
 
-    public void updateScreen(Bitmap bmp) {
-        this.screen.setImageBitmap(bmp);
-    }
-
     private class EmulationRunnable implements Runnable {
 
         public static final long NANOSECONDS_PER_MILLISECOND = 1000000;
@@ -373,14 +369,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
                 }
             }
 
-            emulatorActivity.runOnUiThread(new Runnable() {
-                Bitmap bitmap = Bitmap.createBitmap(emulator.getFrameBuffer(), 240, 160, Bitmap.Config.RGB_565);
-
-                @Override
-                public void run() {
-                    emulatorActivity.updateScreen(bitmap);
-                }
-            });
+            emulatorActivity.gbaScreenView.updateFrame(emulator.getFrameBuffer());
         }
 
         public void pauseEmulation() {

@@ -2,12 +2,17 @@ package com.mrmichel.rustdroid_emu.ui;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import android.Manifest;
+import android.app.ActivityManager;
+import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.pm.ConfigurationInfo;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
@@ -43,10 +48,31 @@ public class SplashActivity extends AppCompatActivity {
         }
     }
 
+    private void checkOpenGLES20() {
+        ActivityManager am = (ActivityManager)getSystemService(Context.ACTIVITY_SERVICE);
+        ConfigurationInfo configurationInfo = am.getDeviceConfigurationInfo();
+        if (configurationInfo.reqGlEsVersion >= 0x20000) {
+            // Supported
+        } else {
+            new AlertDialog.Builder(this)
+                    .setTitle("OpenGLES 2")
+                    .setMessage("Your device doesn't support GLES20. reqGLEsVersion = " + configurationInfo.reqGlEsVersion)
+                    .setPositiveButton(android.R.string.yes, new DialogInterface.OnClickListener() {
+                        public void onClick(DialogInterface dialog, int which) {
+                            finishAffinity();
+                        }
+                    })
+                    .setIcon(android.R.drawable.ic_dialog_alert)
+                    .show();
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.splash_activity);
+
+        checkOpenGLES20();
 
         if (ContextCompat.checkSelfPermission(this,
                 Manifest.permission.WRITE_EXTERNAL_STORAGE)
