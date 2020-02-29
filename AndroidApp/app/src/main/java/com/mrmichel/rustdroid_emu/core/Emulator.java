@@ -66,11 +66,19 @@ public class Emulator {
     }
 
     public String getGameCode() {
-        return EmulatorBindings.getGameCode(ctx);
+        if (ctx != -1) {
+            return EmulatorBindings.getGameCode(ctx);
+        } else {
+            return null;
+        }
     }
 
     public String getGameTitle() {
-        return EmulatorBindings.getGameTitle(ctx);
+        if (ctx != -1) {
+            return EmulatorBindings.getGameTitle(ctx);
+        } else {
+            return null;
+        }
     }
 
     public boolean isOpen() {

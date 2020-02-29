@@ -14,14 +14,17 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentTransaction;
 
 import android.util.Log;
+import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
-import android.widget.Switch;
+import android.widget.CompoundButton;
 import android.widget.Toast;
 
 import com.mrmichel.rustboyadvance.EmulatorBindings;
@@ -29,14 +32,16 @@ import com.mrmichel.rustdroid_emu.core.AudioThread;
 import com.mrmichel.rustdroid_emu.core.Emulator;
 import com.mrmichel.rustdroid_emu.core.Keypad;
 import com.mrmichel.rustdroid_emu.R;
+import com.mrmichel.rustdroid_emu.core.Snapshot;
 import com.mrmichel.rustdroid_emu.core.SnapshotManager;
 import com.mrmichel.rustdroid_emu.ui.snapshots.ChosenSnapshot;
-import com.mrmichel.rustdroid_emu.ui.snapshots.SnapshotActivity;
+import com.mrmichel.rustdroid_emu.ui.snapshots.ISnapshotListener;
+import com.mrmichel.rustdroid_emu.ui.snapshots.SnapshotViewerFragment;
 
 import java.io.File;
 import java.io.InputStream;
 
-public class EmulatorActivity extends AppCompatActivity implements View.OnClickListener, View.OnTouchListener {
+public class EmulatorActivity extends AppCompatActivity implements View.OnClickListener, View.OnTouchListener, ISnapshotListener {
 
     private static final String TAG = "EmulatorActivty";
 
@@ -44,6 +49,8 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
     private static final int LOAD_SNAPSHOT_REQUESTCODE = 124;
 
     private static int SAMPLE_RATE_HZ = 44100;
+
+    private Menu menu;
 
     private byte[] bios;
     private Emulator emulator = null;
@@ -58,8 +65,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
     @Override
     public void onClick(View v) {
         if (v.getId() == R.id.tbTurbo) {
-            Switch tbTurbo = (Switch) findViewById(R.id.tbTurbo);
-            this.turboMode = tbTurbo.isChecked();
+            this.turboMode = ((CompoundButton)findViewById(R.id.tbTurbo)).isChecked();
         }
     }
 
@@ -149,16 +155,6 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
                     showAlertDiaglogAndExit(e);
                 }
             }
-            if (requestCode == LOAD_SNAPSHOT_REQUESTCODE) {
-                byte[] state = ChosenSnapshot.takeSnapshot().load();
-                if (emulator.isOpen()) {
-                    try {
-                        emulator.loadState(state);
-                    } catch (EmulatorBindings.NativeBindingException e) {
-                        showAlertDiaglogAndExit(e);
-                    }
-                }
-            }
         } else {
             Log.e(TAG, "got error for request code " + requestCode);
         }
@@ -200,6 +196,8 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
         findViewById(R.id.bDpadRight).setOnTouchListener(this);
         findViewById(R.id.tbTurbo).setOnClickListener(this);
 
+        menu.findItem(R.id.action_save_snapshot).setEnabled(true);
+
         try {
             emulator.open(this.bios, rom, savePath);
         } catch (EmulatorBindings.NativeBindingException e) {
@@ -213,7 +211,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
         audioThread.start();
     }
 
-    public void loadRomButton(View v) {
+    public void doLoadRom() {
         if (runnable != null) {
             runnable.pauseEmulation();
         }
@@ -224,15 +222,24 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
     }
 
     @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_emulator);
 
         this.getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
-
+        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
 
         this.bios = getIntent().getByteArrayExtra("bios");
-        this.emulator = new Emulator();
+        if (this.emulator == null) {
+            this.emulator = new Emulator();
+        } else {
+            Log.d(TAG, "Orientation was changed");
+        }
 
         if (Build.VERSION.SDK_INT >= 23) {
             AudioTrack.Builder audioTrackBuilder = new AudioTrack.Builder()
@@ -266,12 +273,25 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
     public boolean onCreateOptionsMenu(Menu menu) {
         super.onCreateOptionsMenu(menu);
         getMenuInflater().inflate(R.menu.menu_emulator, menu);
+        this.menu = menu;
         return true;
     }
 
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
-        return super.onOptionsItemSelected(item);
+        switch (item.getItemId()) {
+            case R.id.action_load_rom:
+                doLoadRom();
+                return true;
+            case R.id.action_view_snapshots:
+                doViewSnapshots();
+                return true;
+            case R.id.action_save_snapshot:
+                doSaveSnapshot();
+                return true;
+            default:
+                return super.onOptionsItemSelected(item);
+        }
     }
 
     @Override
@@ -309,7 +329,12 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
         audioTrack.play();
     }
 
-    public void onSaveSnapshot(View v) {
+    public void doSaveSnapshot() {
+        if (!emulator.isOpen()) {
+            Toast.makeText(this, "No game is running!", Toast.LENGTH_LONG).show();
+            return;
+        }
+
         SnapshotManager snapshotManager = SnapshotManager.getInstance(this);
 
         runnable.pauseEmulation();
@@ -330,10 +355,44 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
         }
     }
 
+    public void doViewSnapshots() {
+//        Intent intent = new Intent(this, SnapshotViewerFragment.class);
+//        startActivityForResult(intent, LOAD_SNAPSHOT_REQUESTCODE);
 
-    public void onViewSnapshots(View v) {
-        Intent intent = new Intent(this, SnapshotActivity.class);
-        startActivityForResult(intent, LOAD_SNAPSHOT_REQUESTCODE);
+        SnapshotViewerFragment fragment = new SnapshotViewerFragment(this);
+
+        Bundle args = new Bundle();
+        if (emulator.isOpen()) {
+            args.putString("gameCode", emulator.getGameCode());
+            this.runnable.pauseEmulation();
+        }
+        fragment.setArguments(args);
+
+        FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
+
+        transaction.add(R.id.fragment_container, fragment, "fragment_snapshot_viewer");
+        transaction.addToBackStack(null);
+
+        transaction.commit();
+
+    }
+
+    @Override
+    public void onSnapshotClicked(Snapshot snapshot) {
+        Fragment f = getSupportFragmentManager().findFragmentByTag("fragment_snapshot_viewer");
+        FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
+        transaction.remove(f);
+        transaction.commit();
+
+        byte[] state = snapshot.load();
+        if (emulator.isOpen()) {
+            try {
+                emulator.loadState(state);
+                this.runnable.resumeEmulation();
+            } catch (EmulatorBindings.NativeBindingException e) {
+                showAlertDiaglogAndExit(e);
+            }
+        }
     }
 
     private class EmulationRunnable implements Runnable {

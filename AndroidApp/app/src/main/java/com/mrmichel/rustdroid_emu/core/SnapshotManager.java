@@ -100,12 +100,12 @@ public class SnapshotManager {
             return arrayList;
         }
 
-        public ArrayList<Snapshot> getAllEntries() {
+        public ArrayList<Snapshot> getEntries() {
             return getEntriesByQuery("SELECT * FROM " + TABLE_NAME + " ORDER BY timestamp DESC ");
         }
 
-        public ArrayList<Snapshot> getAllEntries(String gameCode) {
-            return getEntriesByQuery("SELECT * FROM " + TABLE_NAME + "where gameCode = " + gameCode + " ORDER BY timestamp DESC ");
+        public ArrayList<Snapshot> getEntries(String gameCode) {
+            return getEntriesByQuery("SELECT * FROM " + TABLE_NAME + " where gameCode = '" + gameCode + "' ORDER BY timestamp DESC ");
         }
 
         @Override
@@ -218,10 +218,10 @@ public class SnapshotManager {
     }
 
     public ArrayList<Snapshot> getAllSnapshots() {
-        return this.dbHelper.getAllEntries();
+        return this.dbHelper.getEntries();
     }
 
     public ArrayList<Snapshot> getByGameCode(String gameCode) {
-        return this.dbHelper.getAllEntries(gameCode);
+        return this.dbHelper.getEntries(gameCode);
     }
 }

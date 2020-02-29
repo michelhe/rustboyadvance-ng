@@ -142,5 +142,6 @@ public class SplashActivity extends AppCompatActivity {
         Intent intent = new Intent(this, EmulatorActivity.class);
         intent.putExtra("bios", bios);
         startActivity(intent);
+        finish();
     }
 }

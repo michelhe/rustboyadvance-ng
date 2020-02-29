@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.mrmichel.rustdroid_emu">
 
-    <uses-feature android:glEsVersion="0x00200000" android:required="true"></uses-feature>
+    <uses-feature android:glEsVersion="0x00200000" android:required="true"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
@@ -14,7 +14,7 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
         <activity
-            android:name=".ui.snapshots.SnapshotActivity"
+            android:name=".ui.snapshots.SnapshotViewerFragment"
             android:label="@string/title_activity_snapshot"
             ></activity>
         <activity
@@ -23,7 +23,7 @@
         <activity
             android:name=".ui.EmulatorActivity"
             android:label="@string/title_activity_emulator"
-            android:theme="@style/AppTheme.NoActionBar" />
+            />
         <activity android:name=".ui.SplashActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
