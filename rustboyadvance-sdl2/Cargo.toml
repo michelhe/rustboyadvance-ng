@@ -11,7 +11,7 @@ ringbuf = "0.2.1"
 bytesize = "1.0.0"
 clap = {version = "2.33", features = ["color", "yaml"]}
 log = "0.4.8"
-flexi_logger = {version = "0.14", features = ["colors"]}
+flexi_logger = {version = "0.15", features = ["colors"]}
 bit = "^0.1"
 spin_sleep="0.3.7"
 
