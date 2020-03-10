@@ -5,12 +5,13 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:gravity="center"
+    android:layout_margin="10dp"
     >
 
     <ImageView
         android:id="@+id/imageview_snapshot_preview"
         android:layout_width="180dp"
-        android:layout_height="160dp"
+        android:layout_height="120dp"
         android:scaleType="centerCrop"
         app:srcCompat="@drawable/icon" />
 

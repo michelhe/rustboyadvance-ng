@@ -1,5 +1,7 @@
 /// JNI Bindings for rustboyadvance
 ///
+mod rom_helper;
+
 use std::cell::RefCell;
 use std::os::raw::c_void;
 use std::path::Path;
@@ -85,6 +87,7 @@ unsafe fn internal_open_context(
     rom: jbyteArray,
     frame_buffer: jintArray,
     save_file: JString,
+    skip_bios: jboolean,
 ) -> Result<Context, String> {
     let bios = env
         .convert_byte_array(bios)
@@ -119,7 +122,12 @@ unsafe fn internal_open_context(
     };
     let hw = Rc::new(RefCell::new(hw));
 
-    let gba = GameBoyAdvance::new(bios, gamepak, hw.clone(), hw.clone(), hw.clone());
+    let mut gba = GameBoyAdvance::new(bios, gamepak, hw.clone(), hw.clone(), hw.clone());
+
+    if skip_bios != 0 {
+        debug!("skipping bios");
+        gba.skip_bios();
+    }
 
     debug!("creating context");
     let context = Context {
@@ -182,12 +190,64 @@ pub mod bindings {
         rom: jbyteArray,
         frame_buffer: jintArray,
         save_file: JString,
+        skip_bios: jboolean
     ) -> jlong {
-        match internal_open_context(&env, bios, rom, frame_buffer, save_file) {
+        match internal_open_context(&env, bios, rom, frame_buffer, save_file, skip_bios) {
             Ok(ctx) => Box::into_raw(Box::new(Mutex::new(ctx))) as jlong,
             Err(msg) => {
                 env.throw_new(NATIVE_EXCEPTION_CLASS, msg).unwrap();
-                0
+                -1
+            }
+        }
+    }
+
+    fn inetrnal_open_saved_state(
+        env: &JNIEnv,
+        state: jbyteArray,
+        frame_buffer: jintArray,
+    ) -> Result<Context, String> {
+        let state = env
+            .convert_byte_array(state)
+            .map_err(|e| format!("could not get state buffer, error {}", e))?;
+
+        let frame_buffer_global_ref = env
+            .new_global_ref(JObject::from(frame_buffer))
+            .map_err(|e| format!("failed to add new global ref, error: {:?}", e))?;
+
+        let hw = Hardware {
+            jvm: env.get_java_vm().unwrap(),
+            frame_buffer_global_ref: frame_buffer_global_ref,
+            audio_buffer: AudioRingBuffer::new(),
+            key_state: 0xffff,
+        };
+        let hw = Rc::new(RefCell::new(hw));
+
+        let gba = GameBoyAdvance::from_saved_state(&state, hw.clone(), hw.clone(), hw.clone())
+            .map_err(|e| {
+                format!(
+                    "failed to create GameBoyAdvance from saved state, error {:?}",
+                    e
+                )
+            })?;
+
+        Ok(Context {
+            gba: gba,
+            hwif: hw.clone(),
+        })
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_openSavedState(
+        env: JNIEnv,
+        _obj: JClass,
+        state: jbyteArray,
+        frame_buffer: jintArray,
+    ) -> jlong {
+        match inetrnal_open_saved_state(&env, state, frame_buffer) {
+            Ok(ctx) => Box::into_raw(Box::new(Mutex::new(ctx))) as jlong,
+            Err(msg) => {
+                env.throw_new(NATIVE_EXCEPTION_CLASS, msg).unwrap();
+                -1
             }
         }
     }

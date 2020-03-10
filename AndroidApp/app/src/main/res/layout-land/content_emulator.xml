@@ -8,7 +8,7 @@
     android:layout_height="match_parent">
 
 
-    <com.mrmichel.rustdroid_emu.ui.GbaScreenView
+    <com.mrmichel.rustdroid_emu.ui.ScreenView
         android:id="@+id/gba_view"
         android:layout_width="0dp"
         android:layout_height="match_parent"

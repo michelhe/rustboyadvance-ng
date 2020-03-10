@@ -16,8 +16,7 @@
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent" />
 
-
-    <com.mrmichel.rustdroid_emu.ui.GbaScreenView
+    <com.mrmichel.rustdroid_emu.ui.ScreenView
         android:id="@+id/gba_view"
         android:layout_width="match_parent"
         android:layout_height="0dp"

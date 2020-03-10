@@ -2,6 +2,8 @@ package com.mrmichel.rustdroid_emu.core;
 
 import android.graphics.Bitmap;
 
+import com.mrmichel.rustdroid_emu.Util;
+
 import java.io.File;
 
 public class Snapshot {
@@ -27,6 +29,10 @@ public class Snapshot {
         this.timestamp = timestamp;
     }
 
+    public File getFile() {
+        return file;
+    }
+
     public String getGameCode() {
         return gameCode;
     }
@@ -44,6 +50,6 @@ public class Snapshot {
     }
 
     public byte[] load() {
-        return SnapshotManager.readCompressedFile(this.file);
+        return Util.readCompressedFile(this.file);
     }
 }
