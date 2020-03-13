@@ -16,4 +16,9 @@
     <string name="action_delete">Delete</string>
 
     <string name="title_activity_snapshot">Snapshot Manager</string>
+
+    <string name="color_correction_setting">Apply color correction shader</string>
+    <string name="color_correction_summary">
+        Makes colors look closer to the real GBA LCD screen.
+    </string>
 </resources>

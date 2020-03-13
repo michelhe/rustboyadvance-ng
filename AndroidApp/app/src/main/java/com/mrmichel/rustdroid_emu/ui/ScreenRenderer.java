@@ -1,13 +1,24 @@
 package com.mrmichel.rustdroid_emu.ui;
 
+import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
 import android.opengl.GLUtils;
 
+import androidx.preference.PreferenceManager;
+
+import com.mrmichel.rustdroid_emu.R;
+
+import org.apache.commons.io.IOUtils;
+
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.nio.charset.StandardCharsets;
 
 import javax.microedition.khronos.egl.EGLConfig;
 import javax.microedition.khronos.opengles.GL10;
@@ -16,12 +27,53 @@ public class ScreenRenderer implements GLSurfaceView.Renderer {
 
     private ScreenTexture texture;
     private boolean ready = false;
+    private Context context;
+
+    public ScreenRenderer(Context context) {
+        this.context = context;
+    }
+
+    public void updateTexture(int[] frameBuffer) {
+        this.texture.update(frameBuffer);
+    }
+
+    public void initTextureIfNotInitialized() {
+        if (this.texture == null) {
+            this.texture = new ScreenTexture(this.context);
+        }
+    }
+
+    @Override
+    public void onSurfaceCreated(GL10 gl, EGLConfig config) {
+        initTextureIfNotInitialized();
+        ready = true;
+    }
+
+    @Override
+    public void onSurfaceChanged(GL10 gl, int width, int height) {
+        gl.glViewport(0, 0, width, height);
+    }
+
+    @Override
+    public void onDrawFrame(GL10 gl) {
+        this.texture.render();
+    }
+
+    public boolean isReady() {
+        return ready;
+    }
+
+    public void setColorCorrection(boolean colorCorrection) {
+        this.texture.setColorCorrection(colorCorrection);
+    }
 
     /**
      * Private class to manage the screen texture rendering
      */
     private class ScreenTexture {
-        int shaderProgram;
+        int normalShaderProgram;
+        int colorCorrectionShaderProgram;
+        int currentShaderProgram;
         int positionHandle;
         int texCoordHandle;
         int samplerHandle;
@@ -32,6 +84,7 @@ public class ScreenRenderer implements GLSurfaceView.Renderer {
         private ByteBuffer indicesBuffer;
 
         private Bitmap bitmap;
+        private Context context;
 
         // square vertices
         private float[] vertices = {
@@ -55,26 +108,75 @@ public class ScreenRenderer implements GLSurfaceView.Renderer {
                 0, 2, 3
         };
 
-        private static final String VERTEX_SHADER_CODE =
-                "attribute vec4 a_position;   \n" +
-                        "attribute vec2 a_texCoord;   \n" +
-                        "varying vec2 v_texCoord;     \n" +
-                        "void main()                  \n" +
-                        "{                            \n" +
-                        "   gl_Position = a_position; \n" +
-                        "   v_texCoord = a_texCoord;  \n" +
-                        "}                            \n";
+        public ScreenTexture(Context context) {
+            this.context = context;
+            this.bitmap = Bitmap.createBitmap(240, 160, Bitmap.Config.RGB_565);
 
-        private static final String FRAGMENT_SHADER_CODE =
-                "precision mediump float;                            \n" +
-                        "varying vec2 v_texCoord;                            \n" +
-                        "uniform sampler2D s_texture;                        \n" +
-                        "void main()                                         \n" +
-                        "{                                                   \n" +
-                        "  vec4 color = texture2D( s_texture, v_texCoord );  \n" +
-                        "  gl_FragColor = color;                             \n" +
-                        "}                                                   \n";
+            GLES20.glEnable(GLES20.GL_TEXTURE_2D);
 
+            // create vertex array
+            vertexBuffer = ByteBuffer.allocateDirect(vertices.length * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+            vertexBuffer.put(vertices);
+            vertexBuffer.position(0);
+
+            // create texture coordinate array
+            textureBuffer = ByteBuffer.allocateDirect(textureVertices.length * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+            textureBuffer.put(textureVertices);
+            textureBuffer.position(0);
+
+            // create triangle index array
+            indicesBuffer = ByteBuffer.allocateDirect(indicies.length).order(ByteOrder.nativeOrder());
+            indicesBuffer.put(indicies);
+            indicesBuffer.position(0);
+
+            textureId = createTexture();
+
+            String vertexShader = readShaderResource(R.raw.screen_texture_vertex_shader);
+            String normalFragmentShader = readShaderResource(R.raw.screen_texture_fragment_shader);
+            String colorCorrectionFragmentShader = readShaderResource(R.raw.screen_texture_color_correction_fragment_shader);
+
+            normalShaderProgram = createShaderProgram(vertexShader, normalFragmentShader);
+            colorCorrectionShaderProgram = createShaderProgram(vertexShader, colorCorrectionFragmentShader);
+
+            SharedPreferences sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this.context);
+            boolean colorCorrection = sharedPreferences.getBoolean("color_correction", false);
+            setColorCorrection(colorCorrection);
+
+            GLES20.glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+        }
+
+        private void setColorCorrection(boolean colorCorrection) {
+
+            if (colorCorrection) {
+                currentShaderProgram = colorCorrectionShaderProgram;
+            } else {
+                currentShaderProgram = normalShaderProgram;
+            }
+
+            // use the program
+            GLES20.glUseProgram(currentShaderProgram);
+
+            positionHandle = GLES20.glGetAttribLocation(currentShaderProgram, "a_position");
+
+            texCoordHandle = GLES20.glGetAttribLocation(currentShaderProgram, "a_texCoord");
+
+            samplerHandle = GLES20.glGetUniformLocation(currentShaderProgram, "s_texture");
+
+
+            // load the vertex position
+            GLES20.glVertexAttribPointer(positionHandle, 3, GLES20.GL_FLOAT, false, 0, vertexBuffer);
+            GLES20.glEnableVertexAttribArray(positionHandle);
+            // load texture coordinate
+            GLES20.glVertexAttribPointer(texCoordHandle, 2, GLES20.GL_FLOAT, false, 0, textureBuffer);
+            GLES20.glEnableVertexAttribArray(texCoordHandle);
+
+
+            GLES20.glVertexAttribPointer(positionHandle, 3, GLES20.GL_FLOAT, false, 0, vertexBuffer);
+            GLES20.glEnableVertexAttribArray(positionHandle);
+            // load texture coordinate
+            GLES20.glVertexAttribPointer(texCoordHandle, 2, GLES20.GL_FLOAT, false, 0, textureBuffer);
+            GLES20.glEnableVertexAttribArray(texCoordHandle);
+        }
 
         private int compileShader(int type, String code) {
             int shader = GLES20.glCreateShader(type);
@@ -123,58 +225,28 @@ public class ScreenRenderer implements GLSurfaceView.Renderer {
             return texturesIds[0];
         }
 
-        public ScreenTexture() {
-            this.bitmap = Bitmap.createBitmap(240, 160, Bitmap.Config.RGB_565);
-
-            GLES20.glEnable(GLES20.GL_TEXTURE_2D);
-
-            // create vertex array
-            vertexBuffer = ByteBuffer.allocateDirect(vertices.length * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
-            vertexBuffer.put(vertices);
-            vertexBuffer.position(0);
-
-            // create texture coordinate array
-            textureBuffer = ByteBuffer.allocateDirect(textureVertices.length * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
-            textureBuffer.put(textureVertices);
-            textureBuffer.position(0);
-
-            // create triangle index array
-            indicesBuffer = ByteBuffer.allocateDirect(indicies.length).order(ByteOrder.nativeOrder());
-            indicesBuffer.put(indicies);
-            indicesBuffer.position(0);
-
-            textureId = createTexture();
-
-            shaderProgram = createShaderProgram(VERTEX_SHADER_CODE, FRAGMENT_SHADER_CODE);
-
-            // use the program
-            GLES20.glUseProgram(shaderProgram);
-
-            positionHandle = GLES20.glGetAttribLocation(shaderProgram, "a_position");
-
-            texCoordHandle = GLES20.glGetAttribLocation(shaderProgram, "a_texCoord");
-
-            samplerHandle = GLES20.glGetUniformLocation(shaderProgram, "s_texture");
-
-
-            // load the vertex position
-            GLES20.glVertexAttribPointer(positionHandle, 3, GLES20.GL_FLOAT, false, 0, vertexBuffer);
-            GLES20.glEnableVertexAttribArray(positionHandle);
-            // load texture coordinate
-            GLES20.glVertexAttribPointer(texCoordHandle, 2, GLES20.GL_FLOAT, false, 0, textureBuffer);
-            GLES20.glEnableVertexAttribArray(texCoordHandle);
-
-
-            GLES20.glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+        private String readShaderResource(int resourceId) {
+            InputStream in = context.getResources().openRawResource(resourceId);
+            String code;
+            try {
+                code = IOUtils.toString(in, StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                code = "";
+            }
+            return code;
         }
 
-        protected void destroy(){
-            GLES20.glDeleteProgram(shaderProgram);
+        protected void destroy() {
+            GLES20.glDeleteProgram(normalShaderProgram);
+            GLES20.glDeleteProgram(colorCorrectionShaderProgram);
             int[] textures = {textureId};
             GLES20.glDeleteTextures(1, textures, 0);
         }
 
         public void render() {
+            // use the shader program
+            GLES20.glUseProgram(currentShaderProgram);
+
             // clear the color buffer
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
 
@@ -189,35 +261,5 @@ public class ScreenRenderer implements GLSurfaceView.Renderer {
 
             GLES20.glDrawElements(GLES20.GL_TRIANGLE_STRIP, 6, GLES20.GL_UNSIGNED_BYTE, indicesBuffer);
         }
-    }
-
-    public void updateTexture(int[] frameBuffer) {
-        this.texture.update(frameBuffer);
-    }
-
-    public void initTextureIfNotInitialized() {
-        if (this.texture == null) {
-            this.texture = new ScreenTexture();
-        }
-    }
-
-    @Override
-    public void onSurfaceCreated(GL10 gl, EGLConfig config) {
-        initTextureIfNotInitialized();
-        ready = true;
-    }
-
-    @Override
-    public void onSurfaceChanged(GL10 gl, int width, int height) {
-        gl.glViewport(0, 0, width, height);
-    }
-
-    @Override
-    public void onDrawFrame(GL10 gl) {
-        this.texture.render();
-    }
-
-    public boolean isReady() {
-        return ready;
     }
 }
