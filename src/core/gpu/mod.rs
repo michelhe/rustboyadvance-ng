@@ -40,8 +40,8 @@ pub mod consts {
     pub const VBLANK_LINES: usize = 68;
 
     pub(super) const CYCLES_PIXEL: usize = 4;
-    pub(super) const CYCLES_HDRAW: usize = 960;
-    pub(super) const CYCLES_HBLANK: usize = 272;
+    pub(super) const CYCLES_HDRAW: usize = 960 + 46;
+    pub(super) const CYCLES_HBLANK: usize = 272 - 46;
     pub(super) const CYCLES_SCANLINE: usize = 1232;
     pub(super) const CYCLES_VDRAW: usize = 197120;
     pub(super) const CYCLES_VBLANK: usize = 83776;
@@ -57,16 +57,29 @@ pub enum PixelFormat {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
+#[serde(deny_unknown_fields)]
 pub enum GpuState {
     HDraw = 0,
     HBlank,
-    VBlank,
+    VBlankHDraw,
+    VBlankHBlank,
 }
+
 impl Default for GpuState {
     fn default() -> GpuState {
         GpuState::HDraw
     }
 }
+
+impl GpuState {
+    pub fn is_vblank(&self) -> bool {
+        match self {
+            VBlankHBlank | VBlankHDraw => true,
+            _ => false,
+        }
+    }
+}
+
 use GpuState::*;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -380,8 +393,6 @@ impl Gpu {
                     }
                     self.cycles_left_for_current_state = CYCLES_HDRAW;
                 } else {
-                    self.state = VBlank;
-
                     // latch BG2/3 reference points on vblank
                     for i in 0..2 {
                         self.bg_aff[i].internal_x = self.bg_aff[i].x;
@@ -397,20 +408,32 @@ impl Gpu {
                     sb.io.dmac.notify_vblank();
                     video_device.borrow_mut().render(&self.frame_buffer);
                     self.obj_buffer_reset();
-                    self.cycles_left_for_current_state = CYCLES_SCANLINE;
+                    self.cycles_left_for_current_state = CYCLES_HDRAW;
+                    self.state = VBlankHDraw;
                 }
             }
-            VBlank => {
+            VBlankHDraw => {
+                self.cycles_left_for_current_state = CYCLES_HBLANK;
+                self.state = VBlankHBlank;
+
+                self.dispstat.set_hblank_flag(true);
+                if self.dispstat.hblank_irq_enable() {
+                    irqs.set_LCD_HBlank(true);
+                };
+            }
+            VBlankHBlank => {
+                self.update_vcount(self.vcount + 1, irqs);
+
                 if self.vcount < DISPLAY_HEIGHT + VBLANK_LINES - 1 {
-                    self.update_vcount(self.vcount + 1, irqs);
-                    self.cycles_left_for_current_state = CYCLES_SCANLINE;
+                    self.dispstat.set_hblank_flag(false);
+                    self.cycles_left_for_current_state = CYCLES_HDRAW;
+                    self.state = VBlankHDraw;
                 } else {
                     self.update_vcount(0, irqs);
                     self.dispstat.set_vblank_flag(false);
                     self.render_scanline();
-                    self.state = HDraw;
-
                     self.cycles_left_for_current_state = CYCLES_HDRAW;
+                    self.state = HDraw;
                 }
             }
         };

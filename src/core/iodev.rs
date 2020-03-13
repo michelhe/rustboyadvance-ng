@@ -138,7 +138,7 @@ impl Bus for IoDevices {
                 let index = (io_addr - REG_BG2X_L) / 0x10;
                 let t = io.gpu.bg_aff[index as usize].x as u32;
                 io.gpu.bg_aff[index as usize].x = ((t & 0xffff0000) + (value as u32)) as i32;
-                if io.gpu.state != GpuState::VBlank {
+                if !io.gpu.state.is_vblank() {
                     io.gpu.bg_aff[index as usize].internal_x = io.gpu.bg_aff[index as usize].x;
                 }
             }
@@ -146,7 +146,7 @@ impl Bus for IoDevices {
                 let index = (io_addr - REG_BG2X_L) / 0x10;
                 let t = io.gpu.bg_aff[index as usize].y as u32;
                 io.gpu.bg_aff[index as usize].y = ((t & 0xffff0000) + (value as u32)) as i32;
-                if io.gpu.state != GpuState::VBlank {
+                if !io.gpu.state.is_vblank() {
                     io.gpu.bg_aff[index as usize].internal_y = io.gpu.bg_aff[index as usize].y;
                 }
             }
@@ -155,7 +155,7 @@ impl Bus for IoDevices {
                 let t = io.gpu.bg_aff[index as usize].x;
                 io.gpu.bg_aff[index as usize].x =
                     (t & 0xffff) | ((sign_extend_i32((value & 0xfff) as i32, 12)) << 16);
-                if io.gpu.state != GpuState::VBlank {
+                if !io.gpu.state.is_vblank() {
                     io.gpu.bg_aff[index as usize].internal_x = io.gpu.bg_aff[index as usize].x;
                 }
             }
@@ -164,7 +164,7 @@ impl Bus for IoDevices {
                 let t = io.gpu.bg_aff[index as usize].y;
                 io.gpu.bg_aff[index as usize].y =
                     (t & 0xffff) | ((sign_extend_i32((value & 0xfff) as i32, 12)) << 16);
-                if io.gpu.state != GpuState::VBlank {
+                if !io.gpu.state.is_vblank() {
                     io.gpu.bg_aff[index as usize].internal_y = io.gpu.bg_aff[index as usize].y;
                 }
             }
