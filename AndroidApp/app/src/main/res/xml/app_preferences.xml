@@ -1,8 +1,18 @@
 <PreferenceScreen
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
-    <CheckBoxPreference
-        app:key="skip_bios"
-        app:title="Skip bios boot animation"/>
+    <PreferenceCategory app:title="Emulation">
+        <SwitchPreferenceCompat
+            app:key="skip_bios"
+            app:title="Skip bios boot animation"/>
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="Graphics">
+        <SwitchPreferenceCompat
+            app:key="color_correction"
+            app:title="@string/color_correction_setting"
+            app:summary="@string/color_correction_summary"
+            />
+    </PreferenceCategory>
 
 </PreferenceScreen>

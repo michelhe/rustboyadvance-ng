@@ -1,10 +1,13 @@
 package com.mrmichel.rustdroid_emu.ui;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.opengl.GLSurfaceView;
 import android.util.AttributeSet;
 
-public class ScreenView extends GLSurfaceView {
+import androidx.preference.PreferenceManager;
+
+public class ScreenView extends GLSurfaceView implements SharedPreferences.OnSharedPreferenceChangeListener {
     private ScreenRenderer mRenderer;
 
     public ScreenView(Context context) {
@@ -21,7 +24,11 @@ public class ScreenView extends GLSurfaceView {
         this.setEGLContextClientVersion(2);
         this.setPreserveEGLContextOnPause(true);
 
-        mRenderer = new ScreenRenderer();
+        SharedPreferences sharedPreferences =
+                PreferenceManager.getDefaultSharedPreferences(getContext());
+        sharedPreferences.registerOnSharedPreferenceChangeListener(this);
+
+        mRenderer = new ScreenRenderer(getContext());
         this.setRenderer(mRenderer);
         this.setRenderMode(RENDERMODE_WHEN_DIRTY);
     }
@@ -33,5 +40,13 @@ public class ScreenView extends GLSurfaceView {
 
     public ScreenRenderer getRenderer() {
         return mRenderer;
+    }
+
+    @Override
+    public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
+        if (key.equals("color_correction")) {
+            boolean colorCorrection = sharedPreferences.getBoolean("color_correction", false);
+            mRenderer.setColorCorrection(colorCorrection);
+        }
     }
 }

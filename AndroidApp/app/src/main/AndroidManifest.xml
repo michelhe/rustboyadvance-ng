@@ -13,10 +13,10 @@
         android:allowBackup="true"
         android:icon="@drawable/icon"
         android:label="@string/app_name"
-        android:roundIcon="@mipmap/ic_launcher_round"
+        android:roundIcon="@drawable/icon"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
-        <activity android:name=".ui.snapshots.SnapshotPickerActivity"></activity>
+        <activity android:name=".ui.snapshots.SnapshotPickerActivity" />
         <activity
             android:name=".ui.snapshots.SnapshotListFragment"
             android:label="@string/title_activity_snapshot" />

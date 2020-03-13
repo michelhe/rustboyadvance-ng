@@ -377,7 +377,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
 
         SharedPreferences sharedPreferences =
                 PreferenceManager.getDefaultSharedPreferences(this /* Activity context */);
-        Boolean skipBios = sharedPreferences.getBoolean("skip_bios", false);
+        boolean skipBios = sharedPreferences.getBoolean("skip_bios", false);
 
         if (null != savedInstanceState && (saveFilePath = savedInstanceState.getString("saveFile")) != null) {
             final EmulatorActivity thisActivity = this;
@@ -450,6 +450,10 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
                 return true;
             case R.id.action_save_snapshot:
                 doSaveSnapshot();
+                return true;
+            case R.id.action_settings:
+                Intent intent = new Intent(this, SettingsActivity.class);
+                startActivity(intent);
                 return true;
             default:
                 return super.onOptionsItemSelected(item);
