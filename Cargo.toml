@@ -12,7 +12,7 @@ members = [
 ]
 
 [dependencies]
-serde = {version = "1.0.104", features = ["derive"] }
+serde = {version = "1.0.105", features = ["derive"] }
 bincode = "1.2.1"
 byteorder = "1"
 num = "0.2.1"
