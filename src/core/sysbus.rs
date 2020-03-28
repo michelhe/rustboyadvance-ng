@@ -208,6 +208,7 @@ impl SysBus {
         }
     }
 
+    #[inline(always)]
     pub fn get_cycles(&self, addr: Addr, access: MemoryAccess) -> usize {
         let nonseq_cycles = [4, 3, 2, 8];
         let seq_cycles = [2, 1];
