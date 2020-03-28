@@ -1,6 +1,7 @@
 use crate::bit::BitIndex;
 
 use super::super::alu::*;
+use super::ArmCond;
 use crate::core::arm7tdmi::psr::RegPSR;
 use crate::core::arm7tdmi::CpuAction;
 use crate::core::arm7tdmi::{Addr, Core, CpuMode, CpuState, REG_LR, REG_PC};
@@ -11,9 +12,11 @@ use super::*;
 
 impl Core {
     pub fn exec_arm(&mut self, bus: &mut SysBus, insn: ArmInstruction) -> CpuAction {
-        if !self.check_arm_cond(insn.cond) {
-            self.S_cycle32(bus, self.pc);
-            return CpuAction::AdvancePC;
+        if insn.cond != ArmCond::AL {
+            if !self.check_arm_cond(insn.cond) {
+                self.S_cycle32(bus, self.pc);
+                return CpuAction::AdvancePC;
+            }
         }
         match insn.fmt {
             ArmFormat::BX => self.exec_bx(bus, insn),
