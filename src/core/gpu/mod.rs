@@ -249,20 +249,31 @@ impl Gpu {
 
     /// helper method that reads the palette index from a base address and x + y
     pub fn read_pixel_index(&self, addr: u32, x: u32, y: u32, format: PixelFormat) -> usize {
-        let ofs = addr - VRAM_ADDR;
         match format {
-            PixelFormat::BPP4 => {
-                let byte = self.vram.read_8(ofs + index2d!(u32, x / 2, y, 4));
-                if x & 1 != 0 {
-                    (byte >> 4) as usize
-                } else {
-                    (byte & 0xf) as usize
-                }
-            }
-            PixelFormat::BPP8 => self.vram.read_8(ofs + index2d!(u32, x, y, 8)) as usize,
+            PixelFormat::BPP4 => self.read_pixel_index_bpp4(addr, x, y),
+            PixelFormat::BPP8 => self.read_pixel_index_bpp8(addr, x, y),
         }
     }
 
+    #[inline]
+    pub fn read_pixel_index_bpp4(&self, addr: u32, x: u32, y: u32) -> usize {
+        let ofs = addr - VRAM_ADDR + index2d!(u32, x / 2, y, 4);
+        let ofs = ofs as usize;
+        let byte = self.vram.read_8(ofs as u32);
+        if x & 1 != 0 {
+            (byte >> 4) as usize
+        } else {
+            (byte & 0xf) as usize
+        }
+    }
+
+    #[inline]
+    pub fn read_pixel_index_bpp8(&self, addr: u32, x: u32, y: u32) -> usize {
+        let ofs = addr - VRAM_ADDR;
+        self.vram.read_8(ofs + index2d!(u32, x, y, 8)) as usize
+    }
+
+    #[inline(always)]
     pub fn get_palette_color(&self, index: u32, palette_index: u32, offset: u32) -> Rgb15 {
         if index == 0 || (palette_index != 0 && index % 16 == 0) {
             return Rgb15::TRANSPARENT;
