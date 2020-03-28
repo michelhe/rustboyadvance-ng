@@ -99,7 +99,7 @@ pub enum ArmHalfwordTransferType {
     SignedHalfwords = 0b11,
 }
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ArmInstruction {
     pub cond: ArmCond,
     pub fmt: ArmFormat,

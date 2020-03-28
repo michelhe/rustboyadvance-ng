@@ -262,7 +262,7 @@ impl Core {
         self.barrel_shift_op(bs_op, val, amount, carry, false)
     }
 
-    pub fn register_shift(&mut self, shift: ShiftedRegister) -> u32 {
+    pub fn register_shift(&mut self, shift: &ShiftedRegister) -> u32 {
         let carry = self.cpsr.C();
         match shift.shift_by {
             ShiftRegisterBy::ByAmount(amount) => {
@@ -276,12 +276,12 @@ impl Core {
         }
     }
 
-    pub fn get_barrel_shifted_value(&mut self, sval: BarrelShifterValue) -> u32 {
+    pub fn get_barrel_shifted_value(&mut self, sval: &BarrelShifterValue) -> u32 {
         // TODO decide if error handling or panic here
         match sval {
-            BarrelShifterValue::ImmediateValue(offset) => offset as u32,
+            BarrelShifterValue::ImmediateValue(offset) => *offset as u32,
             BarrelShifterValue::ShiftedRegister(shifted_reg) => {
-                let added = shifted_reg.added.unwrap_or(true);
+                let added = (*shifted_reg).added.unwrap_or(true);
                 let abs = self.register_shift(shifted_reg) as u32;
                 if added {
                     abs as u32

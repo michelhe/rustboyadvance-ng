@@ -51,7 +51,7 @@ pub enum ThumbFormat {
     BranchLongWithLink,
 }
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ThumbInstruction {
     pub fmt: ThumbFormat,
     pub raw: u16,
