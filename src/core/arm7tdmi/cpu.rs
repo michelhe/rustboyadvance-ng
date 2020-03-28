@@ -238,41 +238,48 @@ impl Core {
     }
 
     #[allow(non_snake_case)]
+    #[inline(always)]
     pub(super) fn S_cycle32(&mut self, sb: &SysBus, addr: u32) {
         self.cycles += 1;
         self.cycles += sb.get_cycles(addr, Seq + MemoryAccess32);
     }
 
     #[allow(non_snake_case)]
+    #[inline(always)]
     pub(super) fn S_cycle16(&mut self, sb: &SysBus, addr: u32) {
         self.cycles += 1;
         self.cycles += sb.get_cycles(addr, Seq + MemoryAccess16);
     }
 
     #[allow(non_snake_case)]
+    #[inline(always)]
     pub(super) fn S_cycle8(&mut self, sb: &SysBus, addr: u32) {
         self.cycles += 1;
         self.cycles += sb.get_cycles(addr, Seq + MemoryAccess8);
     }
 
     #[allow(non_snake_case)]
+    #[inline(always)]
     pub(super) fn N_cycle32(&mut self, sb: &SysBus, addr: u32) {
         self.cycles += 1;
         self.cycles += sb.get_cycles(addr, NonSeq + MemoryAccess32);
     }
 
     #[allow(non_snake_case)]
+    #[inline(always)]
     pub(super) fn N_cycle16(&mut self, sb: &SysBus, addr: u32) {
         self.cycles += 1;
         self.cycles += sb.get_cycles(addr, NonSeq + MemoryAccess16);
     }
 
     #[allow(non_snake_case)]
+    #[inline(always)]
     pub(super) fn N_cycle8(&mut self, sb: &SysBus, addr: u32) {
         self.cycles += 1;
         self.cycles += sb.get_cycles(addr, NonSeq + MemoryAccess8);
     }
 
+    #[inline]
     pub(super) fn check_arm_cond(&self, cond: ArmCond) -> bool {
         use ArmCond::*;
         match cond {
@@ -322,7 +329,7 @@ impl Core {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn reload_pipeline16(&mut self, sb: &mut SysBus) {
         self.pipeline[0] = sb.read_16(self.pc) as u32;
         self.N_cycle16(sb, self.pc);
@@ -332,7 +339,7 @@ impl Core {
         self.advance_thumb();
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn reload_pipeline32(&mut self, sb: &mut SysBus) {
         self.pipeline[0] = sb.read_32(self.pc);
         self.N_cycle16(sb, self.pc);
