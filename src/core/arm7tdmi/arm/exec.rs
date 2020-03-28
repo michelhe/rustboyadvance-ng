@@ -11,7 +11,7 @@ use crate::core::Bus;
 use super::*;
 
 impl Core {
-    pub fn exec_arm(&mut self, bus: &mut SysBus, insn: ArmInstruction) -> CpuAction {
+    pub fn exec_arm(&mut self, bus: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         if insn.cond != ArmCond::AL {
             if !self.check_arm_cond(insn.cond) {
                 self.S_cycle32(bus, self.pc);
@@ -40,7 +40,7 @@ impl Core {
     }
 
     /// Cycles 2S+1N
-    fn exec_b_bl(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuAction {
+    fn exec_b_bl(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         self.S_cycle32(sb, self.pc);
         if insn.link_flag() {
             self.set_reg(REG_LR, (insn.pc + (self.word_size() as u32)) & !0b1);
@@ -73,7 +73,7 @@ impl Core {
     }
 
     /// Cycles 2S+1N
-    fn exec_bx(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuAction {
+    fn exec_bx(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         self.branch_exchange(sb, self.get_reg(insn.rn()))
     }
 
@@ -94,7 +94,7 @@ impl Core {
         CpuAction::AdvancePC
     }
 
-    fn exec_msr_reg(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuAction {
+    fn exec_msr_reg(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         self.write_status_register(sb, insn.spsr_flag(), self.get_reg(insn.rm()))
     }
 
@@ -129,10 +129,10 @@ impl Core {
         CpuAction::AdvancePC
     }
 
-    fn exec_msr_flags(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuAction {
+    fn exec_msr_flags(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         self.S_cycle32(sb, self.pc);
         let op = insn.operand2();
-        let op = self.decode_operand2(op);
+        let op = self.decode_operand2(&op);
 
         if insn.spsr_flag() {
             self.spsr.set_flag_bits(op);
@@ -142,12 +142,12 @@ impl Core {
         CpuAction::AdvancePC
     }
 
-    fn decode_operand2(&mut self, op2: BarrelShifterValue) -> u32 {
+    fn decode_operand2(&mut self, op2: &BarrelShifterValue) -> u32 {
         match op2 {
             BarrelShifterValue::RotatedImmediate(val, amount) => {
-                self.ror(val, amount, self.cpsr.C(), false, true)
+                self.ror(*val, *amount, self.cpsr.C(), false, true)
             }
-            BarrelShifterValue::ShiftedRegister(x) => self.register_shift(x),
+            BarrelShifterValue::ShiftedRegister(x) => self.register_shift(&x),
             _ => unreachable!(),
         }
     }
@@ -164,7 +164,7 @@ impl Core {
     ///
     /// Cycles: 1S+x+y (from GBATEK)
     ///         Add x=1I cycles if Op2 shifted-by-register. Add y=1S+1N cycles if Rd=R15.
-    fn exec_data_processing(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuAction {
+    fn exec_data_processing(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         use AluOpCode::*;
 
         self.S_cycle32(sb, self.pc);
@@ -186,7 +186,7 @@ impl Core {
             }
             _ => {}
         }
-        let op2 = self.decode_operand2(op2);
+        let op2 = self.decode_operand2(&op2);
 
         let reg_rd = insn.rd();
         if !s_flag {
@@ -275,7 +275,7 @@ impl Core {
     /// STR{cond}{B}{T} Rd,<Address>    | 2N            | ----  |  [Rn+/-<offset>]=Rd
     /// ------------------------------------------------------------------------------
     /// For LDR, add y=1S+1N if Rd=R15.
-    fn exec_ldr_str(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuAction {
+    fn exec_ldr_str(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         let mut result = CpuAction::AdvancePC;
 
         let load = insn.load_flag();
@@ -287,7 +287,7 @@ impl Core {
         if base_reg == REG_PC {
             addr = insn.pc + 8; // prefetching
         }
-        let offset = self.get_barrel_shifted_value(insn.ldr_str_offset());
+        let offset = self.get_barrel_shifted_value(&insn.ldr_str_offset());
         let effective_addr = (addr as i32).wrapping_add(offset as i32) as Addr;
 
         // TODO - confirm this
@@ -352,7 +352,7 @@ impl Core {
         result
     }
 
-    fn exec_ldr_str_hs(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuAction {
+    fn exec_ldr_str_hs(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         let mut result = CpuAction::AdvancePC;
 
         let load = insn.load_flag();
@@ -365,7 +365,7 @@ impl Core {
             addr = insn.pc + 8; // prefetching
         }
 
-        let offset = self.get_barrel_shifted_value(insn.ldr_str_hs_offset().unwrap());
+        let offset = self.get_barrel_shifted_value(&insn.ldr_str_hs_offset().unwrap());
 
         // TODO - confirm this
         let old_mode = self.cpsr.mode();
@@ -434,7 +434,7 @@ impl Core {
         result
     }
 
-    fn exec_ldm_stm(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuAction {
+    fn exec_ldm_stm(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         let mut result = CpuAction::AdvancePC;
 
         let mut full = insn.pre_index_flag();
@@ -584,7 +584,7 @@ impl Core {
         result
     }
 
-    fn exec_mul_mla(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuAction {
+    fn exec_mul_mla(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         let (rd, rn, rs, rm) = (insn.rd(), insn.rn(), insn.rs(), insn.rm());
 
         // check validity
@@ -619,7 +619,7 @@ impl Core {
         CpuAction::AdvancePC
     }
 
-    fn exec_mull_mlal(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuAction {
+    fn exec_mull_mlal(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         let (rd_hi, rd_lo, rn, rs, rm) =
             (insn.rd_hi(), insn.rd_lo(), insn.rn(), insn.rs(), insn.rm());
 
@@ -666,7 +666,7 @@ impl Core {
         CpuAction::AdvancePC
     }
 
-    fn exec_arm_swp(&mut self, sb: &mut SysBus, insn: ArmInstruction) -> CpuAction {
+    fn exec_arm_swp(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         let base_addr = self.get_reg(insn.rn());
         if insn.transfer_size() == 1 {
             let t = sb.read_8(base_addr);

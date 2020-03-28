@@ -306,9 +306,9 @@ impl Core {
         #[cfg(feature = "debugger")]
         {
             self.gpr_previous = self.get_registers();
-            self.last_executed = Some(DecodedInstruction::Arm(decoded_arm));
+            self.last_executed = Some(DecodedInstruction::Arm(decoded_arm.clone()));
         }
-        let result = self.exec_arm(sb, decoded_arm);
+        let result = self.exec_arm(sb, &decoded_arm);
         match result {
             CpuAction::AdvancePC => self.advance_arm(),
             CpuAction::FlushPipeline => {}
@@ -320,9 +320,9 @@ impl Core {
         #[cfg(feature = "debugger")]
         {
             self.gpr_previous = self.get_registers();
-            self.last_executed = Some(DecodedInstruction::Thumb(decoded_thumb));
+            self.last_executed = Some(DecodedInstruction::Thumb(decoded_thumb.clone()));
         }
-        let result = self.exec_thumb(sb, decoded_thumb);
+        let result = self.exec_thumb(sb, &decoded_thumb);
         match result {
             CpuAction::AdvancePC => self.advance_thumb(),
             CpuAction::FlushPipeline => {}

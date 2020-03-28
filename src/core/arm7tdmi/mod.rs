@@ -28,7 +28,7 @@ pub enum CpuAction {
     FlushPipeline,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum DecodedInstruction {
     Arm(ArmInstruction),
     Thumb(ThumbInstruction),
