@@ -118,41 +118,56 @@ impl Gpu {
         let half_height = bbox_h / 2;
         let screen_width = DISPLAY_WIDTH as i32;
         let iy = screen_y - (ref_y + half_height);
-        for ix in (-half_width)..(half_width) {
-            let screen_x = ref_x + half_width + ix;
-            if screen_x < 0 {
-                continue;
-            }
-            if screen_x >= screen_width {
-                break;
-            }
-            if self
-                .obj_buffer_get(screen_x as usize, screen_y as usize)
-                .priority
-                <= attrs.2.priority()
-                && !attrs.is_obj_window()
-            {
-                continue;
-            }
 
-            let transformed_x = (affine_matrix.pa * ix + affine_matrix.pb * iy) >> 8;
-            let transformed_y = (affine_matrix.pc * ix + affine_matrix.pd * iy) >> 8;
-            let texture_x = transformed_x + obj_w / 2;
-            let texture_y = transformed_y + obj_h / 2;
-            if texture_x >= 0 && texture_x < obj_w && texture_y >= 0 && texture_y < obj_h {
-                let tile_x = texture_x % 8;
-                let tile_y = texture_y % 8;
-                let tile_addr = tile_base
-                    + index2d!(u32, texture_x / 8, texture_y / 8, tile_array_width)
-                        * (tile_size as u32);
-                let pixel_index =
-                    self.read_pixel_index(tile_addr, tile_x as u32, tile_y as u32, pixel_format);
-                let pixel_color =
-                    self.get_palette_color(pixel_index as u32, palette_bank, PALRAM_OFS_FG);
-                if pixel_color != Rgb15::TRANSPARENT {
-                    self.write_obj_pixel(screen_x as usize, screen_y as usize, pixel_color, &attrs);
+        macro_rules! render_loop {
+            ($read_pixel_index_fn:ident) => {
+                for ix in (-half_width)..(half_width) {
+                    let screen_x = ref_x + half_width + ix;
+                    if screen_x < 0 {
+                        continue;
+                    }
+                    if screen_x >= screen_width {
+                        break;
+                    }
+                    if self
+                        .obj_buffer_get(screen_x as usize, screen_y as usize)
+                        .priority
+                        <= attrs.2.priority()
+                        && !attrs.is_obj_window()
+                    {
+                        continue;
+                    }
+
+                    let transformed_x = (affine_matrix.pa * ix + affine_matrix.pb * iy) >> 8;
+                    let transformed_y = (affine_matrix.pc * ix + affine_matrix.pd * iy) >> 8;
+                    let texture_x = transformed_x + obj_w / 2;
+                    let texture_y = transformed_y + obj_h / 2;
+                    if texture_x >= 0 && texture_x < obj_w && texture_y >= 0 && texture_y < obj_h {
+                        let tile_x = texture_x % 8;
+                        let tile_y = texture_y % 8;
+                        let tile_addr = tile_base
+                            + index2d!(u32, texture_x / 8, texture_y / 8, tile_array_width)
+                                * (tile_size as u32);
+                        let pixel_index =
+                            self.$read_pixel_index_fn(tile_addr, tile_x as u32, tile_y as u32);
+                        let pixel_color =
+                            self.get_palette_color(pixel_index as u32, palette_bank, PALRAM_OFS_FG);
+                        if pixel_color != Rgb15::TRANSPARENT {
+                            self.write_obj_pixel(
+                                screen_x as usize,
+                                screen_y as usize,
+                                pixel_color,
+                                &attrs,
+                            );
+                        }
+                    }
                 }
-            }
+            };
+        }
+
+        match pixel_format {
+            PixelFormat::BPP4 => render_loop!(read_pixel_index_bpp4),
+            PixelFormat::BPP8 => render_loop!(read_pixel_index_bpp8),
         }
     }
 
@@ -189,44 +204,60 @@ impl Gpu {
         // render the pixels
         let screen_width = DISPLAY_WIDTH as i32;
         let end_x = ref_x + obj_w;
-        for screen_x in ref_x..end_x {
-            if screen_x < 0 {
-                continue;
-            }
-            if screen_x >= screen_width {
-                break;
-            }
-            if self
-                .obj_buffer_get(screen_x as usize, screen_y as usize)
-                .priority
-                <= attrs.2.priority()
-                && !attrs.is_obj_window()
-            {
-                continue;
-            }
-            let mut sprite_y = screen_y - ref_y;
-            let mut sprite_x = screen_x - ref_x;
-            sprite_y = if attrs.1.v_flip() {
-                obj_h - sprite_y - 1
-            } else {
-                sprite_y
+
+        macro_rules! render_loop {
+            ($read_pixel_index_fn:ident) => {
+                for screen_x in ref_x..end_x {
+                    if screen_x < 0 {
+                        continue;
+                    }
+                    if screen_x >= screen_width {
+                        break;
+                    }
+                    if self
+                        .obj_buffer_get(screen_x as usize, screen_y as usize)
+                        .priority
+                        <= attrs.2.priority()
+                        && !attrs.is_obj_window()
+                    {
+                        continue;
+                    }
+                    let mut sprite_y = screen_y - ref_y;
+                    let mut sprite_x = screen_x - ref_x;
+                    sprite_y = if attrs.1.v_flip() {
+                        obj_h - sprite_y - 1
+                    } else {
+                        sprite_y
+                    };
+                    sprite_x = if attrs.1.h_flip() {
+                        obj_w - sprite_x - 1
+                    } else {
+                        sprite_x
+                    };
+                    let tile_x = sprite_x % 8;
+                    let tile_y = sprite_y % 8;
+                    let tile_addr = tile_base
+                        + index2d!(u32, sprite_x / 8, sprite_y / 8, tile_array_width)
+                            * (tile_size as u32);
+                    let pixel_index =
+                        self.$read_pixel_index_fn(tile_addr, tile_x as u32, tile_y as u32);
+                    let pixel_color =
+                        self.get_palette_color(pixel_index as u32, palette_bank, PALRAM_OFS_FG);
+                    if pixel_color != Rgb15::TRANSPARENT {
+                        self.write_obj_pixel(
+                            screen_x as usize,
+                            screen_y as usize,
+                            pixel_color,
+                            &attrs,
+                        );
+                    }
+                }
             };
-            sprite_x = if attrs.1.h_flip() {
-                obj_w - sprite_x - 1
-            } else {
-                sprite_x
-            };
-            let tile_x = sprite_x % 8;
-            let tile_y = sprite_y % 8;
-            let tile_addr = tile_base
-                + index2d!(u32, sprite_x / 8, sprite_y / 8, tile_array_width) * (tile_size as u32);
-            let pixel_index =
-                self.read_pixel_index(tile_addr, tile_x as u32, tile_y as u32, pixel_format);
-            let pixel_color =
-                self.get_palette_color(pixel_index as u32, palette_bank, PALRAM_OFS_FG);
-            if pixel_color != Rgb15::TRANSPARENT {
-                self.write_obj_pixel(screen_x as usize, screen_y as usize, pixel_color, &attrs);
-            }
+        }
+
+        match pixel_format {
+            PixelFormat::BPP4 => render_loop!(read_pixel_index_bpp4),
+            PixelFormat::BPP8 => render_loop!(read_pixel_index_bpp8),
         }
     }
 

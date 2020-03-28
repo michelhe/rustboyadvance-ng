@@ -48,38 +48,48 @@ impl Gpu {
         let mut start_tile_x = bg_x % 8;
         let tile_py = (bg_y % 8) as u32;
 
-        loop {
-            let mut map_addr =
-                tilemap_base + SCREEN_BLOCK_SIZE * sbb + 2 * index2d!(u32, se_row, se_column, 32);
-            for _ in se_row..32 {
-                let entry = TileMapEntry(self.vram.read_16(map_addr - VRAM_ADDR));
-                let tile_addr = tileset_base + entry.tile_index() * tile_size;
+        #[allow(unused)]
+        macro_rules! render_loop {
+            ($read_pixel_index:ident) => {
+                loop {
+                    let mut map_addr = tilemap_base
+                        + SCREEN_BLOCK_SIZE * sbb
+                        + 2 * index2d!(u32, se_row, se_column, 32);
+                    for _ in se_row..32 {
+                        let entry = TileMapEntry(self.vram.read_16(map_addr - VRAM_ADDR));
+                        let tile_addr = tileset_base + entry.tile_index() * tile_size;
 
-                for tile_px in start_tile_x..8 {
-                    let index = self.read_pixel_index(
-                        tile_addr,
-                        if entry.x_flip() { 7 - tile_px } else { tile_px },
-                        if entry.y_flip() { 7 - tile_py } else { tile_py },
-                        pixel_format,
-                    );
-                    let palette_bank = match pixel_format {
-                        PixelFormat::BPP4 => entry.palette_bank() as u32,
-                        PixelFormat::BPP8 => 0u32,
-                    };
-                    let color = self.get_palette_color(index as u32, palette_bank, 0);
-                    self.backgrounds[bg].line[screen_x as usize] = color;
-                    screen_x += 1;
-                    if (DISPLAY_WIDTH as u32) == screen_x {
-                        return;
+                        for tile_px in start_tile_x..8 {
+                            let index = self.$read_pixel_index(
+                                tile_addr,
+                                if entry.x_flip() { 7 - tile_px } else { tile_px },
+                                if entry.y_flip() { 7 - tile_py } else { tile_py },
+                            );
+                            let palette_bank = match pixel_format {
+                                PixelFormat::BPP4 => entry.palette_bank() as u32,
+                                PixelFormat::BPP8 => 0u32,
+                            };
+                            let color = self.get_palette_color(index as u32, palette_bank, 0);
+                            self.backgrounds[bg].line[screen_x as usize] = color;
+                            screen_x += 1;
+                            if (DISPLAY_WIDTH as u32) == screen_x {
+                                return;
+                            }
+                        }
+                        start_tile_x = 0;
+                        map_addr += 2;
+                    }
+                    se_row = 0;
+                    if bg_width == 512 {
+                        sbb = sbb ^ 1;
                     }
                 }
-                start_tile_x = 0;
-                map_addr += 2;
-            }
-            se_row = 0;
-            if bg_width == 512 {
-                sbb = sbb ^ 1;
-            }
+            };
+        }
+
+        match pixel_format {
+            PixelFormat::BPP4 => render_loop!(read_pixel_index_bpp4),
+            PixelFormat::BPP8 => render_loop!(read_pixel_index_bpp8),
         }
     }
 
