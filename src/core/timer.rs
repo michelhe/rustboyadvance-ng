@@ -5,18 +5,19 @@ use super::sysbus::SysBus;
 use num::FromPrimitive;
 use serde::{Deserialize, Serialize};
 
+const SHIFT_LUT: [usize; 4] = [0, 6, 8, 10];
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Timer {
     // registers
     pub ctl: TimerCtl,
     pub data: u16,
-
-    irq: Interrupt,
-
-    timer_id: usize,
     pub initial_data: u16,
 
-    pub cycles: usize,
+    irq: Interrupt,
+    timer_id: usize,
+    cycles: usize,
+    prescalar_shift: usize,
 }
 
 impl Timer {
@@ -31,37 +32,40 @@ impl Timer {
             ctl: TimerCtl(0),
             initial_data: 0,
             cycles: 0,
+            prescalar_shift: 0,
         }
     }
 
-    fn frequency(&self) -> usize {
-        match self.ctl.prescalar() {
-            0 => 1,
-            1 => 64,
-            2 => 256,
-            3 => 1024,
-            _ => unreachable!(),
-        }
+    #[inline]
+    fn ticks_to_overflow(&self) -> u32 {
+        0x1_0000 - (self.data as u32)
     }
 
-    /// updates the timer with 'cycles' amount of cycles, returns the number of times it overflowed
-    fn update(&mut self, cycles: usize, irqs: &mut IrqBitmask) -> usize {
-        self.cycles += cycles;
+    /// increments the timer with an amount of ticks
+    /// returns the number of times it overflowed
+    fn update(&mut self, ticks: usize, irqs: &mut IrqBitmask) -> usize {
+        let mut ticks = ticks as u32;
         let mut num_overflows = 0;
-        let freq = self.frequency();
-        while self.cycles >= freq {
-            self.cycles -= freq;
-            self.data = self.data.wrapping_add(1);
-            if self.data == 0 {
-                if self.ctl.irq_enabled() {
-                    irqs.add_irq(self.irq);
-                }
-                self.data = self.initial_data;
-                num_overflows += 1;
+
+        let ticks_remaining = self.ticks_to_overflow();
+
+        if ticks >= ticks_remaining {
+            num_overflows += 1;
+            ticks -= ticks_remaining;
+            self.data = self.initial_data;
+
+            let ticks_remaining = self.ticks_to_overflow();
+            num_overflows += ticks / ticks_remaining;
+            ticks = ticks % ticks_remaining;
+
+            if self.ctl.irq_enabled() {
+                irqs.add_irq(self.irq);
             }
         }
 
-        num_overflows
+        self.data += ticks as u16;
+
+        num_overflows as usize
     }
 }
 
@@ -95,10 +99,13 @@ impl Timers {
     }
 
     pub fn write_timer_ctl(&mut self, id: usize, value: u16) {
+        let new_ctl = TimerCtl(value);
         let old_enabled = self[id].ctl.enabled();
-        self[id].ctl.0 = value;
-        let new_enabled = self[id].ctl.enabled();
-        let cascade = self.timers[id].ctl.cascade();
+        let new_enabled = new_ctl.enabled();
+        let cascade = new_ctl.cascade();
+        self[id].cycles = 0;
+        self[id].prescalar_shift = SHIFT_LUT[new_ctl.prescalar() as usize];
+        self[id].ctl = new_ctl;
         if new_enabled && !cascade {
             self.running_timers |= 1 << id;
         } else {
@@ -164,7 +171,12 @@ impl Timers {
 
             if !self.timers[id].ctl.cascade() {
                 let timer = &mut self.timers[id];
-                let num_overflows = timer.update(cycles, irqs);
+
+                let cycles = timer.cycles + cycles;
+                let inc = cycles >> timer.prescalar_shift;
+                let num_overflows = timer.update(inc, irqs);
+                timer.cycles = cycles & ((1 << timer.prescalar_shift) - 1);
+
                 if num_overflows > 0 {
                     if id != 3 {
                         let next_timer = &mut self.timers[id + 1];
