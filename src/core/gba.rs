@@ -46,9 +46,10 @@ impl GameBoyAdvance {
         ));
         let io = IoDevices::new(gpu, sound_controller);
         let sysbus = Box::new(SysBus::new(io, bios_rom, gamepak));
+
         let cpu = arm7tdmi::Core::new();
 
-        GameBoyAdvance {
+        let mut gba = GameBoyAdvance {
             cpu: cpu,
             sysbus: sysbus,
 
@@ -57,7 +58,11 @@ impl GameBoyAdvance {
             input_device: input_device,
 
             cycles_to_next_event: 1,
-        }
+        };
+
+        gba.sysbus.created();
+
+        gba
     }
 
     pub fn save_state(&self) -> bincode::Result<Vec<u8>> {
@@ -75,6 +80,8 @@ impl GameBoyAdvance {
         self.cpu = decoded.cpu;
         self.sysbus = decoded.sysbus;
         self.cycles_to_next_event = 1;
+
+        self.sysbus.created();
 
         Ok(())
     }

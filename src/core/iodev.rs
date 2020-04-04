@@ -4,6 +4,7 @@ use super::gpu::*;
 use super::interrupt::InterruptController;
 use super::keypad;
 use super::sound::SoundController;
+use super::sysbus::SysBusPtr;
 use super::timer::Timers;
 use super::{Addr, Bus};
 
@@ -29,6 +30,12 @@ pub struct IoDevices {
     pub post_boot_flag: bool,
     pub waitcnt: WaitControl, // TODO also implement 4000800
     pub haltcnt: HaltState,
+
+    // HACK
+    // my ownership design sucks
+    #[serde(skip)]
+    #[serde(default = "SysBusPtr::default")]
+    sysbus_ptr: SysBusPtr,
 }
 
 impl IoDevices {
@@ -43,7 +50,13 @@ impl IoDevices {
             haltcnt: HaltState::Running,
             keyinput: keypad::KEYINPUT_ALL_RELEASED,
             waitcnt: WaitControl(0),
+
+            sysbus_ptr: Default::default(),
         }
+    }
+
+    pub fn set_sysbus_ptr(&mut self, ptr: SysBusPtr) {
+        self.sysbus_ptr = ptr;
     }
 }
 
@@ -231,7 +244,10 @@ impl Bus for IoDevices {
                 io.dmac.write_16(channel_id, ofs % 12, value)
             }
 
-            REG_WAITCNT => io.waitcnt.0 = value,
+            REG_WAITCNT => {
+                io.waitcnt.0 = value;
+                (*io.sysbus_ptr).on_waitcnt_written(io.waitcnt);
+            }
 
             REG_POSTFLG => io.post_boot_flag = value != 0,
             REG_HALTCNT => {
@@ -281,7 +297,7 @@ bitfield! {
     pub struct WaitControl(u16);
     impl Debug;
     u16;
-    sram_wait_control, _:      1, 0;
+    pub sram_wait_control, _:      1, 0;
     pub ws0_first_access, _:       3, 2;
     pub ws0_second_access, _:      4, 4;
     pub ws1_first_access, _:       6, 5;
