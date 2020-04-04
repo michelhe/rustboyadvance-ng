@@ -1,7 +1,6 @@
 use crate::bit::BitIndex;
 
 use super::super::alu::*;
-use super::ArmCond;
 use crate::core::arm7tdmi::psr::RegPSR;
 use crate::core::arm7tdmi::CpuAction;
 use crate::core::arm7tdmi::{Addr, Core, CpuMode, CpuState, REG_LR, REG_PC};
@@ -12,35 +11,34 @@ use super::*;
 
 impl Core {
     pub fn exec_arm(&mut self, bus: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
-        if insn.cond != ArmCond::AL {
-            if !self.check_arm_cond(insn.cond) {
-                self.S_cycle32(bus, self.pc);
-                return CpuAction::AdvancePC;
-            }
-        }
         match insn.fmt {
-            ArmFormat::BX => self.exec_bx(bus, insn),
-            ArmFormat::B_BL => self.exec_b_bl(bus, insn),
-            ArmFormat::DP => self.exec_data_processing(bus, insn),
-            ArmFormat::SWI => {
-                self.software_interrupt(bus, self.pc - 4, insn.swi_comment());
-                CpuAction::FlushPipeline
-            }
-            ArmFormat::LDR_STR => self.exec_ldr_str(bus, insn),
-            ArmFormat::LDR_STR_HS_IMM => self.exec_ldr_str_hs(bus, insn),
-            ArmFormat::LDR_STR_HS_REG => self.exec_ldr_str_hs(bus, insn),
-            ArmFormat::LDM_STM => self.exec_ldm_stm(bus, insn),
-            ArmFormat::MRS => self.move_from_status_register(bus, insn.rd(), insn.spsr_flag()),
-            ArmFormat::MSR_REG => self.exec_msr_reg(bus, insn),
-            ArmFormat::MSR_FLAGS => self.exec_msr_flags(bus, insn),
-            ArmFormat::MUL_MLA => self.exec_mul_mla(bus, insn),
-            ArmFormat::MULL_MLAL => self.exec_mull_mlal(bus, insn),
+            ArmFormat::BX => self.exec_arm_bx(bus, insn),
+            ArmFormat::B_BL => self.exec_arm_b_bl(bus, insn),
+            ArmFormat::DP => self.exec_arm_data_processing(bus, insn),
+            ArmFormat::SWI => self.exec_arm_swi(bus, insn),
+            ArmFormat::LDR_STR => self.exec_arm_ldr_str(bus, insn),
+            ArmFormat::LDR_STR_HS_IMM => self.exec_arm_ldr_str_hs(bus, insn),
+            ArmFormat::LDR_STR_HS_REG => self.exec_arm_ldr_str_hs(bus, insn),
+            ArmFormat::LDM_STM => self.exec_arm_ldm_stm(bus, insn),
+            ArmFormat::MRS => self.exec_arm_mrs(bus, insn),
+            ArmFormat::MSR_REG => self.exec_arm_msr_reg(bus, insn),
+            ArmFormat::MSR_FLAGS => self.exec_arm_msr_flags(bus, insn),
+            ArmFormat::MUL_MLA => self.exec_arm_mul_mla(bus, insn),
+            ArmFormat::MULL_MLAL => self.exec_arm_mull_mlal(bus, insn),
             ArmFormat::SWP => self.exec_arm_swp(bus, insn),
+            ArmFormat::Undefined => panic!("Undefined instruction "),
         }
     }
 
+    pub fn arm_undefined(&mut self, _: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+        panic!(
+            "executing undefind arm instruction {:08x} at @{:08x}",
+            insn.raw, insn.pc
+        )
+    }
+
     /// Cycles 2S+1N
-    fn exec_b_bl(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn exec_arm_b_bl(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         self.S_cycle32(sb, self.pc);
         if insn.link_flag() {
             self.set_reg(REG_LR, (insn.pc + (self.word_size() as u32)) & !0b1);
@@ -73,7 +71,7 @@ impl Core {
     }
 
     /// Cycles 2S+1N
-    fn exec_bx(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn exec_arm_bx(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         self.branch_exchange(sb, self.get_reg(insn.rn()))
     }
 
@@ -94,7 +92,11 @@ impl Core {
         CpuAction::AdvancePC
     }
 
-    fn exec_msr_reg(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn exec_arm_mrs(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+        self.move_from_status_register(sb, insn.rd(), insn.spsr_flag())
+    }
+
+    pub fn exec_arm_msr_reg(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         self.write_status_register(sb, insn.spsr_flag(), self.get_reg(insn.rm()))
     }
 
@@ -129,7 +131,7 @@ impl Core {
         CpuAction::AdvancePC
     }
 
-    fn exec_msr_flags(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn exec_arm_msr_flags(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         self.S_cycle32(sb, self.pc);
         let op = insn.operand2();
         let op = self.decode_operand2(&op);
@@ -164,7 +166,11 @@ impl Core {
     ///
     /// Cycles: 1S+x+y (from GBATEK)
     ///         Add x=1I cycles if Op2 shifted-by-register. Add y=1S+1N cycles if Rd=R15.
-    fn exec_data_processing(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn exec_arm_data_processing(
+        &mut self,
+        sb: &mut SysBus,
+        insn: &ArmInstruction,
+    ) -> CpuAction {
         use AluOpCode::*;
 
         self.S_cycle32(sb, self.pc);
@@ -275,7 +281,7 @@ impl Core {
     /// STR{cond}{B}{T} Rd,<Address>    | 2N            | ----  |  [Rn+/-<offset>]=Rd
     /// ------------------------------------------------------------------------------
     /// For LDR, add y=1S+1N if Rd=R15.
-    fn exec_ldr_str(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn exec_arm_ldr_str(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         let mut result = CpuAction::AdvancePC;
 
         let load = insn.load_flag();
@@ -352,7 +358,7 @@ impl Core {
         result
     }
 
-    fn exec_ldr_str_hs(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn exec_arm_ldr_str_hs(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         let mut result = CpuAction::AdvancePC;
 
         let load = insn.load_flag();
@@ -434,7 +440,7 @@ impl Core {
         result
     }
 
-    fn exec_ldm_stm(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn exec_arm_ldm_stm(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         let mut result = CpuAction::AdvancePC;
 
         let mut full = insn.pre_index_flag();
@@ -584,7 +590,7 @@ impl Core {
         result
     }
 
-    fn exec_mul_mla(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn exec_arm_mul_mla(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         let (rd, rn, rs, rm) = (insn.rd(), insn.rn(), insn.rs(), insn.rm());
 
         // check validity
@@ -619,7 +625,7 @@ impl Core {
         CpuAction::AdvancePC
     }
 
-    fn exec_mull_mlal(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn exec_arm_mull_mlal(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         let (rd_hi, rd_lo, rn, rs, rm) =
             (insn.rd_hi(), insn.rd_lo(), insn.rn(), insn.rs(), insn.rm());
 
@@ -666,7 +672,7 @@ impl Core {
         CpuAction::AdvancePC
     }
 
-    fn exec_arm_swp(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn exec_arm_swp(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         let base_addr = self.get_reg(insn.rn());
         if insn.transfer_size() == 1 {
             let t = sb.read_8(base_addr);
@@ -685,5 +691,10 @@ impl Core {
         self.N_cycle32(sb, self.pc);
 
         CpuAction::AdvancePC
+    }
+
+    pub fn exec_arm_swi(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+        self.software_interrupt(sb, self.pc - 4, insn.swi_comment());
+        CpuAction::FlushPipeline
     }
 }

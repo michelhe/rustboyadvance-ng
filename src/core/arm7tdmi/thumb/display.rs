@@ -294,6 +294,7 @@ impl fmt::Display for ThumbInstruction {
             ThumbFormat::Swi => self.fmt_thumb_swi(f),
             ThumbFormat::Branch => self.fmt_thumb_branch(f),
             ThumbFormat::BranchLongWithLink => self.fmt_thumb_branch_long_with_link(f),
+            ThumbFormat::Undefined => write!(f, "<Undefined>"),
         }
     }
 }

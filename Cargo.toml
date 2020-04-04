@@ -12,6 +12,7 @@ members = [
 ]
 
 [dependencies]
+lazy_static = {version="1.4.0", optional = true}
 serde = {version = "1.0.104", features = ["derive"] }
 bincode = "1.2.1"
 byteorder = "1"
@@ -41,6 +42,10 @@ gdbstub = {git = "https://github.com/daniel5151/gdbstub.git", optional = true, f
 [features]
 debugger = ["nom", "rustyline"]
 gdb = ["gdbstub"]
+# Uses lookup tables when executing instructions instead of `match` statements.
+# Faster, but consumes more memory.
+# Experimental and not thoroughly tested yet
+arm7tdmi_dispatch_table = ["lazy_static"]
 
 [profile.dev]
 opt-level = 0

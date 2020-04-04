@@ -1,13 +1,16 @@
+use super::alu::*;
+use super::arm::*;
+use super::{Addr, InstructionDecoder};
 use crate::bit::BitIndex;
 use crate::byteorder::{LittleEndian, ReadBytesExt};
 use crate::num::FromPrimitive;
 
-use super::alu::*;
-use super::arm::*;
-use super::{Addr, InstructionDecoder};
-
 pub mod display;
 pub mod exec;
+#[cfg(feature = "arm7tdmi_dispatch_table")]
+mod lut;
+#[cfg(feature = "arm7tdmi_dispatch_table")]
+pub use lut::*;
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
 pub enum ThumbFormat {
@@ -49,6 +52,9 @@ pub enum ThumbFormat {
     Branch,
     /// Format 19
     BranchLongWithLink,
+
+    /// Not an actual thumb format
+    Undefined,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -56,6 +62,12 @@ pub struct ThumbInstruction {
     pub fmt: ThumbFormat,
     pub raw: u16,
     pub pc: Addr,
+}
+
+impl ThumbInstruction {
+    pub fn new(raw: u16, pc: Addr, fmt: ThumbFormat) -> ThumbInstruction {
+        ThumbInstruction { fmt, raw, pc }
+    }
 }
 
 impl InstructionDecoder for ThumbInstruction {
@@ -103,14 +115,10 @@ impl InstructionDecoder for ThumbInstruction {
         } else if raw & 0xf000 == 0xf000 {
             BranchLongWithLink
         } else {
-            panic!("unknown thumb instruction {:#x} at @{:#x}", raw, addr);
+            Undefined
         };
 
-        ThumbInstruction {
-            fmt: fmt,
-            raw: raw,
-            pc: addr,
-        }
+        ThumbInstruction::new(raw, addr, fmt)
     }
 
     fn decode_from_bytes(bytes: &[u8], addr: Addr) -> Self {

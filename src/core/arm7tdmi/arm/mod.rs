@@ -1,6 +1,11 @@
 pub mod display;
 pub mod exec;
 
+#[cfg(feature = "arm7tdmi_dispatch_table")]
+mod lut;
+#[cfg(feature = "arm7tdmi_dispatch_table")]
+pub use lut::*;
+
 use serde::{Deserialize, Serialize};
 
 use super::alu::*;
@@ -90,6 +95,8 @@ pub enum ArmFormat {
     MSR_REG,
     /// Tanssfer immediate/register to PSR flags only
     MSR_FLAGS,
+
+    Undefined,
 }
 
 #[derive(Debug, PartialEq, Primitive)]
@@ -101,10 +108,15 @@ pub enum ArmHalfwordTransferType {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ArmInstruction {
-    pub cond: ArmCond,
     pub fmt: ArmFormat,
     pub raw: u32,
     pub pc: Addr,
+}
+
+impl ArmInstruction {
+    pub fn new(raw: u32, pc: Addr, fmt: ArmFormat) -> ArmInstruction {
+        ArmInstruction { fmt, raw, pc }
+    }
 }
 
 impl InstructionDecoder for ArmInstruction {
@@ -112,15 +124,13 @@ impl InstructionDecoder for ArmInstruction {
 
     fn decode(raw: u32, addr: Addr) -> Self {
         use ArmFormat::*;
-        let cond_code = raw.bit_range(28..32) as u8;
-        let cond = ArmCond::from_u8(cond_code).expect("invalid arm condition");
 
         let fmt = if (0x0fff_fff0 & raw) == 0x012f_ff10 {
             BX
         } else if (0x0e00_0000 & raw) == 0x0a00_0000 {
             B_BL
         } else if (0xe000_0010 & raw) == 0x0600_0000 {
-            panic!("unknown instruction {:#x} at @{:#x}", raw, addr);
+            Undefined
         } else if (0x0fb0_0ff0 & raw) == 0x0100_0090 {
             SWP
         } else if (0x0fc0_00f0 & raw) == 0x0000_0090 {
@@ -146,11 +156,10 @@ impl InstructionDecoder for ArmInstruction {
         } else if (0x0c00_0000 & raw) == 0x0000_0000 {
             DP
         } else {
-            panic!("unknown arm instruction {:#x} at @{:#x}", raw, addr);
+            Undefined
         };
 
         ArmInstruction {
-            cond: cond,
             fmt: fmt,
             raw: raw,
             pc: addr,
@@ -175,6 +184,10 @@ impl ArmInstruction {
             insn: self.raw,
             addr: self.pc,
         }
+    }
+
+    pub fn cond(&self) -> ArmCond {
+        ArmCond::from_u32(self.raw.bit_range(28..32)).unwrap()
     }
 
     pub fn rn(&self) -> usize {

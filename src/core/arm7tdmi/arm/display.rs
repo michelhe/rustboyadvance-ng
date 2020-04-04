@@ -113,7 +113,7 @@ impl ArmInstruction {
             f,
             "b{link}{cond}\t{ofs:#x}",
             link = if self.link_flag() { "l" } else { "" },
-            cond = self.cond,
+            cond = self.cond(),
             ofs = 8 + self.pc.wrapping_add(self.branch_offset() as Addr)
         )
     }
@@ -152,7 +152,7 @@ impl ArmInstruction {
                 f,
                 "{opcode}{S}{cond}\t{Rd}, ",
                 opcode = opcode,
-                cond = self.cond,
+                cond = self.cond(),
                 S = self.set_cond_mark(),
                 Rd = reg_string(self.rd())
             ),
@@ -160,14 +160,14 @@ impl ArmInstruction {
                 f,
                 "{opcode}{cond}\t{Rn}, ",
                 opcode = opcode,
-                cond = self.cond,
+                cond = self.cond(),
                 Rn = reg_string(self.rn())
             ),
             _ => write!(
                 f,
                 "{opcode}{S}{cond}\t{Rd}, {Rn}, ",
                 opcode = opcode,
-                cond = self.cond,
+                cond = self.cond(),
                 S = self.set_cond_mark(),
                 Rd = reg_string(self.rd()),
                 Rn = reg_string(self.rn())
@@ -230,7 +230,7 @@ impl ArmInstruction {
             "{mnem}{B}{T}{cond}\t{Rd}, ",
             mnem = if self.load_flag() { "ldr" } else { "str" },
             B = if self.transfer_size() == 1 { "b" } else { "" },
-            cond = self.cond,
+            cond = self.cond(),
             T = if !self.pre_index_flag() && self.write_back_flag() {
                 "t"
             } else {
@@ -249,7 +249,7 @@ impl ArmInstruction {
             mnem = if self.load_flag() { "ldm" } else { "stm" },
             inc_dec = if self.add_offset_flag() { 'i' } else { 'd' },
             pre_post = if self.pre_index_flag() { 'b' } else { 'a' },
-            cond = self.cond,
+            cond = self.cond(),
             Rn = reg_string(self.rn()),
             auto_inc = if self.write_back_flag() { "!" } else { "" }
         )?;
@@ -283,7 +283,7 @@ impl ArmInstruction {
         write!(
             f,
             "mrs{cond}\t{Rd}, {psr}",
-            cond = self.cond,
+            cond = self.cond(),
             Rd = reg_string(self.rd()),
             psr = if self.spsr_flag() { "SPSR" } else { "CPSR" }
         )
@@ -294,7 +294,7 @@ impl ArmInstruction {
         write!(
             f,
             "msr{cond}\t{psr}, {Rm}",
-            cond = self.cond,
+            cond = self.cond(),
             psr = if self.spsr_flag() { "SPSR" } else { "CPSR" },
             Rm = reg_string(self.rm()),
         )
@@ -304,7 +304,7 @@ impl ArmInstruction {
         write!(
             f,
             "msr{cond}\t{psr}, ",
-            cond = self.cond,
+            cond = self.cond(),
             psr = if self.spsr_flag() { "SPSR_f" } else { "CPSR_f" },
         )?;
         if let Ok(Some(op)) = self.fmt_operand2(f) {
@@ -327,7 +327,7 @@ impl ArmInstruction {
                 f,
                 "mla{S}{cond}\t{Rd}, {Rm}, {Rs}, {Rn}",
                 S = self.set_cond_mark(),
-                cond = self.cond,
+                cond = self.cond(),
                 Rd = reg_string(self.rd()),
                 Rm = reg_string(self.rm()),
                 Rs = reg_string(self.rs()),
@@ -338,7 +338,7 @@ impl ArmInstruction {
                 f,
                 "mul{S}{cond}\t{Rd}, {Rm}, {Rs}",
                 S = self.set_cond_mark(),
-                cond = self.cond,
+                cond = self.cond(),
                 Rd = reg_string(self.rd()),
                 Rm = reg_string(self.rm()),
                 Rs = reg_string(self.rs()),
@@ -365,7 +365,7 @@ impl ArmInstruction {
                 "mull"
             },
             S = self.set_cond_mark(),
-            cond = self.cond,
+            cond = self.cond(),
             RdLo = reg_string(self.rd_lo()),
             RdHi = reg_string(self.rd_hi()),
             Rm = reg_string(self.rm()),
@@ -379,7 +379,7 @@ impl ArmInstruction {
                 f,
                 "{mnem}{type}{cond}\t{Rd}, ",
                 mnem = if self.load_flag() { "ldr" } else { "str" },
-                cond = self.cond,
+                cond = self.cond(),
                 type = transfer_type,
                 Rd = reg_string(self.rd()),
             )?;
@@ -393,7 +393,7 @@ impl ArmInstruction {
         write!(
             f,
             "swi{cond}\t#{comm:#x}",
-            cond = self.cond,
+            cond = self.cond(),
             comm = self.swi_comment()
         )
     }
@@ -403,7 +403,7 @@ impl ArmInstruction {
             f,
             "swp{B}{cond}\t{Rd}, {Rm}, [{Rn}]",
             B = if self.transfer_size() == 1 { "b" } else { "" },
-            cond = self.cond,
+            cond = self.cond(),
             Rd = reg_string(self.rd()),
             Rm = reg_string(self.rm()),
             Rn = reg_string(self.rn()),
@@ -430,6 +430,7 @@ impl fmt::Display for ArmInstruction {
             LDR_STR_HS_REG => self.fmt_ldr_str_hs(f),
             SWI => self.fmt_swi(f),
             SWP => self.fmt_swp(f),
+            Undefined => write!(f, "<Undefined>"),
         }
     }
 }

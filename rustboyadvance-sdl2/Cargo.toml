@@ -22,3 +22,4 @@ winres = "0.1"
 [features]
 debugger = ["rustboyadvance-ng/debugger"]
 gdb = ["rustboyadvance-ng/gdb"]
+arm7tdmi_dispatch_table = ["rustboyadvance-ng/arm7tdmi_dispatch_table"]

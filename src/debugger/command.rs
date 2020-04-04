@@ -85,23 +85,24 @@ impl Debugger {
                     while self.gba.cpu.last_executed.is_none() {
                         self.gba.cpu.step(&mut self.gba.sysbus);
                     }
-                    let last_executed = self.gba.cpu.last_executed.unwrap();
-                    print!(
-                        "{}\t{}",
-                        Colour::Black
-                            .bold()
-                            .italic()
-                            .on(Colour::White)
-                            .paint(format!("Executed at @0x{:08x}:", last_executed.get_pc(),)),
-                        last_executed
-                    );
-                    println!(
-                        "{}",
-                        Colour::Purple.dimmed().italic().paint(format!(
-                            "\t\t/// Next instruction at @0x{:08x}",
-                            self.gba.cpu.get_next_pc()
-                        ))
-                    );
+                    if let Some(last_executed) = &self.gba.cpu.last_executed {
+                        print!(
+                            "{}\t{}",
+                            Colour::Black
+                                .bold()
+                                .italic()
+                                .on(Colour::White)
+                                .paint(format!("Executed at @0x{:08x}:", last_executed.get_pc(),)),
+                            last_executed
+                        );
+                        println!(
+                            "{}",
+                            Colour::Purple.dimmed().italic().paint(format!(
+                                "\t\t/// Next instruction at @0x{:08x}",
+                                self.gba.cpu.get_next_pc()
+                            ))
+                        );
+                    }
                 }
                 println!("{}\n", self.gba.cpu);
             }

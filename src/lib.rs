@@ -1,3 +1,7 @@
+#[cfg(feature = "arm7tdmi_dispatch_table")]
+#[macro_use]
+extern crate lazy_static;
+
 #[macro_use]
 extern crate serde;
 

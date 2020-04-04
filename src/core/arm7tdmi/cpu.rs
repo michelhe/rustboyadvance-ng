@@ -6,16 +6,28 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "debugger")]
 use std::fmt;
 
+use super::arm::ArmCond;
+#[cfg(feature = "arm7tdmi_dispatch_table")]
+use super::arm::{arm_insn_hash, ARM_LUT};
 pub use super::exception::Exception;
+#[cfg(feature = "arm7tdmi_dispatch_table")]
+use super::thumb::THUMB_LUT;
 use super::CpuAction;
 #[cfg(feature = "debugger")]
 use super::DecodedInstruction;
-use super::{
-    arm::*, psr::RegPSR, thumb::ThumbInstruction, Addr, CpuMode, CpuState, InstructionDecoder,
-};
+use super::{arm::*, psr::RegPSR, thumb::ThumbInstruction, Addr, CpuMode, CpuState};
+
+#[cfg(not(feature = "arm7tdmi_dispatch_table"))]
+use super::InstructionDecoder;
 
 use crate::core::bus::Bus;
 use crate::core::sysbus::{MemoryAccessType::*, MemoryAccessWidth::*, SysBus};
+
+use bit::BitIndex;
+use num::FromPrimitive;
+
+#[cfg(feature = "arm7tdmi_dispatch_table")]
+use lazy_static;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Core {
@@ -56,6 +68,13 @@ pub struct Core {
 
 impl Core {
     pub fn new() -> Core {
+        #[cfg(feature = "arm7tdmi_dispatch_table")]
+        {
+            lazy_static::initialize(&ARM_LUT);
+            lazy_static::initialize(&ARM_FN_LUT);
+            lazy_static::initialize(&THUMB_LUT);
+        }
+
         let cpsr = RegPSR::new(0x0000_00D3);
         Core {
             memreq: 0xffff_0000, // set memreq to an invalid addr so the first load cycle will be non-sequential
@@ -240,43 +259,37 @@ impl Core {
     #[allow(non_snake_case)]
     #[inline(always)]
     pub(super) fn S_cycle32(&mut self, sb: &SysBus, addr: u32) {
-        self.cycles += 1;
-        self.cycles += sb.get_cycles(addr, Seq + MemoryAccess32);
+        self.cycles += sb.get_cycles(addr, Seq, MemoryAccess32);
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
     pub(super) fn S_cycle16(&mut self, sb: &SysBus, addr: u32) {
-        self.cycles += 1;
-        self.cycles += sb.get_cycles(addr, Seq + MemoryAccess16);
+        self.cycles += sb.get_cycles(addr, Seq, MemoryAccess16);
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
     pub(super) fn S_cycle8(&mut self, sb: &SysBus, addr: u32) {
-        self.cycles += 1;
-        self.cycles += sb.get_cycles(addr, Seq + MemoryAccess8);
+        self.cycles += sb.get_cycles(addr, Seq, MemoryAccess8);
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
     pub(super) fn N_cycle32(&mut self, sb: &SysBus, addr: u32) {
-        self.cycles += 1;
-        self.cycles += sb.get_cycles(addr, NonSeq + MemoryAccess32);
+        self.cycles += sb.get_cycles(addr, NonSeq, MemoryAccess32);
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
     pub(super) fn N_cycle16(&mut self, sb: &SysBus, addr: u32) {
-        self.cycles += 1;
-        self.cycles += sb.get_cycles(addr, NonSeq + MemoryAccess16);
+        self.cycles += sb.get_cycles(addr, NonSeq, MemoryAccess16);
     }
 
     #[allow(non_snake_case)]
     #[inline(always)]
     pub(super) fn N_cycle8(&mut self, sb: &SysBus, addr: u32) {
-        self.cycles += 1;
-        self.cycles += sb.get_cycles(addr, NonSeq + MemoryAccess8);
+        self.cycles += sb.get_cycles(addr, NonSeq, MemoryAccess8);
     }
 
     #[inline]
@@ -301,32 +314,56 @@ impl Core {
         }
     }
 
-    fn step_arm_exec(&mut self, insn: u32, sb: &mut SysBus) {
-        let decoded_arm = ArmInstruction::decode(insn, self.pc.wrapping_sub(8));
-        #[cfg(feature = "debugger")]
-        {
-            self.gpr_previous = self.get_registers();
-            self.last_executed = Some(DecodedInstruction::Arm(decoded_arm.clone()));
-        }
-        let result = self.exec_arm(sb, &decoded_arm);
-        match result {
-            CpuAction::AdvancePC => self.advance_arm(),
-            CpuAction::FlushPipeline => {}
-        }
+    #[cfg(feature = "debugger")]
+    fn debugger_record_step(&mut self, d: DecodedInstruction) {
+        self.gpr_previous = self.get_registers();
+        self.last_executed = Some(d);
     }
 
-    fn step_thumb_exec(&mut self, insn: u16, sb: &mut SysBus) {
-        let decoded_thumb = ThumbInstruction::decode(insn, self.pc.wrapping_sub(4));
+    #[cfg(feature = "arm7tdmi_dispatch_table")]
+    fn step_arm_exec(&mut self, insn: u32, sb: &mut SysBus) -> CpuAction {
+        let l1_index = ARM_LUT[arm_insn_hash(insn)] as usize;
+        let handler_fn = ARM_FN_LUT[l1_index];
+
+        // This is safe because the table can't hold invalid indices
+        let arm_format: ArmFormat = unsafe { std::mem::transmute(l1_index as u8) };
+        let arm_insn = ArmInstruction::new(insn, self.pc.wrapping_sub(8), arm_format);
+
         #[cfg(feature = "debugger")]
-        {
-            self.gpr_previous = self.get_registers();
-            self.last_executed = Some(DecodedInstruction::Thumb(decoded_thumb.clone()));
-        }
-        let result = self.exec_thumb(sb, &decoded_thumb);
-        match result {
-            CpuAction::AdvancePC => self.advance_thumb(),
-            CpuAction::FlushPipeline => {}
-        }
+        self.debugger_record_step(DecodedInstruction::Arm(arm_insn.clone()));
+
+        (handler_fn)(self, sb, &arm_insn)
+    }
+
+    #[cfg(feature = "arm7tdmi_dispatch_table")]
+    fn step_thumb_exec(&mut self, insn: u16, sb: &mut SysBus) -> CpuAction {
+        let thumb_info = &THUMB_LUT[(insn >> 6) as usize];
+        let thumb_insn = ThumbInstruction::new(insn, self.pc.wrapping_sub(4), thumb_info.fmt);
+
+        #[cfg(feature = "debugger")]
+        self.debugger_record_step(DecodedInstruction::Thumb(thumb_insn.clone()));
+
+        (thumb_info.handler_fn)(self, sb, &thumb_insn)
+    }
+
+    #[cfg(not(feature = "arm7tdmi_dispatch_table"))]
+    fn step_arm_exec(&mut self, insn: u32, sb: &mut SysBus) -> CpuAction {
+        let arm_insn = ArmInstruction::decode(insn, self.pc.wrapping_sub(8));
+
+        #[cfg(feature = "debugger")]
+        self.debugger_record_step(DecodedInstruction::Arm(arm_insn.clone()));
+
+        self.exec_arm(sb, &arm_insn)
+    }
+
+    #[cfg(not(feature = "arm7tdmi_dispatch_table"))]
+    fn step_thumb_exec(&mut self, insn: u16, sb: &mut SysBus) -> CpuAction {
+        let thumb_insn = ThumbInstruction::decode(insn, self.pc.wrapping_sub(4));
+
+        #[cfg(feature = "debugger")]
+        self.debugger_record_step(DecodedInstruction::Thumb(thumb_insn.clone()));
+
+        self.exec_thumb(sb, &thumb_insn)
     }
 
     #[inline(always)]
@@ -370,14 +407,29 @@ impl Core {
                 let insn = self.pipeline[0];
                 self.pipeline[0] = self.pipeline[1];
                 self.pipeline[1] = fetched_now;
-                self.step_arm_exec(insn, bus)
+                let cond =
+                    ArmCond::from_u32(insn.bit_range(28..32)).expect("invalid arm condition");
+                if cond != ArmCond::AL {
+                    if !self.check_arm_cond(cond) {
+                        self.S_cycle32(bus, self.pc);
+                        self.advance_arm();
+                        return;
+                    }
+                }
+                match self.step_arm_exec(insn, bus) {
+                    CpuAction::AdvancePC => self.advance_arm(),
+                    CpuAction::FlushPipeline => {}
+                }
             }
             CpuState::THUMB => {
                 let fetched_now = bus.read_16(pc);
                 let insn = self.pipeline[0];
                 self.pipeline[0] = self.pipeline[1];
                 self.pipeline[1] = fetched_now as u32;
-                self.step_thumb_exec(insn as u16, bus)
+                match self.step_thumb_exec(insn as u16, bus) {
+                    CpuAction::AdvancePC => self.advance_thumb(),
+                    CpuAction::FlushPipeline => {}
+                }
             }
         }
     }
