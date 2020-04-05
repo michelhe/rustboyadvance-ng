@@ -12,21 +12,21 @@ use super::*;
 impl Core {
     pub fn exec_arm(&mut self, bus: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         match insn.fmt {
-            ArmFormat::BX => self.exec_arm_bx(bus, insn),
-            ArmFormat::B_BL => self.exec_arm_b_bl(bus, insn),
-            ArmFormat::DP => self.exec_arm_data_processing(bus, insn),
-            ArmFormat::SWI => self.exec_arm_swi(bus, insn),
-            ArmFormat::LDR_STR => self.exec_arm_ldr_str(bus, insn),
-            ArmFormat::LDR_STR_HS_IMM => self.exec_arm_ldr_str_hs(bus, insn),
-            ArmFormat::LDR_STR_HS_REG => self.exec_arm_ldr_str_hs(bus, insn),
-            ArmFormat::LDM_STM => self.exec_arm_ldm_stm(bus, insn),
-            ArmFormat::MRS => self.exec_arm_mrs(bus, insn),
-            ArmFormat::MSR_REG => self.exec_arm_msr_reg(bus, insn),
-            ArmFormat::MSR_FLAGS => self.exec_arm_msr_flags(bus, insn),
-            ArmFormat::MUL_MLA => self.exec_arm_mul_mla(bus, insn),
-            ArmFormat::MULL_MLAL => self.exec_arm_mull_mlal(bus, insn),
-            ArmFormat::SWP => self.exec_arm_swp(bus, insn),
-            ArmFormat::Undefined => panic!("Undefined instruction "),
+            ArmFormat::BranchExchange => self.exec_arm_bx(bus, insn),
+            ArmFormat::BranchLink => self.exec_arm_b_bl(bus, insn),
+            ArmFormat::DataProcessing => self.exec_arm_data_processing(bus, insn),
+            ArmFormat::SoftwareInterrupt => self.exec_arm_swi(bus, insn),
+            ArmFormat::SingleDataTransfer => self.exec_arm_ldr_str(bus, insn),
+            ArmFormat::HalfwordDataTransferImmediateOffset => self.exec_arm_ldr_str_hs(bus, insn),
+            ArmFormat::HalfwordDataTransferRegOffset => self.exec_arm_ldr_str_hs(bus, insn),
+            ArmFormat::BlockDataTransfer => self.exec_arm_ldm_stm(bus, insn),
+            ArmFormat::MoveFromStatus => self.exec_arm_mrs(bus, insn),
+            ArmFormat::MoveToStatus => self.exec_arm_msr_reg(bus, insn),
+            ArmFormat::MoveToFlags => self.exec_arm_msr_flags(bus, insn),
+            ArmFormat::Multiply => self.exec_arm_mul_mla(bus, insn),
+            ArmFormat::MultiplyLong => self.exec_arm_mull_mlal(bus, insn),
+            ArmFormat::SingleDataSwap => self.exec_arm_swp(bus, insn),
+            ArmFormat::Undefined => self.arm_undefined(bus, insn),
         }
     }
 

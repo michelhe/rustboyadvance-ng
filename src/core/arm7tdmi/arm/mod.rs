@@ -65,36 +65,24 @@ pub enum ArmCond {
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
-#[allow(non_camel_case_types)]
 pub enum ArmFormat {
-    /// Branch and Exchange
-    BX,
-    /// Branch /w Link
-    B_BL,
-    /// Software interrupt
-    SWI,
-    // Multiply and Multiply-Accumulate
-    MUL_MLA,
-    /// Multiply Long and Multiply-Accumulate Long
-    MULL_MLAL,
-    /// Single Data Transfer
-    LDR_STR,
-    /// Halfword and Signed Data Transfer
-    LDR_STR_HS_REG,
-    /// Halfword and Signed Data Transfer
-    LDR_STR_HS_IMM,
-    /// Data Processing
-    DP,
-    /// Block Data Transfer
-    LDM_STM,
-    /// Single Data Swap
-    SWP,
+    BranchExchange = 0,
+    BranchLink,
+    SoftwareInterrupt,
+    Multiply,
+    MultiplyLong,
+    SingleDataTransfer,
+    HalfwordDataTransferRegOffset,
+    HalfwordDataTransferImmediateOffset,
+    DataProcessing,
+    BlockDataTransfer,
+    SingleDataSwap,
     /// Transfer PSR contents to a register
-    MRS,
+    MoveFromStatus,
     /// Transfer register contents to PSR
-    MSR_REG,
+    MoveToStatus,
     /// Tanssfer immediate/register to PSR flags only
-    MSR_FLAGS,
+    MoveToFlags,
 
     Undefined,
 }
@@ -126,35 +114,35 @@ impl InstructionDecoder for ArmInstruction {
         use ArmFormat::*;
 
         let fmt = if (0x0fff_fff0 & raw) == 0x012f_ff10 {
-            BX
+            BranchExchange
         } else if (0x0e00_0000 & raw) == 0x0a00_0000 {
-            B_BL
+            BranchLink
         } else if (0xe000_0010 & raw) == 0x0600_0000 {
             Undefined
         } else if (0x0fb0_0ff0 & raw) == 0x0100_0090 {
-            SWP
+            SingleDataSwap
         } else if (0x0fc0_00f0 & raw) == 0x0000_0090 {
-            MUL_MLA
+            Multiply
         } else if (0x0f80_00f0 & raw) == 0x0080_0090 {
-            MULL_MLAL
+            MultiplyLong
         } else if (0x0fbf_0fff & raw) == 0x010f_0000 {
-            MRS
+            MoveFromStatus
         } else if (0x0fbf_fff0 & raw) == 0x0129_f000 {
-            MSR_REG
+            MoveToStatus
         } else if (0x0dbf_f000 & raw) == 0x0128_f000 {
-            MSR_FLAGS
+            MoveToFlags
         } else if (0x0c00_0000 & raw) == 0x0400_0000 {
-            LDR_STR
+            SingleDataTransfer
         } else if (0x0e40_0F90 & raw) == 0x0000_0090 {
-            LDR_STR_HS_REG
+            HalfwordDataTransferRegOffset
         } else if (0x0e40_0090 & raw) == 0x0040_0090 {
-            LDR_STR_HS_IMM
+            HalfwordDataTransferImmediateOffset
         } else if (0x0e00_0000 & raw) == 0x0800_0000 {
-            LDM_STM
+            BlockDataTransfer
         } else if (0x0f00_0000 & raw) == 0x0f00_0000 {
-            SWI
+            SoftwareInterrupt
         } else if (0x0c00_0000 & raw) == 0x0000_0000 {
-            DP
+            DataProcessing
         } else {
             Undefined
         };
@@ -192,16 +180,16 @@ impl ArmInstruction {
 
     pub fn rn(&self) -> usize {
         match self.fmt {
-            ArmFormat::MUL_MLA => self.raw.bit_range(12..16) as usize,
-            ArmFormat::MULL_MLAL => self.raw.bit_range(8..12) as usize,
-            ArmFormat::BX => self.raw.bit_range(0..4) as usize,
+            ArmFormat::Multiply => self.raw.bit_range(12..16) as usize,
+            ArmFormat::MultiplyLong => self.raw.bit_range(8..12) as usize,
+            ArmFormat::BranchExchange => self.raw.bit_range(0..4) as usize,
             _ => self.raw.bit_range(16..20) as usize,
         }
     }
 
     pub fn rd(&self) -> usize {
         match self.fmt {
-            ArmFormat::MUL_MLA => self.raw.bit_range(16..20) as usize,
+            ArmFormat::Multiply => self.raw.bit_range(16..20) as usize,
             _ => self.raw.bit_range(12..16) as usize,
         }
     }
@@ -323,7 +311,7 @@ impl ArmInstruction {
 
     pub fn ldr_str_hs_offset(&self) -> Result<BarrelShifterValue, ArmDecodeError> {
         match self.fmt {
-            ArmFormat::LDR_STR_HS_IMM => {
+            ArmFormat::HalfwordDataTransferImmediateOffset => {
                 let offset8 = (self.raw.bit_range(8..12) << 4) + self.raw.bit_range(0..4);
                 let offset8 = if self.add_offset_flag() {
                     offset8
@@ -332,12 +320,14 @@ impl ArmInstruction {
                 };
                 Ok(BarrelShifterValue::ImmediateValue(offset8))
             }
-            ArmFormat::LDR_STR_HS_REG => Ok(BarrelShifterValue::ShiftedRegister(ShiftedRegister {
-                reg: (self.raw & 0xf) as usize,
-                shift_by: ShiftRegisterBy::ByAmount(0),
-                bs_op: BarrelShiftOpCode::LSL,
-                added: Some(self.add_offset_flag()),
-            })),
+            ArmFormat::HalfwordDataTransferRegOffset => {
+                Ok(BarrelShifterValue::ShiftedRegister(ShiftedRegister {
+                    reg: (self.raw & 0xf) as usize,
+                    shift_by: ShiftRegisterBy::ByAmount(0),
+                    bs_op: BarrelShiftOpCode::LSL,
+                    added: Some(self.add_offset_flag()),
+                }))
+            }
             _ => Err(self.make_decode_error(DecodedPartDoesNotBelongToInstruction)),
         }
     }
@@ -385,7 +375,7 @@ impl ArmInstruction {
 
 //         // swi #0x1337
 //         let decoded = ArmInstruction::decode(0xef001337, 0).unwrap();
-//         assert_eq!(decoded.fmt, ArmFormat::SWI);
+//         assert_eq!(decoded.fmt, ArmFormat::SoftwareInterrupt);
 //         assert_eq!(decoded.swi_comment(), 0x1337);
 //         assert_eq!(format!("{}", decoded), "swi\t#0x1337");
 
@@ -400,7 +390,7 @@ impl ArmInstruction {
 //     fn branch_forwards() {
 //         // 0x20:   b 0x30
 //         let decoded = ArmInstruction::decode(0xea_00_00_02, 0x20).unwrap();
-//         assert_eq!(decoded.fmt, ArmFormat::B_BL);
+//         assert_eq!(decoded.fmt, ArmFormat::BranchLink);
 //         assert_eq!(decoded.link_flag(), false);
 //         assert_eq!(
 //             (decoded.pc as i32).wrapping_add(decoded.branch_offset()) + 8,
@@ -423,7 +413,7 @@ impl ArmInstruction {
 //     fn branch_link_backwards() {
 //         // 0x20:   bl 0x10
 //         let decoded = ArmInstruction::decode(0xeb_ff_ff_fa, 0x20).unwrap();
-//         assert_eq!(decoded.fmt, ArmFormat::B_BL);
+//         assert_eq!(decoded.fmt, ArmFormat::BranchLink);
 //         assert_eq!(decoded.link_flag(), true);
 //         assert_eq!(
 //             (decoded.pc as i32).wrapping_add(decoded.branch_offset()) + 8,
@@ -446,7 +436,7 @@ impl ArmInstruction {
 //     fn ldr_pre_index() {
 //         // ldreq r2, [r5, -r6, lsl #5]
 //         let decoded = ArmInstruction::decode(0x07_15_22_86, 0).unwrap();
-//         assert_eq!(decoded.fmt, ArmFormat::LDR_STR);
+//         assert_eq!(decoded.fmt, ArmFormat::SingleDataTransfer);
 //         assert_eq!(decoded.cond, ArmCond::EQ);
 //         assert_eq!(decoded.load_flag(), true);
 //         assert_eq!(decoded.pre_index_flag(), true);
@@ -488,7 +478,7 @@ impl ArmInstruction {
 //     fn str_post_index() {
 //         // strteq r2, [r4], -r7, asr #8
 //         let decoded = ArmInstruction::decode(0x06_24_24_47, 0).unwrap();
-//         assert_eq!(decoded.fmt, ArmFormat::LDR_STR);
+//         assert_eq!(decoded.fmt, ArmFormat::SingleDataTransfer);
 //         assert_eq!(decoded.cond, ArmCond::EQ);
 //         assert_eq!(decoded.load_flag(), false);
 //         assert_eq!(decoded.pre_index_flag(), false);
@@ -529,7 +519,7 @@ impl ArmInstruction {
 //     fn str_pre_index() {
 //         // str r4, [sp, 0x10]
 //         let decoded = ArmInstruction::decode(0xe58d4010, 0).unwrap();
-//         assert_eq!(decoded.fmt, ArmFormat::LDR_STR);
+//         assert_eq!(decoded.fmt, ArmFormat::SingleDataTransfer);
 //         assert_eq!(decoded.cond, ArmCond::AL);
 
 //         let mut core = Core::new();
