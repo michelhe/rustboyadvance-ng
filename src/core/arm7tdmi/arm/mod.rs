@@ -1,11 +1,6 @@
 pub mod display;
 pub mod exec;
 
-#[cfg(feature = "arm7tdmi_dispatch_table")]
-mod lut;
-#[cfg(feature = "arm7tdmi_dispatch_table")]
-pub use lut::*;
-
 use serde::{Deserialize, Serialize};
 
 use super::alu::*;

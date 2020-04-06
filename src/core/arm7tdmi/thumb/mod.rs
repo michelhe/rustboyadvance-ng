@@ -7,10 +7,6 @@ use crate::num::FromPrimitive;
 
 pub mod display;
 pub mod exec;
-#[cfg(feature = "arm7tdmi_dispatch_table")]
-mod lut;
-#[cfg(feature = "arm7tdmi_dispatch_table")]
-pub use lut::*;
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
 pub enum ThumbFormat {

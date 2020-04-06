@@ -21,8 +21,8 @@ impl Core {
             ArmFormat::HalfwordDataTransferRegOffset => self.exec_arm_ldr_str_hs(bus, insn),
             ArmFormat::BlockDataTransfer => self.exec_arm_ldm_stm(bus, insn),
             ArmFormat::MoveFromStatus => self.exec_arm_mrs(bus, insn),
-            ArmFormat::MoveToStatus => self.exec_arm_msr_reg(bus, insn),
-            ArmFormat::MoveToFlags => self.exec_arm_msr_flags(bus, insn),
+            ArmFormat::MoveToStatus => self.exec_arm_transfer_to_status(bus, insn),
+            ArmFormat::MoveToFlags => self.exec_arm_transfer_to_status(bus, insn),
             ArmFormat::Multiply => self.exec_arm_mul_mla(bus, insn),
             ArmFormat::MultiplyLong => self.exec_arm_mull_mlal(bus, insn),
             ArmFormat::SingleDataSwap => self.exec_arm_swp(bus, insn),
@@ -96,12 +96,46 @@ impl Core {
         self.move_from_status_register(sb, insn.rd(), insn.spsr_flag())
     }
 
-    pub fn exec_arm_msr_reg(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
-        self.write_status_register(sb, insn.spsr_flag(), self.get_reg(insn.rm()))
+    #[inline(always)]
+    fn decode_msr_param(&mut self, insn: &ArmInstruction) -> u32 {
+        if insn.raw.bit(25) {
+            let immediate = insn.raw & 0xff;
+            let rotate = 2 * insn.raw.bit_range(8..12);
+            self.ror(immediate, rotate, self.cpsr.C(), false, true)
+        } else {
+            self.get_reg((insn.raw & 0b1111) as usize)
+        }
     }
 
-    fn write_status_register(&mut self, sb: &mut SysBus, is_spsr: bool, value: u32) -> CpuAction {
-        let new_status_reg = RegPSR::new(value);
+    // #[cfg(feature = "arm7tdmi_dispatch_table")]
+    pub fn exec_arm_transfer_to_status(
+        &mut self,
+        sb: &mut SysBus,
+        insn: &ArmInstruction,
+    ) -> CpuAction {
+        let value = self.decode_msr_param(insn);
+
+        let f = insn.raw.bit(19);
+        let s = insn.raw.bit(18);
+        let x = insn.raw.bit(17);
+        let c = insn.raw.bit(16);
+
+        let mut mask = 0;
+        if f {
+            mask |= 0xff << 24;
+        }
+        if s {
+            mask |= 0xff << 16;
+        }
+        if x {
+            mask |= 0xff << 8;
+        }
+        if c {
+            mask |= 0xff << 0;
+        }
+
+        let is_spsr = insn.spsr_flag();
+
         match self.cpsr.mode() {
             CpuMode::User => {
                 if is_spsr {
@@ -113,34 +147,18 @@ impl Core {
                 if is_spsr {
                     self.spsr.set(value);
                 } else {
-                    let t_bit = self.cpsr.state();
                     let old_mode = self.cpsr.mode();
-                    self.cpsr.set(value);
-                    if t_bit != self.cpsr.state() {
-                        panic!("T bit changed from MSR");
-                    }
-                    let new_mode = new_status_reg.mode();
+                    let new_psr = RegPSR::new((self.cpsr.get() & !mask) | (value & mask));
+                    let new_mode = new_psr.mode();
                     if old_mode != new_mode {
                         self.change_mode(old_mode, new_mode);
                     }
+                    self.cpsr = new_psr;
                 }
             }
         }
         self.S_cycle32(sb, self.pc);
 
-        CpuAction::AdvancePC
-    }
-
-    pub fn exec_arm_msr_flags(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
-        self.S_cycle32(sb, self.pc);
-        let op = insn.operand2();
-        let op = self.decode_operand2(&op);
-
-        if insn.spsr_flag() {
-            self.spsr.set_flag_bits(op);
-        } else {
-            self.cpsr.set_flag_bits(op);
-        }
         CpuAction::AdvancePC
     }
 
@@ -195,19 +213,6 @@ impl Core {
         let op2 = self.decode_operand2(&op2);
 
         let reg_rd = insn.rd();
-        if !s_flag {
-            match opcode {
-                TEQ => {
-                    return self.write_status_register(sb, false, op2);
-                }
-                CMN => {
-                    return self.write_status_register(sb, true, op2);
-                }
-                TST => return self.move_from_status_register(sb, reg_rd, false),
-                CMP => return self.move_from_status_register(sb, reg_rd, true),
-                _ => (),
-            }
-        }
 
         if reg_rd == REG_PC && s_flag {
             self.transfer_spsr_mode();

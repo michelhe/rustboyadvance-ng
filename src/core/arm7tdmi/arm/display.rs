@@ -289,15 +289,16 @@ impl ArmInstruction {
         )
     }
 
-    /// MSR - transfer register contents to PSR
-    fn fmt_msr_reg(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    /// MSR - transfer register/immediate contents to PSR
+    fn fmt_msr(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "msr{cond}\t{psr}, {Rm}",
+            "msr{cond}\t{psr}, ",
             cond = self.cond(),
             psr = if self.spsr_flag() { "SPSR" } else { "CPSR" },
-            Rm = reg_string(self.rm()),
-        )
+        )?;
+        self.fmt_operand2(f).unwrap();
+        Ok(())
     }
 
     fn fmt_msr_flags(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -422,7 +423,7 @@ impl fmt::Display for ArmInstruction {
             SingleDataTransfer => self.fmt_ldr_str(f),
             BlockDataTransfer => self.fmt_ldm_stm(f),
             MoveFromStatus => self.fmt_mrs(f),
-            MoveToStatus => self.fmt_msr_reg(f),
+            MoveToStatus => self.fmt_msr(f),
             MoveToFlags => self.fmt_msr_flags(f),
             Multiply => self.fmt_mul_mla(f),
             MultiplyLong => self.fmt_mull_mlal(f),
