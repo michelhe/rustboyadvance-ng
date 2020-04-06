@@ -36,10 +36,17 @@ arrayvec = "0.5.1"
 
 rustyline = {version = "6.0.0", optional = true}
 nom = {version = "5.0.0", optional = true}
-gdbstub = {git = "https://github.com/daniel5151/gdbstub.git", optional = true, features = ["std"], rev = "9686df6d74c4bf45cbc5746273b82640e8852b6d"}
+gdbstub = { version = "0.1.2", optional = true, features = ["std"] }
 
 [build-dependencies]
 bit = "^0.1"
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "performance"
+harness = false
 
 [features]
 default = ["arm7tdmi_dispatch_table"]
