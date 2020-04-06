@@ -34,7 +34,7 @@ memmem = "0.1.1"
 log = "0.4.8"
 arrayvec = "0.5.1"
 
-rustyline = {version = "6.0.0", optional = true}
+rustyline = {version = "6.1.0", optional = true}
 nom = {version = "5.0.0", optional = true}
 gdbstub = {git = "https://github.com/daniel5151/gdbstub.git", optional = true, features = ["std"], rev = "9686df6d74c4bf45cbc5746273b82640e8852b6d"}
 
