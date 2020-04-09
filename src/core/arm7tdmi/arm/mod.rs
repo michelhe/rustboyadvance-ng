@@ -205,8 +205,16 @@ impl ArmInstruction {
         self.raw.bit_range(16..20) as usize
     }
 
-    pub fn opcode(&self) -> Option<AluOpCode> {
-        AluOpCode::from_u32(self.raw.bit_range(21..25))
+    pub fn opcode(&self) -> AluOpCode {
+        use std::hint::unreachable_unchecked;
+
+        unsafe {
+            if let Some(opc) = AluOpCode::from_u16(self.raw.bit_range(21..25) as u16) {
+                opc
+            } else {
+                unreachable_unchecked()
+            }
+        }
     }
 
     pub fn branch_offset(&self) -> i32 {
@@ -290,10 +298,12 @@ impl ArmInstruction {
         }
     }
 
+    #[inline(always)]
     fn get_bs_op(&self, shift_field: u32) -> BarrelShiftOpCode {
         BarrelShiftOpCode::from_u8(shift_field.bit_range(5..7) as u8).unwrap()
     }
 
+    #[inline(always)]
     fn get_shift_reg_by(&self, shift_field: u32) -> ShiftRegisterBy {
         if shift_field.bit(4) {
             let rs = shift_field.bit_range(8..12) as usize;
@@ -328,17 +338,16 @@ impl ArmInstruction {
     }
 
     pub fn operand2(&self) -> BarrelShifterValue {
-        let op2 = self.raw.bit_range(0..12);
         if self.raw.bit(25) {
-            let immediate = op2 & 0xff;
-            let rotate = 2 * op2.bit_range(8..12);
+            let immediate = self.raw & 0xff;
+            let rotate = 2 * self.raw.bit_range(8..12);
             BarrelShifterValue::RotatedImmediate(immediate, rotate)
         } else {
-            let reg = op2 & 0xf;
+            let reg = self.raw & 0xf;
             let shifted_reg = ShiftedRegister {
                 reg: reg as usize,
-                bs_op: self.get_bs_op(op2),
-                shift_by: self.get_shift_reg_by(op2),
+                bs_op: self.get_bs_op(self.raw),
+                shift_by: self.get_shift_reg_by(self.raw),
                 added: None,
             }; // TODO error handling
             BarrelShifterValue::ShiftedRegister(shifted_reg)

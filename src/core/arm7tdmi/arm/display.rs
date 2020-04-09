@@ -145,7 +145,7 @@ impl ArmInstruction {
     fn fmt_data_processing(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use AluOpCode::*;
 
-        let opcode = self.opcode().unwrap();
+        let opcode = self.opcode();
 
         match opcode {
             MOV | MVN => write!(
