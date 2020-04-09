@@ -42,7 +42,7 @@ impl Target for GameBoyAdvance {
 
         if self.cycles_to_next_event <= unsafe { S_TOTAL_CYCLES } {
             let mut cycles_to_next_event = std::usize::MAX;
-            io.gpu.step(
+            io.gpu.update(
                 unsafe { S_TOTAL_CYCLES },
                 &mut self.sysbus,
                 &mut irqs,

@@ -451,7 +451,7 @@ impl Gpu {
     }
 
     // Returns the new gpu state
-    pub fn step(
+    pub fn update(
         &mut self,
         cycles: usize,
         sb: &mut SysBus,

@@ -24,6 +24,8 @@ pub struct GameBoyAdvance {
     pub input_device: Rc<RefCell<dyn InputInterface>>,
 
     pub cycles_to_next_event: usize,
+
+    overshoot_cycles: usize,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -58,6 +60,7 @@ impl GameBoyAdvance {
             input_device: input_device,
 
             cycles_to_next_event: 1,
+            overshoot_cycles: 0,
         };
 
         gba.sysbus.created();
@@ -93,12 +96,20 @@ impl GameBoyAdvance {
 
     pub fn frame(&mut self) {
         self.key_poll();
-        while self.sysbus.io.gpu.vcount != DISPLAY_HEIGHT {
-            self.step();
+
+        let mut remaining_cycles = 280896 - self.overshoot_cycles;
+
+        while remaining_cycles > 0 {
+            let cycles = self.step();
+            if remaining_cycles >= cycles {
+                remaining_cycles -= cycles;
+            } else {
+                self.overshoot_cycles = cycles - remaining_cycles;
+                return;
+            }
         }
-        while self.sysbus.io.gpu.vcount == DISPLAY_HEIGHT {
-            self.step();
-        }
+
+        self.overshoot_cycles = 0;
     }
 
     pub fn add_breakpoint(&mut self, addr: u32) -> Option<usize> {
@@ -137,7 +148,7 @@ impl GameBoyAdvance {
         self.cpu.cycles - previous_cycles
     }
 
-    pub fn step(&mut self) {
+    pub fn step(&mut self) -> usize {
         // I hate myself for doing this, but rust left me no choice.
         let io = unsafe {
             let ptr = &mut *self.sysbus as *mut SysBus;
@@ -162,7 +173,7 @@ impl GameBoyAdvance {
             } else {
                 io.dmac.perform_work(&mut self.sysbus, &mut irqs);
                 io.intc.request_irqs(irqs);
-                return;
+                return cycles;
             };
 
             cycles += _cycles;
@@ -174,7 +185,7 @@ impl GameBoyAdvance {
 
         // update gpu & sound
         io.timers.update(cycles, &mut self.sysbus, &mut irqs);
-        io.gpu.step(
+        io.gpu.update(
             cycles,
             &mut self.sysbus,
             &mut irqs,
@@ -185,6 +196,8 @@ impl GameBoyAdvance {
             .update(cycles, &mut cycles_to_next_event, &self.audio_device);
         self.cycles_to_next_event = cycles_to_next_event;
         io.intc.request_irqs(irqs);
+
+        cycles
     }
 
     /// Query the emulator for the recently drawn framebuffer.
