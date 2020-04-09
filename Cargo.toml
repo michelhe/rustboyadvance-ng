@@ -6,9 +6,9 @@ edition = "2018"
 
 [workspace]
 members = [
-    "rustboyadvance-sdl2",
-    "rustboyadvance-minifb",
-    "rustboyadvance-jni",
+    "platform/rustboyadvance-sdl2",
+    "platform/rustboyadvance-minifb",
+    "bindings/rustboyadvance-jni",
 ]
 
 [dependencies]

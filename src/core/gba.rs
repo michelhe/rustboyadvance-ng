@@ -85,6 +85,8 @@ impl GameBoyAdvance {
             input_device: input_device,
 
             cycles_to_next_event: 1,
+
+            overshoot_cycles: 0,
         })
     }
 

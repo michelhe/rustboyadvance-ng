@@ -5,7 +5,7 @@ authors = ["Michel Heily <michelheily@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-rustboyadvance-ng = {path = "../"}
+rustboyadvance-ng = {path = "../../"}
 sdl2 = {version = "0.33.0", features = ["image"]}
 ringbuf = "0.2.1"
 bytesize = "1.0.0"
