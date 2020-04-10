@@ -247,6 +247,80 @@ impl DerefMut for SysBusPtr {
     }
 }
 
+macro_rules! memory_map {
+    (read($sb:ident, $read_fn:ident, $addr:expr)) => {
+        match $addr & 0xff000000 {
+            BIOS_ADDR => {
+                if $addr >= 0x4000 {
+                    0
+                } else {
+                    $sb.bios.$read_fn($addr)
+                }
+            }
+            EWRAM_ADDR => $sb.onboard_work_ram.$read_fn($addr & 0x3_ffff),
+            IWRAM_ADDR => $sb.internal_work_ram.$read_fn($addr & 0x7fff),
+            IOMEM_ADDR => {
+                let addr = if $addr & 0xffff == 0x8000 {
+                    0x800
+                } else {
+                    $addr & 0x7ff
+                };
+                $sb.io.$read_fn(addr)
+            }
+            PALRAM_ADDR => $sb.io.gpu.palette_ram.$read_fn($addr & 0x3ff),
+            VRAM_ADDR => {
+                let mut ofs = $addr & ((VIDEO_RAM_SIZE as u32) - 1);
+                if ofs > 0x18000 {
+                    ofs -= 0x8000;
+                }
+                $sb.io.gpu.vram.$read_fn(ofs)
+            }
+            OAM_ADDR => $sb.io.gpu.oam.$read_fn($addr & 0x3ff),
+            GAMEPAK_WS0_LO | GAMEPAK_WS0_HI | GAMEPAK_WS1_LO | GAMEPAK_WS1_HI | GAMEPAK_WS2_LO => {
+                $sb.cartridge.$read_fn($addr)
+            }
+            GAMEPAK_WS2_HI => $sb.cartridge.$read_fn($addr),
+            SRAM_LO | SRAM_HI => $sb.cartridge.$read_fn($addr),
+            _ => {
+                // warn!("trying to read invalid address {:#x}", $addr);
+                // TODO open bus
+                0
+            }
+        }
+    };
+    (write($sb:ident, $write_fn:ident, $addr:expr, $value:expr)) => {
+        match $addr & 0xff000000 {
+            BIOS_ADDR => {}
+            EWRAM_ADDR => $sb.onboard_work_ram.$write_fn($addr & 0x3_ffff, $value),
+            IWRAM_ADDR => $sb.internal_work_ram.$write_fn($addr & 0x7fff, $value),
+            IOMEM_ADDR => {
+                let addr = if $addr & 0xffff == 0x8000 {
+                    0x800
+                } else {
+                    $addr & 0x7ff
+                };
+                $sb.io.$write_fn(addr, $value)
+            }
+            PALRAM_ADDR => $sb.io.gpu.palette_ram.$write_fn($addr & 0x3ff, $value),
+            VRAM_ADDR => {
+                let mut ofs = $addr & ((VIDEO_RAM_SIZE as u32) - 1);
+                if ofs > 0x18000 {
+                    ofs -= 0x8000;
+                }
+                $sb.io.gpu.vram.$write_fn(ofs, $value)
+            }
+            OAM_ADDR => $sb.io.gpu.oam.$write_fn($addr & 0x3ff, $value),
+            GAMEPAK_WS0_LO | GAMEPAK_WS0_HI => {}
+            GAMEPAK_WS2_HI => $sb.cartridge.$write_fn($addr, $value),
+            SRAM_LO | SRAM_HI => $sb.cartridge.$write_fn($addr, $value),
+            _ => {
+                // warn!("trying to write invalid address {:#x}", $addr);
+                // TODO open bus
+            }
+        }
+    };
+}
+
 impl SysBus {
     pub fn new(io: IoDevices, bios_rom: Box<[u8]>, cartridge: Cartridge) -> SysBus {
         let mut luts = CycleLookupTables::default();
@@ -277,77 +351,6 @@ impl SysBus {
 
     pub fn on_waitcnt_written(&mut self, waitcnt: WaitControl) {
         self.cycle_luts.update_gamepak_waitstates(waitcnt);
-    }
-
-    fn map(&self, addr: Addr) -> (&dyn Bus, Addr) {
-        match addr & 0xff000000 {
-            BIOS_ADDR => {
-                if addr >= 0x4000 {
-                    (&self.dummy, addr) // TODO return last fetched opcode
-                } else {
-                    (&self.bios, addr)
-                }
-            }
-            EWRAM_ADDR => (&self.onboard_work_ram, addr & 0x3_ffff),
-            IWRAM_ADDR => (&self.internal_work_ram, addr & 0x7fff),
-            IOMEM_ADDR => (&self.io, {
-                if addr & 0xffff == 0x8000 {
-                    0x800
-                } else {
-                    addr & 0x7ff
-                }
-            }),
-            PALRAM_ADDR => (&self.io.gpu.palette_ram, addr & 0x3ff),
-            VRAM_ADDR => (&self.io.gpu.vram, {
-                let mut ofs = addr & ((VIDEO_RAM_SIZE as u32) - 1);
-                if ofs > 0x18000 {
-                    ofs -= 0x8000;
-                }
-                ofs
-            }),
-            OAM_ADDR => (&self.io.gpu.oam, addr & 0x3ff),
-            GAMEPAK_WS0_LO | GAMEPAK_WS0_HI | GAMEPAK_WS1_LO | GAMEPAK_WS1_HI | GAMEPAK_WS2_LO => {
-                (&self.cartridge, addr)
-            }
-            GAMEPAK_WS2_HI => (&self.cartridge, addr),
-            SRAM_LO | SRAM_HI => (&self.cartridge, addr),
-            _ => {
-                warn!("trying to read invalid address {:#x}", addr);
-                (&self.dummy, addr)
-            }
-        }
-    }
-
-    /// TODO proc-macro for generating this function
-    fn map_mut(&mut self, addr: Addr) -> (&mut dyn Bus, Addr) {
-        match addr & 0xff000000 {
-            BIOS_ADDR => (&mut self.dummy, addr),
-            EWRAM_ADDR => (&mut self.onboard_work_ram, addr & 0x3_ffff),
-            IWRAM_ADDR => (&mut self.internal_work_ram, addr & 0x7fff),
-            IOMEM_ADDR => (&mut self.io, {
-                if addr & 0xffff == 0x8000 {
-                    0x800
-                } else {
-                    addr & 0x7ff
-                }
-            }),
-            PALRAM_ADDR => (&mut self.io.gpu.palette_ram, addr & 0x3ff),
-            VRAM_ADDR => (&mut self.io.gpu.vram, {
-                let mut ofs = addr & ((VIDEO_RAM_SIZE as u32) - 1);
-                if ofs > 0x18000 {
-                    ofs -= 0x8000;
-                }
-                ofs
-            }),
-            OAM_ADDR => (&mut self.io.gpu.oam, addr & 0x3ff),
-            GAMEPAK_WS0_LO | GAMEPAK_WS0_HI => (&mut self.dummy, addr),
-            GAMEPAK_WS2_HI => (&mut self.cartridge, addr),
-            SRAM_LO | SRAM_HI => (&mut self.cartridge, addr),
-            _ => {
-                warn!("trying to write invalid address {:#x}", addr);
-                (&mut self.dummy, addr)
-            }
-        }
     }
 
     #[inline(always)]
@@ -381,44 +384,26 @@ impl SysBus {
 
 impl Bus for SysBus {
     fn read_32(&self, addr: Addr) -> u32 {
-        if addr & 3 != 0 {
-            warn!("Unaligned read32 at {:#X}", addr);
-        }
-        let (dev, addr) = self.map(addr & !3);
-        dev.read_32(addr)
+        memory_map!(read(self, read_32, addr & !3))
     }
 
     fn read_16(&self, addr: Addr) -> u16 {
-        if addr & 1 != 0 {
-            warn!("Unaligned read16 at {:#X}", addr);
-        }
-        let (dev, addr) = self.map(addr & !1);
-        dev.read_16(addr)
+        memory_map!(read(self, read_16, addr & !1))
     }
 
     fn read_8(&self, addr: Addr) -> u8 {
-        let (dev, addr) = self.map(addr);
-        dev.read_8(addr)
+        memory_map!(read(self, read_8, addr))
     }
 
     fn write_32(&mut self, addr: Addr, value: u32) {
-        if addr & 3 != 0 {
-            warn!("Unaligned write32 at {:#X} (value={:#X}", addr, value);
-        }
-        let (dev, addr) = self.map_mut(addr & !3);
-        dev.write_32(addr, value);
+        memory_map!(write(self, write_32, addr & !3, value));
     }
 
     fn write_16(&mut self, addr: Addr, value: u16) {
-        if addr & 1 != 0 {
-            warn!("Unaligned write16 at {:#X} (value={:#X}", addr, value);
-        }
-        let (dev, addr) = self.map_mut(addr & !1);
-        dev.write_16(addr, value);
+        memory_map!(write(self, write_16, addr & !1, value));
     }
 
     fn write_8(&mut self, addr: Addr, value: u8) {
-        let (dev, addr) = self.map_mut(addr);
-        dev.write_8(addr, value);
+        memory_map!(write(self, write_8, addr, value));
     }
 }
