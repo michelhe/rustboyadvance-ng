@@ -363,7 +363,6 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
         findViewById(R.id.bDpadDown).setOnTouchListener(this);
         findViewById(R.id.bDpadLeft).setOnTouchListener(this);
         findViewById(R.id.bDpadRight).setOnTouchListener(this);
-        findViewById(R.id.dpad_layout).setOnTouchListener(this);
 
         turboButton = findViewById(R.id.tbTurbo);
         turboButton.setOnClickListener(this);

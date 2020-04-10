@@ -49,7 +49,7 @@ public class RomListItemAdapter extends ArrayAdapter<RomMetadataEntry> {
         if (screenshot != null) {
             screenshotImageView.setImageBitmap(screenshot);
         } else {
-            screenshotImageView.setImageBitmap(BitmapFactory.decodeResource(context.getResources(), R.drawable.icon));
+            screenshotImageView.setImageBitmap(BitmapFactory.decodeResource(context.getResources(), R.mipmap.ic_launcher));
         }
 
 
