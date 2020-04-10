@@ -13,7 +13,7 @@
         android:layout_width="180dp"
         android:layout_height="120dp"
         android:scaleType="centerCrop"
-        app:srcCompat="@drawable/icon" />
+        app:srcCompat="@mipmap/ic_launcher" />
 
     <TextView
         android:id="@+id/textview_snapshot_title"
