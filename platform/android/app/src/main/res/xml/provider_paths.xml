@@ -1,0 +1,4 @@
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <files-path name="internal_files" path="./"/>
+    <files-path name="snapshots" path="snapshots/"/>
+</paths>

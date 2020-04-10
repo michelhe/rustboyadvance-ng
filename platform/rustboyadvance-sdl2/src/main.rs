@@ -103,7 +103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     canvas.clear();
     let texture_creator = canvas.texture_creator();
     let icon_texture = texture_creator
-        .load_texture("assets/icon.png")
+        .load_texture("assets/icon_cropped_small.png")
         .expect("failed to load icon");
     canvas.copy(&icon_texture, None, None)?;
     canvas.present();

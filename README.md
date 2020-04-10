@@ -1,8 +1,9 @@
+
+![icon ](assets/icon_cropped_small.png)
+
 # RustBoyAdvance-NG
 
 ![license](https://img.shields.io/github/license/michelhe/rustboyadvance-ng) [![Build Status](https://travis-ci.com/michelhe/rustboyadvance-ng.svg?branch=master)](https://travis-ci.com/michelhe/rustboyadvance-ng)
-
-![icon ](assets/icon.png)
 
 Nintendo GameBoy Advance ™ emulator and debugger, written in rust.
 
