@@ -66,6 +66,8 @@ pub struct FpsCounter {
     timer: time::Instant,
 }
 
+const SECOND: time::Duration = time::Duration::from_secs(1);
+
 impl Default for FpsCounter {
     fn default() -> FpsCounter {
         FpsCounter {
@@ -78,7 +80,7 @@ impl Default for FpsCounter {
 impl FpsCounter {
     pub fn tick(&mut self) -> Option<u32> {
         self.count += 1;
-        if self.timer.elapsed() >= time::Duration::from_secs(1) {
+        if self.timer.elapsed() >= SECOND {
             let fps = self.count;
             self.timer = time::Instant::now();
             self.count = 0;
