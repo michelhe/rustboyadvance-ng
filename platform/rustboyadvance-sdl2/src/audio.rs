@@ -1,7 +1,7 @@
 use sdl2;
 use sdl2::audio::{AudioCallback, AudioDevice, AudioSpec, AudioSpecDesired};
 
-use rustboyadvance_ng::{AudioInterface, StereoSample};
+use rustboyadvance_core::{AudioInterface, StereoSample};
 
 use ringbuf;
 use ringbuf::{Consumer, Producer, RingBuffer};

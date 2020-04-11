@@ -22,8 +22,8 @@ use env_logger;
 
 use ringbuf::{Consumer, Producer, RingBuffer};
 
-use rustboyadvance_ng::prelude::*;
-use rustboyadvance_ng::StereoSample;
+use rustboyadvance_core::prelude::*;
+use rustboyadvance_core::StereoSample;
 
 struct AudioRingBuffer {
     pub prod: Producer<i16>,
@@ -190,7 +190,7 @@ pub mod bindings {
         rom: jbyteArray,
         frame_buffer: jintArray,
         save_file: JString,
-        skip_bios: jboolean
+        skip_bios: jboolean,
     ) -> jlong {
         match internal_open_context(&env, bios, rom, frame_buffer, save_file, skip_bios) {
             Ok(ctx) => Box::into_raw(Box::new(Mutex::new(ctx))) as jlong,

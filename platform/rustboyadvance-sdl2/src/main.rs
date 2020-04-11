@@ -35,10 +35,10 @@ use audio::create_audio_player;
 use input::create_input;
 use video::{create_video_interface, SCREEN_HEIGHT, SCREEN_WIDTH};
 
-use rustboyadvance_ng::core::cartridge::BackupType;
-use rustboyadvance_ng::prelude::*;
-use rustboyadvance_ng::util::spawn_and_run_gdb_server;
-use rustboyadvance_ng::util::FpsCounter;
+use rustboyadvance_core::core::cartridge::BackupType;
+use rustboyadvance_core::prelude::*;
+use rustboyadvance_core::util::spawn_and_run_gdb_server;
+use rustboyadvance_core::util::FpsCounter;
 
 const LOG_DIR: &str = ".logs";
 const DEFAULT_GDB_SERVER_ADDR: &'static str = "localhost:1337";

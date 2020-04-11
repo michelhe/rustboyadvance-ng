@@ -1,61 +1,7 @@
-[package]
-name = "rustboyadvance-ng"
-version = "0.1.0"
-authors = ["Michel Heily <michelheily@gmail.com>"]
-edition = "2018"
-
 [workspace]
 members = [
+    "rustboyadvance-core/",
     "platform/rustboyadvance-sdl2",
     "platform/rustboyadvance-minifb",
     "bindings/rustboyadvance-jni",
 ]
-
-[dependencies]
-serde = {version = "1.0.104", features = ["derive"] }
-bincode = "1.2.1"
-byteorder = "1"
-num = "0.2.1"
-num-traits = "0.2"
-enum-primitive-derive = "^0.1"
-bit = "^0.1"
-colored = "1.9"
-ansi_term = "0.12.1"
-hexdump = "0.1.0"
-time = "0.2.6"
-bitfield = "0.13.1"
-bitflags = "1.2.1"
-zip = {version = "0.5.4", default-features = false, features = ["deflate", "time"]}
-ctrlc = "3.1.3"
-bit-set = "0.5.1"
-debug_stub_derive = "0.3.0"
-bytesize = "1.0.0"
-memmem = "0.1.1"
-log = "0.4.8"
-arrayvec = "0.5.1"
-
-rustyline = {version = "6.0.0", optional = true}
-nom = {version = "5.0.0", optional = true}
-gdbstub = { version = "0.1.2", optional = true, features = ["std"] }
-
-[build-dependencies]
-bit = "^0.1"
-
-[dev-dependencies]
-criterion = "0.3"
-
-[[bench]]
-name = "performance"
-harness = false
-
-[features]
-default = ["arm7tdmi_dispatch_table"]
-debugger = ["nom", "rustyline"]
-gdb = ["gdbstub"]
-# Uses lookup tables when executing instructions instead of `match` statements.
-# Faster, but consumes more memory.
-arm7tdmi_dispatch_table = []
-
-[profile.dev]
-opt-level = 0
-debug = true

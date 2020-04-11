@@ -9,9 +9,9 @@ extern crate clap;
 
 #[macro_use]
 extern crate rustboyadvance_ng;
-use rustboyadvance_ng::core::keypad;
-use rustboyadvance_ng::prelude::*;
-use rustboyadvance_ng::util::FpsCounter;
+use rustboyadvance_core::core::keypad;
+use rustboyadvance_core::prelude::*;
+use rustboyadvance_core::util::FpsCounter;
 
 use bit::BitIndex;
 use minifb;

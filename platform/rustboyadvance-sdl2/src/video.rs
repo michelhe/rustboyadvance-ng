@@ -3,8 +3,8 @@ use sdl2::rect::Rect;
 use sdl2::render::{Texture, TextureCreator, WindowCanvas};
 use sdl2::video::WindowContext;
 
-use rustboyadvance_ng::core::gpu::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
-use rustboyadvance_ng::VideoInterface;
+use rustboyadvance_core::core::gpu::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
+use rustboyadvance_core::VideoInterface;
 
 pub const SCREEN_WIDTH: u32 = DISPLAY_WIDTH as u32;
 pub const SCREEN_HEIGHT: u32 = DISPLAY_HEIGHT as u32;

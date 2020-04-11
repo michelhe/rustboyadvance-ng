@@ -2,7 +2,7 @@ use jni::objects::*;
 use jni::sys::*;
 use jni::{JNIEnv, JavaVM};
 
-use rustboyadvance_ng::core::cartridge;
+use rustboyadvance_core::core::cartridge;
 
 fn parse_rom_header(env: &JNIEnv, barr: jbyteArray) -> cartridge::header::CartridgeHeader {
     let rom_data = env.convert_byte_array(barr).unwrap();
