@@ -1,34 +1,30 @@
-
-![icon ](assets/icon_cropped_small.png)
-
 # RustBoyAdvance-NG
 
 ![license](https://img.shields.io/github/license/michelhe/rustboyadvance-ng) [![Build Status](https://travis-ci.com/michelhe/rustboyadvance-ng.svg?branch=master)](https://travis-ci.com/michelhe/rustboyadvance-ng)
 
 Nintendo GameBoy Advance ™ emulator and debugger, written in rust.
 
+
+<div align="center">
+<img width="360px" src="assets/icon_cropped_small.png">
+</div>
+
+# Project Structure
+* `rustboyadvance-core/src` - Main library crate
+* `bindings/` - Bindings to other languages. Currently only java binidings through JNI.
+* `platform/` - Constains executables & application built with `rustboyadvance-core`
+    * `platform/rustbodyadvance-sdl2` - Desktop application built with sdl2
+    * `platform/rustbodyadvance-minifb` - Desktop application built with minifb, *not maintained*.
+    * `platform/android` - A PoC Android application.
+
 # Progress
 
 ![Pokemon Emerald](media/screenshot1.png)
 
-## Supported features:
-* Display modes 0,1,2,3,4
-* PCM Audio channels
-* Snapshots (AKA savestates)
-* Cartridge backup saves 
-
-## Todo:
+## Emulation Todo:
 * CGB audio (4 wave generator channels)
-* web.asm frontend
-* Andriod & IOS applications
-* color correction
-* Configurable keybindings
-* Controller support
 
-
-# Build and usage
-
-The following instructions build the `rba-sdl2` target which is currently the main platform. (`rba-minifb` is also available without audio support)
+# Build and usage (Desktop Application)
 
 To get started, you need to get a [stable rust toolchain](https://rustup.rs).
 
@@ -62,7 +58,7 @@ $ cargo run --release -p rustboyadvance-sdl2 -- path/to/rom
 
 You can also drag&drop rom files or any zip files containing `.gba` files inside into the emulator window and a new rom will be loaded.
 
-# Key bindings
+## Key bindings
 
 > Currently the key bindings are not configureable.
 
@@ -90,19 +86,17 @@ Special key bindings
 | F5           	| Save snapshot file 	|
 | F9           	| Load snapshot file 	|
 
-# Why is this project needed ?
 
-It's actually **not**. There are quite a lot of GBA emulators, ~~and even some written in rust~~. Actually, I couldn't find any game capable emulators written in rust.
+# Android Application
 
-I'm only doing this as a side project intended for learning rust.
+The android project is placed inside `platform/android`.
+To build it, open it with Android Studio.
 
-This is my *third* take on this project. My first go at this was about 3 years ago, but I didn't like rust much at the time so it got abandoned.
-I tried to resurrect it a year ago but didn't have the time to get invested in a side-project, let alone learning rust.
+You also need to set up rust to build android targets with NDK.
 
-I've grown to like rust a lot since then, so here we go again.
-You know what they say, *third time's a charm*.
+TODO - instructions
 
-## More Screenshots
+# More Screenshots
  ![Kirby - Nightmare in Dreamland](media/screenshot2.png) ![Dragon Ball - Legacy of Goku 2](media/screenshot3.png)
 
 # Links and attribution
