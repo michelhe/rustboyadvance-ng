@@ -1,2 +1,6 @@
 /target
 **/*.rs.bk
+/*.lib
+/*.dll
+/*.bin
+/*.gba
