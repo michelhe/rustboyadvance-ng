@@ -38,25 +38,24 @@ impl From<WindowFlags> for BlendFlags {
 }
 
 impl Gpu {
-    /// returns a none sorted array of background indexes that are enabled
-    fn active_backgrounds_sorted(
+    /// Returns background indexes in render order. Filters range by bg_start..=bg_end.
+    fn sorted_backgrounds(&self, bg_start: usize, bg_end: usize) -> ArrayVec<[usize; 4]> {
+        let mut backgrounds: ArrayVec<[usize; 4]> = (bg_start..=bg_end).collect();
+        backgrounds.sort_by_key(|bg| (self.backgrounds[*bg].bgcnt.priority(), *bg));
+        backgrounds
+    }
+
+    /// Filters a background indexes array by whether they're active
+    fn active_backgrounds(
         &self,
-        bg_start: usize,
-        bg_end: usize,
+        backgrounds: &[usize],
         window_flags: WindowFlags,
     ) -> ArrayVec<[usize; 4]> {
-        let mut backgrounds = ArrayVec::<[usize; 4]>::new();
-
-        for bg in bg_start..=bg_end {
-            if self.dispcnt.enable_bg(bg) && window_flags.bg_enabled(bg) {
-                unsafe {
-                    backgrounds.push_unchecked(bg);
-                }
-            }
-        }
-        backgrounds.sort_by_key(|bg| (self.backgrounds[*bg].bgcnt.priority(), *bg));
-
         backgrounds
+            .iter()
+            .copied()
+            .filter(|bg| self.dispcnt.enable_bg(*bg) && window_flags.bg_enabled(*bg))
+            .collect()
     }
 
     #[allow(unused)]
@@ -74,6 +73,7 @@ impl Gpu {
     /// Composes the render layers into a final scanline while applying needed special effects, and render it to the frame buffer
     pub fn finalize_scanline(&mut self, bg_start: usize, bg_end: usize) {
         let backdrop_color = Rgb15(self.palette_ram.read_16(0));
+        let sorted_backgrounds = self.sorted_backgrounds(bg_start, bg_end);
 
         let y = self.vcount;
         let output = unsafe {
@@ -82,7 +82,7 @@ impl Gpu {
         };
         if !self.dispcnt.is_using_windows() {
             let win = WindowInfo::new(WindowType::WinNone, WindowFlags::all());
-            let backgrounds = self.active_backgrounds_sorted(bg_start, bg_end, win.flags);
+            let backgrounds = self.active_backgrounds(&sorted_backgrounds, win.flags);
             for x in 0..DISPLAY_WIDTH {
                 let pixel = self.compose_pixel(x, y, &win, &backgrounds, backdrop_color);
                 output[x] = pixel.to_rgb24();
@@ -92,7 +92,7 @@ impl Gpu {
             let mut occupied_count = 0;
             if self.dispcnt.enable_window0() && self.win0.contains_y(y) {
                 let win = WindowInfo::new(WindowType::Win0, self.win0.flags);
-                let backgrounds = self.active_backgrounds_sorted(bg_start, bg_end, win.flags);
+                let backgrounds = self.active_backgrounds(&sorted_backgrounds, win.flags);
                 for x in self.win0.left()..self.win0.right() {
                     let pixel = self.compose_pixel(x, y, &win, &backgrounds, backdrop_color);
                     output[x] = pixel.to_rgb24();
@@ -105,7 +105,7 @@ impl Gpu {
             }
             if self.dispcnt.enable_window1() && self.win1.contains_y(y) {
                 let win = WindowInfo::new(WindowType::Win1, self.win1.flags);
-                let backgrounds = self.active_backgrounds_sorted(bg_start, bg_end, win.flags);
+                let backgrounds = self.active_backgrounds(&sorted_backgrounds, win.flags);
                 for x in self.win1.left()..self.win1.right() {
                     if !occupied[x] {
                         let pixel = self.compose_pixel(x, y, &win, &backgrounds, backdrop_color);
@@ -119,12 +119,11 @@ impl Gpu {
                 return;
             }
             let win_out = WindowInfo::new(WindowType::WinOut, self.winout_flags);
-            let win_out_backgrounds =
-                self.active_backgrounds_sorted(bg_start, bg_end, win_out.flags);
+            let win_out_backgrounds = self.active_backgrounds(&sorted_backgrounds, win_out.flags);
             if self.dispcnt.enable_obj_window() {
                 let win_obj = WindowInfo::new(WindowType::WinObj, self.winobj_flags);
                 let win_obj_backgrounds =
-                    self.active_backgrounds_sorted(bg_start, bg_end, win_obj.flags);
+                    self.active_backgrounds(&sorted_backgrounds, win_obj.flags);
                 for x in 0..DISPLAY_WIDTH {
                     if occupied[x] {
                         continue;
