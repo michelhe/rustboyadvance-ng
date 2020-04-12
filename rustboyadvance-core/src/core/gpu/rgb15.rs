@@ -18,7 +18,7 @@ impl Rgb15 {
     pub const TRANSPARENT: Rgb15 = Rgb15(0x8000);
 
     pub fn to_rgb24(&self) -> u32 {
-        ((self.r() as u32) << 19) | ((self.g() as u32) << 11) | ((self.b() as u32) << 3)
+        (u32::from(self.r()) << 19) | (u32::from(self.g()) << 11) | (u32::from(self.b()) << 3)
     }
 
     pub fn from_rgb(r: u16, g: u16, b: u16) -> Rgb15 {
