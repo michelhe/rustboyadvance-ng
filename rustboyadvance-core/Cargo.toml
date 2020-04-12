@@ -44,7 +44,3 @@ gdb = ["gdbstub"]
 # Uses lookup tables when executing instructions instead of `match` statements.
 # Faster, but consumes more memory.
 arm7tdmi_dispatch_table = []
-
-[profile.dev]
-opt-level = 0
-debug = true
