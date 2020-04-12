@@ -1,6 +1,6 @@
 use jni::objects::*;
 use jni::sys::*;
-use jni::{JNIEnv, JavaVM};
+use jni::JNIEnv;
 
 use rustboyadvance_core::core::cartridge;
 

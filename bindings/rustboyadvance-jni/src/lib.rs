@@ -61,8 +61,8 @@ impl VideoInterface for Hardware {
 }
 impl AudioInterface for Hardware {
     fn push_sample(&mut self, sample: StereoSample<i16>) {
-        self.audio_buffer.prod.push(sample.0);
-        self.audio_buffer.prod.push(sample.1);
+        self.audio_buffer.prod.push(sample.0).unwrap();
+        self.audio_buffer.prod.push(sample.1).unwrap();
     }
 }
 impl InputInterface for Hardware {
@@ -281,7 +281,7 @@ pub mod bindings {
         _obj: JClass,
         ctx: jlong,
     ) -> jshortArray {
-        let mut ctx = lock_ctx(ctx);
+        let ctx = lock_ctx(ctx);
 
         let mut hw = ctx.hwif.borrow_mut();
 
@@ -292,7 +292,7 @@ pub mod bindings {
         }
 
         let arr = env.new_short_array(samples.len() as jsize).unwrap();
-        env.set_short_array_region(arr, 0, &samples);
+        env.set_short_array_region(arr, 0, &samples).unwrap();
 
         return arr;
     }
