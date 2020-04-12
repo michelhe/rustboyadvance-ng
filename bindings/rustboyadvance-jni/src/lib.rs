@@ -201,7 +201,7 @@ pub mod bindings {
         }
     }
 
-    fn inetrnal_open_saved_state(
+    fn internal_open_saved_state(
         env: &JNIEnv,
         state: jbyteArray,
         frame_buffer: jintArray,
@@ -243,7 +243,7 @@ pub mod bindings {
         state: jbyteArray,
         frame_buffer: jintArray,
     ) -> jlong {
-        match inetrnal_open_saved_state(&env, state, frame_buffer) {
+        match internal_open_saved_state(&env, state, frame_buffer) {
             Ok(ctx) => Box::into_raw(Box::new(Mutex::new(ctx))) as jlong,
             Err(msg) => {
                 env.throw_new(NATIVE_EXCEPTION_CLASS, msg).unwrap();
