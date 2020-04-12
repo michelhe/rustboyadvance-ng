@@ -2,8 +2,8 @@ use super::layer::RenderLayer;
 use super::sfx::BldMode;
 use super::*;
 
-use num::ToPrimitive;
 use serde::{Deserialize, Serialize};
+use std::convert::TryInto;
 
 pub const SCREEN_BLOCK_SIZE: u32 = 0x800;
 
@@ -124,7 +124,7 @@ bitfield! {
 
 bitflags! {
     #[derive(Serialize, Deserialize, Default)]
-    pub struct BlendFlags: u32 {
+    pub struct BlendFlags: u8 {
         const BG0 = 0b00000001;
         const BG1 = 0b00000010;
         const BG2 = 0b00000100;
@@ -136,7 +136,7 @@ bitflags! {
 
 impl From<u16> for BlendFlags {
     fn from(v: u16) -> BlendFlags {
-        BlendFlags::from_bits(v as u32).unwrap()
+        BlendFlags::from_bits(v.try_into().unwrap()).unwrap()
     }
 }
 
@@ -157,8 +157,7 @@ impl BlendFlags {
     }
 
     pub fn contains_render_layer(&self, layer: &RenderLayer) -> bool {
-        let layer_flags = BlendFlags::from_bits(layer.kind.to_u32().unwrap()).unwrap();
-        self.contains(layer_flags)
+        self.contains(layer.kind.get_blend_flag())
     }
 }
 
@@ -182,7 +181,7 @@ bitfield! {
 
 bitflags! {
     #[derive(Serialize, Deserialize, Default)]
-    pub struct WindowFlags: u32 {
+    pub struct WindowFlags: u8 {
         const BG0 = 0b00000001;
         const BG1 = 0b00000010;
         const BG2 = 0b00000100;
@@ -194,7 +193,7 @@ bitflags! {
 
 impl From<u16> for WindowFlags {
     fn from(v: u16) -> WindowFlags {
-        WindowFlags::from_bits(v as u32).unwrap()
+        WindowFlags::from_bits(v.try_into().unwrap()).unwrap()
     }
 }
 

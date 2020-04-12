@@ -3,26 +3,21 @@ use std::cmp::Ordering;
 
 use super::*;
 
+#[repr(u8)]
 #[derive(Primitive, Debug, Ord, Eq, PartialOrd, PartialEq, Clone, Copy)]
 pub enum RenderLayerKind {
-    Backdrop = 0b00100000,
-    Background3 = 0b00001000,
-    Background2 = 0b00000100,
-    Background1 = 0b00000010,
-    Background0 = 0b00000001,
-    Objects = 0b00010000,
+    // These match BlendFlags
+    Backdrop = 0b0010_0000,
+    Background3 = 0b0000_1000,
+    Background2 = 0b0000_0100,
+    Background1 = 0b0000_0010,
+    Background0 = 0b0000_0001,
+    Objects = 0b0001_0000,
 }
 
 impl RenderLayerKind {
-    pub fn get_blend_flag(&self) -> BlendFlags {
-        match self {
-            RenderLayerKind::Background0 => BlendFlags::BG0,
-            RenderLayerKind::Background1 => BlendFlags::BG1,
-            RenderLayerKind::Background2 => BlendFlags::BG2,
-            RenderLayerKind::Background3 => BlendFlags::BG3,
-            RenderLayerKind::Objects => BlendFlags::OBJ,
-            RenderLayerKind::Backdrop => BlendFlags::BACKDROP,
-        }
+    pub fn get_blend_flag(self) -> BlendFlags {
+        BlendFlags::from_bits(self as u8).unwrap()
     }
 }
 
@@ -45,15 +40,15 @@ impl RenderLayer {
     pub fn objects(pixel: Rgb15, priority: u16) -> RenderLayer {
         RenderLayer {
             kind: RenderLayerKind::Objects,
-            pixel: pixel,
-            priority: priority,
+            pixel,
+            priority,
         }
     }
 
     pub fn backdrop(pixel: Rgb15) -> RenderLayer {
         RenderLayer {
             kind: RenderLayerKind::Backdrop,
-            pixel: pixel,
+            pixel,
             priority: 4,
         }
     }
