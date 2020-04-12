@@ -205,11 +205,10 @@ impl Gpu {
             }
         }
 
-        layers.sort();
+        let top_layer = layers.iter().min().unwrap();
+        let top_pixel = top_layer.pixel; // self.layer_to_pixel(x, y, &top_layer);
 
-        let top_pixel = layers[0].pixel; // self.layer_to_pixel(x, y, &layers[0]);
-
-        let obj_sfx = obj_entry.alpha && layers[0].is_object();
+        let obj_sfx = obj_entry.alpha && top_layer.is_object();
         if !win.flags.sfx_enabled() && !obj_sfx {
             return top_pixel;
         }
@@ -217,9 +216,12 @@ impl Gpu {
         let top_layer_flags = self.bldcnt.top();
         let bot_layer_flags = self.bldcnt.bottom();
 
-        if !(top_layer_flags.contains_render_layer(&layers[0]) || obj_sfx) {
+        if !(top_layer_flags.contains_render_layer(&top_layer) || obj_sfx) {
             return top_pixel;
         }
+
+        // TODO: get layers[1] without sorting them all
+        layers.sort();
         if layers.len() > 1 && !(bot_layer_flags.contains_render_layer(&layers[1])) {
             return top_pixel;
         }
