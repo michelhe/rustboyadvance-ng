@@ -37,10 +37,6 @@ bit = "^0.1"
 [dev-dependencies]
 criterion = "0.3"
 
-[[bench]]
-name = "performance"
-harness = false
-
 [features]
 default = ["arm7tdmi_dispatch_table"]
 debugger = ["nom", "rustyline"]
