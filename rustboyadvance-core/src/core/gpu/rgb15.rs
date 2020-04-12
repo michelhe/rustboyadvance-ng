@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 bitfield! {
     #[repr(transparent)]
-    #[derive(Serialize, Deserialize, Copy, Clone, Default, PartialEq)]
+    #[derive(Serialize, Deserialize, Copy, Clone, Default, PartialEq, Eq)]
     pub struct Rgb15(u16);
     impl Debug;
     pub r, set_r: 4, 0;

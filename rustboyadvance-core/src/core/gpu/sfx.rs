@@ -205,8 +205,7 @@ impl Gpu {
             }
         }
 
-        // now, sort the layers
-        layers.sort_by_key(|k| (k.priority, k.priority_by_type));
+        layers.sort();
 
         let top_pixel = layers[0].pixel; // self.layer_to_pixel(x, y, &layers[0]);
         let mut result = top_pixel;
