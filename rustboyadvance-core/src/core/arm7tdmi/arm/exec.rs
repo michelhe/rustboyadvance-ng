@@ -50,7 +50,7 @@ impl Core {
 
     pub fn arm_undefined(&mut self, _: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         panic!(
-            "executing undefind arm instruction {:08x} at @{:08x}",
+            "executing undefined arm instruction {:08x} at @{:08x}",
             insn.raw, insn.pc
         )
     }
