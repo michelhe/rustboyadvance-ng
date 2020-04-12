@@ -4,6 +4,7 @@ members = [
     "platform/rustboyadvance-sdl2",
     "platform/rustboyadvance-minifb",
     "bindings/rustboyadvance-jni",
+    "fps_bench"
 ]
 
 [profile.dev]
