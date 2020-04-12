@@ -5,3 +5,7 @@ members = [
     "platform/rustboyadvance-minifb",
     "bindings/rustboyadvance-jni",
 ]
+
+[profile.dev]
+opt-level = 0
+debug = true
