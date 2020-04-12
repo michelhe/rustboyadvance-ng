@@ -198,9 +198,6 @@ pub struct Gpu {
 
     #[debug_stub = "Sprite Buffer"]
     pub obj_buffer: Vec<ObjBufferEntry>,
-
-    #[debug_stub = "Frame Buffer"]
-    pub(super) frame_buffer: Vec<u32>,
 }
 
 impl Gpu {
@@ -233,8 +230,6 @@ impl Gpu {
             oam: BoxedMemory::new(vec![0; OAM_SIZE].into_boxed_slice()),
 
             obj_buffer: vec![Default::default(); DISPLAY_WIDTH * DISPLAY_HEIGHT],
-
-            frame_buffer: vec![0; DISPLAY_WIDTH * DISPLAY_HEIGHT],
         }
     }
 
@@ -302,7 +297,7 @@ impl Gpu {
         )
     }
 
-    pub fn render_scanline(&mut self) {
+    pub fn render_scanline(&mut self, frame_buffer: &mut [u32]) {
         if self.dispcnt.enable_obj() {
             self.render_objs();
         }
@@ -313,7 +308,7 @@ impl Gpu {
                         self.render_reg_bg(bg);
                     }
                 }
-                self.finalize_scanline(0, 3);
+                self.finalize_scanline(frame_buffer, 0, 3);
             }
             1 => {
                 if self.dispcnt.enable_bg(2) {
@@ -325,7 +320,7 @@ impl Gpu {
                 if self.dispcnt.enable_bg(0) {
                     self.render_reg_bg(0);
                 }
-                self.finalize_scanline(0, 2);
+                self.finalize_scanline(frame_buffer, 0, 2);
             }
             2 => {
                 if self.dispcnt.enable_bg(3) {
@@ -334,15 +329,15 @@ impl Gpu {
                 if self.dispcnt.enable_bg(2) {
                     self.render_aff_bg(2);
                 }
-                self.finalize_scanline(2, 3);
+                self.finalize_scanline(frame_buffer, 2, 3);
             }
             3 => {
                 self.render_mode3(2);
-                self.finalize_scanline(2, 2);
+                self.finalize_scanline(frame_buffer, 2, 2);
             }
             4 => {
                 self.render_mode4(2);
-                self.finalize_scanline(2, 2);
+                self.finalize_scanline(frame_buffer, 2, 2);
             }
             _ => panic!("{:?} not supported", self.dispcnt.mode()),
         }
@@ -367,16 +362,13 @@ impl Gpu {
         }
     }
 
-    pub fn get_frame_buffer(&self) -> &[u32] {
-        &self.frame_buffer
-    }
-
     pub fn on_state_completed(
         &mut self,
         completed: GpuState,
         sb: &mut SysBus,
         irqs: &mut IrqBitmask,
         video_device: &VideoDeviceRcRefCell,
+        frame_buffer: &mut [u32],
     ) {
         match completed {
             HDraw => {
@@ -396,7 +388,7 @@ impl Gpu {
                 if self.vcount < DISPLAY_HEIGHT {
                     self.state = HDraw;
                     self.dispstat.set_hblank_flag(false);
-                    self.render_scanline();
+                    self.render_scanline(frame_buffer);
                     // update BG2/3 reference points on the end of a scanline
                     for i in 0..2 {
                         self.bg_aff[i].internal_x += self.bg_aff[i].pb as i16 as i32;
@@ -417,7 +409,7 @@ impl Gpu {
                     };
 
                     sb.io.dmac.notify_vblank();
-                    video_device.borrow_mut().render(&self.frame_buffer);
+                    video_device.borrow_mut().render(frame_buffer);
                     self.obj_buffer_reset();
                     self.cycles_left_for_current_state = CYCLES_HDRAW;
                     self.state = VBlankHDraw;
@@ -442,7 +434,7 @@ impl Gpu {
                 } else {
                     self.update_vcount(0, irqs);
                     self.dispstat.set_vblank_flag(false);
-                    self.render_scanline();
+                    self.render_scanline(frame_buffer);
                     self.cycles_left_for_current_state = CYCLES_HDRAW;
                     self.state = HDraw;
                 }
@@ -458,11 +450,12 @@ impl Gpu {
         irqs: &mut IrqBitmask,
         cycles_to_next_event: &mut usize,
         video_device: &VideoDeviceRcRefCell,
+        frame_buffer: &mut [u32],
     ) {
         if self.cycles_left_for_current_state <= cycles {
             let overshoot = cycles - self.cycles_left_for_current_state;
 
-            self.on_state_completed(self.state, sb, irqs, video_device);
+            self.on_state_completed(self.state, sb, irqs, video_device, frame_buffer);
 
             // handle the overshoot
             if overshoot < self.cycles_left_for_current_state {

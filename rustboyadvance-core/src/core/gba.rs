@@ -221,6 +221,7 @@ impl GameBoyAdvance {
             &mut irqs,
             &mut cycles_to_next_event,
             &self.video_device,
+            &mut *io.frame_buffer,
         );
         io.sound
             .update(cycles, &mut cycles_to_next_event, &self.audio_device);
@@ -233,7 +234,7 @@ impl GameBoyAdvance {
     /// Query the emulator for the recently drawn framebuffer.
     /// for use with implementations where the VideoInterface is not a viable option.
     pub fn get_frame_buffer(&self) -> &[u32] {
-        self.sysbus.io.gpu.get_frame_buffer()
+        &*self.sysbus.io.frame_buffer
     }
 }
 

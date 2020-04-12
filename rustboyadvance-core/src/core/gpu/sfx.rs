@@ -71,15 +71,14 @@ impl Gpu {
     }
 
     /// Composes the render layers into a final scanline while applying needed special effects, and render it to the frame buffer
-    pub fn finalize_scanline(&mut self, bg_start: usize, bg_end: usize) {
+    pub fn finalize_scanline(&self, frame_buffer: &mut [u32], bg_start: usize, bg_end: usize) {
         let backdrop_color = Rgb15(self.palette_ram.read_16(0));
         let sorted_backgrounds = self.sorted_backgrounds(bg_start, bg_end);
 
         let y = self.vcount;
-        let output = unsafe {
-            let ptr = self.frame_buffer[y * DISPLAY_WIDTH..].as_mut_ptr();
-            std::slice::from_raw_parts_mut(ptr, DISPLAY_WIDTH)
-        };
+        let start_index = y * DISPLAY_WIDTH;
+        let output = &mut frame_buffer[start_index..start_index + DISPLAY_WIDTH];
+
         if !self.dispcnt.is_using_windows() {
             let win = WindowInfo::new(WindowType::WinNone, WindowFlags::all());
             let backgrounds = self.active_backgrounds(&sorted_backgrounds, win.flags);

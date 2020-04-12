@@ -23,6 +23,10 @@ pub enum HaltState {
 pub struct IoDevices {
     pub intc: InterruptController,
     pub gpu: Box<Gpu>,
+
+    // TODO: #[debug_stub = "Frame Buffer"]
+    pub frame_buffer: Vec<u32>,
+
     pub sound: Box<SoundController>,
     pub timers: Timers,
     pub dmac: DmaController,
@@ -42,6 +46,8 @@ impl IoDevices {
     pub fn new(gpu: Box<Gpu>, sound_controller: Box<SoundController>) -> IoDevices {
         IoDevices {
             gpu: gpu,
+            frame_buffer: vec![0; DISPLAY_WIDTH * DISPLAY_HEIGHT],
+
             sound: sound_controller,
             timers: Timers::new(),
             dmac: DmaController::new(),
