@@ -73,6 +73,8 @@ impl Gpu {
 
     /// Composes the render layers into a final scanline while applying needed special effects, and render it to the frame buffer
     pub fn finalize_scanline(&mut self, bg_start: usize, bg_end: usize) {
+        let backdrop_color = Rgb15(self.palette_ram.read_16(0));
+
         let y = self.vcount;
         let output = unsafe {
             let ptr = self.frame_buffer[y * DISPLAY_WIDTH..].as_mut_ptr();
@@ -82,7 +84,7 @@ impl Gpu {
             let win = WindowInfo::new(WindowType::WinNone, WindowFlags::all());
             let backgrounds = self.active_backgrounds_sorted(bg_start, bg_end, win.flags);
             for x in 0..DISPLAY_WIDTH {
-                let pixel = self.compose_pixel(x, y, &win, &backgrounds);
+                let pixel = self.compose_pixel(x, y, &win, &backgrounds, backdrop_color);
                 output[x] = pixel.to_rgb24();
             }
         } else {
@@ -92,7 +94,7 @@ impl Gpu {
                 let win = WindowInfo::new(WindowType::Win0, self.win0.flags);
                 let backgrounds = self.active_backgrounds_sorted(bg_start, bg_end, win.flags);
                 for x in self.win0.left()..self.win0.right() {
-                    let pixel = self.compose_pixel(x, y, &win, &backgrounds);
+                    let pixel = self.compose_pixel(x, y, &win, &backgrounds, backdrop_color);
                     output[x] = pixel.to_rgb24();
                     occupied[x] = true;
                     occupied_count += 1;
@@ -106,7 +108,7 @@ impl Gpu {
                 let backgrounds = self.active_backgrounds_sorted(bg_start, bg_end, win.flags);
                 for x in self.win1.left()..self.win1.right() {
                     if !occupied[x] {
-                        let pixel = self.compose_pixel(x, y, &win, &backgrounds);
+                        let pixel = self.compose_pixel(x, y, &win, &backgrounds, backdrop_color);
                         output[x] = pixel.to_rgb24();
                         occupied[x] = true;
                         occupied_count += 1;
@@ -130,13 +132,25 @@ impl Gpu {
                     let obj_entry = self.obj_buffer_get(x, y);
                     if obj_entry.window {
                         // WinObj
-                        let pixel = self.compose_pixel(x, y, &win_obj, &win_obj_backgrounds);
+                        let pixel = self.compose_pixel(
+                            x,
+                            y,
+                            &win_obj,
+                            &win_obj_backgrounds,
+                            backdrop_color,
+                        );
                         output[x] = pixel.to_rgb24();
                         occupied[x] = true;
                         occupied_count += 1;
                     } else {
                         // WinOut
-                        let pixel = self.compose_pixel(x, y, &win_out, &win_out_backgrounds);
+                        let pixel = self.compose_pixel(
+                            x,
+                            y,
+                            &win_out,
+                            &win_out_backgrounds,
+                            backdrop_color,
+                        );
                         output[x] = pixel.to_rgb24();
                         occupied[x] = true;
                         occupied_count += 1;
@@ -147,7 +161,8 @@ impl Gpu {
                     if occupied[x] {
                         continue;
                     }
-                    let pixel = self.compose_pixel(x, y, &win_out, &win_out_backgrounds);
+                    let pixel =
+                        self.compose_pixel(x, y, &win_out, &win_out_backgrounds, backdrop_color);
                     output[x] = pixel.to_rgb24();
                     occupied[x] = true;
                     occupied_count += 1;
@@ -156,9 +171,14 @@ impl Gpu {
         }
     }
 
-    fn compose_pixel(&self, x: usize, y: usize, win: &WindowInfo, backgrounds: &[usize]) -> Rgb15 {
-        let backdrop_color = Rgb15(self.palette_ram.read_16(0));
-
+    fn compose_pixel(
+        &self,
+        x: usize,
+        y: usize,
+        win: &WindowInfo,
+        backgrounds: &[usize],
+        backdrop_color: Rgb15,
+    ) -> Rgb15 {
         let mut layers = ArrayVec::<[_; 7]>::new();
         unsafe {
             layers.push_unchecked(RenderLayer::backdrop(backdrop_color));
