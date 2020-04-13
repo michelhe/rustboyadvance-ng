@@ -22,8 +22,7 @@ jobs:
 
       - name: Build rustboyadvance-wasm
         run: |
-          wasm-pack build platform/rustboyadvance-wasm  --release -- --features
-          "wee_alloc"
+          wasm-pack build platform/rustboyadvance-wasm  --release -- --features "wee_alloc"
 
       - name: Build WebApp
         run: |
