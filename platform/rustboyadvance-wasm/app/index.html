@@ -1,0 +1,93 @@
+<!-- Created with wasm-pack :) -->
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>RustBoyAdvance</title>
+    <style>
+        body {
+            background-color: #675ea7;
+            font-family: "Courier New", Courier, monospace;
+        }
+        #menu {
+            background-color: #423c6c;
+            display: flexbox;
+            box-shadow: 0.1px 2px 4px rgba(0, 0, 0, 0.7);
+            top: 0.2em;
+            left: 0.2em;
+            padding: .1em;
+            position: absolute;
+        }
+        #menu .fileInput {
+            background-color: #675ea7;
+            margin: .4em;
+        }
+        #menu button {
+            background-color: #736ab1;
+            box-shadow: 1px 1px 2px rgba(255, 18, 148, 0.2);
+            font-size: .8em;
+            border-radius: .15em;
+            margin: .4em;
+        }
+        #canvas-container {
+            box-shadow: 0.1px 2px 4px rgba(0, 0, 0, 0.7);
+            display: inline-block;
+            text-align: center;
+            position:fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 70%;
+            height: 70%;
+            align-items: center;
+            justify-content: center;
+            background-color: #423c6c;
+        }
+        #canvas-container.hover {
+            border: rgba(9, 250, 0, 0.671);
+            border-style: dashed;
+            border-width: 0.1em;
+        }
+        #screen {
+            text-align: center;
+            margin: auto;
+            width: 70%;
+            background-color: black;
+            image-rendering: optimizeSpeed;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -webkit-crisp-edges;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+        .hidden {
+            display: none,
+        }
+    </style>
+</head>
+
+<body>
+    <noscript>This page contains webassembly and javascript content, please enable javascript in your browser.</noscript>
+    <div id="menu">
+        <div class="fileInput">
+            <label> BIOS </label>
+            <input type="file" id="bios-file-input" />
+        </div>
+        <button id="reloadBios" class="hidden">Reload Bios</button>
+        <div class="fileInput">
+            <label> ROM </label>
+            <input type="file" id="rom-file-input" />
+        </div>
+        <button id="startEmulator">Start</button>
+        <button id="fps-test">FPS Test</button>
+        <label>Skip Bios</label>
+        <input type="checkbox" id="skipBios">
+    </div>
+    <div id="canvas-container">
+        <pre id="fps"></pre>
+        <canvas id="screen" width="240px" , height="160px"></canvas>
+    </div>
+    <script src="./bootstrap.js"></script>
+</body>
+
+</html>

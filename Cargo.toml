@@ -3,6 +3,7 @@ members = [
     "rustboyadvance-core/",
     "platform/rustboyadvance-sdl2",
     "platform/rustboyadvance-minifb",
+    "platform/rustboyadvance-wasm",
     "bindings/rustboyadvance-jni",
     "fps_bench"
 ]

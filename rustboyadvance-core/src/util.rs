@@ -2,7 +2,24 @@ use std::fs::File;
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
+
 use std::time;
+
+#[cfg(not(target_arch = "wasm32"))]
+type Instant = time::Instant;
+#[cfg(not(target_arch = "wasm32"))]
+fn now() -> Instant {
+    time::Instant::now()
+}
+
+#[cfg(target_arch = "wasm32")]
+use instant;
+#[cfg(target_arch = "wasm32")]
+type Instant = instant::Instant;
+#[cfg(target_arch = "wasm32")]
+fn now() -> Instant {
+    instant::Instant::now()
+}
 
 use crate::core::GameBoyAdvance;
 #[cfg(feature = "gdb")]
@@ -63,7 +80,7 @@ pub fn write_bin_file(filename: &Path, data: &Vec<u8>) -> io::Result<()> {
 
 pub struct FpsCounter {
     count: u32,
-    timer: time::Instant,
+    timer: Instant,
 }
 
 const SECOND: time::Duration = time::Duration::from_secs(1);
@@ -72,7 +89,7 @@ impl Default for FpsCounter {
     fn default() -> FpsCounter {
         FpsCounter {
             count: 0,
-            timer: time::Instant::now(),
+            timer: now(),
         }
     }
 }
@@ -82,7 +99,7 @@ impl FpsCounter {
         self.count += 1;
         if self.timer.elapsed() >= SECOND {
             let fps = self.count;
-            self.timer = time::Instant::now();
+            self.timer = now();
             self.count = 0;
             Some(fps)
         } else {

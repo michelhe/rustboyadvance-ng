@@ -13,6 +13,7 @@ Nintendo GameBoy Advance ™ emulator and debugger, written in rust.
 * `rustboyadvance-core/src` - Main library crate
 * `bindings/` - Bindings to other languages. Currently only java binidings through JNI.
 * `platform/` - Constains executables & application built with `rustboyadvance-core`
+    * `platform/rustbodyadvance-wasm` - Web emulator powered by WebAssembly
     * `platform/rustbodyadvance-sdl2` - Desktop application built with sdl2
     * `platform/rustbodyadvance-minifb` - Desktop application built with minifb, *not maintained*.
     * `platform/android` - A PoC Android application.
