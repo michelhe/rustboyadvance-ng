@@ -1,0 +1,41 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  deploy-web-app:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@master
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v1
+
+      - name: Setup wasm-pack
+        run: |
+          curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh -s -- -f
+
+      - name: Build rustboyadvance-wasm
+        run: |
+          wasm-pack build platform/rustboyadvance-wasm  --release -- --features
+          "wee_alloc"
+
+      - name: Build WebApp
+        run: |
+          cd ./platform/rustboyadvance-wasm/app
+          npm install
+          npm run build
+
+      - name: "Deploy 🚀"
+        uses: JamesIves/github-pages-deploy-action@releases/v3
+        with:
+          ACCESS_TOKEN: '${{ secrets.ACCESS_TOKEN }}'
+          BRANCH: gh-pages
+          FOLDER: platform/rustboyadvance-wasm/app/dist
+          CLEAN: yes
+          SINGLE_COMMIT: yes
