@@ -9,6 +9,8 @@ Nintendo GameBoy Advance ™ emulator and debugger, written in rust.
 <img width="360px" src="assets/icon_cropped_small.png">
 </div>
 
+WebAssembly Demo: https://michelhe.github.io/rustboyadvance-ng/
+
 # Project Structure
 * `rustboyadvance-core/src` - Main library crate
 * `bindings/` - Bindings to other languages. Currently only java binidings through JNI.
