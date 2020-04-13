@@ -76,11 +76,7 @@ impl Debugger {
             }
             GpuInfo => println!("GPU: {:#?}", self.gba.sysbus.io.gpu),
             Step(count) => {
-                self.ctrlc_flag.store(true, Ordering::SeqCst);
                 for _ in 0..count {
-                    if !self.ctrlc_flag.load(Ordering::SeqCst) {
-                        break;
-                    }
                     self.gba.cpu.step(&mut self.gba.sysbus);
                     while self.gba.cpu.last_executed.is_none() {
                         self.gba.cpu.step(&mut self.gba.sysbus);
@@ -107,8 +103,7 @@ impl Debugger {
                 println!("{}\n", self.gba.cpu);
             }
             Continue => {
-                self.ctrlc_flag.store(true, Ordering::SeqCst);
-                while self.ctrlc_flag.load(Ordering::SeqCst) {
+                loop {
                     self.gba.key_poll();
                     match self.gba.check_breakpoint() {
                         Some(addr) => {
