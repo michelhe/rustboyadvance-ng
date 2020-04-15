@@ -1,5 +1,6 @@
 import * as wasm from "rustboyadvance-wasm";
 
+var fps_text = document.getElementById('fps');
 var canvas = document.getElementById("screen");
 var ctx = canvas.getContext('2d');
 var intervalId = 0;
@@ -37,6 +38,68 @@ function ensureFilesLoaded() {
     return true;
 }
 
+const convertAudioBuffer = buffer => {
+    let length = buffer.length;
+    const floatArray = new Float32Array(length);
+    for (let i = 0; i < length; i++) {
+        floatArray[i] = (buffer[i] - 32767) / 32767;
+    }
+    return floatArray;
+}
+
+var fpsCounter = (function() {
+    var lastLoop = (new Date).getMilliseconds();
+    var count = 0;
+    var fps = 0;
+
+    return function() {
+        var currentLoop = (new Date).getMilliseconds();
+        if (lastLoop > currentLoop) {
+            fps = count;
+            count = 0;
+        } else {
+            count += 1;
+        }
+        lastLoop = currentLoop;
+        return fps;
+    }
+}());
+
+// Create our audio context
+const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+console.log("audio context " + audioContext);
+
+const playAudio = emulator => {
+    let audioData = emulator.collect_audio_samples();
+
+    let frameCount = audioData.length / 2;
+    const audioBuffer = audioContext.createBuffer(
+        2,
+        frameCount,
+        audioContext.sampleRate
+    );
+
+    for (let channel = 0; channel < 2; channel++) {
+        let nowBuffering = audioBuffer.getChannelData(channel);
+        for (let i = 0; i < frameCount; i++) {
+            // audio data frames are interleaved
+            nowBuffering[i] = audioData[i*2 + channel];
+        }
+    }
+
+    const audioSource = audioContext.createBufferSource();
+    audioSource.buffer = audioBuffer;
+
+    audioSource.connect(audioContext.destination);
+    audioSource.start();
+}
+
+const emulatorLoop = function() {
+    emulator.run_frame(ctx);
+    fps_text.innerHTML = fpsCounter();
+    playAudio(emulator);
+}
+
 function startEmulator() {
     if (!ensureFilesLoaded()) {
         return;
@@ -55,29 +118,7 @@ function startEmulator() {
         emulator.skip_bios();
     }
 
-    var fpsCounter = (function() {
-        var lastLoop = (new Date).getMilliseconds();
-        var count = 0;
-        var fps = 0;
-
-        return function() {
-            var currentLoop = (new Date).getMilliseconds();
-            if (lastLoop > currentLoop) {
-                fps = count;
-                count = 0;
-            } else {
-                count += 1;
-            }
-            lastLoop = currentLoop;
-            return fps;
-        }
-    }());
-
-    let fps_text = document.getElementById('fps')
-    intervalId = setInterval(function() {
-        emulator.run_frame(ctx);
-        fps_text.innerHTML = fpsCounter();
-    }, 16);
+    intervalId = setInterval(emulatorLoop, 16);
 }
 
 const biosCached = localStorage.getItem("biosCached");
@@ -129,7 +170,7 @@ function loadRom(romFile) {
     return promise;
 };
 
-let dropArea = document.getElementById('canvas-container');
+let dropArea = document.getElementById('screen');
 
 ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
     dropArea.addEventListener(eventName,
@@ -169,22 +210,26 @@ document.getElementById("startEmulator").addEventListener('click', e => {
     }
 }, false);
 
-['keydown', 'keyup'].forEach(eventName => {
-    window.addEventListener(eventName,
-        e => {
-            // prevent default events
-            e.preventDefault();
-            e.stopPropagation();
-        }, false)
-});
+document.getElementById("maxFps").addEventListener('change', e => {
+    if (intervalId != 0) {
+        let checked = e.target.checked;
+        clearInterval(intervalId);
+        if (checked) {
+            intervalId = setInterval(emulatorLoop, 0);
+        } else {
+            intervalId = setInterval(emulatorLoop, 16);
+        }
 
-window.addEventListener("keydown", e => {
+    }
+})
+
+document.addEventListener("keydown", e => {
     if (null != emulator) {
         emulator.key_down(e.key)
     }
 }, false);
 
-window.addEventListener("keyup", e => {
+document.addEventListener("keyup", e => {
     if (null != emulator) {
         emulator.key_up(e.key)
     }

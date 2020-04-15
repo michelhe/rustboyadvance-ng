@@ -7,93 +7,120 @@
     <title>RustBoyAdvance</title>
     <style>
         body {
-            background-color: #675ea7;
-            font-family: "Courier New", Courier, monospace;
+            background-color: #2c2946;
+            font-family: Source Code, Roboto, Monospace;
+            margin: 0;
+            color: azure;
         }
-        #logo {
-          text-align: center;
-          align-items: center;
-          justify-content: center;
-
-        }
-        #menu {
-            background-color: #423c6c;
-            display: flexbox;
-            box-shadow: 0.1px 2px 4px rgba(0, 0, 0, 0.7);
-            top: 0.2em;
-            left: 0.2em;
-            padding: .1em;
-            position: absolute;
-        }
-        #menu .fileInput {
-            background-color: #675ea7;
-            margin: .4em;
-        }
-        #menu button {
-            background-color: #736ab1;
-            box-shadow: 1px 1px 2px rgba(255, 18, 148, 0.2);
-            font-size: .8em;
-            border-radius: .15em;
-            margin: .4em;
-        }
-        #canvas-container {
-            box-shadow: 0.1px 2px 4px rgba(0, 0, 0, 0.7);
-            display: inline-block;
+        header {
+            padding: 1em;
+            padding-top: 6em;
+            background-color: #13121d;
+            background-image: url("icon.svg");
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: 400px;
+            display: flex;
             text-align: center;
-            position:fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 70%;
-            height: 70%;
             align-items: center;
             justify-content: center;
-            background-color: #423c6c;
+            box-shadow: 0.1px 2px 4px rgba(0, 0, 0, 0.7);
         }
-        #canvas-container.hover {
+        header h1 {
+            color: azure;
+            padding: .1em;
+            font-size: medium;
+        }
+        #menu {
+            padding: .1em;
+        }
+        #menu ul {
+            list-style: none;
+        }
+        #menu li {
+            margin: 0.2em;
+        }
+        #playarea {
+            justify-content: center;
+            margin: auto;
+            display: flexbox;
+        }
+        #playarea.hover {
             border: rgba(9, 250, 0, 0.671);
             border-style: dashed;
             border-width: 0.1em;
         }
+
+        #game-options {
+            display: block;
+        }
+        #game-options > * {
+            width: 100%;
+            margin: 0.2em;
+        }
         #screen {
-            text-align: center;
-            margin: auto;
-            width: 70%;
+            display: block;
+            max-width: 960px;
+            width: 80%;
+            margin-left: auto;
+            margin-right: auto;
             background-color: black;
             image-rendering: optimizeSpeed;
             image-rendering: -moz-crisp-edges;
             image-rendering: -webkit-crisp-edges;
             image-rendering: pixelated;
             image-rendering: crisp-edges;
+            box-shadow: 0.1px 2px 4px rgba(0, 0, 0, 0.7);
+            padding: 0.2em;
         }
-        .hidden {
-            display: none,
+
+        #screen.hover {
+            border: rgba(9, 250, 0, 0.671);
+            border-style: dashed;
+            border-width: 0.1em;
         }
     </style>
 </head>
 
 <body>
     <noscript>This page contains webassembly and javascript content, please enable javascript in your browser.</noscript>
-    <div id="menu">
-        <div class="fileInput">
-            <label> BIOS </label>
-            <input type="file" id="bios-file-input" />
+    <header>
+        <div id="logo">
+            <h1>RustBoyAdvance</h1>
         </div>
-        <button id="reloadBios" class="hidden">Reload Bios</button>
-        <div class="fileInput">
-            <label> ROM </label>
-            <input type="file" id="rom-file-input" />
-        </div>
-        <button id="startEmulator">Start</button>
-        <button id="fps-test">FPS Test</button>
-        <label>Skip Bios</label>
-        <input type="checkbox" id="skipBios">
-    </div>
-    <div id="canvas-container">
-        <pre id="fps"></pre>
+    </header>
+    <section id="menu">
+        <ul>
+            <li class="fileInput">
+                <label> BIOS </label>
+                <input type="file" id="bios-file-input" />
+            </li>
+            <li><button id="reloadBios" class="hidden">Reload Bios</button></li>
+            <li class="fileInput">
+                <label> ROM </label>
+                <input type="file" id="rom-file-input" />
+            </li>
+            <li><button id="startEmulator">Start</button></li>
+            <li><button id="fps-test">FPS Test</button></li>
+            <li>
+                <label>Skip Bios</label>
+                <input type="checkbox" id="skipBios">
+            </li>
+            <pre> You can also drag rom files directly into the screen </pre>
+        </ul>
+    </section>
+    <section id="playarea">
+        <pre> Built with WASM</pre>
         <canvas id="screen" width="240px" , height="160px"></canvas>
-        <img id="logo" width="240px" src="icon.svg"></img>
-    </div>
+        <section id="game-options">
+            <span id="fps">FPS</span>
+            <label>
+                <label>Max FPS</label>
+                <input type="checkbox" id="maxFps">
+            </label>
+        </section>
+    </section>
+    <footer></footer>
     <script src="./bootstrap.js"></script>
 </body>
 

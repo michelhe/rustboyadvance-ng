@@ -20,24 +20,9 @@ use android_log;
 #[cfg(not(target_os = "android"))]
 use env_logger;
 
-use ringbuf::{Consumer, Producer, RingBuffer};
-
 use rustboyadvance_core::prelude::*;
 use rustboyadvance_core::StereoSample;
-
-struct AudioRingBuffer {
-    pub prod: Producer<i16>,
-    pub cons: Consumer<i16>,
-}
-
-impl AudioRingBuffer {
-    fn new() -> AudioRingBuffer {
-        let rb = RingBuffer::new(4096 * 2);
-        let (prod, cons) = rb.split();
-
-        AudioRingBuffer { prod, cons }
-    }
-}
+use rustboyadvance_core::util::audio::AudioRingBuffer;
 
 struct Hardware {
     jvm: JavaVM,

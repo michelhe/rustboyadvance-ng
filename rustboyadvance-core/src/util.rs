@@ -127,3 +127,22 @@ macro_rules! host_breakpoint {
         }
     };
 }
+
+
+pub mod audio {
+    use ringbuf::{Consumer, Producer, RingBuffer};
+
+    pub struct AudioRingBuffer {
+        pub prod: Producer<i16>,
+        pub cons: Consumer<i16>,
+    }
+
+    impl AudioRingBuffer {
+        pub fn new() -> AudioRingBuffer {
+            let rb = RingBuffer::new(4096 * 2);
+            let (prod, cons) = rb.split();
+
+            AudioRingBuffer { prod, cons }
+        }
+    }
+}

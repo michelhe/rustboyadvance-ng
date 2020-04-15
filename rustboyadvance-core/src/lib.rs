@@ -65,5 +65,5 @@ pub mod prelude {
     #[cfg(feature = "debugger")]
     pub use super::debugger::Debugger;
     pub use super::util::{read_bin_file, write_bin_file};
-    pub use super::{AudioInterface, InputInterface, VideoInterface};
+    pub use super::{AudioInterface, StereoSample, InputInterface, VideoInterface};
 }
