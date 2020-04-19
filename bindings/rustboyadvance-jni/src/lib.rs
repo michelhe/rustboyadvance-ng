@@ -46,8 +46,12 @@ impl VideoInterface for Hardware {
 }
 impl AudioInterface for Hardware {
     fn push_sample(&mut self, sample: StereoSample<i16>) {
-        self.audio_buffer.prod.push(sample.0).unwrap();
-        self.audio_buffer.prod.push(sample.1).unwrap();
+        if self.audio_buffer.prod.push(sample.0).is_err() {
+            warn!("failed to push audio sample");
+        }
+        if self.audio_buffer.prod.push(sample.1).is_err() {
+            warn!("failed to push audio sample");
+        }
     }
 }
 impl InputInterface for Hardware {
