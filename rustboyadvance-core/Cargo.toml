@@ -15,7 +15,7 @@ bit = "^0.1"
 colored = "1.9"
 ansi_term = "0.12.1"
 hexdump = "0.1.0"
-time = "0.2.6"
+time = "0.2.11"
 bitfield = "0.13.1"
 bitflags = "1.2.1"
 zip = {version = "0.5.4", default-features = false, features = ["deflate", "time"]}
