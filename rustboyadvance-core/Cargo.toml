@@ -35,7 +35,7 @@ goblin = { version = "0.2", optional = true }
 fuzzy-matcher = { version = "0.3.4", optional = true }
 
 [target.'cfg(target_arch="wasm32")'.dependencies]
-instant = { version = "0.1.2", features = [ "wasm-bindgen" ] }
+instant = { version = "0.1.3", features = [ "wasm-bindgen" ] }
 
 [build-dependencies]
 bit = "^0.1"
