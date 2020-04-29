@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use super::{Addr, Bus};
@@ -12,6 +14,7 @@ pub use backup::BackupType;
 use backup::{BackupFile, BackupMemoryInterface};
 
 mod builder;
+mod loader;
 pub use builder::GamepakBuilder;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -22,12 +25,21 @@ pub enum BackupMedia {
     Undetected,
 }
 
+pub type SymbolTable = HashMap<String, u32>;
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Cartridge {
     pub header: CartridgeHeader,
     bytes: Box<[u8]>,
     size: usize,
+    symbols: Option<SymbolTable>, // TODO move it somewhere else
     pub(in crate) backup: BackupMedia,
+}
+
+impl Cartridge {
+    pub fn get_symbols(&self) -> &Option<SymbolTable> {
+        &self.symbols
+    }
 }
 
 use super::sysbus::consts::*;

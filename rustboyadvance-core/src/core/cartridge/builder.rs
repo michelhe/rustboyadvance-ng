@@ -1,10 +1,7 @@
-use std::fs::File;
-use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 
 use memmem::{Searcher, TwoWaySearcher};
 use num::FromPrimitive;
-use zip::ZipArchive;
 
 use super::super::{GBAError, GBAResult};
 use super::backup::eeprom::*;
@@ -14,7 +11,7 @@ use super::header;
 use super::BackupMedia;
 use super::Cartridge;
 
-use crate::util::read_bin_file;
+use super::loader::{load_from_bytes, load_from_file, LoadRom};
 
 #[derive(Debug)]
 pub struct GamepakBuilder {
@@ -87,11 +84,16 @@ impl GamepakBuilder {
     }
 
     pub fn build(mut self) -> GBAResult<Cartridge> {
-        let bytes = if let Some(bytes) = self.bytes {
-            Ok(bytes)
+        let (bytes, symbols) = if let Some(bytes) = self.bytes {
+            match load_from_bytes(bytes.to_vec())? {
+                LoadRom::Elf { data, symbols } => Ok((data, Some(symbols))),
+                LoadRom::Raw(data) => Ok((data, None)),
+            }
         } else if let Some(path) = &self.path {
-            let loaded_rom = load_rom(&path)?;
-            Ok(loaded_rom.into())
+            match load_from_file(&path)? {
+                LoadRom::Elf { data, symbols } => Ok((data, Some(symbols))),
+                LoadRom::Raw(data) => Ok((data, None)),
+            }
         } else {
             Err(GBAError::CartridgeLoadError(
                 "either provide file() or buffer()".to_string(),
@@ -125,9 +127,10 @@ impl GamepakBuilder {
         let size = bytes.len();
         Ok(Cartridge {
             header: header,
-            bytes: bytes,
+            bytes: bytes.into_boxed_slice(),
             size: size,
             backup: backup,
+            symbols: symbols,
         })
     }
 }
@@ -162,32 +165,4 @@ fn detect_backup_type(bytes: &[u8]) -> Option<BackupType> {
         }
     }
     None
-}
-
-fn load_rom(path: &Path) -> GBAResult<Vec<u8>> {
-    match path.extension() {
-        Some(extension) => match extension.to_str() {
-            Some("zip") => {
-                let zipfile = File::open(path)?;
-                let mut archive = ZipArchive::new(zipfile)?;
-                for i in 0..archive.len() {
-                    let mut file = archive.by_index(i)?;
-                    if file.name().ends_with(".gba") {
-                        let mut buf = Vec::new();
-                        file.read_to_end(&mut buf)?;
-                        return Ok(buf);
-                    }
-                }
-                panic!("no .gba file contained in the zip file");
-            }
-            _ => {
-                let buf = read_bin_file(path)?;
-                return Ok(buf);
-            }
-        },
-        _ => {
-            let buf = read_bin_file(path)?;
-            return Ok(buf);
-        }
-    }
 }
