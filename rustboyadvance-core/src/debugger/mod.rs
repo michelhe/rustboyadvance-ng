@@ -66,6 +66,7 @@ impl Debugger {
     }
 
     fn decode_reg(&self, s: &str) -> DebuggerResult<usize> {
+        // TODO also allow r11..r15
         let reg_names = vec![
             "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "fp", "ip", "sp",
             "lr", "pc",
@@ -103,9 +104,20 @@ impl Debugger {
     fn val_address(&self, arg: &Value) -> DebuggerResult<Addr> {
         match arg {
             Value::Num(n) => Ok(*n),
-            Value::Identifier(reg) => {
-                let reg = self.decode_reg(&reg)?;
-                Ok(self.gba.cpu.get_reg(reg))
+            Value::Identifier(ident) => {
+                let symbol = if let Some(symbols) = self.gba.sysbus.cartridge.get_symbols() {
+                    symbols.get(ident)
+                } else {
+                    None
+                };
+
+                if let Some(address) = symbol {
+                    Ok(*address)
+                } else {
+                    // otherwise, decode as register (TODO special token to separate symbol and register)
+                    let reg = self.decode_reg(&ident)?;
+                    Ok(self.gba.cpu.get_reg(reg))
+                }
             }
             v => Err(DebuggerError::InvalidArgument(format!(
                 "addr: expected a number or register, got {:?}",

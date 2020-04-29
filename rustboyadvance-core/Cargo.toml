@@ -32,6 +32,7 @@ gdbstub = { version = "0.1.2", optional = true, features = ["std"] }
 ringbuf = "0.2.1"
 
 goblin = { version = "0.2", optional = true }
+fuzzy-matcher = { version = "0.3.4", optional = true }
 
 [target.'cfg(target_arch="wasm32")'.dependencies]
 instant = { version = "0.1.2", features = [ "wasm-bindgen" ] }
@@ -44,7 +45,7 @@ criterion = "0.3"
 
 [features]
 default = ["arm7tdmi_dispatch_table"]
-debugger = ["nom", "rustyline"]
+debugger = ["nom", "rustyline", "fuzzy-matcher"]
 gdb = ["gdbstub"]
 elf_support = ["goblin"]
 # Uses lookup tables when executing instructions instead of `match` statements.

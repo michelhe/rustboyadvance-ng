@@ -15,6 +15,9 @@ use super::{parser::Value, Debugger, DebuggerError, DebuggerResult};
 
 use ansi_term::Colour;
 
+use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
+
 use hexdump;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -61,6 +64,7 @@ pub enum Command {
     TraceToggle(TraceFlags),
     SaveState(String),
     LoadState(String),
+    ListSymbols(Option<String>),
 }
 
 impl Debugger {
@@ -214,6 +218,28 @@ impl Debugger {
                 self.gba
                     .restore_state(&save)
                     .expect("failed to deserialize");
+            }
+            ListSymbols(Some(pattern)) => {
+                if let Some(symbols) = self.gba.sysbus.cartridge.get_symbols() {
+                    let matcher = SkimMatcherV2::default();
+                    for (k, v) in symbols
+                        .iter()
+                        .filter(|(k, _v)| matcher.fuzzy_match(k, &pattern).is_some())
+                    {
+                        println!("{}=0x{:08x}", k, v);
+                    }
+                } else {
+                    println!("symbols not loaded!");
+                }
+            }
+            ListSymbols(None) => {
+                if let Some(symbols) = self.gba.sysbus.cartridge.get_symbols() {
+                    for (k, v) in symbols.iter() {
+                        println!("{}=0x{:08x}", k, v);
+                    }
+                } else {
+                    println!("symbols not loaded!");
+                }
             }
             _ => println!("Not Implemented",),
         }
@@ -460,6 +486,22 @@ impl Debugger {
                     }
                 }
             }
+            "list-symbols" | "list-syms" | "symbols" | "syms" => match args.len() {
+                0 => Ok(Command::ListSymbols(None)),
+                1 => {
+                    if let Value::Identifier(pattern) = &args[0] {
+                        Ok(Command::ListSymbols(Some(pattern.to_string())))
+                    } else {
+                        Err(DebuggerError::InvalidArgument(String::from(
+                            "expected a pattern",
+                        )))
+                    }
+                }
+                _ => Err(DebuggerError::InvalidCommandFormat(format!(
+                    "usage: {} [pattern]",
+                    command
+                ))),
+            },
             _ => Err(DebuggerError::InvalidCommand(command)),
         }
     }
