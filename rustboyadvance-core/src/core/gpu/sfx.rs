@@ -200,23 +200,21 @@ impl Gpu {
                 if !(top_layer_flags.contains_render_layer(&layers[0]) || obj_sfx) {
                     break 'blend;
                 }
-                if layers.len() > 1 && !(bot_layer_flags.contains_render_layer(&layers[1])) {
-                    break 'blend;
-                }
 
-                let mut blend_mode = self.bldcnt.mode();
 
-                // push another backdrop layer in case there is only 1 layer
-                // unsafe { layers.push_unchecked(RenderLayer::backdrop(backdrop_color)); }
                 // if this is object alpha blending, ensure that the bottom layer contains a color to blend with
-                if obj_sfx && layers.len() > 1 && bot_layer_flags.contains_render_layer(&layers[1])
-                {
-                    blend_mode = BldMode::BldAlpha;
-                }
+                let blend_mode = if obj_sfx && layers.len() > 1 && bot_layer_flags.contains_render_layer(&layers[1]) {
+                    BldMode::BldAlpha
+                } else {
+                    self.bldcnt.mode()
+                };
 
                 match blend_mode {
                     BldMode::BldAlpha => {
                         let bot_pixel = if layers.len() > 1 {
+                            if !(bot_layer_flags.contains_render_layer(&layers[1])) {
+                                break 'blend;
+                            }
                             layers[1].pixel //self.layer_to_pixel(x, y, &layers[1])
                         } else {
                             backdrop_color
