@@ -31,10 +31,9 @@ jobs:
           npm run build
 
       - name: "Deploy 🚀"
-        uses: JamesIves/github-pages-deploy-action@releases/v3
+        uses: peaceiris/actions-gh-pages@v3
         with:
-          ACCESS_TOKEN: '${{ secrets.ACCESS_TOKEN }}'
-          BRANCH: gh-pages
-          FOLDER: platform/rustboyadvance-wasm/app/dist
-          CLEAN: yes
-          SINGLE_COMMIT: yes
+          github_token: '${{ secrets.ACCESS_TOKEN }}'
+          publish_branch: gh-pages
+          publish_dir: ./platform/rustboyadvance-wasm/app/dist
+          keep_files: false
