@@ -1,0 +1,36 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build-windows-64:
+
+    runs-on: windows-2019
+
+    steps:
+    - name: Checkout 🛎️
+      uses: actions/checkout@v2
+
+    - name: Build
+      run: cargo build --release --manifest-path .\platform\rustboyadvance-sdl2\Cargo.toml
+
+    - name: Collect artifacts
+      run: |
+        mkdir artifacts
+        mkdir artifacts\assets
+        copy README.md artifacts
+        copy LICENSE artifacts
+        copy .\assets\icon_cropped_small.png artifacts\assets
+        copy .\target\release\rustboyadvance-sdl2.exe artifacts
+        copy .\platform\rustboyadvance-sdl2\msvc\64\*.dll artifacts
+        copy .\platform\rustboyadvance-sdl2\msvc\64\LICENSE.* artifacts
+
+    - name : Uplaod artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: rustboyadvance-sdl2-X64_86
+        path: artifacts
+
