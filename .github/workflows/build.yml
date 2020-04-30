@@ -6,6 +6,39 @@ on:
       - master
 
 jobs:
+  build-linux:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout 🛎️
+      uses: actions/checkout@v2
+
+    - name: Install Dependencies
+      run: |
+        sudo add-apt-repository -y "deb http://archive.ubuntu.com/ubuntu `lsb_release -sc` main universe restricted multiverse"
+        sudo apt-get update -y -qq
+        sudo apt-get install libsdl2-dev
+        sudo apt-get install libsdl2-image-dev
+
+    - name: Build
+      run: cargo build --release --manifest-path platform/rustboyadvance-sdl2/Cargo.toml
+
+    - name: Collect artifacts
+      run: |
+        mkdir artifacts
+        mkdir artifacts/assets
+        cp README.md artifacts
+        cp LICENSE artifacts
+        cp ./assets/icon_cropped_small.png artifacts/assets
+        cp ./target/release/rustboyadvance-sdl2 artifacts
+
+    - name : Upload artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: rustboyadvance-sdl2-x86_64-unknown-linux-gnu
+        path: artifacts
+
   build-windows-64:
 
     runs-on: windows-2019
@@ -14,8 +47,10 @@ jobs:
     - name: Checkout 🛎️
       uses: actions/checkout@v2
 
+    - run: rustup target add x86_64-pc-windows-msvc
+
     - name: Build
-      run: cargo build --release --manifest-path .\platform\rustboyadvance-sdl2\Cargo.toml
+      run: cargo build --target x86_64-pc-windows-msvc --release --manifest-path .\platform\rustboyadvance-sdl2\Cargo.toml
 
     - name: Collect artifacts
       run: |
@@ -28,9 +63,9 @@ jobs:
         copy .\platform\rustboyadvance-sdl2\msvc\64\*.dll artifacts
         copy .\platform\rustboyadvance-sdl2\msvc\64\LICENSE.* artifacts
 
-    - name : Uplaod artifacts
+    - name : Upload artifacts
       uses: actions/upload-artifact@v2
       with:
-        name: rustboyadvance-sdl2-X64_86
+        name: rustboyadvance-sdl2-x86_64-pc-windows-msvc
         path: artifacts
 
