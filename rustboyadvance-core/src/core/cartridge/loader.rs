@@ -1,4 +1,6 @@
 use super::super::{GBAError, GBAResult};
+
+#[cfg(feature = "elf_support")]
 use std::collections::HashMap;
 use std::io::prelude::*;
 use std::io::Cursor;
@@ -11,6 +13,7 @@ use zip::ZipArchive;
 use goblin;
 
 pub enum LoadRom {
+    #[cfg(feature = "elf_support")]
     Elf {
         data: Vec<u8>,
         symbols: HashMap<String, u32>,

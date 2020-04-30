@@ -86,11 +86,13 @@ impl GamepakBuilder {
     pub fn build(mut self) -> GBAResult<Cartridge> {
         let (bytes, symbols) = if let Some(bytes) = self.bytes {
             match load_from_bytes(bytes.to_vec())? {
+                #[cfg(feature = "elf_support")]
                 LoadRom::Elf { data, symbols } => Ok((data, Some(symbols))),
                 LoadRom::Raw(data) => Ok((data, None)),
             }
         } else if let Some(path) = &self.path {
             match load_from_file(&path)? {
+                #[cfg(feature = "elf_support")]
                 LoadRom::Elf { data, symbols } => Ok((data, Some(symbols))),
                 LoadRom::Raw(data) => Ok((data, None)),
             }
