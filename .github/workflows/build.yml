@@ -91,7 +91,7 @@ jobs:
         copy README.md artifacts
         copy LICENSE artifacts
         copy .\assets\icon_cropped_small.png artifacts\assets
-        copy .\target\release\rustboyadvance-sdl2.exe artifacts
+        copy .\target\x86_64-pc-windows-msvc\release\rustboyadvance-sdl2.exe artifacts
         copy .\platform\rustboyadvance-sdl2\msvc\64\*.dll artifacts
         copy .\platform\rustboyadvance-sdl2\msvc\64\LICENSE.* artifacts
 
