@@ -39,18 +39,14 @@ sudo apt-get -y install libsdl2-dev libsdl2-image-dev
 ```
 
 ## Windows build dependencies
-Download SDL2 runtime binaries for windows (either 32bit or 64bit depending on the target machine)
-https://www.libsdl.org/download-2.0.php
-https://www.libsdl.org/projects/SDL_image/
-
-Extract all the DLLs into the project root (Yeah, its dirty and a build script will be written in the future to automate this)
+SDL2 runtime binaries are included in this repository, no extra setup needed.
 
 ## Build & Usage
 You need to obtain a gba bios binary.
 An [open source GBA bios](https://github.com/Nebuleon/ReGBA/blob/master/bios/gba_bios.bin) is also available and supported.
 
 
-Place the bios file in the repository root and name it `gba_bios.bin` (or alternatively use the `-b` command line option) 
+Place the bios file in the repository root and name it `gba_bios.bin` (or alternatively use the `-b` command line option)
 
 
 Build and run in release mode (performance is terrible in the `dev` profile)
