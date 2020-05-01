@@ -6,8 +6,8 @@ use wasm_bindgen::Clamped;
 
 use js_sys::Float32Array;
 
-use web_sys::CanvasRenderingContext2d;
 use web_sys::AudioContext;
+use web_sys::CanvasRenderingContext2d;
 
 use rustboyadvance_core::core::keypad as gba_keypad;
 use rustboyadvance_core::prelude::*;
@@ -37,15 +37,13 @@ impl Drop for Interface {
 
 impl Interface {
     fn new(audio_ctx: AudioContext) -> Result<Interface, JsValue> {
-        Ok(
-            Interface {
-                frame: vec![0; 240 * 160 * 4],
-                keyinput: gba_keypad::KEYINPUT_ALL_RELEASED,
-                sample_rate: audio_ctx.sample_rate() as i32,
-                audio_ctx: audio_ctx,
-                audio_ring_buffer: AudioRingBuffer::new(),
-            }
-        )
+        Ok(Interface {
+            frame: vec![0; 240 * 160 * 4],
+            keyinput: gba_keypad::KEYINPUT_ALL_RELEASED,
+            sample_rate: audio_ctx.sample_rate() as i32,
+            audio_ctx: audio_ctx,
+            audio_ring_buffer: AudioRingBuffer::new(),
+        })
     }
 }
 
@@ -64,7 +62,6 @@ impl VideoInterface for Interface {
 
 fn convert_sample(s: i16) -> f32 {
     ((s as f32) / 32767_f32)
-
 }
 
 impl AudioInterface for Interface {
@@ -105,7 +102,7 @@ impl Emulator {
             interface.clone(),
         );
 
-        Ok( Emulator { gba, interface } )
+        Ok(Emulator { gba, interface })
     }
 
     pub fn skip_bios(&mut self) {

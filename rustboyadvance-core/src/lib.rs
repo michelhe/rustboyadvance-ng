@@ -21,6 +21,9 @@ use byteorder;
 extern crate log;
 
 #[macro_use]
+extern crate hex_literal;
+
+#[macro_use]
 pub mod util;
 pub mod core;
 pub mod disass;
@@ -65,5 +68,5 @@ pub mod prelude {
     #[cfg(feature = "debugger")]
     pub use super::debugger::Debugger;
     pub use super::util::{read_bin_file, write_bin_file};
-    pub use super::{AudioInterface, StereoSample, InputInterface, VideoInterface};
+    pub use super::{AudioInterface, InputInterface, StereoSample, VideoInterface};
 }

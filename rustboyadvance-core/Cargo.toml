@@ -5,7 +5,7 @@ authors = ["Michel Heily <michelheily@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-serde = {version = "1.0.104", features = ["derive"] }
+serde = { version = "1.0.104", features = ["derive"] }
 bincode = "1.2.1"
 byteorder = "1"
 num = "0.2.1"
@@ -18,24 +18,27 @@ hexdump = "0.1.0"
 time = "0.2.6"
 bitfield = "0.13.1"
 bitflags = "1.2.1"
-zip = {version = "0.5.4", default-features = false, features = ["deflate", "time"]}
+zip = { version = "0.5.4", default-features = false, features = [
+    "deflate",
+    "time"
+] }
 bit-set = "0.5.1"
 debug_stub_derive = "0.3.0"
 bytesize = "1.0.0"
 memmem = "0.1.1"
 log = "0.4.8"
 arrayvec = "0.5.1"
-
-rustyline = {version = "6.0.0", optional = true}
-nom = {version = "5.0.0", optional = true}
+sha2 = "0.8.1"
+hex-literal = "0.2.1"
+rustyline = { version = "6.0.0", optional = true }
+nom = { version = "5.0.0", optional = true }
 gdbstub = { version = "0.1.2", optional = true, features = ["std"] }
 ringbuf = "0.2.1"
-
 goblin = { version = "0.2", optional = true }
 fuzzy-matcher = { version = "0.3.4", optional = true }
 
 [target.'cfg(target_arch="wasm32")'.dependencies]
-instant = { version = "0.1.2", features = [ "wasm-bindgen" ] }
+instant = { version = "0.1.2", features = ["wasm-bindgen"] }
 
 [build-dependencies]
 bit = "^0.1"

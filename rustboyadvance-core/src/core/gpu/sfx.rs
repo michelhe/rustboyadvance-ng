@@ -201,9 +201,11 @@ impl Gpu {
                     break 'blend;
                 }
 
-
                 // if this is object alpha blending, ensure that the bottom layer contains a color to blend with
-                let blend_mode = if obj_sfx && layers.len() > 1 && bot_layer_flags.contains_render_layer(&layers[1]) {
+                let blend_mode = if obj_sfx
+                    && layers.len() > 1
+                    && bot_layer_flags.contains_render_layer(&layers[1])
+                {
                     BldMode::BldAlpha
                 } else {
                     self.bldcnt.mode()

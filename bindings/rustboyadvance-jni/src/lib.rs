@@ -21,8 +21,8 @@ use android_log;
 use env_logger;
 
 use rustboyadvance_core::prelude::*;
-use rustboyadvance_core::StereoSample;
 use rustboyadvance_core::util::audio::AudioRingBuffer;
+use rustboyadvance_core::StereoSample;
 
 struct Hardware {
     jvm: JavaVM,

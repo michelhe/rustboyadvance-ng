@@ -106,20 +106,18 @@ impl Debugger {
                 }
                 println!("{}\n", self.gba.cpu);
             }
-            Continue => {
-                loop {
-                    self.gba.key_poll();
-                    match self.gba.check_breakpoint() {
-                        Some(addr) => {
-                            println!("Breakpoint reached! @{:x}", addr);
-                            break;
-                        }
-                        _ => {
-                            self.gba.cpu.step(&mut self.gba.sysbus);
-                        }
+            Continue => loop {
+                self.gba.key_poll();
+                match self.gba.check_breakpoint() {
+                    Some(addr) => {
+                        println!("Breakpoint reached! @{:x}", addr);
+                        break;
+                    }
+                    _ => {
+                        self.gba.cpu.step(&mut self.gba.sysbus);
                     }
                 }
-            }
+            },
             Frame(count) => {
                 let start = time::Instant::now();
                 for _ in 0..count {
