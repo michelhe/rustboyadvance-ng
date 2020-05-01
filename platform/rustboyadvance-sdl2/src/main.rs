@@ -2,7 +2,10 @@ use sdl2;
 use sdl2::event::Event;
 use sdl2::image::{InitFlag, LoadTexture};
 use sdl2::keyboard::Keycode;
+use sdl2::messagebox::*;
 use sdl2::pixels::Color;
+use sdl2::rect::Rect;
+use sdl2::render::{Texture, WindowCanvas};
 
 use sdl2::EventPump;
 
@@ -13,6 +16,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::time;
@@ -26,6 +30,8 @@ extern crate clap;
 extern crate log;
 use flexi_logger;
 use flexi_logger::*;
+
+use reqwest;
 
 mod audio;
 mod input;
@@ -43,22 +49,88 @@ use rustboyadvance_core::util::FpsCounter;
 const LOG_DIR: &str = ".logs";
 const DEFAULT_GDB_SERVER_ADDR: &'static str = "localhost:1337";
 
+const CANVAS_WIDTH: u32 = SCREEN_WIDTH;
+const CANVAS_HEIGHT: u32 = SCREEN_HEIGHT;
+
 fn get_savestate_path(rom_filename: &Path) -> PathBuf {
     rom_filename.with_extension("savestate")
 }
 
 /// Waits for the user to drag a rom file to window
-fn wait_for_rom(event_pump: &mut EventPump) -> String {
+fn wait_for_rom(canvas: &mut WindowCanvas, event_pump: &mut EventPump) -> Result<String, String> {
+    let texture_creator = canvas.texture_creator();
+    let icon_texture = texture_creator
+        .load_texture("assets/icon_cropped_small.png")
+        .expect("failed to load icon");
+    let background = Color::RGB(0xDD, 0xDD, 0xDD);
     loop {
         for event in event_pump.poll_iter() {
             match event {
                 Event::DropFile { filename, .. } => {
-                    return filename;
+                    return Ok(filename);
                 }
                 Event::Quit { .. } => process::exit(0),
                 _ => {}
             }
         }
+        canvas.set_draw_color(background);
+        canvas.clear();
+        canvas.copy(
+            &icon_texture,
+            None,
+            Some(Rect::from_center(
+                ((CANVAS_WIDTH / 2) as i32, (CANVAS_HEIGHT / 2) as i32),
+                160,
+                100,
+            )),
+        )?;
+        canvas.present();
+    }
+}
+
+fn ask_download_bios() -> Result<Option<Vec<u8>>, Box<dyn std::error::Error>> {
+    const OPEN_SOURCE_BIOS_URL: &'static str =
+        "https://github.com/Nebuleon/ReGBA/raw/master/bios/gba_bios.bin";
+
+    let buttons: Vec<_> = vec![
+        ButtonData {
+            flags: MessageBoxButtonFlag::NOTHING,
+            button_id: 100,
+            text: "No, Exit!",
+        },
+        ButtonData {
+            flags: MessageBoxButtonFlag::NOTHING,
+            button_id: 101,
+            text: "Yes",
+        },
+    ];
+
+    let res = show_message_box(
+        MessageBoxFlag::WARNING,
+        buttons.as_slice(),
+        "bios not found",
+        "would you like to me download an open source bios for you?",
+        None,
+        None,
+    )?;
+
+    match res {
+        ClickedButton::CloseButton => Ok(None),
+        ClickedButton::CustomButton(button) => match button.button_id {
+            101 => {
+                let mut resp = reqwest::blocking::get(OPEN_SOURCE_BIOS_URL)?;
+                let mut bios = Vec::with_capacity(16 * 1024);
+                resp.read_to_end(&mut bios)?;
+                show_simple_message_box(
+                    MessageBoxFlag::INFORMATION,
+                    "Download Finished!",
+                    "Download Finished!",
+                    None,
+                )?;
+                Ok(Some(bios))
+            }
+            _ => Ok(None),
+        },
     }
 }
 
@@ -84,6 +156,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Initializing SDL2 context");
     let sdl_context = sdl2::init().expect("failed to initialize sdl2");
+
+    let bios_path = Path::new(matches.value_of("bios").unwrap_or_default());
+    let bios_bin = match read_bin_file(bios_path) {
+        Ok(bios) => bios,
+        _ => match ask_download_bios() {
+            Ok(Some(bios)) => {
+                info!("saving downloaded bios to {}", bios_path.display());
+                write_bin_file(bios_path, &bios)?;
+
+                bios
+            }
+            Ok(None) => {
+                info!("Exiting");
+                std::process::exit(0);
+            }
+            Err(e) => {
+                error!("error when downloading bios: {}", e);
+                std::process::exit(1);
+            }
+        },
+    };
+
     let mut event_pump = sdl_context.event_pump()?;
 
     let video_subsystem = sdl_context.video()?;
@@ -96,34 +190,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
     let mut canvas = window.into_canvas().accelerated().build()?;
 
-    canvas.set_logical_size(SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32)?;
-
-    // Display the icon as a placeholder
-    canvas.set_draw_color(Color::RGB(0x40, 0x22, 0x20)); // default background color for the icon
-    canvas.clear();
-    let texture_creator = canvas.texture_creator();
-    let icon_texture = texture_creator
-        .load_texture("assets/icon_cropped_small.png")
-        .expect("failed to load icon");
-    canvas.copy(&icon_texture, None, None)?;
-    canvas.present();
-
-    // TODO also set window icon
-
-    let video = Rc::new(RefCell::new(create_video_interface(canvas)));
-    let audio = Rc::new(RefCell::new(create_audio_player(&sdl_context)));
-    let input = Rc::new(RefCell::new(create_input()));
-
-    let bios_path = Path::new(matches.value_of("bios").unwrap_or_default());
-    let bios_bin = read_bin_file(bios_path).expect("cannot read bios file");
+    canvas.set_logical_size(CANVAS_WIDTH, CANVAS_HEIGHT)?;
 
     let mut rom_path = match matches.value_of("game_rom") {
         Some(path) => path.to_string(),
         _ => {
             info!("[!] Rom file missing, please drag a rom file into the emulator window...");
-            wait_for_rom(&mut event_pump)
+            wait_for_rom(&mut canvas, &mut event_pump)?
         }
     };
+
+    let video = Rc::new(RefCell::new(create_video_interface(canvas)));
+    let audio = Rc::new(RefCell::new(create_audio_player(&sdl_context)));
+    let input = Rc::new(RefCell::new(create_input()));
 
     let mut savestate_path = get_savestate_path(&Path::new(&rom_path));
 
