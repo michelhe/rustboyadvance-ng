@@ -255,74 +255,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for event in event_pump.poll_iter() {
             match event {
                 Event::KeyDown {
-                    keycode: Some(Keycode::Space),
+                    keycode: Some(keycode),
                     ..
-                } => {
-                    frame_limiter = false;
-                }
+                } => match keycode {
+                    Keycode::Space => frame_limiter = false,
+                    k => input.borrow_mut().on_keyboard_key_down(k),
+                },
                 Event::KeyUp {
-                    keycode: Some(Keycode::Space),
+                    keycode: Some(keycode),
                     ..
-                } => {
-                    frame_limiter = true;
-                }
-                #[cfg(feature = "debugger")]
-                Event::KeyUp {
-                    keycode: Some(Keycode::F1),
-                    ..
-                } => {
-                    let mut debugger = Debugger::new(gba);
-                    info!("starting debugger...");
-                    debugger.repl(matches.value_of("script_file")).unwrap();
-                    gba = debugger.gba;
-                    info!("ending debugger...");
-                    break;
-                }
-                #[cfg(feature = "gdb")]
-                Event::KeyUp {
-                    keycode: Some(Keycode::F2),
-                    ..
-                } => {
-                    spawn_and_run_gdb_server(&mut gba, DEFAULT_GDB_SERVER_ADDR)?;
-                }
-                Event::KeyUp {
-                    keycode: Some(Keycode::F5),
-                    ..
-                } => {
-                    info!("Saving state ...");
-                    let save = gba.save_state()?;
-                    write_bin_file(&savestate_path, &save)?;
-                    info!(
-                        "Saved to {:?} ({})",
-                        savestate_path,
-                        bytesize::ByteSize::b(save.len() as u64)
-                    );
-                }
-                Event::KeyUp {
-                    keycode: Some(Keycode::F9),
-                    ..
-                } => {
-                    if savestate_path.is_file() {
-                        let save = read_bin_file(&savestate_path)?;
-                        info!("Restoring state from {:?}...", savestate_path);
-                        gba.restore_state(&save)?;
-                        info!("Restored!");
-                    } else {
-                        info!("Savestate not created, please create one by pressing F5");
+                } => match keycode {
+                    #[cfg(feature = "debugger")]
+                    Keycode::F1 => {
+                        let mut debugger = Debugger::new(gba);
+                        info!("starting debugger...");
+                        debugger.repl(matches.value_of("script_file")).unwrap();
+                        gba = debugger.gba;
+                        info!("ending debugger...")
                     }
-                }
-                Event::KeyDown {
-                    keycode: Some(keycode),
-                    ..
-                } => {
-                    input.borrow_mut().on_keyboard_key_down(keycode);
-                }
-                Event::KeyUp {
-                    keycode: Some(keycode),
-                    ..
-                } => {
-                    input.borrow_mut().on_keyboard_key_up(keycode);
-                }
+                    #[cfg(feature = "gdb")]
+                    Keycode::F2 => spawn_and_run_gdb_server(&mut gba, DEFAULT_GDB_SERVER_ADDR)?,
+                    Keycode::F5 => {
+                        info!("Saving state ...");
+                        let save = gba.save_state()?;
+                        write_bin_file(&savestate_path, &save)?;
+                        info!(
+                            "Saved to {:?} ({})",
+                            savestate_path,
+                            bytesize::ByteSize::b(save.len() as u64)
+                        );
+                    }
+                    Keycode::F9 => {
+                        if savestate_path.is_file() {
+                            let save = read_bin_file(&savestate_path)?;
+                            info!("Restoring state from {:?}...", savestate_path);
+                            gba.restore_state(&save)?;
+                            info!("Restored!");
+                        } else {
+                            info!("Savestate not created, please create one by pressing F5");
+                        }
+                    }
+                    Keycode::Space => frame_limiter = true,
+                    k => input.borrow_mut().on_keyboard_key_up(k),
+                },
                 Event::Quit { .. } => break 'running,
                 Event::DropFile { filename, .. } => {
                     // load the new rom
