@@ -32,8 +32,8 @@ use std::net::TcpListener;
 use std::net::ToSocketAddrs;
 
 pub fn spawn_and_run_gdb_server<A: ToSocketAddrs + fmt::Display>(
-    target: &mut GameBoyAdvance,
-    addr: A,
+    #[allow(unused)] target: &mut GameBoyAdvance,
+    #[allow(unused)] addr: A,
 ) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "gdb")]
     {

@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::sync::atomic::Ordering;
 use std::time;
 
 use crate::arm7tdmi::arm::ArmInstruction;

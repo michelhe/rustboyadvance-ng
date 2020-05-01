@@ -14,17 +14,6 @@ fn get_bs_op(shift_field: u32) -> BarrelShiftOpCode {
     BarrelShiftOpCode::from_u8(shift_field.bit_range(5..7) as u8).unwrap()
 }
 
-#[inline(always)]
-fn get_shift_reg_by(shift_field: u32) -> ShiftRegisterBy {
-    if shift_field.bit(4) {
-        let rs = shift_field.bit_range(8..12) as usize;
-        ShiftRegisterBy::ByRegister(rs)
-    } else {
-        let amount = shift_field.bit_range(7..12) as u32;
-        ShiftRegisterBy::ByAmount(amount)
-    }
-}
-
 impl Core {
     pub fn exec_arm(&mut self, bus: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         match insn.fmt {
@@ -693,15 +682,8 @@ impl Core {
     pub fn exec_arm_mull_mlal(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
         let rd_hi = insn.rd_hi();
         let rd_lo = insn.rd_lo();
-        let rn = insn.raw.bit_range(8..12) as usize;
         let rs = insn.rs();
         let rm = insn.rm();
-
-        // // check validity
-        // assert!(
-        //     !(REG_PC == rd_hi || REG_PC == rd_lo || REG_PC == rn || REG_PC == rs || REG_PC == rm)
-        // );
-        // assert!(!(rd_hi != rd_hi && rd_hi != rm && rd_lo != rm));
 
         let op1 = self.get_reg(rm);
         let op2 = self.get_reg(rs);

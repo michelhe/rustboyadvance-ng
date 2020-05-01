@@ -80,7 +80,6 @@ pub trait InputInterface {
     }
 }
 
-#[cfg(feature = "debugger")]
 #[derive(Debug)]
 pub enum GBAError {
     IO(::std::io::Error),
