@@ -7,7 +7,7 @@ use crate::bit::BitIndex;
 use super::{ArmFormat, ArmInstruction};
 
 use super::{AluOpCode, ArmCond, ArmHalfwordTransferType};
-use crate::core::arm7tdmi::*;
+use crate::arm7tdmi::*;
 
 impl fmt::Display for ArmCond {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

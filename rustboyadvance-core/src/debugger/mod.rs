@@ -6,8 +6,8 @@ use rustyline::Editor;
 
 use colored::*;
 
-use super::core::GameBoyAdvance;
-use super::core::{Addr, Bus};
+use super::GameBoyAdvance;
+use super::{Addr, Bus};
 
 mod parser;
 use parser::{parse_expr, DerefType, Expr, Value};

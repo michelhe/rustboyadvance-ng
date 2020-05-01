@@ -5,8 +5,8 @@
 // use sdl2::rect::{Point, Rect};
 // use sdl2::render::Canvas;
 
-// use crate::core::gba::GameBoyAdvance;
-// use crate::core::gpu::PixelFormat;
+// use crate::gba::GameBoyAdvance;
+// use crate::gpu::PixelFormat;
 
 // fn draw_tile(
 //     gba: &GameBoyAdvance,

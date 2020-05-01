@@ -321,8 +321,8 @@ impl ThumbInstruction {
 // mod tests {
 //     use super::super::Core;
 //     use super::*;
-//     use crate::core::sysbus::BoxedMemory;
-//     use crate::core::Bus;
+//     use crate::sysbus::BoxedMemory;
+//     use crate::Bus;
 
 //     #[test]
 //     fn mov_low_reg() {

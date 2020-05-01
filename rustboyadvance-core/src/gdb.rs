@@ -1,9 +1,9 @@
-use super::core::arm7tdmi::CpuState;
-use super::core::interrupt::*;
-use super::core::iodev::IoDevices;
-use super::core::sysbus::SysBus;
-use super::core::Bus;
+use super::arm7tdmi::CpuState;
 use super::core::GameBoyAdvance;
+use super::interrupt::*;
+use super::iodev::IoDevices;
+use super::sysbus::SysBus;
+use super::Bus;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use gdbstub::{Access, Target, TargetState};

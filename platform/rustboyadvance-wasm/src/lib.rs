@@ -7,7 +7,7 @@ extern crate log;
 
 use wasm_bindgen_console_logger::DEFAULT_LOGGER;
 
-use rustboyadvance_core::core::cartridge;
+use rustboyadvance_core::cartridge;
 
 pub mod emulator;
 

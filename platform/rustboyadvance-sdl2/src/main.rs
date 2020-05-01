@@ -5,7 +5,7 @@ use sdl2::keyboard::Keycode;
 use sdl2::messagebox::*;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
-use sdl2::render::{Texture, WindowCanvas};
+use sdl2::render::WindowCanvas;
 
 use sdl2::EventPump;
 
@@ -41,7 +41,7 @@ use audio::create_audio_player;
 use input::create_input;
 use video::{create_video_interface, SCREEN_HEIGHT, SCREEN_WIDTH};
 
-use rustboyadvance_core::core::cartridge::BackupType;
+use rustboyadvance_core::cartridge::BackupType;
 use rustboyadvance_core::prelude::*;
 use rustboyadvance_core::util::spawn_and_run_gdb_server;
 use rustboyadvance_core::util::FpsCounter;

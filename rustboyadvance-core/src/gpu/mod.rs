@@ -4,10 +4,10 @@ use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
 
-use super::super::VideoInterface;
 use super::interrupt::IrqBitmask;
 use super::sysbus::{BoxedMemory, SysBus};
 use super::Bus;
+use super::VideoInterface;
 
 use crate::bitfield::Bit;
 use crate::num::FromPrimitive;

@@ -6,7 +6,7 @@ use super::super::Rgb15;
 
 use super::{utils, SCREEN_VIEWPORT};
 
-use crate::core::Bus;
+use crate::Bus;
 
 impl Gpu {
     pub(in super::super) fn render_mode3(&mut self, bg: usize) {

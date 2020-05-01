@@ -5,7 +5,7 @@ use crate::bit::BitIndex;
 
 use super::*;
 #[cfg(feature = "debugger")]
-use crate::core::arm7tdmi::*;
+use crate::arm7tdmi::*;
 
 #[cfg(feature = "debugger")]
 impl ThumbInstruction {

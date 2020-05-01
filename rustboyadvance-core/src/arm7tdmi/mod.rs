@@ -21,7 +21,7 @@ pub const REG_PC: usize = 15;
 pub const REG_LR: usize = 14;
 pub const REG_SP: usize = 13;
 
-pub(self) use crate::core::Addr;
+pub(self) use crate::Addr;
 
 pub enum CpuAction {
     AdvancePC,

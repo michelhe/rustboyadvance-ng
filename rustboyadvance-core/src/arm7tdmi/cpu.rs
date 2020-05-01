@@ -25,8 +25,8 @@ use super::CpuAction;
 use super::DecodedInstruction;
 use super::{arm::*, psr::RegPSR, thumb::ThumbInstruction, Addr, CpuMode, CpuState};
 
-use crate::core::bus::Bus;
-use crate::core::sysbus::{MemoryAccessType::*, MemoryAccessWidth::*, SysBus};
+use crate::bus::Bus;
+use crate::sysbus::{MemoryAccessType::*, MemoryAccessWidth::*, SysBus};
 
 use bit::BitIndex;
 use num::FromPrimitive;

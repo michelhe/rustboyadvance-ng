@@ -2,12 +2,12 @@ use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::time;
 
-use crate::core::arm7tdmi::arm::ArmInstruction;
-use crate::core::arm7tdmi::thumb::ThumbInstruction;
-use crate::core::arm7tdmi::CpuState;
-use crate::core::{Addr, Bus};
+use crate::arm7tdmi::arm::ArmInstruction;
+use crate::arm7tdmi::thumb::ThumbInstruction;
+use crate::arm7tdmi::CpuState;
 use crate::disass::Disassembler;
 use crate::util::{read_bin_file, write_bin_file};
+use crate::{Addr, Bus};
 
 // use super::palette_view::create_palette_view;
 // use super::tile_view::create_tile_view;

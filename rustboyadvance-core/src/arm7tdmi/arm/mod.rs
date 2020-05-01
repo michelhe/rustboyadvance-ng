@@ -4,7 +4,7 @@ pub mod exec;
 use serde::{Deserialize, Serialize};
 
 use super::alu::*;
-use crate::core::arm7tdmi::{Addr, InstructionDecoder};
+use crate::arm7tdmi::{Addr, InstructionDecoder};
 
 use crate::bit::BitIndex;
 use crate::byteorder::{LittleEndian, ReadBytesExt};
@@ -367,8 +367,8 @@ impl ArmInstruction {
 // /// All instructions constants were generated using an ARM assembler.
 // mod tests {
 //     use super::*;
-//     use crate::core::arm7tdmi::*;
-//     use crate::core::sysbus::BoxedMemory;
+//     use crate::arm7tdmi::*;
+//     use crate::sysbus::BoxedMemory;
 
 //     #[test]
 //     fn swi() {

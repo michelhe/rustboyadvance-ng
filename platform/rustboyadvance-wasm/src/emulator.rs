@@ -9,7 +9,7 @@ use js_sys::Float32Array;
 use web_sys::AudioContext;
 use web_sys::CanvasRenderingContext2d;
 
-use rustboyadvance_core::core::keypad as gba_keypad;
+use rustboyadvance_core::keypad as gba_keypad;
 use rustboyadvance_core::prelude::*;
 use rustboyadvance_core::util::audio::AudioRingBuffer;
 

@@ -23,10 +23,31 @@ extern crate log;
 #[macro_use]
 extern crate hex_literal;
 
+use zip;
+
+use std::error::Error;
+use std::fmt;
+
 #[macro_use]
 pub mod util;
-pub mod core;
+pub mod arm7tdmi;
+pub mod cartridge;
 pub mod disass;
+pub mod gpu;
+pub mod sound;
+pub mod sysbus;
+pub use sysbus::SysBus;
+pub mod interrupt;
+pub mod iodev;
+pub use interrupt::Interrupt;
+pub use interrupt::IrqBitmask;
+pub mod gba;
+pub use gba::GameBoyAdvance;
+pub mod bus;
+pub mod dma;
+pub mod keypad;
+pub mod timer;
+pub use bus::*;
 
 #[cfg(feature = "gdb")]
 pub mod gdb;
@@ -55,18 +76,60 @@ pub trait AudioInterface {
 
 pub trait InputInterface {
     fn poll(&mut self) -> u16 {
-        core::keypad::KEYINPUT_ALL_RELEASED
+        keypad::KEYINPUT_ALL_RELEASED
+    }
+}
+
+#[cfg(feature = "debugger")]
+#[derive(Debug)]
+pub enum GBAError {
+    IO(::std::io::Error),
+    CartridgeLoadError(String),
+    #[cfg(feature = "debugger")]
+    DebuggerError(debugger::DebuggerError),
+}
+
+impl fmt::Display for GBAError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "error: {:?}", self)
+    }
+}
+
+impl Error for GBAError {
+    fn description(&self) -> &str {
+        "emulator error"
+    }
+}
+
+pub type GBAResult<T> = Result<T, GBAError>;
+
+impl From<::std::io::Error> for GBAError {
+    fn from(err: ::std::io::Error) -> GBAError {
+        GBAError::IO(err)
+    }
+}
+
+#[cfg(feature = "debugger")]
+impl From<debugger::DebuggerError> for GBAError {
+    fn from(err: debugger::DebuggerError) -> GBAError {
+        GBAError::DebuggerError(err)
+    }
+}
+
+impl From<zip::result::ZipError> for GBAError {
+    fn from(_err: zip::result::ZipError) -> GBAError {
+        GBAError::IO(::std::io::Error::from(::std::io::ErrorKind::InvalidInput))
     }
 }
 
 pub mod prelude {
-    pub use super::core::arm7tdmi;
-    pub use super::core::cartridge::{Cartridge, GamepakBuilder};
-    pub use super::core::gpu::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
-    pub use super::core::Bus;
-    pub use super::core::{GBAError, GBAResult, GameBoyAdvance};
+    pub use super::arm7tdmi;
+    pub use super::cartridge::{Cartridge, GamepakBuilder};
     #[cfg(feature = "debugger")]
     pub use super::debugger::Debugger;
+    pub use super::gpu::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
     pub use super::util::{read_bin_file, write_bin_file};
+    pub use super::Bus;
     pub use super::{AudioInterface, InputInterface, StereoSample, VideoInterface};
+    pub use super::{GBAError, GBAResult, GameBoyAdvance};
 }

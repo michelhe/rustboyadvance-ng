@@ -21,7 +21,7 @@ fn now() -> Instant {
     instant::Instant::now()
 }
 
-use crate::core::GameBoyAdvance;
+use crate::GameBoyAdvance;
 #[cfg(feature = "gdb")]
 use gdbstub;
 #[cfg(feature = "gdb")]

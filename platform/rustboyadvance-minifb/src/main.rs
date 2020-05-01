@@ -7,7 +7,7 @@ use std::time;
 #[macro_use]
 extern crate clap;
 
-use rustboyadvance_core::core::keypad;
+use rustboyadvance_core::keypad;
 use rustboyadvance_core::prelude::*;
 use rustboyadvance_core::util::FpsCounter;
 

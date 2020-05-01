@@ -1,6 +1,6 @@
 use sdl2::keyboard::Keycode;
 
-use rustboyadvance_core::core::keypad as gba_keypad;
+use rustboyadvance_core::keypad as gba_keypad;
 use rustboyadvance_core::InputInterface;
 
 use bit;

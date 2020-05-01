@@ -13,7 +13,7 @@ use super::iodev::*;
 use super::sound::SoundController;
 use super::sysbus::SysBus;
 
-use super::super::{AudioInterface, InputInterface, VideoInterface};
+use super::{AudioInterface, InputInterface, VideoInterface};
 
 pub struct GameBoyAdvance {
     pub sysbus: Box<SysBus>,

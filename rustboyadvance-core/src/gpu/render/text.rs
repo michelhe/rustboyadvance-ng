@@ -5,7 +5,7 @@ use super::super::Rgb15;
 use super::super::{Gpu, PixelFormat, SCREEN_BLOCK_SIZE};
 use super::{utils, ViewPort};
 
-use crate::core::Bus;
+use crate::Bus;
 
 impl Gpu {
     pub(in super::super) fn render_reg_bg(&mut self, bg: usize) {

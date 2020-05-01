@@ -3,7 +3,7 @@
 // use sdl2::rect::{Point, Rect};
 // use sdl2::render::Canvas;
 
-// use crate::core::palette::{Palette, Rgb15};
+// use crate::palette::{Palette, Rgb15};
 
 // const PALETTE_RECT_WIDTH: u32 = 20;
 

@@ -1,6 +1,6 @@
-use crate::core::arm7tdmi::*;
-use crate::core::sysbus::SysBus;
-use crate::core::Bus;
+use crate::arm7tdmi::*;
+use crate::sysbus::SysBus;
+use crate::Bus;
 
 use crate::bit::BitIndex;
 
