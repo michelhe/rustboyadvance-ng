@@ -1,7 +1,7 @@
 use sdl2;
 use sdl2::event::Event;
 use sdl2::image::{InitFlag, LoadTexture};
-use sdl2::keyboard::Keycode;
+use sdl2::keyboard::Scancode;
 use sdl2::messagebox::*;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
@@ -255,18 +255,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for event in event_pump.poll_iter() {
             match event {
                 Event::KeyDown {
-                    keycode: Some(keycode),
+                    scancode: Some(scancode),
                     ..
-                } => match keycode {
-                    Keycode::Space => frame_limiter = false,
+                } => match scancode {
+                    Scancode::Space => frame_limiter = false,
                     k => input.borrow_mut().on_keyboard_key_down(k),
                 },
                 Event::KeyUp {
-                    keycode: Some(keycode),
+                    scancode: Some(scancode),
                     ..
-                } => match keycode {
+                } => match scancode {
                     #[cfg(feature = "debugger")]
-                    Keycode::F1 => {
+                    Scancode::F1 => {
                         let mut debugger = Debugger::new(gba);
                         info!("starting debugger...");
                         debugger.repl(matches.value_of("script_file")).unwrap();
@@ -274,8 +274,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         info!("ending debugger...")
                     }
                     #[cfg(feature = "gdb")]
-                    Keycode::F2 => spawn_and_run_gdb_server(&mut gba, DEFAULT_GDB_SERVER_ADDR)?,
-                    Keycode::F5 => {
+                    Scancode::F2 => spawn_and_run_gdb_server(&mut gba, DEFAULT_GDB_SERVER_ADDR)?,
+                    Scancode::F5 => {
                         info!("Saving state ...");
                         let save = gba.save_state()?;
                         write_bin_file(&savestate_path, &save)?;
@@ -285,7 +285,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             bytesize::ByteSize::b(save.len() as u64)
                         );
                     }
-                    Keycode::F9 => {
+                    Scancode::F9 => {
                         if savestate_path.is_file() {
                             let save = read_bin_file(&savestate_path)?;
                             info!("Restoring state from {:?}...", savestate_path);
@@ -295,7 +295,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             info!("Savestate not created, please create one by pressing F5");
                         }
                     }
-                    Keycode::Space => frame_limiter = true,
+                    Scancode::Space => frame_limiter = true,
                     k => input.borrow_mut().on_keyboard_key_up(k),
                 },
                 Event::Quit { .. } => break 'running,
