@@ -1575,7 +1575,7 @@ dependencies = [
  "rustyline 6.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 1.0.106 (registry+https://github.com/rust-lang/crates.io-index)",
  "sha2 0.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "time 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)",
+ "time 0.2.14 (registry+https://github.com/rust-lang/crates.io-index)",
  "zip 0.5.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -1994,7 +1994,7 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.2.11"
+version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "cfg-if 0.1.10 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -2669,7 +2669,7 @@ dependencies = [
 "checksum textwrap 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d326610f408c7a4eb6f51c37c330e496b08506c9457c9d34287ecc38809fb060"
 "checksum thread_local 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "d40c6d1b69745a6ec6fb1ca717914848da4b44ae29d9b3080cbee91d72a69b14"
 "checksum time 0.1.43 (registry+https://github.com/rust-lang/crates.io-index)" = "ca8a50ef2360fbd1eeb0ecd46795a87a19024eb4b53c5dc916ca1fd95fe62438"
-"checksum time 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)" = "6af7dfc707e7aed400b39ac00ad1408ea0847cea2bed42174d8dd24c480c55b3"
+"checksum time 0.2.14 (registry+https://github.com/rust-lang/crates.io-index)" = "c19b581e837b3f1a6a211e1d30f11a2da711cc8f6d38c16972eecc0398114446"
 "checksum time-macros 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "9ae9b6e9f095bc105e183e3cd493d72579be3181ad4004fceb01adbe9eecab2d"
 "checksum time-macros-impl 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "e5c3be1edfad6027c69f5491cf4cb310d1a71ecd6af742788c6ff8bced86b8fa"
 "checksum tinytemplate 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)" = "45e4bc5ac99433e0dcb8b9f309dd271a165ae37dde129b9e0ce1bfdd8bfe4891"
