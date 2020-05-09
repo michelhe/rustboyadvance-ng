@@ -16,7 +16,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use std::fs;
-use std::io::Read;
+use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::time;
@@ -192,6 +192,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     canvas.set_logical_size(CANVAS_WIDTH, CANVAS_HEIGHT)?;
 
+    let controller_subsystem = sdl_context.game_controller()?;
+    let controller_mappings = include_str!("../../../external/SDL_GameControllerDB/gamecontrollerdb.txt");
+    controller_subsystem.load_mappings_from_read(&mut Cursor::new(controller_mappings))?;
+
+    let available_controllers = (0..controller_subsystem.num_joysticks()?)
+        .filter(|&id| controller_subsystem.is_game_controller(id))
+        .collect::<Vec<u32>>();
+
+    let _active_controller = match available_controllers.first() {
+        Some(&id) => {
+            let controller = controller_subsystem.open(id)?;
+            info!("Found game controller: {}", controller.name());
+            Some(controller)
+        },
+        _ => {
+            info!("No game controllers were found");
+            None
+        },
+    };
+
     let mut rom_path = match matches.value_of("game_rom") {
         Some(path) => path.to_string(),
         _ => {
@@ -297,6 +317,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     Scancode::Space => frame_limiter = true,
                     k => input.borrow_mut().on_keyboard_key_up(k),
+                },
+                Event::ControllerButtonDown { button, .. } => {
+                    input.borrow_mut().on_controller_button_down(button);
+                },
+                Event::ControllerButtonUp { button, .. } => {
+                    input.borrow_mut().on_controller_button_up(button);
                 },
                 Event::Quit { .. } => break 'running,
                 Event::DropFile { filename, .. } => {
