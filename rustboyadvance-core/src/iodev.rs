@@ -132,6 +132,26 @@ impl Bus for IoDevices {
             return;
         }
         let io_addr = addr + IO_BASE;
+
+        macro_rules! write_reference_point {
+            (low bg $coord:ident $internal:ident) => {{
+                let i = ((io_addr - REG_BG2X_L) / 0x10) as usize;
+                let t = io.gpu.bg_aff[i].$coord as u32;
+                io.gpu.bg_aff[i].$coord = ((t & 0xffff0000) + (value as u32)) as i32;
+                let new_value = ((t & 0xffff0000) + (value as u32)) as i32;
+                io.gpu.bg_aff[i].$coord = new_value;
+                io.gpu.bg_aff[i].$internal = new_value;
+            }};
+            (high bg $coord:ident $internal:ident) => {{
+                let i = ((io_addr - REG_BG2X_L) / 0x10) as usize;
+                let t = io.gpu.bg_aff[i].$coord;
+                let new_value =
+                    (t & 0xffff) | ((sign_extend_i32((value & 0xfff) as i32, 12)) << 16);
+                io.gpu.bg_aff[i].$coord = new_value;
+                io.gpu.bg_aff[i].$internal = new_value;
+            }};
+        }
+
         match io_addr {
             REG_DISPCNT => io.gpu.dispcnt.0 = value,
             REG_DISPSTAT => io.gpu.dispstat.0 = value | (io.gpu.dispstat.0 & 7),
@@ -147,40 +167,10 @@ impl Bus for IoDevices {
             REG_BG2VOFS => io.gpu.backgrounds[2].bgvofs = value & 0x1ff,
             REG_BG3HOFS => io.gpu.backgrounds[3].bghofs = value & 0x1ff,
             REG_BG3VOFS => io.gpu.backgrounds[3].bgvofs = value & 0x1ff,
-            REG_BG2X_L | REG_BG3X_L => {
-                let index = (io_addr - REG_BG2X_L) / 0x10;
-                let t = io.gpu.bg_aff[index as usize].x as u32;
-                io.gpu.bg_aff[index as usize].x = ((t & 0xffff0000) + (value as u32)) as i32;
-                if !io.gpu.state.is_vblank() {
-                    io.gpu.bg_aff[index as usize].internal_x = io.gpu.bg_aff[index as usize].x;
-                }
-            }
-            REG_BG2Y_L | REG_BG3Y_L => {
-                let index = (io_addr - REG_BG2X_L) / 0x10;
-                let t = io.gpu.bg_aff[index as usize].y as u32;
-                io.gpu.bg_aff[index as usize].y = ((t & 0xffff0000) + (value as u32)) as i32;
-                if !io.gpu.state.is_vblank() {
-                    io.gpu.bg_aff[index as usize].internal_y = io.gpu.bg_aff[index as usize].y;
-                }
-            }
-            REG_BG2X_H | REG_BG3X_H => {
-                let index = (io_addr - REG_BG2X_L) / 0x10;
-                let t = io.gpu.bg_aff[index as usize].x;
-                io.gpu.bg_aff[index as usize].x =
-                    (t & 0xffff) | ((sign_extend_i32((value & 0xfff) as i32, 12)) << 16);
-                if !io.gpu.state.is_vblank() {
-                    io.gpu.bg_aff[index as usize].internal_x = io.gpu.bg_aff[index as usize].x;
-                }
-            }
-            REG_BG2Y_H | REG_BG3Y_H => {
-                let index = (io_addr - REG_BG2X_L) / 0x10;
-                let t = io.gpu.bg_aff[index as usize].y;
-                io.gpu.bg_aff[index as usize].y =
-                    (t & 0xffff) | ((sign_extend_i32((value & 0xfff) as i32, 12)) << 16);
-                if !io.gpu.state.is_vblank() {
-                    io.gpu.bg_aff[index as usize].internal_y = io.gpu.bg_aff[index as usize].y;
-                }
-            }
+            REG_BG2X_L | REG_BG3X_L => write_reference_point!(low bg x internal_x),
+            REG_BG2Y_L | REG_BG3Y_L => write_reference_point!(low bg y internal_y),
+            REG_BG2X_H | REG_BG3X_H => write_reference_point!(high bg x internal_x),
+            REG_BG2Y_H | REG_BG3Y_H => write_reference_point!(high bg y internal_y),
             REG_BG2PA => io.gpu.bg_aff[0].pa = value as i16,
             REG_BG2PB => io.gpu.bg_aff[0].pb = value as i16,
             REG_BG2PC => io.gpu.bg_aff[0].pc = value as i16,
