@@ -1,3 +1,6 @@
 [submodule "external/gba-suite"]
 	path = external/gba-suite
 	url = https://github.com/jsmolka/gba-suite.git
+[submodule "external/SDL_GameControllerDB"]
+	path = external/SDL_GameControllerDB
+	url = https://github.com/gabomdq/SDL_GameControllerDB
