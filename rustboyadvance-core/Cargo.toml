@@ -5,7 +5,7 @@ authors = ["Michel Heily <michelheily@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-serde = { version = "1.0.104", features = ["derive"] }
+serde = { version = "1.0.110", features = ["derive"] }
 bincode = "1.2.1"
 byteorder = "1"
 num = "0.2.1"
