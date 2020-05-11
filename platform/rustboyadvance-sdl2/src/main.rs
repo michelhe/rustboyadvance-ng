@@ -193,7 +193,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     canvas.set_logical_size(CANVAS_WIDTH, CANVAS_HEIGHT)?;
 
     let controller_subsystem = sdl_context.game_controller()?;
-    let controller_mappings = include_str!("../../../external/SDL_GameControllerDB/gamecontrollerdb.txt");
+    let controller_mappings =
+        include_str!("../../../external/SDL_GameControllerDB/gamecontrollerdb.txt");
     controller_subsystem.load_mappings_from_read(&mut Cursor::new(controller_mappings))?;
 
     let available_controllers = (0..controller_subsystem.num_joysticks()?)
@@ -205,11 +206,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let controller = controller_subsystem.open(id)?;
             info!("Found game controller: {}", controller.name());
             Some(controller)
-        },
+        }
         _ => {
             info!("No game controllers were found");
             None
-        },
+        }
     };
 
     let mut rom_path = match matches.value_of("game_rom") {
@@ -320,10 +321,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 },
                 Event::ControllerButtonDown { button, .. } => {
                     input.borrow_mut().on_controller_button_down(button);
-                },
+                }
                 Event::ControllerButtonUp { button, .. } => {
                     input.borrow_mut().on_controller_button_up(button);
-                },
+                }
+                Event::ControllerAxisMotion { axis, value, .. } => {
+                    input.borrow_mut().on_axis_motion(axis, value);
+                }
                 Event::Quit { .. } => break 'running,
                 Event::DropFile { filename, .. } => {
                     // load the new rom
