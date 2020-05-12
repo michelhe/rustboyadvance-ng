@@ -91,7 +91,7 @@ fn wait_for_rom(canvas: &mut WindowCanvas, event_pump: &mut EventPump) -> Result
                 }
                 Event::Quit { .. } => process::exit(0),
                 Event::Window { win_event, .. } => match win_event {
-                    WindowEvent::SizeChanged(..) => redraw()?,
+                    WindowEvent::SizeChanged(..) | WindowEvent::Restored => redraw()?,
                     _ => {}
                 },
                 _ => {}
