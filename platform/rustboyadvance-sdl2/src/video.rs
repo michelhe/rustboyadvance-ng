@@ -1,4 +1,4 @@
-use sdl2::pixels::PixelFormatEnum;
+use sdl2::pixels::{Color, PixelFormatEnum};
 use sdl2::rect::Rect;
 use sdl2::render::{Texture, TextureCreator, WindowCanvas};
 use sdl2::video::WindowContext;
@@ -30,6 +30,8 @@ impl<'a> VideoInterface for Sdl2Video<'a> {
                 (SCREEN_WIDTH as usize) * 4,
             )
             .unwrap();
+        self.canvas.set_draw_color(Color::RGB(0, 0, 0));
+        self.canvas.clear();
         self.canvas
             .copy(
                 &self.texture,
