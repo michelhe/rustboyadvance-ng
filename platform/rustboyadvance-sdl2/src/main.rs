@@ -1,12 +1,13 @@
 use sdl2;
-use sdl2::event::{Event, WindowEvent};
-use sdl2::image::{InitFlag, LoadTexture};
-use sdl2::keyboard::Scancode;
 use sdl2::controller::Button;
+use sdl2::event::{Event, WindowEvent};
+use sdl2::image::{InitFlag, LoadSurface, LoadTexture};
+use sdl2::keyboard::Scancode;
 use sdl2::messagebox::*;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::WindowCanvas;
+use sdl2::surface::Surface;
 
 use sdl2::EventPump;
 
@@ -194,14 +195,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let video_subsystem = sdl_context.video()?;
     let _image_context = sdl2::image::init(InitFlag::PNG | InitFlag::JPG)?;
-    let window = video_subsystem
+    let mut window = video_subsystem
         .window("RustBoyAdvance", SCREEN_WIDTH * 3, SCREEN_HEIGHT * 3)
         .opengl()
         .position_centered()
         .resizable()
         .build()?;
-    let mut canvas = window.into_canvas().accelerated().build()?;
 
+    let window_icon = Surface::from_file("assets/icon.png")?;
+    window.set_icon(window_icon);
+
+    let mut canvas = window.into_canvas().accelerated().build()?;
     canvas.set_logical_size(CANVAS_WIDTH, CANVAS_HEIGHT)?;
 
     let controller_subsystem = sdl_context.game_controller()?;
