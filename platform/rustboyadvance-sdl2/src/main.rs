@@ -1,5 +1,5 @@
 use sdl2;
-use sdl2::event::Event;
+use sdl2::event::{Event, WindowEvent};
 use sdl2::image::{InitFlag, LoadTexture};
 use sdl2::keyboard::Scancode;
 use sdl2::messagebox::*;
@@ -63,16 +63,8 @@ fn wait_for_rom(canvas: &mut WindowCanvas, event_pump: &mut EventPump) -> Result
         .load_texture("assets/icon_cropped_small.png")
         .expect("failed to load icon");
     let background = Color::RGB(0xDD, 0xDD, 0xDD);
-    loop {
-        for event in event_pump.poll_iter() {
-            match event {
-                Event::DropFile { filename, .. } => {
-                    return Ok(filename);
-                }
-                Event::Quit { .. } => process::exit(0),
-                _ => {}
-            }
-        }
+
+    let mut redraw = || -> Result<(), String> {
         canvas.set_draw_color(background);
         canvas.clear();
         canvas.copy(
@@ -85,6 +77,25 @@ fn wait_for_rom(canvas: &mut WindowCanvas, event_pump: &mut EventPump) -> Result
             )),
         )?;
         canvas.present();
+        Ok(())
+    };
+
+    redraw()?;
+
+    loop {
+        for event in event_pump.wait_iter() {
+            match event {
+                Event::DropFile { filename, .. } => {
+                    return Ok(filename);
+                }
+                Event::Quit { .. } => process::exit(0),
+                Event::Window { win_event, .. } => match win_event {
+                    WindowEvent::SizeChanged(..) => redraw()?,
+                    _ => {}
+                },
+                _ => {}
+            }
+        }
     }
 }
 
