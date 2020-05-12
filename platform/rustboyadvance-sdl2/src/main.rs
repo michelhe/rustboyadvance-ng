@@ -2,6 +2,7 @@ use sdl2;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::image::{InitFlag, LoadTexture};
 use sdl2::keyboard::Scancode;
+use sdl2::controller::Button;
 use sdl2::messagebox::*;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
@@ -330,9 +331,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Scancode::Space => frame_limiter = true,
                     k => input.borrow_mut().on_keyboard_key_up(k),
                 },
-                Event::ControllerButtonDown { button, .. } => {
-                    input.borrow_mut().on_controller_button_down(button);
-                }
+                Event::ControllerButtonDown { button, .. } => match button {
+                    Button::RightStick => frame_limiter = !frame_limiter,
+                    b => input.borrow_mut().on_controller_button_down(b),
+                },
                 Event::ControllerButtonUp { button, .. } => {
                     input.borrow_mut().on_controller_button_up(button);
                 }
