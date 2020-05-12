@@ -13,6 +13,8 @@ jobs:
     steps:
     - name: Checkout 🛎️
       uses: actions/checkout@v2
+      with:
+        submodules: recursive
 
     - name: Install Dependencies
       run: |
@@ -62,6 +64,8 @@ jobs:
     steps:
     - name: Checkout 🛎️
       uses: actions/checkout@v2
+      with:
+        submodules: recursive
 
     - run: rustup target add x86_64-pc-windows-msvc
 
