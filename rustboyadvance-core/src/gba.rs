@@ -299,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_arm7tdmi_arm_eggvance() {
-        let mut gba = make_mock_gba(include_bytes!("../../../external/gba-suite/arm/arm.gba"));
+        let mut gba = make_mock_gba(include_bytes!("../../external/gba-suite/arm/arm.gba"));
 
         for _ in 0..10 {
             gba.frame();
@@ -312,9 +312,7 @@ mod tests {
 
     #[test]
     fn test_arm7tdmi_thumb_eggvance() {
-        let mut gba = make_mock_gba(include_bytes!(
-            "../../../external/gba-suite/thumb/thumb.gba"
-        ));
+        let mut gba = make_mock_gba(include_bytes!("../../external/gba-suite/thumb/thumb.gba"));
 
         for _ in 0..10 {
             gba.frame();
