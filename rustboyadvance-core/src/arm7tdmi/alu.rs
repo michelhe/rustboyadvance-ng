@@ -138,6 +138,10 @@ impl Core {
                     self.bs_carry_out = (val >> (amount - 1) & 1) == 1;
                     val >> amount
                 }
+                32 => {
+                    self.bs_carry_out = val.bit(31);
+                    0
+                }
                 _ => {
                     self.bs_carry_out = false;
                     0
