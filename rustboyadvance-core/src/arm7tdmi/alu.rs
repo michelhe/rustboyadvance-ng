@@ -223,6 +223,9 @@ impl Core {
         carry_in: bool,
         immediate: bool,
     ) -> u32 {
+        // TODO get rid of Core::bs_carry_out field in favour sending the carry as a &mut reference,
+        // Forcing calling functions to do something with the carry :
+        self.bs_carry_out = carry_in;
         //
         // From GBATEK:
         // Zero Shift Amount (Shift Register by Immediate, with Immediate=0)

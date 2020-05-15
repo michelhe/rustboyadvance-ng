@@ -193,19 +193,20 @@ impl Core {
 
         let rn = raw_insn.bit_range(16..20) as usize;
         let rd = raw_insn.bit_range(12..16) as usize;
-
         let mut op1 = if rn == REG_PC {
             insn.pc + 8
         } else {
             self.get_reg(rn)
         };
-
         let mut s_flag = insn.set_cond_flag();
         let opcode = insn.opcode();
 
         let op2 = if raw_insn.bit(25) {
             let immediate = raw_insn & 0xff;
             let rotate = 2 * raw_insn.bit_range(8..12);
+            // TODO refactor out
+            let bs_carry_in = self.cpsr.C();
+            self.bs_carry_out = bs_carry_in;
             self.ror(immediate, rotate, self.cpsr.C(), false, true)
         } else {
             let reg = raw_insn & 0xf;
