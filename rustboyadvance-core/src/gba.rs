@@ -34,18 +34,17 @@ struct SaveState {
     cpu: arm7tdmi::Core,
 }
 
-/// Checks if the bios provided is the real one,
-/// Otherwise output a log warning to the user
-fn check_real_bios(bios: &[u8]) {
+/// Checks if the bios provided is the real one
+fn check_real_bios(bios: &[u8]) -> bool {
     use sha2::{Digest, Sha256};
+
     let mut hasher = Sha256::new();
     hasher.input(bios);
     let digest = hasher.result();
 
     let expected_hash = hex!("fd2547724b505f487e6dcb29ec2ecff3af35a841a77ab2e85fd87350abd36570");
-    if digest.as_slice() != &expected_hash[..] {
-        warn!("This is not the real bios, some games may not be compatible");
-    }
+
+    digest.as_slice() == &expected_hash[..]
 }
 
 impl GameBoyAdvance {
@@ -57,7 +56,10 @@ impl GameBoyAdvance {
         input_device: Rc<RefCell<dyn InputInterface>>,
     ) -> GameBoyAdvance {
         // Warn the user if the bios is not the real one
-        check_real_bios(&bios_rom);
+        match check_real_bios(&bios_rom) {
+            true => info!("Verified bios rom"),
+            false => warn!("This is not the real bios rom, some games may not be compatible"),
+        };
         let gpu = Box::new(Gpu::new());
         let sound_controller = Box::new(SoundController::new(
             audio_device.borrow().get_sample_rate() as f32,
@@ -250,6 +252,11 @@ impl GameBoyAdvance {
     /// for use with implementations where the VideoInterface is not a viable option.
     pub fn get_frame_buffer(&self) -> &[u32] {
         self.sysbus.io.gpu.get_frame_buffer()
+    }
+
+    /// Reset the emulator
+    pub fn soft_reset(&mut self) {
+        self.cpu.reset(&mut self.sysbus);
     }
 }
 
