@@ -626,9 +626,20 @@ impl Core {
                 self.reload_pipeline32(sb);
                 result = CpuAction::FlushPipeline;
             } else {
+                // block data store with empty rlist
+                let addr = match (ascending, full) {
+                    (false, false) => addr.wrapping_sub(0x3c),
+                    (false, true) => addr.wrapping_sub(0x40),
+                    (true, false) => addr,
+                    (true, true) => addr.wrapping_add(4),
+                };
                 self.write_32(addr, self.pc + 4, sb);
             }
-            addr = addr.wrapping_add(0x40);
+            addr = if ascending {
+                addr.wrapping_add(0x40)
+            } else {
+                addr.wrapping_sub(0x40)
+            };
         }
 
         if user_bank_transfer {
