@@ -1,0 +1,23 @@
+[package]
+name = "rustboyadvance-libretro"
+version = "0.1.0"
+authors = ["Michel Heily <michelheily@gmail.com>"]
+edition = "2018"
+
+
+[lib]
+crate-type = ["cdylib"]
+
+
+[dependencies]
+rustboyadvance-core = { path = "../../rustboyadvance-core/" }
+log = "0.4.8"
+libc = "0.2"
+libretro-sys = "0.1.1"
+bit = "^0.1"
+unsafe_unwrap = "0.1.0"
+
+[dependencies.libretro-backend]
+git = "https://github.com/michelhe/libretro-backend.git"
+branch = "rustboyadvance"
+features = ["logging"]

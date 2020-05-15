@@ -143,5 +143,13 @@ pub mod audio {
 
             AudioRingBuffer { prod, cons }
         }
+
+        pub fn producer(&mut self) -> &mut Producer<i16> {
+            &mut self.prod
+        }
+
+        pub fn consumer(&mut self) -> &mut Consumer<i16> {
+            &mut self.cons
+        }
     }
 }
