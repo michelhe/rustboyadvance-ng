@@ -1,3 +1,5 @@
+use std::cmp;
+
 use super::dma::DmaController;
 use super::gpu::regs::WindowFlags;
 use super::gpu::*;
@@ -216,7 +218,7 @@ impl Bus for IoDevices {
             REG_MOSAIC => io.gpu.mosaic.0 = value,
             REG_BLDCNT => io.gpu.bldcnt.0 = value,
             REG_BLDALPHA => io.gpu.bldalpha.0 = value,
-            REG_BLDY => io.gpu.bldy = value & 0b11111,
+            REG_BLDY => io.gpu.bldy = cmp::min(value & 0b11111, 16),
 
             REG_IME => io.intc.interrupt_master_enable = value != 0,
             REG_IE => io.intc.interrupt_enable.0 = value,
