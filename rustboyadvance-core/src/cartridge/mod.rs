@@ -13,9 +13,17 @@ use backup::flash::Flash;
 pub use backup::BackupType;
 use backup::{BackupFile, BackupMemoryInterface};
 
+mod gpio;
+mod rtc;
+use gpio::Gpio;
+
 mod builder;
 mod loader;
 pub use builder::GamepakBuilder;
+
+pub const GPIO_PORT_DATA: u32 = 0x0800_00C4;
+pub const GPIO_PORT_DIRECTION: u32 = 0x0800_00C6;
+pub const GPIO_PORT_CONTROL: u32 = 0x0800_00C8;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum BackupMedia {
@@ -32,6 +40,7 @@ pub struct Cartridge {
     pub header: CartridgeHeader,
     bytes: Box<[u8]>,
     size: usize,
+    gpio: Gpio,
     symbols: Option<SymbolTable>, // TODO move it somewhere else
     pub(in crate) backup: BackupMedia,
 }
@@ -45,6 +54,13 @@ impl Cartridge {
 use super::sysbus::consts::*;
 
 pub const EEPROM_BASE_ADDR: u32 = 0x0DFF_FF00;
+
+fn is_gpio_access(addr: u32) -> bool {
+    match addr {
+        GPIO_PORT_DATA | GPIO_PORT_DIRECTION | GPIO_PORT_CONTROL => true,
+        _ => false,
+    }
+}
 
 impl Bus for Cartridge {
     fn read_8(&self, addr: Addr) -> u8 {
@@ -66,6 +82,10 @@ impl Bus for Cartridge {
     }
 
     fn read_16(&self, addr: u32) -> u16 {
+        if is_gpio_access(addr) && self.gpio.is_readable() {
+            return self.gpio.read(addr);
+        }
+
         if addr & 0xff000000 == GAMEPAK_WS2_HI
             && (self.bytes.len() <= 16 * 1024 * 1024 || addr >= EEPROM_BASE_ADDR)
         {
@@ -88,6 +108,11 @@ impl Bus for Cartridge {
     }
 
     fn write_16(&mut self, addr: u32, value: u16) {
+        if is_gpio_access(addr) {
+            self.gpio.write(addr);
+            return;
+        }
+
         if addr & 0xff000000 == GAMEPAK_WS2_HI
             && (self.bytes.len() <= 16 * 1024 * 1024 || addr >= EEPROM_BASE_ADDR)
         {
