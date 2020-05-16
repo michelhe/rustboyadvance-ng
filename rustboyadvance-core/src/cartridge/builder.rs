@@ -7,6 +7,7 @@ use super::super::{GBAError, GBAResult};
 use super::backup::eeprom::*;
 use super::backup::flash::*;
 use super::backup::{BackupFile, BackupType};
+use super::gpio::Gpio;
 use super::header;
 use super::BackupMedia;
 use super::Cartridge;
@@ -126,9 +127,12 @@ impl GamepakBuilder {
 
         let backup = create_backup(self.save_type, self.save_path);
 
+        let gpio = Gpio::new();
+
         let size = bytes.len();
         Ok(Cartridge {
             header: header,
+            gpio: gpio,
             bytes: bytes.into_boxed_slice(),
             size: size,
             backup: backup,
