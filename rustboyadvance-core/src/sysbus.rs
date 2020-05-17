@@ -282,7 +282,7 @@ macro_rules! memory_map {
                 $sb.io.$write_fn(addr, $value)
             }
             PALRAM_ADDR | VRAM_ADDR | OAM_ADDR => $sb.io.gpu.$write_fn($addr, $value),
-            GAMEPAK_WS0_LO | GAMEPAK_WS0_HI => {}
+            GAMEPAK_WS0_LO => $sb.cartridge.$write_fn($addr, $value),
             GAMEPAK_WS2_HI => $sb.cartridge.$write_fn($addr, $value),
             SRAM_LO | SRAM_HI => $sb.cartridge.$write_fn($addr, $value),
             _ => {

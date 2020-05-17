@@ -245,12 +245,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut rom_name = Path::new(&rom_path).file_name().unwrap().to_str().unwrap();
 
-    let gamepak = GamepakBuilder::new()
+    let mut builder = GamepakBuilder::new()
         .save_type(BackupType::try_from(
             matches.value_of("save_type").unwrap(),
         )?)
-        .file(Path::new(&rom_path))
-        .build()?;
+        .file(Path::new(&rom_path));
+
+    if matches.occurrences_of("rtc") != 0 {
+        builder = builder.with_rtc();
+    }
+
+    let gamepak = builder.build()?;
 
     let mut gba = GameBoyAdvance::new(
         bios_bin.into_boxed_slice(),

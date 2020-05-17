@@ -15,11 +15,20 @@ use super::Cartridge;
 use super::loader::{load_from_bytes, load_from_file, LoadRom};
 
 #[derive(Debug)]
+pub enum GpioDeviceType {
+    Rtc,
+    SolarSensor,
+    Gyro,
+    None,
+}
+
+#[derive(Debug)]
 pub struct GamepakBuilder {
     path: Option<PathBuf>,
     bytes: Option<Box<[u8]>>,
     save_path: Option<PathBuf>,
     save_type: BackupType,
+    gpio_device: GpioDeviceType,
     create_backup_file: bool,
 }
 
@@ -30,6 +39,7 @@ impl GamepakBuilder {
             path: None,
             save_path: None,
             bytes: None,
+            gpio_device: GpioDeviceType::None,
             create_backup_file: true,
         }
     }
@@ -84,6 +94,11 @@ impl GamepakBuilder {
         self
     }
 
+    pub fn with_rtc(mut self) -> Self {
+        self.gpio_device = GpioDeviceType::Rtc;
+        self
+    }
+
     pub fn build(mut self) -> GBAResult<Cartridge> {
         let (bytes, symbols) = if let Some(bytes) = self.bytes {
             match load_from_bytes(bytes.to_vec())? {
@@ -127,7 +142,14 @@ impl GamepakBuilder {
 
         let backup = create_backup(self.save_type, self.save_path);
 
-        let gpio = Gpio::new();
+        let gpio = match self.gpio_device {
+            GpioDeviceType::None => Gpio::new_none(),
+            GpioDeviceType::Rtc => {
+                info!("Emulating RTC!");
+                Gpio::new_rtc()
+            }
+            _ => unimplemented!("Gpio device {:?} not implemented", self.gpio_device),
+        };
 
         let size = bytes.len();
         Ok(Cartridge {
