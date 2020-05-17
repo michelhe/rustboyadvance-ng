@@ -21,9 +21,9 @@ mod builder;
 mod loader;
 pub use builder::GamepakBuilder;
 
-pub const GPIO_PORT_DATA: u32 = 0x0800_00C4;
-pub const GPIO_PORT_DIRECTION: u32 = 0x0800_00C6;
-pub const GPIO_PORT_CONTROL: u32 = 0x0800_00C8;
+pub const GPIO_PORT_DATA: u32 = 0xC4;
+pub const GPIO_PORT_DIRECTION: u32 = 0xC6;
+pub const GPIO_PORT_CONTROL: u32 = 0xC8;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum BackupMedia {
@@ -56,7 +56,7 @@ use super::sysbus::consts::*;
 pub const EEPROM_BASE_ADDR: u32 = 0x0DFF_FF00;
 
 fn is_gpio_access(addr: u32) -> bool {
-    match addr {
+    match addr & 0x1ff_ffff {
         GPIO_PORT_DATA | GPIO_PORT_DIRECTION | GPIO_PORT_CONTROL => true,
         _ => false,
     }
@@ -82,8 +82,11 @@ impl Bus for Cartridge {
     }
 
     fn read_16(&self, addr: u32) -> u16 {
-        if is_gpio_access(addr) && self.gpio.is_readable() {
-            return self.gpio.read(addr);
+        if is_gpio_access(addr) {
+            if !(self.gpio.is_readable()) {
+                info!("trying to read GPIO when reads are not allowed");
+            }
+            return self.gpio.read(addr & 0x1ff_ffff);
         }
 
         if addr & 0xff000000 == GAMEPAK_WS2_HI
@@ -109,7 +112,7 @@ impl Bus for Cartridge {
 
     fn write_16(&mut self, addr: u32, value: u16) {
         if is_gpio_access(addr) {
-            self.gpio.write(addr);
+            self.gpio.write(addr & 0x1ff_ffff, value);
             return;
         }
 

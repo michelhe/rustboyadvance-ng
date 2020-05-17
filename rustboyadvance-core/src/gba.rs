@@ -64,6 +64,7 @@ impl GameBoyAdvance {
         let sound_controller = Box::new(SoundController::new(
             audio_device.borrow().get_sample_rate() as f32,
         ));
+
         let io = IoDevices::new(gpu, sound_controller);
         let sysbus = Box::new(SysBus::new(io, bios_rom, gamepak));
 

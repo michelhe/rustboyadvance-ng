@@ -24,6 +24,10 @@ args:
             - flash64k
             - eeprom
             - autodetect
+    - rtc:
+        long: rtc
+        help: Force cartridge to have RTC
+        required: false
     - skip_bios:
         long: skip-bios
         help: Skip running bios and start from the ROM instead

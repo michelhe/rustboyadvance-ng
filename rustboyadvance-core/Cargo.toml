@@ -5,13 +5,14 @@ authors = ["Michel Heily <michelheily@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-serde = { version = "1.0.104", features = ["derive"] }
+serde = { version = "1.0.104", features = ["derive", "rc"] }
 bincode = "1.2.1"
 byteorder = "1"
 num = "0.2.1"
 num-traits = "0.2"
 enum-primitive-derive = "^0.1"
 bit = "^0.1"
+chrono = "0.4"
 colored = "1.9"
 ansi_term = "0.12.1"
 hexdump = "0.1.0"
@@ -36,6 +37,7 @@ gdbstub = { version = "0.1.2", optional = true, features = ["std"] }
 ringbuf = "0.2.1"
 goblin = { version = "0.2", optional = true }
 fuzzy-matcher = { version = "0.3.4", optional = true }
+bit_reverse = "0.1.8"
 
 [target.'cfg(target_arch="wasm32")'.dependencies]
 instant = { version = "0.1.2", features = ["wasm-bindgen"] }
