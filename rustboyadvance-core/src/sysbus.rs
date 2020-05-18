@@ -94,17 +94,6 @@ impl Bus for BoxedMemory {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct DummyBus([u8; 4]);
-
-impl Bus for DummyBus {
-    fn read_8(&self, _addr: Addr) -> u8 {
-        0
-    }
-
-    fn write_8(&mut self, _addr: Addr, _value: u8) {}
-}
-
 const CYCLE_LUT_SIZE: usize = 0x10;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -207,7 +196,6 @@ pub struct SysBus {
     onboard_work_ram: BoxedMemory,
     internal_work_ram: BoxedMemory,
     pub cartridge: Cartridge,
-    dummy: DummyBus,
 
     cycle_luts: CycleLookupTables,
 
@@ -334,7 +322,6 @@ impl SysBus {
             onboard_work_ram: BoxedMemory::new(vec![0; WORK_RAM_SIZE].into_boxed_slice()),
             internal_work_ram: BoxedMemory::new(vec![0; INTERNAL_RAM_SIZE].into_boxed_slice()),
             cartridge: cartridge,
-            dummy: DummyBus([0; 4]),
 
             cycle_luts: luts,
 
