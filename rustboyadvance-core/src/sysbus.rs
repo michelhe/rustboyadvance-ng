@@ -255,15 +255,7 @@ macro_rules! memory_map {
                 };
                 $sb.io.$read_fn(addr)
             }
-            PALRAM_ADDR => $sb.io.gpu.palette_ram.$read_fn($addr & 0x3ff),
-            VRAM_ADDR => {
-                let mut ofs = $addr & ((VIDEO_RAM_SIZE as u32) - 1);
-                if ofs > 0x18000 {
-                    ofs -= 0x8000;
-                }
-                $sb.io.gpu.vram.$read_fn(ofs)
-            }
-            OAM_ADDR => $sb.io.gpu.oam.$read_fn($addr & 0x3ff),
+            PALRAM_ADDR | VRAM_ADDR | OAM_ADDR => $sb.io.gpu.$read_fn($addr),
             GAMEPAK_WS0_LO | GAMEPAK_WS0_HI | GAMEPAK_WS1_LO | GAMEPAK_WS1_HI | GAMEPAK_WS2_LO => {
                 $sb.cartridge.$read_fn($addr)
             }
@@ -289,15 +281,7 @@ macro_rules! memory_map {
                 };
                 $sb.io.$write_fn(addr, $value)
             }
-            PALRAM_ADDR => $sb.io.gpu.palette_ram.$write_fn($addr & 0x3ff, $value),
-            VRAM_ADDR => {
-                let mut ofs = $addr & ((VIDEO_RAM_SIZE as u32) - 1);
-                if ofs > 0x18000 {
-                    ofs -= 0x8000;
-                }
-                $sb.io.gpu.vram.$write_fn(ofs, $value)
-            }
-            OAM_ADDR => $sb.io.gpu.oam.$write_fn($addr & 0x3ff, $value),
+            PALRAM_ADDR | VRAM_ADDR | OAM_ADDR => $sb.io.gpu.$write_fn($addr, $value),
             GAMEPAK_WS0_LO | GAMEPAK_WS0_HI => {}
             GAMEPAK_WS2_HI => $sb.cartridge.$write_fn($addr, $value),
             SRAM_LO | SRAM_HI => $sb.cartridge.$write_fn($addr, $value),
