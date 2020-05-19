@@ -4,7 +4,6 @@ use std::ops::{Deref, DerefMut};
 use serde::{Deserialize, Serialize};
 
 use super::cartridge::Cartridge;
-use super::gpu::VIDEO_RAM_SIZE;
 use super::iodev::{IoDevices, WaitControl};
 use super::{Addr, Bus};
 

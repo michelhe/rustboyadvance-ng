@@ -245,7 +245,7 @@ impl Bus for Gpu {
 
         let page = (addr >> 24) as usize;
         match page {
-            PAGE_PALRAM => self.oam.write_16(addr & 0x3fe, expand_value(value)),
+            PAGE_PALRAM => self.palette_ram.write_16(addr & 0x3fe, expand_value(value)),
             PAGE_VRAM => {
                 let mut ofs = addr & ((VIDEO_RAM_SIZE as u32) - 1);
                 if ofs > 0x18000 {
