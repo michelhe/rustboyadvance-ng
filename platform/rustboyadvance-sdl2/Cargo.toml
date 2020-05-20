@@ -14,7 +14,6 @@ log = "0.4.8"
 flexi_logger = { version = "0.14", features = ["colors"] }
 bit = "^0.1"
 spin_sleep = "0.3.7"
-reqwest = { version = "0.10", features = ["blocking"] }
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
