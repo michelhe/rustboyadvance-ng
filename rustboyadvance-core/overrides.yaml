@@ -1,0 +1,13 @@
+# Game specific overrides
+# TODO - complete the list
+
+- code: ALFP
+  name: Dragon Ball Z - The Legacy of Goku II (Europe)(En,Fr,De,Es,It)
+  save_type: eeprom
+
+- code: AZJE
+  name: Dragon Ball Z - Supersonic Warriors (USA)
+
+- code: BPEE
+  name: Pokemon - Emerald Version (USA, Europe)
+  rtc: true

@@ -2,6 +2,9 @@
 extern crate serde;
 
 #[macro_use]
+extern crate lazy_static;
+
+#[macro_use]
 extern crate debug_stub_derive;
 
 #[macro_use]
@@ -48,6 +51,7 @@ pub mod dma;
 pub mod keypad;
 pub mod timer;
 pub use bus::*;
+pub(crate) mod overrides;
 
 #[cfg(feature = "gdb")]
 pub mod gdb;
