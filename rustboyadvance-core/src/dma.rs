@@ -238,17 +238,9 @@ impl DmaController {
         }
     }
 
-    pub fn notify_vblank(&mut self) {
+    pub fn notify_from_gpu(&mut self, timing: u16) {
         for i in 0..4 {
-            if self.channels[i].ctrl.is_enabled() && self.channels[i].ctrl.timing() == 1 {
-                self.pending_set |= 1 << i;
-            }
-        }
-    }
-
-    pub fn notify_hblank(&mut self) {
-        for i in 0..4 {
-            if self.channels[i].ctrl.is_enabled() && self.channels[i].ctrl.timing() == 2 {
+            if self.channels[i].ctrl.is_enabled() && self.channels[i].ctrl.timing() == timing {
                 self.pending_set |= 1 << i;
             }
         }
@@ -265,6 +257,13 @@ impl DmaController {
             }
         }
     }
+}
+
+pub const TIMING_VBLANK: u16 = 1;
+pub const TIMING_HBLANK: u16 = 2;
+
+pub trait DmaNotifer {
+    fn notify(&mut self, timing: u16);
 }
 
 bitfield! {

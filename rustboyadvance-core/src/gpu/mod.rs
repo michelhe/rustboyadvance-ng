@@ -4,9 +4,10 @@ use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
 
+use super::dma::{DmaNotifer, TIMING_HBLANK, TIMING_VBLANK};
 use super::interrupt::IrqBitmask;
 pub use super::sysbus::consts::*;
-use super::sysbus::{BoxedMemory, SysBus};
+use super::sysbus::BoxedMemory;
 use super::VideoInterface;
 use super::{Addr, Bus};
 
@@ -434,13 +435,15 @@ impl Gpu {
         &self.frame_buffer
     }
 
-    pub fn on_state_completed(
+    pub fn on_state_completed<D>(
         &mut self,
         completed: GpuState,
-        sb: &mut SysBus,
         irqs: &mut IrqBitmask,
+        dma_notifier: &mut D,
         video_device: &VideoDeviceRcRefCell,
-    ) {
+    ) where
+        D: DmaNotifer,
+    {
         match completed {
             HDraw => {
                 // Transition to HBlank
@@ -451,7 +454,7 @@ impl Gpu {
                 if self.dispstat.hblank_irq_enable() {
                     irqs.set_LCD_HBlank(true);
                 };
-                sb.io.dmac.notify_hblank();
+                dma_notifier.notify(TIMING_HBLANK);
             }
             HBlank => {
                 self.update_vcount(self.vcount + 1, irqs);
@@ -479,7 +482,7 @@ impl Gpu {
                         irqs.set_LCD_VBlank(true);
                     };
 
-                    sb.io.dmac.notify_vblank();
+                    dma_notifier.notify(TIMING_VBLANK);
                     video_device.borrow_mut().render(&self.frame_buffer);
                     self.obj_buffer_reset();
                     self.cycles_left_for_current_state = CYCLES_HDRAW;
@@ -513,27 +516,24 @@ impl Gpu {
     }
 
     // Returns the new gpu state
-    pub fn update(
+    pub fn update<D>(
         &mut self,
-        cycles: usize,
-        sb: &mut SysBus,
+        mut cycles: usize,
         irqs: &mut IrqBitmask,
         cycles_to_next_event: &mut usize,
+        dma_notifier: &mut D,
         video_device: &VideoDeviceRcRefCell,
-    ) {
-        if self.cycles_left_for_current_state <= cycles {
-            let overshoot = cycles - self.cycles_left_for_current_state;
-
-            self.on_state_completed(self.state, sb, irqs, video_device);
-
-            // handle the overshoot
-            if overshoot < self.cycles_left_for_current_state {
-                self.cycles_left_for_current_state -= overshoot;
+    ) where
+        D: DmaNotifer,
+    {
+        loop {
+            if self.cycles_left_for_current_state <= cycles {
+                cycles -= self.cycles_left_for_current_state;
+                self.on_state_completed(self.state, irqs, dma_notifier, video_device);
             } else {
-                panic!("OH SHIT");
+                self.cycles_left_for_current_state -= cycles;
+                break;
             }
-        } else {
-            self.cycles_left_for_current_state -= cycles;
         }
 
         if self.cycles_left_for_current_state < *cycles_to_next_event {

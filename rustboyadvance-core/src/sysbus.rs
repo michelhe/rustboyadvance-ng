@@ -4,6 +4,7 @@ use std::ops::{Deref, DerefMut};
 use serde::{Deserialize, Serialize};
 
 use super::cartridge::Cartridge;
+use super::dma::DmaNotifer;
 use super::iodev::{IoDevices, WaitControl};
 use super::{Addr, Bus};
 
@@ -375,5 +376,11 @@ impl Bus for SysBus {
 
     fn write_8(&mut self, addr: Addr, value: u8) {
         memory_map!(write(self, write_8, addr, value));
+    }
+}
+
+impl DmaNotifer for SysBus {
+    fn notify(&mut self, timing: u16) {
+        self.io.dmac.notify_from_gpu(timing);
     }
 }

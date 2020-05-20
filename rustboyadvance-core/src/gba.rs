@@ -235,9 +235,9 @@ impl GameBoyAdvance {
         io.timers.update(cycles, &mut self.sysbus, &mut irqs);
         io.gpu.update(
             cycles,
-            &mut self.sysbus,
             &mut irqs,
             &mut cycles_to_next_event,
+            self.sysbus.as_mut(),
             &self.video_device,
         );
         io.sound
