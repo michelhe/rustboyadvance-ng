@@ -496,9 +496,8 @@ impl Gpu {
                 };
             }
             VBlankHBlank => {
-                self.update_vcount(self.vcount + 1, irqs);
-
                 if self.vcount < DISPLAY_HEIGHT + VBLANK_LINES - 1 {
+                    self.update_vcount(self.vcount + 1, irqs);
                     self.dispstat.set_hblank_flag(false);
                     self.cycles_left_for_current_state = CYCLES_HDRAW;
                     self.state = VBlankHDraw;
