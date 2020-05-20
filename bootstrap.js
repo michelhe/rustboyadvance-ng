@@ -55,11 +55,11 @@
 /******/ 		"../pkg/rustboyadvance_wasm_bg.wasm": function() {
 /******/ 			return {
 /******/ 				"./rustboyadvance_wasm_bg.js": {
-/******/ 					"__wbindgen_object_clone_ref": function(p0i32) {
-/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbindgen_object_clone_ref"](p0i32);
-/******/ 					},
 /******/ 					"__wbindgen_object_drop_ref": function(p0i32) {
 /******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbindgen_object_drop_ref"](p0i32);
+/******/ 					},
+/******/ 					"__wbindgen_object_clone_ref": function(p0i32) {
+/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbindgen_object_clone_ref"](p0i32);
 /******/ 					},
 /******/ 					"__wbg_new_59cb74e423758ede": function() {
 /******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_new_59cb74e423758ede"]();
@@ -73,53 +73,53 @@
 /******/ 					"__wbindgen_string_new": function(p0i32,p1i32) {
 /******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbindgen_string_new"](p0i32,p1i32);
 /******/ 					},
-/******/ 					"__wbg_newwithu8clampedarrayandsh_938c737e9e97245c": function(p0i32,p1i32,p2i32,p3i32) {
-/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_newwithu8clampedarrayandsh_938c737e9e97245c"](p0i32,p1i32,p2i32,p3i32);
+/******/ 					"__wbg_newwithu8clampedarrayandsh_0920d353fe77a2ad": function(p0i32,p1i32,p2i32,p3i32) {
+/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_newwithu8clampedarrayandsh_0920d353fe77a2ad"](p0i32,p1i32,p2i32,p3i32);
 /******/ 					},
-/******/ 					"__wbg_sampleRate_90dabf7705bf72e2": function(p0i32) {
-/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_sampleRate_90dabf7705bf72e2"](p0i32);
+/******/ 					"__wbg_sampleRate_7ab10c384ec8fd20": function(p0i32) {
+/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_sampleRate_7ab10c384ec8fd20"](p0i32);
 /******/ 					},
-/******/ 					"__wbg_new_5b97d5fc1a3cbc18": function() {
-/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_new_5b97d5fc1a3cbc18"]();
+/******/ 					"__wbg_new_48987559b0d2b8ea": function() {
+/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_new_48987559b0d2b8ea"]();
 /******/ 					},
-/******/ 					"__wbg_putImageData_41e95746905d9700": function(p0i32,p1i32,p2f64,p3f64) {
-/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_putImageData_41e95746905d9700"](p0i32,p1i32,p2f64,p3f64);
+/******/ 					"__wbg_putImageData_0ab7644b3026a93a": function(p0i32,p1i32,p2f64,p3f64) {
+/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_putImageData_0ab7644b3026a93a"](p0i32,p1i32,p2f64,p3f64);
 /******/ 					},
-/******/ 					"__wbg_now_c9524e843301c2ee": function(p0i32) {
-/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_now_c9524e843301c2ee"](p0i32);
+/******/ 					"__wbg_now_43100dbb52857cc6": function(p0i32) {
+/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_now_43100dbb52857cc6"](p0i32);
 /******/ 					},
-/******/ 					"__wbg_get_aaa2cb40d5f215dc": function(p0i32,p1i32) {
-/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_get_aaa2cb40d5f215dc"](p0i32,p1i32);
+/******/ 					"__wbg_get_f2faf882de3801f1": function(p0i32,p1i32) {
+/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_get_f2faf882de3801f1"](p0i32,p1i32);
 /******/ 					},
-/******/ 					"__wbg_call_ae0789b871c5d57f": function(p0i32,p1i32) {
-/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_call_ae0789b871c5d57f"](p0i32,p1i32);
+/******/ 					"__wbg_call_1f85aaa5836dfb23": function(p0i32,p1i32) {
+/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_call_1f85aaa5836dfb23"](p0i32,p1i32);
 /******/ 					},
-/******/ 					"__wbg_newnoargs_e710e627874fc912": function(p0i32,p1i32) {
-/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_newnoargs_e710e627874fc912"](p0i32,p1i32);
+/******/ 					"__wbg_newnoargs_8aad4a6554f38345": function(p0i32,p1i32) {
+/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_newnoargs_8aad4a6554f38345"](p0i32,p1i32);
 /******/ 					},
-/******/ 					"__wbg_self_0f608b57f60a1319": function() {
-/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_self_0f608b57f60a1319"]();
+/******/ 					"__wbg_self_c0d3a5923e013647": function() {
+/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_self_c0d3a5923e013647"]();
 /******/ 					},
-/******/ 					"__wbg_window_b7fda4753d5a6f96": function() {
-/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_window_b7fda4753d5a6f96"]();
+/******/ 					"__wbg_window_7ee6c8be3432927d": function() {
+/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_window_7ee6c8be3432927d"]();
 /******/ 					},
-/******/ 					"__wbg_globalThis_f2ab166b2dad2691": function() {
-/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_globalThis_f2ab166b2dad2691"]();
+/******/ 					"__wbg_globalThis_c6de1d938e089cf0": function() {
+/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_globalThis_c6de1d938e089cf0"]();
 /******/ 					},
-/******/ 					"__wbg_global_5a16f080534aa1b3": function() {
-/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_global_5a16f080534aa1b3"]();
+/******/ 					"__wbg_global_c9a01ce4680907f8": function() {
+/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_global_c9a01ce4680907f8"]();
 /******/ 					},
 /******/ 					"__wbindgen_is_undefined": function(p0i32) {
 /******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbindgen_is_undefined"](p0i32);
 /******/ 					},
-/******/ 					"__wbg_buffer_101f4727ece1f09d": function(p0i32) {
-/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_buffer_101f4727ece1f09d"](p0i32);
+/******/ 					"__wbg_buffer_eb5185aa4a8e9c62": function(p0i32) {
+/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_buffer_eb5185aa4a8e9c62"](p0i32);
 /******/ 					},
-/******/ 					"__wbg_newwithbyteoffsetandlength_e01e431b9962617a": function(p0i32,p1i32,p2i32) {
-/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_newwithbyteoffsetandlength_e01e431b9962617a"](p0i32,p1i32,p2i32);
+/******/ 					"__wbg_newwithbyteoffsetandlength_a31622ccc380e8b4": function(p0i32,p1i32,p2i32) {
+/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_newwithbyteoffsetandlength_a31622ccc380e8b4"](p0i32,p1i32,p2i32);
 /******/ 					},
-/******/ 					"__wbg_new_45310231c4583ea3": function(p0i32) {
-/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_new_45310231c4583ea3"](p0i32);
+/******/ 					"__wbg_new_470473004db6a289": function(p0i32) {
+/******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_new_470473004db6a289"](p0i32);
 /******/ 					},
 /******/ 					"__wbg_log_e838fef9c2f5ccd5": function(p0i32,p1i32) {
 /******/ 						return installedModules["../pkg/rustboyadvance_wasm_bg.js"].exports["__wbg_log_e838fef9c2f5ccd5"](p0i32,p1i32);
@@ -233,7 +233,7 @@
 /******/
 /******/ 		// Fetch + compile chunk loading for webassembly
 /******/
-/******/ 		var wasmModules = {"1":["../pkg/rustboyadvance_wasm_bg.wasm"]}[chunkId] || [];
+/******/ 		var wasmModules = {"0":["../pkg/rustboyadvance_wasm_bg.wasm"]}[chunkId] || [];
 /******/
 /******/ 		wasmModules.forEach(function(wasmModuleId) {
 /******/ 			var installedWasmModuleData = installedWasmModules[wasmModuleId];
@@ -243,7 +243,7 @@
 /******/ 				promises.push(installedWasmModuleData);
 /******/ 			else {
 /******/ 				var importObject = wasmImportObjects[wasmModuleId]();
-/******/ 				var req = fetch(__webpack_require__.p + "" + {"../pkg/rustboyadvance_wasm_bg.wasm":"878a182604fe92bad6e4"}[wasmModuleId] + ".module.wasm");
+/******/ 				var req = fetch(__webpack_require__.p + "" + {"../pkg/rustboyadvance_wasm_bg.wasm":"fccba6c45e4b1f05cb7c"}[wasmModuleId] + ".module.wasm");
 /******/ 				var promise;
 /******/ 				if(importObject instanceof Promise && typeof WebAssembly.compileStreaming === 'function') {
 /******/ 					promise = Promise.all([WebAssembly.compileStreaming(req), importObject]).then(function(items) {
@@ -344,7 +344,7 @@
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
-eval("// A dependency graph that contains any wasm must all be imported\n// asynchronously. This `bootstrap.js` file does the single async import, so\n// that no one else needs to worry about it again.\nPromise.all(/*! import() */[__webpack_require__.e(0), __webpack_require__.e(1)]).then(__webpack_require__.bind(null, /*! ./index.js */ \"./index.js\"))\n  .catch(e => console.error(\"Error importing `index.js`:\", e));\n\n\n//# sourceURL=webpack:///./bootstrap.js?");
+eval("// A dependency graph that contains any wasm must all be imported\n// asynchronously. This `bootstrap.js` file does the single async import, so\n// that no one else needs to worry about it again.\n__webpack_require__.e(/*! import() */ 0).then(__webpack_require__.bind(null, /*! ./index.js */ \"./index.js\"))\n  .catch(e => console.error(\"Error importing `index.js`:\", e));\n\n\n//# sourceURL=webpack:///./bootstrap.js?");
 
 /***/ })
 
