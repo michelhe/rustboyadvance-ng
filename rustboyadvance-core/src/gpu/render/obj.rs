@@ -93,6 +93,10 @@ impl Gpu {
             return;
         }
 
+        if attrs.0.objmode() == ObjMode::Forbidden {
+            return;
+        }
+
         let tile_base = OVRAM + 0x20 * (attrs.2.tile() as u32);
 
         let (tile_size, pixel_format) = attrs.tile_format();
@@ -179,6 +183,10 @@ impl Gpu {
 
         // skip this obj if not within its vertical bounds.
         if !(screen_y >= ref_y && screen_y < ref_y + obj_h) {
+            return;
+        }
+
+        if attrs.0.objmode() == ObjMode::Forbidden {
             return;
         }
 
@@ -273,9 +281,7 @@ impl Gpu {
             ObjMode::Window => {
                 current_obj.window = true;
             }
-            ObjMode::Forbidden => {
-                panic!("Forbidden sprite mode!");
-            }
+            ObjMode::Forbidden => unreachable!(),
         }
     }
 
