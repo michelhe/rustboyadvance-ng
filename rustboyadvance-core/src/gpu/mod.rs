@@ -518,7 +518,6 @@ impl Gpu {
         };
     }
 
-    // Returns the new gpu state
     pub fn update<D>(
         &mut self,
         mut cycles: usize,
