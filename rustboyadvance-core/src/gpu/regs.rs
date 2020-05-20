@@ -91,10 +91,10 @@ bitfield! {
     pub get_vblank_flag, set_vblank_flag: 0;
     pub get_hblank_flag, set_hblank_flag: 1;
     pub get_vcount_flag, set_vcount_flag: 2;
-    pub vblank_irq_enable, _ : 3;
-    pub hblank_irq_enable, _ : 4;
-    pub vcount_irq_enable, _ : 5;
-    pub vcount_setting, _ : 15, 8;
+    pub vblank_irq_enable, set_vblank_irq_enable : 3;
+    pub hblank_irq_enable, set_hblank_irq_enable : 4;
+    pub vcount_irq_enable, set_vcount_irq_enable : 5;
+    pub vcount_setting, set_vcount_setting : 15, 8;
 }
 
 bitfield! {

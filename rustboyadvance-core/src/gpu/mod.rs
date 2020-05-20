@@ -48,6 +48,8 @@ pub mod consts {
     pub(super) const CYCLES_VDRAW: usize = 197120;
     pub(super) const CYCLES_VBLANK: usize = 83776;
 
+    pub const CYCLES_FULL_REFRESH: usize = 280896;
+
     pub const TILE_SIZE: u32 = 0x20;
 }
 pub use self::consts::*;
@@ -507,6 +509,7 @@ impl Gpu {
                 } else {
                     self.update_vcount(0, irqs);
                     self.dispstat.set_vblank_flag(false);
+                    self.dispstat.set_hblank_flag(false);
                     self.render_scanline();
                     self.cycles_left_for_current_state = CYCLES_HDRAW;
                     self.state = HDraw;
@@ -539,5 +542,101 @@ impl Gpu {
         if self.cycles_left_for_current_state < *cycles_to_next_event {
             *cycles_to_next_event = self.cycles_left_for_current_state;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct NopDmaNotifer;
+    impl DmaNotifer for NopDmaNotifer {
+        fn notify(&mut self, _timing: u16) {}
+    }
+
+    #[derive(Default)]
+    struct TestVideoInterface {
+        frame_counter: usize,
+    }
+
+    impl VideoInterface for TestVideoInterface {
+        fn render(&mut self, _buffer: &[u32]) {
+            self.frame_counter += 1;
+        }
+    }
+
+    #[test]
+    fn test_gpu_state_machine() {
+        let mut gpu = Gpu::new();
+        let video = Rc::new(RefCell::new(TestVideoInterface::default()));
+        let video_clone: VideoDeviceRcRefCell = video.clone();
+        let mut irqs = IrqBitmask(0);
+        let mut dma_notifier = NopDmaNotifer;
+        let mut cycles_to_next_event = CYCLES_FULL_REFRESH;
+
+        gpu.dispstat.set_vcount_setting(0);
+        gpu.dispstat.set_vcount_irq_enable(true);
+
+        let mut total_cycles = 0;
+
+        macro_rules! update {
+            ($cycles:expr) => {
+                gpu.update(
+                    $cycles,
+                    &mut irqs,
+                    &mut cycles_to_next_event,
+                    &mut dma_notifier,
+                    &video_clone,
+                );
+                total_cycles += $cycles;
+            };
+        }
+
+        for line in 0..160 {
+            println!("line = {}", line);
+            assert_eq!(video.borrow().frame_counter, 0);
+            assert_eq!(gpu.vcount, line);
+            assert_eq!(gpu.state, GpuState::HDraw);
+            assert_eq!(gpu.dispstat.get_hblank_flag(), false);
+            assert_eq!(gpu.dispstat.get_vblank_flag(), false);
+
+            update!(CYCLES_HDRAW);
+
+            assert_eq!(gpu.state, GpuState::HBlank);
+            assert_eq!(gpu.dispstat.get_hblank_flag(), true);
+            assert_eq!(gpu.dispstat.get_vblank_flag(), false);
+
+            update!(CYCLES_HBLANK);
+
+            assert_eq!(irqs.LCD_VCounterMatch(), false);
+        }
+
+        assert_eq!(video.borrow().frame_counter, 1);
+
+        for line in 0..68 {
+            println!("line = {}", 160 + line);
+            assert_eq!(gpu.dispstat.get_hblank_flag(), false);
+            assert_eq!(gpu.dispstat.get_vblank_flag(), true);
+            assert_eq!(gpu.state, GpuState::VBlankHDraw);
+
+            update!(CYCLES_HDRAW);
+
+            assert_eq!(gpu.dispstat.get_hblank_flag(), true);
+            assert_eq!(gpu.dispstat.get_vblank_flag(), true);
+            assert_eq!(gpu.state, GpuState::VBlankHBlank);
+            assert_eq!(irqs.LCD_VCounterMatch(), false);
+
+            update!(CYCLES_HBLANK);
+        }
+
+        assert_eq!(video.borrow().frame_counter, 1);
+        assert_eq!(total_cycles, CYCLES_FULL_REFRESH);
+
+        assert_eq!(irqs.LCD_VCounterMatch(), true);
+        assert_eq!(gpu.cycles_left_for_current_state, CYCLES_HDRAW);
+        assert_eq!(gpu.state, GpuState::HDraw);
+        assert_eq!(gpu.vcount, 0);
+        assert_eq!(gpu.dispstat.get_vcount_flag(), true);
+        assert_eq!(gpu.dispstat.get_hblank_flag(), false);
     }
 }

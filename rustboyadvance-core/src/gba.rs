@@ -145,7 +145,7 @@ impl GameBoyAdvance {
     pub fn frame(&mut self) {
         self.key_poll();
 
-        let mut remaining_cycles = 280896 - self.overshoot_cycles;
+        let mut remaining_cycles = CYCLES_FULL_REFRESH - self.overshoot_cycles;
 
         while remaining_cycles > 0 {
             let cycles = self.step();
