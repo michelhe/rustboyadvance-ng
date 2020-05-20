@@ -3,7 +3,6 @@ use sdl2::controller::Button;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::image::{InitFlag, LoadSurface, LoadTexture};
 use sdl2::keyboard::Scancode;
-use sdl2::messagebox::*;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::WindowCanvas;
@@ -18,7 +17,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use std::fs;
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::time;
@@ -32,8 +31,6 @@ extern crate clap;
 extern crate log;
 use flexi_logger;
 use flexi_logger::*;
-
-use reqwest;
 
 mod audio;
 mod input;
@@ -101,50 +98,10 @@ fn wait_for_rom(canvas: &mut WindowCanvas, event_pump: &mut EventPump) -> Result
     }
 }
 
-fn ask_download_bios() -> Result<Option<Vec<u8>>, Box<dyn std::error::Error>> {
+fn ask_download_bios() {
     const OPEN_SOURCE_BIOS_URL: &'static str =
         "https://github.com/Nebuleon/ReGBA/raw/master/bios/gba_bios.bin";
-
-    let buttons: Vec<_> = vec![
-        ButtonData {
-            flags: MessageBoxButtonFlag::NOTHING,
-            button_id: 100,
-            text: "No, Exit!",
-        },
-        ButtonData {
-            flags: MessageBoxButtonFlag::NOTHING,
-            button_id: 101,
-            text: "Yes",
-        },
-    ];
-
-    let res = show_message_box(
-        MessageBoxFlag::WARNING,
-        buttons.as_slice(),
-        "bios not found",
-        "would you like to me download an open source bios for you?",
-        None,
-        None,
-    )?;
-
-    match res {
-        ClickedButton::CloseButton => Ok(None),
-        ClickedButton::CustomButton(button) => match button.button_id {
-            101 => {
-                let mut resp = reqwest::blocking::get(OPEN_SOURCE_BIOS_URL)?;
-                let mut bios = Vec::with_capacity(16 * 1024);
-                resp.read_to_end(&mut bios)?;
-                show_simple_message_box(
-                    MessageBoxFlag::INFORMATION,
-                    "Download Finished!",
-                    "Download Finished!",
-                    None,
-                )?;
-                Ok(Some(bios))
-            }
-            _ => Ok(None),
-        },
-    }
+    println!("Missing BIOS file. If you don't have the original GBA BIOS, you can download an open-source bios from {}", OPEN_SOURCE_BIOS_URL);
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -162,6 +119,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let yaml = load_yaml!("cli.yml");
     let matches = clap::App::from_yaml(yaml).get_matches();
 
+    let bios_path = Path::new(matches.value_of("bios").unwrap_or_default());
+    let bios_bin = match read_bin_file(bios_path) {
+        Ok(bios) => bios,
+        _ => {
+            ask_download_bios();
+            std::process::exit(0);
+        }
+    };
+
     let skip_bios = matches.occurrences_of("skip_bios") != 0;
 
     let debug = matches.occurrences_of("debug") != 0;
@@ -169,27 +135,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Initializing SDL2 context");
     let sdl_context = sdl2::init().expect("failed to initialize sdl2");
-
-    let bios_path = Path::new(matches.value_of("bios").unwrap_or_default());
-    let bios_bin = match read_bin_file(bios_path) {
-        Ok(bios) => bios,
-        _ => match ask_download_bios() {
-            Ok(Some(bios)) => {
-                info!("saving downloaded bios to {}", bios_path.display());
-                write_bin_file(bios_path, &bios)?;
-
-                bios
-            }
-            Ok(None) => {
-                info!("Exiting");
-                std::process::exit(0);
-            }
-            Err(e) => {
-                error!("error when downloading bios: {}", e);
-                std::process::exit(1);
-            }
-        },
-    };
 
     let mut event_pump = sdl_context.event_pump()?;
 
