@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use memmem::{Searcher, TwoWaySearcher};
 use num::FromPrimitive;
 
+use super::super::overrides;
 use super::super::{GBAError, GBAResult};
 use super::backup::eeprom::*;
 use super::backup::flash::*;
@@ -131,24 +132,53 @@ impl GamepakBuilder {
             }
         }
 
-        if self.save_type == BackupType::AutoDetect {
+        let mut save_type = self.save_type;
+        let mut gpio_device = self.gpio_device;
+
+        if let Some(overrides) = overrides::get_game_overrides(&header.game_code) {
+            info!("Found game overrides for {}: {:#?}", header.game_code, overrides);
+            if let Some(override_save_type) = overrides.save_type() {
+                if override_save_type != save_type && save_type != BackupType::AutoDetect {
+                    warn!(
+                        "Forced save type {:?} takes priority of {:?}",
+                        save_type, override_save_type
+                    );
+                }
+                save_type = override_save_type;
+            }
+
+            if overrides.force_rtc() {
+                match gpio_device {
+                    GpioDeviceType::None => gpio_device = GpioDeviceType::Rtc,
+                    GpioDeviceType::Rtc => {},
+                    _ => {
+                        warn!(
+                            "Can't use RTC due to forced gpio device type {:?}",
+                            gpio_device
+                        );
+                    }
+                }
+            }
+        }
+
+        if save_type == BackupType::AutoDetect {
             if let Some(detected) = detect_backup_type(&bytes) {
                 info!("Detected Backup: {:?}", detected);
-                self.save_type = detected;
+                save_type = detected;
             } else {
                 warn!("could not detect backup save type");
             }
         }
 
-        let backup = create_backup(self.save_type, self.save_path);
+        let backup = create_backup(save_type, self.save_path);
 
-        let gpio = match self.gpio_device {
+        let gpio = match gpio_device {
             GpioDeviceType::None => Gpio::new_none(),
             GpioDeviceType::Rtc => {
                 info!("Emulating RTC!");
                 Gpio::new_rtc()
             }
-            _ => unimplemented!("Gpio device {:?} not implemented", self.gpio_device),
+            _ => unimplemented!("Gpio device {:?} not implemented", gpio_device),
         };
 
         let size = bytes.len();
