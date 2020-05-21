@@ -105,16 +105,23 @@ impl Debugger {
                 }
                 println!("{}\n", self.gba.cpu);
             }
-            Continue => loop {
+            Continue => 'running: loop {
                 self.gba.key_poll();
-                match self.gba.check_breakpoint() {
-                    Some(addr) => {
-                        println!("Breakpoint reached! @{:x}", addr);
-                        break;
+                if let Some(breakpoint) = self.gba.step_debugger() {
+                    let mut bp_sym = None;
+                    if let Some(symbols) = self.gba.sysbus.cartridge.get_symbols() {
+                        for s in symbols.keys() {
+                            if symbols.get(s).unwrap() == &breakpoint {
+                                bp_sym = Some(s.clone());
+                            }
+                        }
                     }
-                    _ => {
-                        self.gba.cpu.step(&mut self.gba.sysbus);
+                    if let Some(sym) = bp_sym {
+                        println!("Breakpoint reached! @{}", sym);
+                    } else {
+                        println!("Breakpoint reached! @{:x}", breakpoint);
                     }
+                    break 'running;
                 }
             },
             Frame(count) => {

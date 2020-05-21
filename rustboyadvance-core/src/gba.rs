@@ -174,8 +174,8 @@ impl GameBoyAdvance {
     pub fn check_breakpoint(&self) -> Option<u32> {
         let next_pc = self.cpu.get_next_pc();
         for bp in &self.cpu.breakpoints {
-            if *bp == next_pc {
-                return Some(next_pc);
+            if (*bp & !1) == next_pc {
+                return Some(*bp);
             }
         }
 
@@ -247,6 +247,43 @@ impl GameBoyAdvance {
         io.intc.request_irqs(irqs);
 
         cycles
+    }
+
+    #[cfg(feature = "debugger")]
+    /// 'step' function that checks for breakpoints
+    /// TODO avoid code duplication
+    pub fn step_debugger(&mut self) -> Option<u32> {
+        // I hate myself for doing this, but rust left me no choice.
+        let io = unsafe {
+            let ptr = &mut *self.sysbus as *mut SysBus;
+            &mut (*ptr).io as &mut IoDevices
+        };
+
+        // clear any pending DMAs
+        let mut irqs = IrqBitmask(0);
+        while io.dmac.is_active() {
+            io.dmac.perform_work(&mut self.sysbus, &mut irqs);
+        }
+        io.intc.request_irqs(irqs);
+
+        let cycles = self.step_cpu(io);
+        let breakpoint = self.check_breakpoint();
+
+        irqs = IrqBitmask(0);
+        let mut _ignored = 0;
+        // update gpu & sound
+        io.timers.update(cycles, &mut self.sysbus, &mut irqs);
+        io.gpu.update(
+            cycles,
+            &mut irqs,
+            &mut _ignored,
+            self.sysbus.as_mut(),
+            &self.video_device,
+        );
+        io.sound.update(cycles, &mut _ignored, &self.audio_device);
+        io.intc.request_irqs(irqs);
+
+        breakpoint
     }
 
     /// Query the emulator for the recently drawn framebuffer.
