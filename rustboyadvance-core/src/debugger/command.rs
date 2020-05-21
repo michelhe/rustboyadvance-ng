@@ -79,9 +79,7 @@ impl Debugger {
                 println!("IF={:#?}", self.gba.sysbus.io.intc.interrupt_flags);
             }
             GpuInfo => println!("GPU: {:#?}", self.gba.sysbus.io.gpu),
-            GpioInfo => {
-                println!("GPIO: {:#?}", self.gba.sysbus.cartridge.get_gpio());
-            }
+            GpioInfo => println!("GPIO: {:#?}", self.gba.sysbus.cartridge.get_gpio()),
             Step(count) => {
                 for _ in 0..count {
                     self.gba.cpu.step(&mut self.gba.sysbus);

@@ -40,7 +40,7 @@ pub struct Cartridge {
     pub header: CartridgeHeader,
     bytes: Box<[u8]>,
     size: usize,
-    gpio: Gpio,
+    gpio: Option<Gpio>,
     symbols: Option<SymbolTable>, // TODO move it somewhere else
     pub(in crate) backup: BackupMedia,
 }
@@ -49,7 +49,7 @@ impl Cartridge {
     pub fn get_symbols(&self) -> &Option<SymbolTable> {
         &self.symbols
     }
-    pub fn get_gpio(&self) -> &Gpio {
+    pub fn get_gpio(&self) -> &Option<Gpio> {
         &self.gpio
     }
 }
@@ -85,11 +85,13 @@ impl Bus for Cartridge {
     }
 
     fn read_16(&self, addr: u32) -> u16 {
-        if is_gpio_access(addr) {
-            if !(self.gpio.is_readable()) {
-                info!("trying to read GPIO when reads are not allowed");
+        if let Some(gpio) = &self.gpio {
+            if is_gpio_access(addr) {
+                if !(gpio.is_readable()) {
+                    warn!("trying to read GPIO when reads are not allowed");
+                }
+                return gpio.read(addr & 0x1ff_ffff);
             }
-            return self.gpio.read(addr & 0x1ff_ffff);
         }
 
         if addr & 0xff000000 == GAMEPAK_WS2_HI
@@ -114,9 +116,11 @@ impl Bus for Cartridge {
     }
 
     fn write_16(&mut self, addr: u32, value: u16) {
-        if is_gpio_access(addr) {
-            self.gpio.write(addr & 0x1ff_ffff, value);
-            return;
+        if let Some(gpio) = &mut self.gpio {
+            if is_gpio_access(addr) {
+                gpio.write(addr & 0x1ff_ffff, value);
+                return;
+            }
         }
 
         if addr & 0xff000000 == GAMEPAK_WS2_HI

@@ -177,10 +177,10 @@ impl GamepakBuilder {
         let backup = create_backup(save_type, self.save_path);
 
         let gpio = match gpio_device {
-            GpioDeviceType::None => Gpio::new_none(),
+            GpioDeviceType::None => None,
             GpioDeviceType::Rtc => {
                 info!("Emulating RTC!");
-                Gpio::new_rtc()
+                Some(Gpio::new_rtc())
             }
             _ => unimplemented!("Gpio device {:?} not implemented", gpio_device),
         };
