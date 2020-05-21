@@ -4,32 +4,6 @@ use super::{GPIO_PORT_CONTROL, GPIO_PORT_DATA, GPIO_PORT_DIRECTION};
 use bit::BitIndex;
 use serde::{Deserialize, Serialize};
 
-/// Struct holding the logical state of a serial port
-#[repr(transparent)]
-#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
-pub struct GpioPort(u16);
-
-impl GpioPort {
-    pub fn get(&self) -> u16 {
-        self.0
-    }
-
-    pub fn set(&mut self, value: u16) {
-        self.0 = value & 1;
-    }
-
-    pub fn high(&self) -> bool {
-        self.0 != 0
-    }
-
-    pub fn low(&self) -> bool {
-        self.0 == 0
-    }
-}
-
-pub const GPIO_LOW: GpioPort = GpioPort(0);
-pub const GPIO_HIGH: GpioPort = GpioPort(1);
-
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq)]
 pub enum GpioDirection {
     /// GPIO to GBA
@@ -53,7 +27,7 @@ pub trait GpioDevice: Sized {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Gpio {
-    rtc: Option<Rtc>,
+    pub(in crate) rtc: Option<Rtc>,
     direction: GpioState,
     control: GpioPortControl,
 }
@@ -117,7 +91,6 @@ impl Gpio {
                 }
             }
             GPIO_PORT_CONTROL => {
-                info!("GPIO port control: {:?}", self.control);
                 self.control = if value != 0 {
                     GpioPortControl::ReadWrite
                 } else {
@@ -126,13 +99,5 @@ impl Gpio {
             }
             _ => unreachable!(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_gpio() {
-        unimplemented!();
     }
 }

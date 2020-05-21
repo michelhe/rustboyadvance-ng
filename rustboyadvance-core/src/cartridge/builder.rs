@@ -16,6 +16,7 @@ use super::Cartridge;
 use super::loader::{load_from_bytes, load_from_file, LoadRom};
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum GpioDeviceType {
     Rtc,
     SolarSensor,
@@ -136,7 +137,10 @@ impl GamepakBuilder {
         let mut gpio_device = self.gpio_device;
 
         if let Some(overrides) = overrides::get_game_overrides(&header.game_code) {
-            info!("Found game overrides for {}: {:#?}", header.game_code, overrides);
+            info!(
+                "Found game overrides for {}: {:#?}",
+                header.game_code, overrides
+            );
             if let Some(override_save_type) = overrides.save_type() {
                 if override_save_type != save_type && save_type != BackupType::AutoDetect {
                     warn!(
@@ -150,7 +154,7 @@ impl GamepakBuilder {
             if overrides.force_rtc() {
                 match gpio_device {
                     GpioDeviceType::None => gpio_device = GpioDeviceType::Rtc,
-                    GpioDeviceType::Rtc => {},
+                    GpioDeviceType::Rtc => {}
                     _ => {
                         warn!(
                             "Can't use RTC due to forced gpio device type {:?}",

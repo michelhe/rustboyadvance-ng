@@ -49,6 +49,9 @@ impl Cartridge {
     pub fn get_symbols(&self) -> &Option<SymbolTable> {
         &self.symbols
     }
+    pub fn get_gpio(&self) -> &Gpio {
+        &self.gpio
+    }
 }
 
 use super::sysbus::consts::*;
