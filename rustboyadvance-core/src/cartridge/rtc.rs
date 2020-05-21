@@ -7,7 +7,7 @@ use num::FromPrimitive;
 
 use std::cmp;
 
-use super::gpio::{GpioDevice, GpioDirection, GpioPort, GpioState, GPIO_LOW};
+use super::gpio::{GpioDevice, GpioDirection, GpioState};
 
 fn num2bcd(mut num: u8) -> u8 {
     num = cmp::min(num, 99);
@@ -41,6 +41,30 @@ impl Port {
     }
 }
 
+/// Struct holding the logical state of a serial port
+#[repr(transparent)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+struct PortValue(u16);
+
+#[allow(dead_code)]
+impl PortValue {
+    fn get(&self) -> u16 {
+        self.0
+    }
+
+    fn set(&mut self, value: u16) {
+        self.0 = value & 1;
+    }
+
+    fn high(&self) -> bool {
+        self.0 != 0
+    }
+
+    fn low(&self) -> bool {
+        self.0 == 0
+    }
+}
+
 /// RTC Registers codes in the GBA
 #[derive(Primitive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 enum RegisterKind {
@@ -67,9 +91,9 @@ impl RegisterKind {
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
-enum State {
+enum RtcState {
     Idle,
-    WaitForChipSelect,
+    WaitForChipSelectHigh,
     GetCommandByte,
     RxFromMaster {
         reg: RegisterKind,
@@ -107,14 +131,14 @@ impl SerialBuffer {
     }
 
     #[inline]
-    fn pop_bit(&mut self) -> bool {
+    fn pop_bit(&mut self) -> Option<bool> {
         if self.counter > 0 {
             let result = self.byte.bit(0);
             self.byte = self.byte.wrapping_shr(1);
             self.counter -= 1;
-            result
+            Some(result)
         } else {
-            false
+            None
         }
     }
 
@@ -163,10 +187,10 @@ impl SerialBuffer {
 /// Model of the S3511 8pin RTC
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Rtc {
-    state: State,
-    sck: GpioPort,
-    sio: GpioPort,
-    cs: GpioPort,
+    state: RtcState,
+    sck: PortValue,
+    sio: PortValue,
+    cs: PortValue,
     status: registers::StatusRegister,
     serial_buffer: SerialBuffer,
     internal_buffer: [u8; 8],
@@ -175,14 +199,11 @@ pub struct Rtc {
 impl Rtc {
     pub fn new() -> Self {
         Rtc {
-            state: State::Idle,
-            sck: GPIO_LOW,
-            sio: GPIO_LOW,
-            cs: GPIO_LOW,
-            status: registers::StatusRegister {
-                mode_24h: true,
-                ..Default::default()
-            },
+            state: RtcState::Idle,
+            sck: PortValue(0),
+            sio: PortValue(0),
+            cs: PortValue(0),
+            status: registers::StatusRegister(0x82),
             serial_buffer: SerialBuffer::new(),
             internal_buffer: [0; 8],
         }
@@ -194,9 +215,18 @@ impl Rtc {
 
     fn force_reset(&mut self) {
         self.serial_buffer.reset();
-        self.state = State::Idle;
+        self.state = RtcState::Idle;
         self.status.write(0);
-        // TODO according to the datasheet, the date time registers should reset to 0-0-0-0..
+        // TODO according to the S3511 datasheet,
+        // the date time registers should be reset to 0-0-0-0..
+    }
+
+    fn serial_transfer_in_progress(&self) -> bool {
+        use RtcState::*;
+        match self.state {
+            Idle | WaitForChipSelectHigh => false,
+            _ => true,
+        }
     }
 
     /// Loads a register contents into an internal buffer
@@ -206,9 +236,9 @@ impl Rtc {
             RegisterKind::DateTime => {
                 let local: DateTime<Local> = Local::now();
                 let year = local.year();
-                assert!(year >= 2000 && year <= 2099); // Wonder if I will leave to see this assert fail
+                assert!(year >= 2000 && year <= 2099); // Wonder if I will live to see this one fail
 
-                let hour = if self.status.mode_24h {
+                let hour = if self.status.mode_24h() {
                     local.hour()
                 } else {
                     let (_, hour12) = local.hour12();
@@ -222,15 +252,10 @@ impl Rtc {
                 self.internal_buffer[4] = num2bcd(hour as u8);
                 self.internal_buffer[5] = num2bcd(local.minute() as u8);
                 self.internal_buffer[6] = num2bcd(local.second() as u8);
-
-                println!(
-                    "DateTime result: {:x?} dt={:?}",
-                    self.internal_buffer, local
-                );
             }
             RegisterKind::Time => {
                 let local: DateTime<Local> = Local::now();
-                let hour = if self.status.mode_24h {
+                let hour = if self.status.mode_24h() {
                     local.hour()
                 } else {
                     let (_, hour12) = local.hour12();
@@ -246,7 +271,6 @@ impl Rtc {
 
     fn store_register(&mut self, r: RegisterKind) {
         use RegisterKind::*;
-        info!("write register {:?} {:?}", r, self.internal_buffer);
         match r {
             Status => self.status.write(self.internal_buffer[0]),
             ForceReset => self.force_reset(),
@@ -266,7 +290,6 @@ impl GpioDevice for Rtc {
         self.sck.set(data.bit(Port::Sck.index()) as u16);
         self.cs.set(data.bit(Port::Cs.index()) as u16);
 
-        let sck_rising_edge = old_sck.low() && self.sck.high();
         let sck_falling_edge = old_sck.high() && self.sck.low();
 
         if sck_falling_edge && gpio_state[Port::Sio.index()] == GpioDirection::Out {
@@ -274,17 +297,32 @@ impl GpioDevice for Rtc {
         }
 
         if self.cs.high() && old_cs.low() {
-            trace!("RTC CS went from low to high!");
+            trace!("RTC: CS went from low to high!");
         }
 
-        use State::*;
+        use RtcState::*;
+
+        if self.cs.low() && self.serial_transfer_in_progress() {
+            debug!(
+                "RTC: CS set low from state {:?}, resetting state",
+                self.state
+            );
+            self.serial_buffer.reset();
+            self.state = Idle;
+            return;
+        }
+
         match self.state {
             Idle => {
                 if self.sck.high() && self.cs.low() {
-                    self.state = WaitForChipSelect;
+                    if self.cs.low() {
+                        self.state = WaitForChipSelectHigh;
+                    } else {
+                        self.state = GetCommandByte;
+                    }
                 }
             }
-            WaitForChipSelect => {
+            WaitForChipSelectHigh => {
                 if self.sck.high() && self.cs.high() {
                     self.state = GetCommandByte;
                     self.serial_buffer.reset();
@@ -319,10 +357,11 @@ impl GpioDevice for Rtc {
 
                 let is_read_operation = command.bit(7);
 
-                info!(
-                    "got command: {} {:?}",
+                debug!(
+                    "RTC: got command: {} {:?} args len: {}",
                     if is_read_operation { "READ" } else { "WRITE" },
-                    reg
+                    reg,
+                    byte_count
                 );
 
                 if byte_count != 0 {
@@ -332,20 +371,21 @@ impl GpioDevice for Rtc {
                             byte_count,
                             byte_index: 0,
                         };
+                        self.serial_buffer.reset();
                     } else {
                         self.state = RxFromMaster {
                             reg,
                             byte_count,
                             byte_index: 0,
                         };
+                        self.serial_buffer.reset();
                     }
                 } else {
                     assert!(!is_read_operation);
                     self.store_register(reg);
                     self.state = Idle;
+                    self.serial_buffer.reset();
                 }
-
-                self.serial_buffer.reset();
             }
             TxToMaster {
                 byte_count,
@@ -355,24 +395,29 @@ impl GpioDevice for Rtc {
                     return;
                 }
 
-                let new_byte_index = if self.serial_buffer.is_empty() {
-                    byte_index + 1
-                } else {
-                    byte_index
-                };
-
-                if byte_count == new_byte_index {
-                    self.state = Idle;
-                    return;
-                }
-
-                if byte_index != new_byte_index {
+                let mut new_byte_index = byte_index;
+                let bit = if let Some(bit) = self.serial_buffer.pop_bit() {
+                    bit
+                } else if byte_index < byte_count {
                     self.serial_buffer
                         .load_byte(self.internal_buffer[byte_index as usize]);
-                }
+                    new_byte_index += 1;
+                    self.serial_buffer.pop_bit().unwrap()
+                } else {
+                    self.state = Idle;
+                    self.serial_buffer.reset();
+                    return;
+                };
 
+                trace!("RTC TX BIT {}", bit);
                 assert_eq!(gpio_state[Port::Sio.index()], GpioDirection::In);
-                self.sio.set(self.serial_buffer.pop_bit() as u16);
+                self.sio.set(bit as u16);
+
+                if self.serial_buffer.is_empty() && new_byte_index == byte_count {
+                    self.state = Idle;
+                    self.serial_buffer.reset();
+                    return;
+                }
 
                 self.state = TxToMaster {
                     byte_count,
@@ -423,28 +468,27 @@ impl GpioDevice for Rtc {
 }
 
 mod registers {
-    use super::*;
 
-    #[derive(Serialize, Deserialize, Copy, Clone, Debug, Default)]
-    pub(super) struct StatusRegister {
-        pub(super) per_minute_irq: bool,
-        pub(super) mode_24h: bool,
-        pub(super) power_off: bool,
+    bitfield! {
+        #[derive(Serialize, Deserialize, Clone)]
+        pub struct StatusRegister(u8);
+        impl Debug;
+        u8;
+        pub intfe, set_intfe : 1; // unimplemented
+        pub intme, set_intme : 3; // unimplemented
+        pub intae, set_intae : 5; // unimplemented
+        pub mode_24h, set_mode_24h : 6;
+        pub power_fail, set_power_fail : 7;
     }
 
     impl StatusRegister {
+        const IGNORED_MASK: u8 = 0b1001_0101;
         pub(super) fn read(&self) -> u8 {
-            let mut result = 0;
-            result.set_bit(3, self.per_minute_irq);
-            result.set_bit(6, self.mode_24h);
-            result.set_bit(7, self.power_off);
-            result
+            self.0
         }
 
         pub(super) fn write(&mut self, value: u8) {
-            self.per_minute_irq = value.bit(3);
-            self.mode_24h = value.bit(6);
-            self.power_off = value.bit(7);
+            self.0 = !Self::IGNORED_MASK & value;
         }
     }
 }
@@ -478,15 +522,15 @@ mod tests {
     }
 
     fn start_serial_transfer(rtc: &mut Rtc, gpio_state: &GpioState) {
-        assert_eq!(rtc.state, State::Idle);
+        assert_eq!(rtc.state, RtcState::Idle);
 
         // set CS low,
         rtc.write(&gpio_state, 0b0001);
-        assert_eq!(rtc.state, State::WaitForChipSelect);
+        assert_eq!(rtc.state, RtcState::WaitForChipSelectHigh);
 
         // set CS high, SCK rising edge
         rtc.write(&gpio_state, 0b0101);
-        assert_eq!(rtc.state, State::GetCommandByte);
+        assert_eq!(rtc.state, RtcState::GetCommandByte);
     }
 
     #[test]
@@ -514,7 +558,7 @@ mod tests {
 
     macro_rules! setup_rtc {
         ($rtc:ident, $gpio_state:ident) => {
-            let mut $rtc = Rtc::new(Rc::new(Cell::new(false)));
+            let mut $rtc = Rtc::new();
             #[allow(unused_mut)]
             let mut $gpio_state = [
                 GpioDirection::Out, /* SCK */
@@ -529,37 +573,31 @@ mod tests {
     fn test_rtc_status() {
         setup_rtc!(rtc, gpio_state);
 
-        rtc.status.mode_24h = false;
+        rtc.status.set_mode_24h(false);
         start_serial_transfer(&mut rtc, &mut gpio_state);
 
         // write Status register command
         transmit_bits(&mut rtc, &gpio_state, &[0, 1, 1, 0, 0, 0, 1, 0]);
         assert_eq!(
             rtc.state,
-            State::RxFromMaster {
+            RtcState::RxFromMaster {
                 reg: RegisterKind::Status,
                 byte_count: 1,
                 byte_index: 0,
             }
         );
 
-        assert_eq!(rtc.status.mode_24h, false);
+        assert_eq!(rtc.status.mode_24h(), false);
 
         let mut serial_buffer = SerialBuffer::new();
-        serial_buffer.load_byte(
-            registers::StatusRegister {
-                mode_24h: true,
-                ..Default::default()
-            }
-            .read(),
-        );
+        serial_buffer.load_byte(1 << 6);
 
-        while !serial_buffer.is_empty() {
-            transmit(&mut rtc, &gpio_state, serial_buffer.pop_bit() as u8);
+        while let Some(bit) = serial_buffer.pop_bit() {
+            transmit(&mut rtc, &gpio_state, bit as u8);
         }
 
         assert!(rtc.serial_buffer.is_empty());
-        assert_eq!(rtc.status.mode_24h, true);
+        assert_eq!(rtc.status.mode_24h(), true);
 
         start_serial_transfer(&mut rtc, &mut gpio_state);
 
@@ -567,7 +605,7 @@ mod tests {
         transmit_bits(&mut rtc, &gpio_state, &[0, 1, 1, 0, 0, 0, 1, 1]);
         assert_eq!(
             rtc.state,
-            State::TxToMaster {
+            RtcState::TxToMaster {
                 byte_count: 1,
                 byte_index: 0,
             }
@@ -579,10 +617,8 @@ mod tests {
         let mut bytes = [0];
         receive_bytes(&mut rtc, &gpio_state, &mut bytes);
 
-        let mut status = registers::StatusRegister::default();
-        status.write(bytes[0]);
-
-        assert_eq!(status.mode_24h, true);
+        let mut read_status = registers::StatusRegister(bytes[0]);
+        assert_eq!(read_status.mode_24h(), true);
     }
 
     #[test]
@@ -593,7 +629,7 @@ mod tests {
         transmit_bits(&mut rtc, &gpio_state, &[0, 1, 1, 0, 0, 1, 0, 1]);
         assert_eq!(
             rtc.state,
-            State::TxToMaster {
+            RtcState::TxToMaster {
                 byte_count: 7,
                 byte_index: 0
             }
@@ -602,7 +638,7 @@ mod tests {
         gpio_state[Port::Sio.index()] = GpioDirection::In;
         let mut bytes = [0; 7];
         receive_bytes(&mut rtc, &gpio_state, &mut bytes);
-        assert_eq!(rtc.state, State::Idle);
+        assert_eq!(rtc.state, RtcState::Idle);
 
         println!("{:x?}", bytes);
         let local: DateTime<Local> = Local::now();
