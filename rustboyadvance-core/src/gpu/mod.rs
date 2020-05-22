@@ -340,14 +340,14 @@ impl Gpu {
     }
 
     #[inline(always)]
-    pub fn get_palette_color(&self, index: u32, palette_index: u32, offset: u32) -> Rgb15 {
-        if index == 0 || (palette_index != 0 && index % 16 == 0) {
+    pub fn get_palette_color(&self, index: u32, palette_bank: u32, offset: u32) -> Rgb15 {
+        if index == 0 || (palette_bank != 0 && index % 16 == 0) {
             return Rgb15::TRANSPARENT;
         }
-        Rgb15(
-            self.palette_ram
-                .read_16(offset + 2 * index + 0x20 * palette_index),
-        )
+        let value = self.palette_ram.read_16(offset + 2 * index + 0x20 * palette_bank);
+
+        // top bit is ignored
+        Rgb15(value & 0x7FFF)
     }
 
     #[inline]
