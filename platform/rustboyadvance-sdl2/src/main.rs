@@ -162,7 +162,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .filter(|&id| controller_subsystem.is_game_controller(id))
         .collect::<Vec<u32>>();
 
-    let _active_controller = match available_controllers.first() {
+    let mut active_controller = match available_controllers.first() {
         Some(&id) => {
             let controller = controller_subsystem.open(id)?;
             info!("Found game controller: {}", controller.name());
@@ -294,6 +294,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 Event::ControllerAxisMotion { axis, value, .. } => {
                     input.borrow_mut().on_axis_motion(axis, value);
+                }
+                Event::ControllerDeviceRemoved { which, .. } => {
+                    let removed = if let Some(active_controller) = &active_controller {
+                        active_controller.instance_id() == (which as i32)
+                    } else {
+                        false
+                    };
+                    if removed {
+                        let name = active_controller
+                            .and_then(|controller| Some(controller.name()))
+                            .unwrap();
+                        info!("Removing game controller: {}", name);
+                        active_controller = None;
+                    }
+                }
+                Event::ControllerDeviceAdded { which, .. } => {
+                    if active_controller.is_none() {
+                        let controller = controller_subsystem.open(which)?;
+                        info!("Adding game controller: {}", controller.name());
+                        active_controller = Some(controller);
+                    }
                 }
                 Event::Quit { .. } => break 'running,
                 Event::DropFile { filename, .. } => {
