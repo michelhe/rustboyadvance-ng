@@ -1,7 +1,8 @@
 use super::cartridge::BackupMedia;
+use super::interrupt::{self, Interrupt, SharedInterruptFlags};
 use super::iodev::consts::{REG_FIFO_A, REG_FIFO_B};
 use super::sysbus::SysBus;
-use super::{Bus, Interrupt, IrqBitmask};
+use super::Bus;
 
 use num::FromPrimitive;
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,7 @@ pub struct DmaChannel {
     start_cycles: usize,
     fifo_mode: bool,
     irq: Interrupt,
+    interrupt_flags: SharedInterruptFlags,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -33,7 +35,7 @@ struct DmaInternalRegs {
 }
 
 impl DmaChannel {
-    pub fn new(id: usize) -> DmaChannel {
+    pub fn new(id: usize, interrupt_flags: SharedInterruptFlags) -> DmaChannel {
         if id > 3 {
             panic!("invalid dma id {}", id);
         }
@@ -49,6 +51,7 @@ impl DmaChannel {
             start_cycles: 0,
             fifo_mode: false,
             internal: Default::default(),
+            interrupt_flags,
         }
     }
 
@@ -129,7 +132,7 @@ impl DmaChannel {
         }
     }
 
-    fn xfer(&mut self, sb: &mut SysBus, irqs: &mut IrqBitmask) {
+    fn xfer(&mut self, sb: &mut SysBus) {
         let word_size = if self.ctrl.is_32bit() { 4 } else { 2 };
         let count = match self.internal.count {
             0 => match self.id {
@@ -171,7 +174,7 @@ impl DmaChannel {
             }
         }
         if self.ctrl.is_triggering_irq() {
-            irqs.add_irq(self.irq);
+            interrupt::signal_irq(&self.interrupt_flags, self.irq);
         }
         if self.ctrl.repeat() {
             self.start_cycles = self.cycles;
@@ -194,13 +197,13 @@ pub struct DmaController {
 }
 
 impl DmaController {
-    pub fn new() -> DmaController {
+    pub fn new(interrupt_flags: SharedInterruptFlags) -> DmaController {
         DmaController {
             channels: [
-                DmaChannel::new(0),
-                DmaChannel::new(1),
-                DmaChannel::new(2),
-                DmaChannel::new(3),
+                DmaChannel::new(0, interrupt_flags.clone()),
+                DmaChannel::new(1, interrupt_flags.clone()),
+                DmaChannel::new(2, interrupt_flags.clone()),
+                DmaChannel::new(3, interrupt_flags.clone()),
             ],
             pending_set: 0,
             cycles: 0,
@@ -211,10 +214,10 @@ impl DmaController {
         self.pending_set != 0
     }
 
-    pub fn perform_work(&mut self, sb: &mut SysBus, irqs: &mut IrqBitmask) {
+    pub fn perform_work(&mut self, sb: &mut SysBus) {
         for id in 0..4 {
             if self.pending_set & (1 << id) != 0 {
-                self.channels[id].xfer(sb, irqs);
+                self.channels[id].xfer(sb);
             }
         }
         self.pending_set = 0;

@@ -1,5 +1,5 @@
 /// Struct containing everything
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use bincode;
@@ -7,11 +7,13 @@ use serde::{Deserialize, Serialize};
 
 use super::arm7tdmi;
 use super::cartridge::Cartridge;
+use super::dma::DmaController;
 use super::gpu::*;
 use super::interrupt::*;
 use super::iodev::*;
 use super::sound::SoundController;
 use super::sysbus::SysBus;
+use super::timer::Timers;
 
 use super::{AudioInterface, InputInterface, VideoInterface};
 
@@ -60,12 +62,17 @@ impl GameBoyAdvance {
             true => info!("Verified bios rom"),
             false => warn!("This is not the real bios rom, some games may not be compatible"),
         };
-        let gpu = Box::new(Gpu::new());
+
+        let interrupt_flags = Rc::new(Cell::new(IrqBitmask(0)));
+
+        let intc = InterruptController::new(interrupt_flags.clone());
+        let gpu = Box::new(Gpu::new(interrupt_flags.clone()));
+        let dmac = DmaController::new(interrupt_flags.clone());
+        let timers = Timers::new(interrupt_flags.clone());
         let sound_controller = Box::new(SoundController::new(
             audio_device.borrow().get_sample_rate() as f32,
         ));
-
-        let io = IoDevices::new(gpu, sound_controller);
+        let io = IoDevices::new(intc, gpu, dmac, timers, sound_controller);
         let sysbus = Box::new(SysBus::new(io, bios_rom, gamepak));
 
         let cpu = arm7tdmi::Core::new();
@@ -204,14 +211,11 @@ impl GameBoyAdvance {
             &mut (*ptr).io as &mut IoDevices
         };
 
-        let mut irqs = IrqBitmask(0);
-
         let mut cycles_left = self.cycles_to_next_event;
         let mut cycles_to_next_event = std::usize::MAX;
         let mut cycles = 0;
 
         while cycles_left > 0 {
-            let mut irqs = IrqBitmask(0);
             let _cycles = if !io.dmac.is_active() {
                 if HaltState::Running == io.haltcnt {
                     self.step_cpu(io)
@@ -220,8 +224,7 @@ impl GameBoyAdvance {
                     break;
                 }
             } else {
-                io.dmac.perform_work(&mut self.sysbus, &mut irqs);
-                io.intc.request_irqs(irqs);
+                io.dmac.perform_work(&mut self.sysbus);
                 return cycles;
             };
 
@@ -233,10 +236,9 @@ impl GameBoyAdvance {
         }
 
         // update gpu & sound
-        io.timers.update(cycles, &mut self.sysbus, &mut irqs);
+        io.timers.update(cycles, &mut self.sysbus);
         io.gpu.update(
             cycles,
-            &mut irqs,
             &mut cycles_to_next_event,
             self.sysbus.as_mut(),
             &self.video_device,
@@ -244,7 +246,6 @@ impl GameBoyAdvance {
         io.sound
             .update(cycles, &mut cycles_to_next_event, &self.audio_device);
         self.cycles_to_next_event = cycles_to_next_event;
-        io.intc.request_irqs(irqs);
 
         cycles
     }
@@ -260,28 +261,23 @@ impl GameBoyAdvance {
         };
 
         // clear any pending DMAs
-        let mut irqs = IrqBitmask(0);
         while io.dmac.is_active() {
-            io.dmac.perform_work(&mut self.sysbus, &mut irqs);
+            io.dmac.perform_work(&mut self.sysbus);
         }
-        io.intc.request_irqs(irqs);
 
         let cycles = self.step_cpu(io);
         let breakpoint = self.check_breakpoint();
 
-        irqs = IrqBitmask(0);
         let mut _ignored = 0;
         // update gpu & sound
-        io.timers.update(cycles, &mut self.sysbus, &mut irqs);
+        io.timers.update(cycles, &mut self.sysbus);
         io.gpu.update(
             cycles,
-            &mut irqs,
             &mut _ignored,
             self.sysbus.as_mut(),
             &self.video_device,
         );
         io.sound.update(cycles, &mut _ignored, &self.audio_device);
-        io.intc.request_irqs(irqs);
 
         breakpoint
     }

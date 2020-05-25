@@ -1,3 +1,6 @@
+use std::cell::Cell;
+use std::rc::Rc;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Primitive, Copy, Clone, PartialEq)]
@@ -23,29 +26,42 @@ pub enum Interrupt {
 pub struct InterruptController {
     pub interrupt_master_enable: bool,
     pub interrupt_enable: IrqBitmask,
-    pub interrupt_flags: IrqBitmask,
+    pub interrupt_flags: SharedInterruptFlags,
 }
 
 impl InterruptController {
-    pub fn new() -> InterruptController {
+    pub fn new(interrupt_flags: SharedInterruptFlags) -> InterruptController {
         InterruptController {
+            interrupt_flags,
             interrupt_master_enable: false,
             ..Default::default()
         }
     }
 
-    pub fn request_irqs(&mut self, flags: IrqBitmask) {
-        self.interrupt_flags.0 |= flags.0;
+    #[inline]
+    pub fn irq_pending(&self) -> bool {
+        self.interrupt_master_enable
+            & ((self.interrupt_flags.get().value() & self.interrupt_enable.0) != 0)
     }
 
-    pub fn irq_pending(&self) -> bool {
-        self.interrupt_master_enable & ((self.interrupt_flags.0 & self.interrupt_enable.0) != 0)
+    #[inline]
+    pub fn clear(&mut self, value: u16) {
+        let _if = self.interrupt_flags.get();
+        let new_if = _if.0 & !value;
+        self.interrupt_flags.set(IrqBitmask(new_if));
     }
 }
 
+#[inline]
+pub fn signal_irq(interrupt_flags: &SharedInterruptFlags, i: Interrupt) {
+    let _if = interrupt_flags.get();
+    let new_if = _if.0 | 1 << (i as usize);
+    interrupt_flags.set(IrqBitmask(new_if));
+}
+
 impl IrqBitmask {
-    pub fn add_irq(&mut self, i: Interrupt) {
-        self.0 |= 1 << (i as usize);
+    pub fn value(&self) -> u16 {
+        self.0
     }
 }
 
@@ -83,3 +99,5 @@ bitfield! {
     #[allow(non_snake_case)]
     pub GamePak, set_GamePak: 13;
 }
+
+pub type SharedInterruptFlags = Rc<Cell<IrqBitmask>>;

@@ -41,13 +41,19 @@ pub struct IoDevices {
 }
 
 impl IoDevices {
-    pub fn new(gpu: Box<Gpu>, sound_controller: Box<SoundController>) -> IoDevices {
+    pub fn new(
+        intc: InterruptController,
+        gpu: Box<Gpu>,
+        dmac: DmaController,
+        timers: Timers,
+        sound_controller: Box<SoundController>,
+    ) -> IoDevices {
         IoDevices {
-            gpu: gpu,
+            intc,
+            gpu,
+            timers,
+            dmac,
             sound: sound_controller,
-            timers: Timers::new(),
-            dmac: DmaController::new(),
-            intc: InterruptController::new(),
             post_boot_flag: false,
             haltcnt: HaltState::Running,
             keyinput: keypad::KEYINPUT_ALL_RELEASED,
@@ -92,7 +98,7 @@ impl Bus for IoDevices {
 
             REG_IME => io.intc.interrupt_master_enable as u16,
             REG_IE => io.intc.interrupt_enable.0 as u16,
-            REG_IF => io.intc.interrupt_flags.0 as u16,
+            REG_IF => io.intc.interrupt_flags.get().value() as u16,
 
             REG_TM0CNT_L..=REG_TM3CNT_H => io.timers.handle_read(io_addr),
 
@@ -222,7 +228,7 @@ impl Bus for IoDevices {
 
             REG_IME => io.intc.interrupt_master_enable = value != 0,
             REG_IE => io.intc.interrupt_enable.0 = value,
-            REG_IF => io.intc.interrupt_flags.0 &= !value,
+            REG_IF => io.intc.clear(value),
 
             REG_TM0CNT_L..=REG_TM3CNT_H => io.timers.handle_write(io_addr, value),
 

@@ -43,7 +43,7 @@ pub use sysbus::SysBus;
 pub mod interrupt;
 pub mod iodev;
 pub use interrupt::Interrupt;
-pub use interrupt::IrqBitmask;
+pub use interrupt::SharedInterruptFlags;
 pub mod gba;
 pub use gba::GameBoyAdvance;
 pub mod bus;

@@ -1,4 +1,4 @@
-use super::interrupt::{Interrupt, IrqBitmask};
+use super::interrupt::{self, Interrupt, SharedInterruptFlags};
 use super::iodev::consts::*;
 use super::sysbus::SysBus;
 
@@ -15,19 +15,21 @@ pub struct Timer {
     pub initial_data: u16,
 
     irq: Interrupt,
+    interrupt_flags: SharedInterruptFlags,
     timer_id: usize,
     cycles: usize,
     prescalar_shift: usize,
 }
 
 impl Timer {
-    pub fn new(timer_id: usize) -> Timer {
+    pub fn new(timer_id: usize, interrupt_flags: SharedInterruptFlags) -> Timer {
         if timer_id > 3 {
             panic!("invalid timer id {}", timer_id);
         }
         Timer {
             timer_id: timer_id,
             irq: Interrupt::from_usize(timer_id + 3).unwrap(),
+            interrupt_flags,
             data: 0,
             ctl: TimerCtl(0),
             initial_data: 0,
@@ -43,7 +45,7 @@ impl Timer {
 
     /// increments the timer with an amount of ticks
     /// returns the number of times it overflowed
-    fn update(&mut self, ticks: usize, irqs: &mut IrqBitmask) -> usize {
+    fn update(&mut self, ticks: usize) -> usize {
         let mut ticks = ticks as u32;
         let mut num_overflows = 0;
 
@@ -59,7 +61,7 @@ impl Timer {
             ticks = ticks % ticks_remaining;
 
             if self.ctl.irq_enabled() {
-                irqs.add_irq(self.irq);
+                interrupt::signal_irq(&self.interrupt_flags, self.irq);
             }
         }
 
@@ -90,9 +92,14 @@ impl std::ops::IndexMut<usize> for Timers {
 }
 
 impl Timers {
-    pub fn new() -> Timers {
+    pub fn new(interrupt_flags: SharedInterruptFlags) -> Timers {
         Timers {
-            timers: [Timer::new(0), Timer::new(1), Timer::new(2), Timer::new(3)],
+            timers: [
+                Timer::new(0, interrupt_flags.clone()),
+                Timer::new(1, interrupt_flags.clone()),
+                Timer::new(2, interrupt_flags.clone()),
+                Timer::new(3, interrupt_flags.clone()),
+            ],
             running_timers: 0,
             trace: false,
         }
@@ -163,7 +170,7 @@ impl Timers {
         }
     }
 
-    pub fn update(&mut self, cycles: usize, sb: &mut SysBus, irqs: &mut IrqBitmask) {
+    pub fn update(&mut self, cycles: usize, sb: &mut SysBus) {
         for id in 0..4 {
             if self.running_timers & (1 << id) == 0 {
                 continue;
@@ -174,14 +181,14 @@ impl Timers {
 
                 let cycles = timer.cycles + cycles;
                 let inc = cycles >> timer.prescalar_shift;
-                let num_overflows = timer.update(inc, irqs);
+                let num_overflows = timer.update(inc);
                 timer.cycles = cycles & ((1 << timer.prescalar_shift) - 1);
 
                 if num_overflows > 0 {
                     if id != 3 {
                         let next_timer = &mut self.timers[id + 1];
                         if next_timer.ctl.cascade() {
-                            next_timer.update(num_overflows, irqs);
+                            next_timer.update(num_overflows);
                         }
                     }
                     if id == 0 || id == 1 {

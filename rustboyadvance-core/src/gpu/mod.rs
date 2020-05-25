@@ -5,7 +5,7 @@ use std::rc::Rc;
 use serde::{Deserialize, Serialize};
 
 use super::dma::{DmaNotifer, TIMING_HBLANK, TIMING_VBLANK};
-use super::interrupt::IrqBitmask;
+use super::interrupt::{self, Interrupt, SharedInterruptFlags};
 pub use super::sysbus::consts::*;
 use super::sysbus::BoxedMemory;
 use super::VideoInterface;
@@ -174,6 +174,7 @@ type VideoDeviceRcRefCell = Rc<RefCell<dyn VideoInterface>>;
 #[derive(Serialize, Deserialize, Clone, DebugStub)]
 pub struct Gpu {
     pub state: GpuState,
+    interrupt_flags: SharedInterruptFlags,
 
     /// how many cycles left until next gpu state ?
     cycles_left_for_current_state: usize,
@@ -270,8 +271,9 @@ impl Bus for Gpu {
 }
 
 impl Gpu {
-    pub fn new() -> Gpu {
+    pub fn new(interrupt_flags: SharedInterruptFlags) -> Gpu {
         Gpu {
+            interrupt_flags,
             dispcnt: DisplayControl(0x80),
             dispstat: DisplayStatus(0),
             backgrounds: [
@@ -415,17 +417,6 @@ impl Gpu {
         // self.mosaic_sfx();
     }
 
-    fn update_vcount(&mut self, value: usize, irqs: &mut IrqBitmask) {
-        self.vcount = value;
-        let vcount_setting = self.dispstat.vcount_setting();
-        self.dispstat
-            .set_vcount_flag(vcount_setting == self.vcount as u16);
-
-        if self.dispstat.vcount_irq_enable() && self.dispstat.get_vcount_flag() {
-            irqs.set_LCD_VCounterMatch(true);
-        }
-    }
-
     /// Clears the gpu obj buffer
     pub fn obj_buffer_reset(&mut self) {
         for x in self.obj_buffer.iter_mut() {
@@ -440,12 +431,24 @@ impl Gpu {
     pub fn on_state_completed<D>(
         &mut self,
         completed: GpuState,
-        irqs: &mut IrqBitmask,
         dma_notifier: &mut D,
         video_device: &VideoDeviceRcRefCell,
     ) where
         D: DmaNotifer,
     {
+        macro_rules! update_vcount {
+            ($value:expr) => {
+                self.vcount = $value;
+                let vcount_setting = self.dispstat.vcount_setting();
+                self.dispstat
+                    .set_vcount_flag(vcount_setting == self.vcount as u16);
+
+                if self.dispstat.vcount_irq_enable() && self.dispstat.get_vcount_flag() {
+                    interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_VCounterMatch);
+                }
+            };
+        }
+
         match completed {
             HDraw => {
                 // Transition to HBlank
@@ -454,12 +457,12 @@ impl Gpu {
                 self.dispstat.set_hblank_flag(true);
 
                 if self.dispstat.hblank_irq_enable() {
-                    irqs.set_LCD_HBlank(true);
+                    interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_HBlank);
                 };
                 dma_notifier.notify(TIMING_HBLANK);
             }
             HBlank => {
-                self.update_vcount(self.vcount + 1, irqs);
+                update_vcount!(self.vcount + 1);
 
                 if self.vcount < DISPLAY_HEIGHT {
                     self.state = HDraw;
@@ -481,7 +484,7 @@ impl Gpu {
                     self.dispstat.set_vblank_flag(true);
                     self.dispstat.set_hblank_flag(false);
                     if self.dispstat.vblank_irq_enable() {
-                        irqs.set_LCD_VBlank(true);
+                        interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_VBlank);
                     };
 
                     dma_notifier.notify(TIMING_VBLANK);
@@ -497,17 +500,17 @@ impl Gpu {
 
                 self.dispstat.set_hblank_flag(true);
                 if self.dispstat.hblank_irq_enable() {
-                    irqs.set_LCD_HBlank(true);
+                    interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_HBlank);
                 };
             }
             VBlankHBlank => {
                 if self.vcount < DISPLAY_HEIGHT + VBLANK_LINES - 1 {
-                    self.update_vcount(self.vcount + 1, irqs);
+                    update_vcount!(self.vcount + 1);
                     self.dispstat.set_hblank_flag(false);
                     self.cycles_left_for_current_state = CYCLES_HDRAW;
                     self.state = VBlankHDraw;
                 } else {
-                    self.update_vcount(0, irqs);
+                    update_vcount!(0);
                     self.dispstat.set_vblank_flag(false);
                     self.dispstat.set_hblank_flag(false);
                     self.render_scanline();
@@ -521,7 +524,6 @@ impl Gpu {
     pub fn update<D>(
         &mut self,
         mut cycles: usize,
-        irqs: &mut IrqBitmask,
         cycles_to_next_event: &mut usize,
         dma_notifier: &mut D,
         video_device: &VideoDeviceRcRefCell,
@@ -531,7 +533,7 @@ impl Gpu {
         loop {
             if self.cycles_left_for_current_state <= cycles {
                 cycles -= self.cycles_left_for_current_state;
-                self.on_state_completed(self.state, irqs, dma_notifier, video_device);
+                self.on_state_completed(self.state, dma_notifier, video_device);
             } else {
                 self.cycles_left_for_current_state -= cycles;
                 break;
@@ -547,6 +549,8 @@ impl Gpu {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+    use std::rc::Rc;
 
     struct NopDmaNotifer;
     impl DmaNotifer for NopDmaNotifer {
@@ -566,10 +570,9 @@ mod tests {
 
     #[test]
     fn test_gpu_state_machine() {
-        let mut gpu = Gpu::new();
+        let mut gpu = Gpu::new(Rc::new(Cell::new(Default::default())));
         let video = Rc::new(RefCell::new(TestVideoInterface::default()));
         let video_clone: VideoDeviceRcRefCell = video.clone();
-        let mut irqs = IrqBitmask(0);
         let mut dma_notifier = NopDmaNotifer;
         let mut cycles_to_next_event = CYCLES_FULL_REFRESH;
 
@@ -582,7 +585,6 @@ mod tests {
             ($cycles:expr) => {
                 gpu.update(
                     $cycles,
-                    &mut irqs,
                     &mut cycles_to_next_event,
                     &mut dma_notifier,
                     &video_clone,
@@ -607,7 +609,7 @@ mod tests {
 
             update!(CYCLES_HBLANK);
 
-            assert_eq!(irqs.LCD_VCounterMatch(), false);
+            assert_eq!(gpu.interrupt_flags.get().LCD_VCounterMatch(), false);
         }
 
         assert_eq!(video.borrow().frame_counter, 1);
@@ -623,7 +625,7 @@ mod tests {
             assert_eq!(gpu.dispstat.get_hblank_flag(), true);
             assert_eq!(gpu.dispstat.get_vblank_flag(), true);
             assert_eq!(gpu.state, GpuState::VBlankHBlank);
-            assert_eq!(irqs.LCD_VCounterMatch(), false);
+            assert_eq!(gpu.interrupt_flags.get().LCD_VCounterMatch(), false);
 
             update!(CYCLES_HBLANK);
         }
@@ -631,7 +633,7 @@ mod tests {
         assert_eq!(video.borrow().frame_counter, 1);
         assert_eq!(total_cycles, CYCLES_FULL_REFRESH);
 
-        assert_eq!(irqs.LCD_VCounterMatch(), true);
+        assert_eq!(gpu.interrupt_flags.get().LCD_VCounterMatch(), true);
         assert_eq!(gpu.cycles_left_for_current_state, CYCLES_HDRAW);
         assert_eq!(gpu.state, GpuState::HDraw);
         assert_eq!(gpu.vcount, 0);
