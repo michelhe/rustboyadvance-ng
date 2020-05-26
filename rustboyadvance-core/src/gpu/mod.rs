@@ -208,68 +208,6 @@ pub struct Gpu {
     pub(super) frame_buffer: Vec<u32>,
 }
 
-impl Bus for Gpu {
-    fn read_8(&self, addr: Addr) -> u8 {
-        let page = (addr >> 24) as usize;
-        match page {
-            PAGE_PALRAM => self.palette_ram.read_8(addr & 0x3ff),
-            PAGE_VRAM => {
-                // complicated
-                let mut ofs = addr & ((VIDEO_RAM_SIZE as u32) - 1);
-                if ofs > 0x18000 {
-                    ofs -= 0x8000;
-                }
-                self.vram.read_8(ofs)
-            }
-            PAGE_OAM => self.oam.read_8(addr & 0x3ff),
-            _ => unreachable!(),
-        }
-    }
-
-    fn write_16(&mut self, addr: Addr, value: u16) {
-        let page = (addr >> 24) as usize;
-        match page {
-            PAGE_PALRAM => self.palette_ram.write_16(addr & 0x3fe, value),
-            PAGE_VRAM => {
-                let mut ofs = addr & ((VIDEO_RAM_SIZE as u32) - 1);
-                if ofs > 0x18000 {
-                    ofs -= 0x8000;
-                }
-                self.vram.write_16(ofs, value)
-            }
-            PAGE_OAM => self.oam.write_16(addr & 0x3fe, value),
-            _ => unreachable!(),
-        }
-    }
-
-    fn write_8(&mut self, addr: Addr, value: u8) {
-        fn expand_value(value: u8) -> u16 {
-            (value as u16) * 0x101
-        }
-
-        let page = (addr >> 24) as usize;
-        match page {
-            PAGE_PALRAM => self.palette_ram.write_16(addr & 0x3fe, expand_value(value)),
-            PAGE_VRAM => {
-                let mut ofs = addr & ((VIDEO_RAM_SIZE as u32) - 1);
-                if ofs > 0x18000 {
-                    ofs -= 0x8000;
-                }
-                let obj_offset = if self.dispcnt.mode() >= 3 {
-                    0x14000
-                } else {
-                    0x10000
-                };
-                if ofs < obj_offset {
-                    self.vram.write_16(ofs & !1, expand_value(value));
-                }
-            }
-            PAGE_OAM => { /* OAM can't be written with 8bit store */ }
-            _ => unreachable!(),
-        };
-    }
-}
-
 impl Gpu {
     pub fn new(interrupt_flags: SharedInterruptFlags) -> Gpu {
         Gpu {
@@ -346,7 +284,9 @@ impl Gpu {
         if index == 0 || (palette_bank != 0 && index % 16 == 0) {
             return Rgb15::TRANSPARENT;
         }
-        let value = self.palette_ram.read_16(offset + 2 * index + 0x20 * palette_bank);
+        let value = self
+            .palette_ram
+            .read_16(offset + 2 * index + 0x20 * palette_bank);
 
         // top bit is ignored
         Rgb15(value & 0x7FFF)
@@ -371,6 +311,13 @@ impl Gpu {
     }
 
     pub fn render_scanline(&mut self) {
+        if self.dispcnt.force_blank() {
+            for x in self.frame_buffer[self.vcount * DISPLAY_WIDTH..].iter_mut().take(DISPLAY_WIDTH) {
+                *x = 0xf8f8f8;
+            }
+            return;
+        }
+
         if self.dispcnt.enable_obj() {
             self.render_objs();
         }
@@ -543,6 +490,68 @@ impl Gpu {
         if self.cycles_left_for_current_state < *cycles_to_next_event {
             *cycles_to_next_event = self.cycles_left_for_current_state;
         }
+    }
+}
+
+impl Bus for Gpu {
+    fn read_8(&self, addr: Addr) -> u8 {
+        let page = (addr >> 24) as usize;
+        match page {
+            PAGE_PALRAM => self.palette_ram.read_8(addr & 0x3ff),
+            PAGE_VRAM => {
+                // complicated
+                let mut ofs = addr & ((VIDEO_RAM_SIZE as u32) - 1);
+                if ofs > 0x18000 {
+                    ofs -= 0x8000;
+                }
+                self.vram.read_8(ofs)
+            }
+            PAGE_OAM => self.oam.read_8(addr & 0x3ff),
+            _ => unreachable!(),
+        }
+    }
+
+    fn write_16(&mut self, addr: Addr, value: u16) {
+        let page = (addr >> 24) as usize;
+        match page {
+            PAGE_PALRAM => self.palette_ram.write_16(addr & 0x3fe, value),
+            PAGE_VRAM => {
+                let mut ofs = addr & ((VIDEO_RAM_SIZE as u32) - 1);
+                if ofs > 0x18000 {
+                    ofs -= 0x8000;
+                }
+                self.vram.write_16(ofs, value)
+            }
+            PAGE_OAM => self.oam.write_16(addr & 0x3fe, value),
+            _ => unreachable!(),
+        }
+    }
+
+    fn write_8(&mut self, addr: Addr, value: u8) {
+        fn expand_value(value: u8) -> u16 {
+            (value as u16) * 0x101
+        }
+
+        let page = (addr >> 24) as usize;
+        match page {
+            PAGE_PALRAM => self.palette_ram.write_16(addr & 0x3fe, expand_value(value)),
+            PAGE_VRAM => {
+                let mut ofs = addr & ((VIDEO_RAM_SIZE as u32) - 1);
+                if ofs > 0x18000 {
+                    ofs -= 0x8000;
+                }
+                let obj_offset = if self.dispcnt.mode() >= 3 {
+                    0x14000
+                } else {
+                    0x10000
+                };
+                if ofs < obj_offset {
+                    self.vram.write_16(ofs & !1, expand_value(value));
+                }
+            }
+            PAGE_OAM => { /* OAM can't be written with 8bit store */ }
+            _ => unreachable!(),
+        };
     }
 }
 

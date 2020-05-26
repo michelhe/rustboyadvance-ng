@@ -72,7 +72,7 @@ bitfield! {
     pub display_frame, set_display_frame: 4, 4;
     pub hblank_interval_free, _: 5;
     pub obj_character_vram_mapping, _: 6;
-    pub forst_vblank, _: 7;
+    pub force_blank, _: 7;
     pub enable_bg0, _ : 8;
     pub enable_bg1, _ : 9;
     pub enable_bg2, _ : 10;
