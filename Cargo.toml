@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "rustboyadvance-core/",
+    "core",
     "platform/rustboyadvance-sdl2",
     "platform/rustboyadvance-libretro",
     "platform/rustboyadvance-minifb",

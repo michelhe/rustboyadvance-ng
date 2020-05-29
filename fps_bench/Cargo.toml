@@ -5,4 +5,4 @@ authors = ["Michel Heily <michelheily@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-rustboyadvance-core = {path = "../rustboyadvance-core/"}
+rustboyadvance-core = {path = "../core/"}
