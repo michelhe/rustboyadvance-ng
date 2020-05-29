@@ -6,7 +6,7 @@ use super::cartridge::Cartridge;
 use super::dma::DmaNotifer;
 use super::iodev::{IoDevices, WaitControl};
 use super::{Addr, Bus};
-use super::util::WeakPointer;
+use super::util::{BoxedMemory, WeakPointer};
 
 pub mod consts {
     pub const WORK_RAM_SIZE: usize = 256 * 1024;
@@ -68,30 +68,6 @@ pub enum MemoryAccessWidth {
     MemoryAccess8,
     MemoryAccess16,
     MemoryAccess32,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[repr(transparent)]
-pub struct BoxedMemory {
-    pub mem: Box<[u8]>,
-}
-
-impl BoxedMemory {
-    pub fn new(boxed_slice: Box<[u8]>) -> BoxedMemory {
-        BoxedMemory { mem: boxed_slice }
-    }
-}
-
-impl Bus for BoxedMemory {
-    fn read_8(&self, addr: Addr) -> u8 {
-        unsafe { *self.mem.get_unchecked(addr as usize) }
-    }
-
-    fn write_8(&mut self, addr: Addr, value: u8) {
-        unsafe {
-            *self.mem.get_unchecked_mut(addr as usize) = value;
-        }
-    }
 }
 
 const CYCLE_LUT_SIZE: usize = 0x10;

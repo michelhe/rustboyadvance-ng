@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::dma::{DmaNotifer, TIMING_HBLANK, TIMING_VBLANK};
 use super::interrupt::{self, Interrupt, SharedInterruptFlags};
 pub use super::sysbus::consts::*;
-use super::sysbus::BoxedMemory;
+use super::util::BoxedMemory;
 use super::VideoInterface;
 use super::{Addr, Bus};
 

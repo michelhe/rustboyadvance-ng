@@ -4,8 +4,9 @@ use std::io::prelude::*;
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use std::ptr;
-
 use std::time;
+
+use super::bus::{Addr, Bus};
 
 #[cfg(not(target_arch = "wasm32"))]
 type Instant = time::Instant;
@@ -188,6 +189,30 @@ impl<T> Default for WeakPointer<T> {
     fn default() -> Self {
         WeakPointer {
             ptr: ptr::null_mut(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[repr(transparent)]
+pub struct BoxedMemory {
+    pub mem: Box<[u8]>,
+}
+
+impl BoxedMemory {
+    pub fn new(boxed_slice: Box<[u8]>) -> BoxedMemory {
+        BoxedMemory { mem: boxed_slice }
+    }
+}
+
+impl Bus for BoxedMemory {
+    fn read_8(&self, addr: Addr) -> u8 {
+        unsafe { *self.mem.get_unchecked(addr as usize) }
+    }
+
+    fn write_8(&mut self, addr: Addr, value: u8) {
+        unsafe {
+            *self.mem.get_unchecked_mut(addr as usize) = value;
         }
     }
 }
