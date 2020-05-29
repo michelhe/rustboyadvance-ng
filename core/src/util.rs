@@ -1,7 +1,9 @@
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
+use std::ops::{Deref, DerefMut};
 use std::path::Path;
+use std::ptr;
 
 use std::time;
 
@@ -150,6 +152,42 @@ pub mod audio {
 
         pub fn consumer(&mut self) -> &mut Consumer<i16> {
             &mut self.cons
+        }
+    }
+}
+
+#[repr(transparent)]
+#[derive(Clone)]
+/// Wrapper for passing raw pointers around.
+/// Breaks compiler safety guaranties, so must be used with care.
+pub struct WeakPointer<T: ?Sized> {
+    ptr: *mut T,
+}
+
+impl<T> WeakPointer<T> {
+    pub fn new(ptr: *mut T) -> Self {
+        WeakPointer { ptr }
+    }
+}
+
+impl<T> Deref for WeakPointer<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        unsafe { &(*self.ptr) }
+    }
+}
+
+impl<T> DerefMut for WeakPointer<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe { &mut (*self.ptr) }
+    }
+}
+
+impl<T> Default for WeakPointer<T> {
+    fn default() -> Self {
+        WeakPointer {
+            ptr: ptr::null_mut(),
         }
     }
 }

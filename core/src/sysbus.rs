@@ -1,5 +1,4 @@
 use std::fmt;
-use std::ops::{Deref, DerefMut};
 
 use serde::{Deserialize, Serialize};
 
@@ -7,6 +6,7 @@ use super::cartridge::Cartridge;
 use super::dma::DmaNotifer;
 use super::iodev::{IoDevices, WaitControl};
 use super::{Addr, Bus};
+use super::util::WeakPointer;
 
 pub mod consts {
     pub const WORK_RAM_SIZE: usize = 256 * 1024;
@@ -202,38 +202,7 @@ pub struct SysBus {
     pub trace_access: bool,
 }
 
-#[repr(transparent)]
-#[derive(Clone)]
-pub struct SysBusPtr {
-    ptr: *mut SysBus,
-}
-
-impl Default for SysBusPtr {
-    fn default() -> SysBusPtr {
-        SysBusPtr {
-            ptr: std::ptr::null_mut::<SysBus>(),
-        }
-    }
-}
-
-impl SysBusPtr {
-    pub fn new(ptr: *mut SysBus) -> SysBusPtr {
-        SysBusPtr { ptr: ptr }
-    }
-}
-
-impl Deref for SysBusPtr {
-    type Target = SysBus;
-    fn deref(&self) -> &Self::Target {
-        unsafe { &*self.ptr }
-    }
-}
-
-impl DerefMut for SysBusPtr {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.ptr }
-    }
-}
+pub type SysBusPtr = WeakPointer<SysBus>;
 
 macro_rules! memory_map {
     (read($sb:ident, $read_fn:ident, $addr:expr)) => {
