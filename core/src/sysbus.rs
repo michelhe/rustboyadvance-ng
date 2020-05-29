@@ -180,64 +180,6 @@ pub struct SysBus {
 
 pub type SysBusPtr = WeakPointer<SysBus>;
 
-macro_rules! memory_map {
-    (read($sb:ident, $read_fn:ident, $addr:expr)) => {
-        match $addr & 0xff000000 {
-            BIOS_ADDR => {
-                if $addr >= 0x4000 {
-                    0
-                } else {
-                    $sb.bios.$read_fn($addr)
-                }
-            }
-            EWRAM_ADDR => $sb.onboard_work_ram.$read_fn($addr & 0x3_ffff),
-            IWRAM_ADDR => $sb.internal_work_ram.$read_fn($addr & 0x7fff),
-            IOMEM_ADDR => {
-                let addr = if $addr & 0xffff == 0x8000 {
-                    0x800
-                } else {
-                    $addr & 0x7ff
-                };
-                $sb.io.$read_fn(addr)
-            }
-            PALRAM_ADDR | VRAM_ADDR | OAM_ADDR => $sb.io.gpu.$read_fn($addr),
-            GAMEPAK_WS0_LO | GAMEPAK_WS0_HI | GAMEPAK_WS1_LO | GAMEPAK_WS1_HI | GAMEPAK_WS2_LO => {
-                $sb.cartridge.$read_fn($addr)
-            }
-            GAMEPAK_WS2_HI => $sb.cartridge.$read_fn($addr),
-            SRAM_LO | SRAM_HI => $sb.cartridge.$read_fn($addr),
-            _ => {
-                // warn!("trying to read invalid address {:#x}", $addr);
-                // TODO open bus
-                0
-            }
-        }
-    };
-    (write($sb:ident, $write_fn:ident, $addr:expr, $value:expr)) => {
-        match $addr & 0xff000000 {
-            BIOS_ADDR => {}
-            EWRAM_ADDR => $sb.onboard_work_ram.$write_fn($addr & 0x3_ffff, $value),
-            IWRAM_ADDR => $sb.internal_work_ram.$write_fn($addr & 0x7fff, $value),
-            IOMEM_ADDR => {
-                let addr = if $addr & 0xffff == 0x8000 {
-                    0x800
-                } else {
-                    $addr & 0x7ff
-                };
-                $sb.io.$write_fn(addr, $value)
-            }
-            PALRAM_ADDR | VRAM_ADDR | OAM_ADDR => $sb.io.gpu.$write_fn($addr, $value),
-            GAMEPAK_WS0_LO => $sb.cartridge.$write_fn($addr, $value),
-            GAMEPAK_WS2_HI => $sb.cartridge.$write_fn($addr, $value),
-            SRAM_LO | SRAM_HI => $sb.cartridge.$write_fn($addr, $value),
-            _ => {
-                // warn!("trying to write invalid address {:#x}", $addr);
-                // TODO open bus
-            }
-        }
-    };
-}
-
 impl SysBus {
     pub fn new(io: IoDevices, bios_rom: Box<[u8]>, cartridge: Cartridge) -> SysBus {
         let mut luts = CycleLookupTables::default();
@@ -245,8 +187,7 @@ impl SysBus {
         luts.update_gamepak_waitstates(io.waitcnt);
 
         SysBus {
-            io: io,
-
+            io,
             bios: BoxedMemory::new(bios_rom),
             onboard_work_ram: BoxedMemory::new(vec![0; WORK_RAM_SIZE].into_boxed_slice()),
             internal_work_ram: BoxedMemory::new(vec![0; INTERNAL_RAM_SIZE].into_boxed_slice()),
@@ -300,33 +241,181 @@ impl SysBus {
 
 impl Bus for SysBus {
     fn read_32(&self, addr: Addr) -> u32 {
-        memory_map!(read(self, read_32, addr & !3))
+        match addr & 0xff000000 {
+            BIOS_ADDR => self.bios.read_32(addr),
+            EWRAM_ADDR => self.onboard_work_ram.read_32(addr & 0x3_fffc),
+            IWRAM_ADDR => self.internal_work_ram.read_32(addr & 0x7ffc),
+            IOMEM_ADDR => {
+                let addr = if addr & 0xfffc == 0x8000 {
+                    0x800
+                } else {
+                    addr & 0x7fc
+                };
+                self.io.read_32(addr)
+            }
+            PALRAM_ADDR | VRAM_ADDR | OAM_ADDR => self.io.gpu.read_32(addr),
+            GAMEPAK_WS0_LO | GAMEPAK_WS0_HI | GAMEPAK_WS1_LO | GAMEPAK_WS1_HI | GAMEPAK_WS2_LO => {
+                self.cartridge.read_32(addr)
+            }
+            GAMEPAK_WS2_HI => self.cartridge.read_32(addr),
+            SRAM_LO | SRAM_HI => self.cartridge.read_32(addr),
+            _ => {
+                // TODO open-bus
+                0
+            }
+        }
     }
 
     fn read_16(&self, addr: Addr) -> u16 {
-        memory_map!(read(self, read_16, addr & !1))
+        match addr & 0xff000000 {
+            BIOS_ADDR => self.bios.read_16(addr),
+            EWRAM_ADDR => self.onboard_work_ram.read_16(addr & 0x3_fffe),
+            IWRAM_ADDR => self.internal_work_ram.read_16(addr & 0x7ffe),
+            IOMEM_ADDR => {
+                let addr = if addr & 0xfffe == 0x8000 {
+                    0x800
+                } else {
+                    addr & 0x7fe
+                };
+                self.io.read_16(addr)
+            }
+            PALRAM_ADDR | VRAM_ADDR | OAM_ADDR => self.io.gpu.read_16(addr),
+            GAMEPAK_WS0_LO | GAMEPAK_WS0_HI | GAMEPAK_WS1_LO | GAMEPAK_WS1_HI | GAMEPAK_WS2_LO => {
+                self.cartridge.read_16(addr)
+            }
+            GAMEPAK_WS2_HI => self.cartridge.read_16(addr),
+            SRAM_LO | SRAM_HI => self.cartridge.read_16(addr),
+            _ => {
+                // TODO open-bus
+                0
+            }
+        }
     }
 
     fn read_8(&self, addr: Addr) -> u8 {
-        memory_map!(read(self, read_8, addr))
+        match addr & 0xff000000 {
+            BIOS_ADDR => self.bios.read_8(addr),
+            EWRAM_ADDR => self.onboard_work_ram.read_8(addr & 0x3_ffff),
+            IWRAM_ADDR => self.internal_work_ram.read_8(addr & 0x7fff),
+            IOMEM_ADDR => {
+                let addr = if addr & 0xffff == 0x8000 {
+                    0x800
+                } else {
+                    addr & 0x7ff
+                };
+                self.io.read_8(addr)
+            }
+            PALRAM_ADDR | VRAM_ADDR | OAM_ADDR => self.io.gpu.read_8(addr),
+            GAMEPAK_WS0_LO | GAMEPAK_WS0_HI | GAMEPAK_WS1_LO | GAMEPAK_WS1_HI | GAMEPAK_WS2_LO => {
+                self.cartridge.read_8(addr)
+            }
+            GAMEPAK_WS2_HI => self.cartridge.read_8(addr),
+            SRAM_LO | SRAM_HI => self.cartridge.read_8(addr),
+            _ => {
+                // TODO open-bus
+                0
+            }
+        }
     }
 
     fn write_32(&mut self, addr: Addr, value: u32) {
-        memory_map!(write(self, write_32, addr & !3, value));
+        match addr & 0xff000000 {
+            BIOS_ADDR => {}
+            EWRAM_ADDR => self.onboard_work_ram.write_32(addr & 0x3_fffc, value),
+            IWRAM_ADDR => self.internal_work_ram.write_32(addr & 0x7ffc, value),
+            IOMEM_ADDR => {
+                let addr = if addr & 0xfffc == 0x8000 {
+                    0x800
+                } else {
+                    addr & 0x7fc
+                };
+                self.io.write_32(addr, value)
+            }
+            PALRAM_ADDR | VRAM_ADDR | OAM_ADDR => self.io.gpu.write_32(addr, value),
+            GAMEPAK_WS0_LO => self.cartridge.write_32(addr, value),
+            GAMEPAK_WS2_HI => self.cartridge.write_32(addr, value),
+            SRAM_LO | SRAM_HI => self.cartridge.write_32(addr, value),
+            _ => {
+                // warn!("trying to write invalid address {:#x}", addr);
+                // TODO open bus
+            }
+        }
     }
 
     fn write_16(&mut self, addr: Addr, value: u16) {
-        memory_map!(write(self, write_16, addr & !1, value));
+        match addr & 0xff000000 {
+            BIOS_ADDR => {}
+            EWRAM_ADDR => self.onboard_work_ram.write_16(addr & 0x3_fffe, value),
+            IWRAM_ADDR => self.internal_work_ram.write_16(addr & 0x7ffe, value),
+            IOMEM_ADDR => {
+                let addr = if addr & 0xfffe == 0x8000 {
+                    0x800
+                } else {
+                    addr & 0x7fe
+                };
+                self.io.write_16(addr, value)
+            }
+            PALRAM_ADDR | VRAM_ADDR | OAM_ADDR => self.io.gpu.write_16(addr, value),
+            GAMEPAK_WS0_LO => self.cartridge.write_16(addr, value),
+            GAMEPAK_WS2_HI => self.cartridge.write_16(addr, value),
+            SRAM_LO | SRAM_HI => self.cartridge.write_16(addr, value),
+            _ => {
+                // warn!("trying to write invalid address {:#x}", addr);
+                // TODO open bus
+            }
+        }
     }
 
     fn write_8(&mut self, addr: Addr, value: u8) {
-        memory_map!(write(self, write_8, addr, value));
+        match addr & 0xff000000 {
+            BIOS_ADDR => {}
+            EWRAM_ADDR => self.onboard_work_ram.write_8(addr & 0x3_ffff, value),
+            IWRAM_ADDR => self.internal_work_ram.write_8(addr & 0x7fff, value),
+            IOMEM_ADDR => {
+                let addr = if addr & 0xffff == 0x8000 {
+                    0x800
+                } else {
+                    addr & 0x7ff
+                };
+                self.io.write_8(addr, value)
+            }
+            PALRAM_ADDR | VRAM_ADDR | OAM_ADDR => self.io.gpu.write_8(addr, value),
+            GAMEPAK_WS0_LO => self.cartridge.write_8(addr, value),
+            GAMEPAK_WS2_HI => self.cartridge.write_8(addr, value),
+            SRAM_LO | SRAM_HI => self.cartridge.write_8(addr, value),
+            _ => {
+                // warn!("trying to write invalid address {:#x}", addr);
+                // TODO open bus
+            }
+        }
     }
 }
 
 impl DebugRead for SysBus {
     fn debug_read_8(&self, addr: Addr) -> u8 {
-        memory_map!(read(self, debug_read_8, addr, u8)) as u8
+        match addr & 0xff000000 {
+            BIOS_ADDR => self.bios.debug_read_8(addr),
+            EWRAM_ADDR => self.onboard_work_ram.debug_read_8(addr & 0x3_ffff),
+            IWRAM_ADDR => self.internal_work_ram.debug_read_8(addr & 0x7fff),
+            IOMEM_ADDR => {
+                let addr = if addr & 0xffff == 0x8000 {
+                    0x800
+                } else {
+                    addr & 0x7ff
+                };
+                self.io.debug_read_8(addr)
+            }
+            PALRAM_ADDR | VRAM_ADDR | OAM_ADDR => self.io.gpu.debug_read_8(addr),
+            GAMEPAK_WS0_LO | GAMEPAK_WS0_HI | GAMEPAK_WS1_LO | GAMEPAK_WS1_HI | GAMEPAK_WS2_LO => {
+                self.cartridge.debug_read_8(addr)
+            }
+            GAMEPAK_WS2_HI => self.cartridge.debug_read_8(addr),
+            SRAM_LO | SRAM_HI => self.cartridge.debug_read_8(addr),
+            _ => {
+                // TODO open-bus
+                0
+            }
+        }
     }
 }
 
