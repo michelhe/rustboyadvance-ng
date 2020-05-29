@@ -1,5 +1,6 @@
 use std::cmp;
 
+use super::bus::*;
 use super::dma::DmaController;
 use super::gpu::regs::WindowFlags;
 use super::gpu::*;
@@ -8,7 +9,6 @@ use super::keypad;
 use super::sound::SoundController;
 use super::sysbus::SysBusPtr;
 use super::timer::Timers;
-use super::{Addr, Bus};
 
 use serde::{Deserialize, Serialize};
 
@@ -287,6 +287,12 @@ impl Bus for IoDevices {
                 self.write_16(addr & !1, t);
             }
         }
+    }
+}
+
+impl DebugRead for IoDevices {
+    fn debug_read_8(&self, addr: Addr) -> u8 {
+        self.read_8(addr)
     }
 }
 

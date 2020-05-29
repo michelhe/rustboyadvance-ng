@@ -41,3 +41,24 @@ pub trait Bus {
         bytes
     }
 }
+
+/// Helper trait for reading memory as if we were an all-powerfull debugger
+pub trait DebugRead: Bus {
+    fn debug_read_32(&self, addr: Addr) -> u32 {
+        self.debug_read_16(addr) as u32 | (self.debug_read_16(addr + 2) as u32) << 16
+    }
+
+    fn debug_read_16(&self, addr: Addr) -> u16 {
+        self.debug_read_8(addr) as u16 | (self.debug_read_8(addr + 1) as u16) << 8
+    }
+
+    fn debug_read_8(&self, addr: Addr) -> u8;
+
+    fn debug_get_bytes(&self, range: std::ops::Range<u32>) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for b in range {
+            bytes.push(self.debug_read_8(b));
+        }
+        bytes
+    }
+}

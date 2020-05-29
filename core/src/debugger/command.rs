@@ -4,9 +4,9 @@ use std::time;
 use crate::arm7tdmi::arm::ArmInstruction;
 use crate::arm7tdmi::thumb::ThumbInstruction;
 use crate::arm7tdmi::CpuState;
+use crate::bus::{Addr, Bus, DebugRead};
 use crate::disass::Disassembler;
 use crate::util::{read_bin_file, write_bin_file};
-use crate::{Addr, Bus};
 
 // use super::palette_view::create_palette_view;
 // use super::tile_view::create_tile_view;
@@ -135,7 +135,7 @@ impl Debugger {
                 println!("that took {:?} seconds", end - start);
             }
             HexDump(addr, nbytes) => {
-                let bytes = self.gba.sysbus.get_bytes(addr..addr + nbytes);
+                let bytes = self.gba.sysbus.debug_get_bytes(addr..addr + nbytes);
                 hexdump::hexdump(&bytes);
             }
             MemWrite(size, addr, val) => match size {
@@ -144,7 +144,7 @@ impl Debugger {
                 MemWriteCommandSize::Word => self.gba.sysbus.write_32(addr, val as u32),
             },
             Disass(mode, addr, n) => {
-                let bytes = self.gba.sysbus.get_bytes(addr..addr + n);
+                let bytes = self.gba.sysbus.debug_get_bytes(addr..addr + n);
                 match mode {
                     DisassMode::ModeArm => {
                         let disass = Disassembler::<ArmInstruction>::new(addr, &bytes);

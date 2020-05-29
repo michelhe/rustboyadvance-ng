@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{Addr, Bus};
+use super::bus::*;
 
 pub mod header;
 use header::CartridgeHeader;
@@ -131,5 +131,12 @@ impl Bus for Cartridge {
             }
         }
         self.default_write_16(addr, value);
+    }
+}
+
+impl DebugRead for Cartridge {
+    fn debug_read_8(&self, addr: Addr) -> u8 {
+        let offset = (addr & 0x01ff_ffff) as usize;
+        self.bytes[offset]
     }
 }

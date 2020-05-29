@@ -4,12 +4,12 @@ use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
 
+use super::bus::*;
 use super::dma::{DmaNotifer, TIMING_HBLANK, TIMING_VBLANK};
 use super::interrupt::{self, Interrupt, SharedInterruptFlags};
 pub use super::sysbus::consts::*;
 use super::util::BoxedMemory;
 use super::VideoInterface;
-use super::{Addr, Bus};
 
 use crate::bitfield::Bit;
 use crate::num::FromPrimitive;
@@ -572,6 +572,18 @@ impl Bus for Gpu {
             PAGE_OAM => { /* OAM can't be written with 8bit store */ }
             _ => unreachable!(),
         };
+    }
+}
+
+impl DebugRead for Gpu {
+    fn debug_read_8(&self, addr: Addr) -> u8 {
+        let page = (addr >> 24) as usize;
+        match page {
+            PAGE_PALRAM => self.palette_ram.read_8(addr),
+            PAGE_VRAM => self.vram.read_8(addr),
+            PAGE_OAM => self.vram.read_8(addr),
+            _ => unreachable!(),
+        }
     }
 }
 

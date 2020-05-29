@@ -2,10 +2,10 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use super::bus::*;
 use super::cartridge::Cartridge;
 use super::dma::DmaNotifer;
 use super::iodev::{IoDevices, WaitControl};
-use super::{Addr, Bus};
 use super::util::{BoxedMemory, WeakPointer};
 
 pub mod consts {
@@ -321,6 +321,12 @@ impl Bus for SysBus {
 
     fn write_8(&mut self, addr: Addr, value: u8) {
         memory_map!(write(self, write_8, addr, value));
+    }
+}
+
+impl DebugRead for SysBus {
+    fn debug_read_8(&self, addr: Addr) -> u8 {
+        memory_map!(read(self, debug_read_8, addr, u8)) as u8
     }
 }
 

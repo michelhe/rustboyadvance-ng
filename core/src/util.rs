@@ -6,7 +6,7 @@ use std::path::Path;
 use std::ptr;
 use std::time;
 
-use super::bus::{Addr, Bus};
+use super::bus::{Addr, Bus, DebugRead};
 
 #[cfg(not(target_arch = "wasm32"))]
 type Instant = time::Instant;
@@ -214,5 +214,11 @@ impl Bus for BoxedMemory {
         unsafe {
             *self.mem.get_unchecked_mut(addr as usize) = value;
         }
+    }
+}
+
+impl DebugRead for BoxedMemory {
+    fn debug_read_8(&self, addr: Addr) -> u8 {
+        self.mem[addr as usize]
     }
 }
