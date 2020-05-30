@@ -98,6 +98,9 @@ impl Gpu {
         }
 
         let tile_base = OVRAM - VRAM_ADDR + 0x20 * (attrs.2.tile() as u32);
+        if tile_base < self.vram_obj_tiles_start {
+            return;
+        }
 
         let (tile_size, pixel_format) = attrs.tile_format();
         let palette_bank = match pixel_format {
@@ -191,6 +194,9 @@ impl Gpu {
         }
 
         let tile_base = OVRAM - VRAM_ADDR + 0x20 * (attrs.2.tile() as u32);
+        if tile_base < self.vram_obj_tiles_start {
+            return;
+        }
 
         let (tile_size, pixel_format) = attrs.tile_format();
         let palette_bank = match pixel_format {

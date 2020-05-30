@@ -51,6 +51,9 @@ pub mod consts {
     pub const CYCLES_FULL_REFRESH: usize = 280896;
 
     pub const TILE_SIZE: u32 = 0x20;
+
+    pub(super) const VRAM_OBJ_TILES_START_TEXT: u32 = 0x1_0000;
+    pub(super) const VRAM_OBJ_TILES_START_BITMAP: u32 = 0x1_4000;
 }
 pub use self::consts::*;
 
@@ -201,6 +204,8 @@ pub struct Gpu {
     pub vram: BoxedMemory,
     pub oam: BoxedMemory,
 
+    pub(super) vram_obj_tiles_start: u32,
+
     #[debug_stub = "Sprite Buffer"]
     pub obj_buffer: Vec<ObjBufferEntry>,
 
@@ -230,6 +235,8 @@ impl Gpu {
             bldalpha: BlendAlpha(0),
             bldy: 0,
 
+            vram_obj_tiles_start: VRAM_OBJ_TILES_START_TEXT,
+
             state: HDraw,
             vcount: 0,
             cycles_left_for_current_state: CYCLES_HDRAW,
@@ -242,6 +249,21 @@ impl Gpu {
 
             frame_buffer: vec![0; DISPLAY_WIDTH * DISPLAY_HEIGHT],
         }
+    }
+
+    pub fn write_dispcnt(&mut self, value: u16) {
+        let new_dispcnt = DisplayControl(value);
+        let old_mode = self.dispcnt.mode();
+        let new_mode = new_dispcnt.mode();
+        if old_mode != new_mode {
+            debug!("[GPU] Display mode changed! {} -> {}", old_mode, new_mode);
+            self.vram_obj_tiles_start = if new_dispcnt.mode() >= 3 {
+                VRAM_OBJ_TILES_START_BITMAP
+            } else {
+                VRAM_OBJ_TILES_START_TEXT
+            };
+        }
+        self.dispcnt = new_dispcnt;
     }
 
     pub fn skip_bios(&mut self) {
@@ -543,12 +565,7 @@ impl Bus for Gpu {
                 if ofs > 0x18000 {
                     ofs -= 0x8000;
                 }
-                let obj_offset = if self.dispcnt.mode() >= 3 {
-                    0x14000
-                } else {
-                    0x10000
-                };
-                if ofs < obj_offset {
+                if ofs < self.vram_obj_tiles_start {
                     self.vram.write_16(ofs & !1, expand_value(value));
                 }
             }

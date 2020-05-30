@@ -161,7 +161,7 @@ impl Bus for IoDevices {
         }
 
         match io_addr {
-            REG_DISPCNT => io.gpu.dispcnt.0 = value,
+            REG_DISPCNT => io.gpu.write_dispcnt(value),
             REG_DISPSTAT => io.gpu.dispstat.0 = value | (io.gpu.dispstat.0 & 7),
             REG_BG0CNT => io.gpu.backgrounds[0].bgcnt.0 = value,
             REG_BG1CNT => io.gpu.backgrounds[1].bgcnt.0 = value,
