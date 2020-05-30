@@ -31,11 +31,11 @@ impl DisplayControl {
 
 impl BgControl {
     pub fn char_block(&self) -> u32 {
-        VRAM_ADDR + (self.character_base_block() as u32) * 0x4000
+        (self.character_base_block() as u32) * 0x4000
     }
 
     pub fn screen_block(&self) -> u32 {
-        VRAM_ADDR + (self.screen_base_block() as u32) * SCREEN_BLOCK_SIZE
+        (self.screen_base_block() as u32) * SCREEN_BLOCK_SIZE
     }
 
     pub fn size_regular(&self) -> (u32, u32) {

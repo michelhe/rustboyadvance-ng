@@ -56,7 +56,7 @@ impl Gpu {
                         + SCREEN_BLOCK_SIZE * sbb
                         + 2 * index2d!(u32, se_row, se_column, 32);
                     for _ in se_row..32 {
-                        let entry = TileMapEntry(self.vram.read_16(map_addr - VRAM_ADDR));
+                        let entry = TileMapEntry(self.vram.read_16(map_addr));
                         let tile_addr = tileset_base + entry.tile_index() * tile_size;
 
                         for tile_px in start_tile_x..8 {
@@ -121,7 +121,7 @@ impl Gpu {
                 }
             }
             let map_addr = screen_block + index2d!(u32, t.0 / 8, t.1 / 8, texture_size / 8);
-            let tile_index = self.vram.read_8(map_addr - VRAM_ADDR) as u32;
+            let tile_index = self.vram.read_8(map_addr) as u32;
             let tile_addr = char_block + tile_index * 0x40;
 
             let color = self.get_palette_color(

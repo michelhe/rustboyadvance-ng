@@ -263,7 +263,7 @@ impl Gpu {
 
     #[inline]
     pub fn read_pixel_index_bpp4(&self, addr: u32, x: u32, y: u32) -> usize {
-        let ofs = addr - VRAM_ADDR + index2d!(u32, x / 2, y, 4);
+        let ofs = addr + index2d!(u32, x / 2, y, 4);
         let ofs = ofs as usize;
         let byte = self.vram.read_8(ofs as u32);
         if x & 1 != 0 {
@@ -275,7 +275,7 @@ impl Gpu {
 
     #[inline]
     pub fn read_pixel_index_bpp8(&self, addr: u32, x: u32, y: u32) -> usize {
-        let ofs = addr - VRAM_ADDR;
+        let ofs = addr;
         self.vram.read_8(ofs + index2d!(u32, x, y, 8)) as usize
     }
 
@@ -312,7 +312,10 @@ impl Gpu {
 
     pub fn render_scanline(&mut self) {
         if self.dispcnt.force_blank() {
-            for x in self.frame_buffer[self.vcount * DISPLAY_WIDTH..].iter_mut().take(DISPLAY_WIDTH) {
+            for x in self.frame_buffer[self.vcount * DISPLAY_WIDTH..]
+                .iter_mut()
+                .take(DISPLAY_WIDTH)
+            {
                 *x = 0xf8f8f8;
             }
             return;
