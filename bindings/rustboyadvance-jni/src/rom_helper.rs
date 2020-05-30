@@ -6,7 +6,7 @@ use rustboyadvance_core::cartridge;
 
 fn parse_rom_header(env: &JNIEnv, barr: jbyteArray) -> cartridge::header::CartridgeHeader {
     let rom_data = env.convert_byte_array(barr).unwrap();
-    cartridge::header::parse(&rom_data)
+    cartridge::header::parse(&rom_data).unwrap()
 }
 
 #[no_mangle]

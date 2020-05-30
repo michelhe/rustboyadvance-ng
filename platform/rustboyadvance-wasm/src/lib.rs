@@ -55,5 +55,5 @@ impl From<cartridge::header::CartridgeHeader> for RomInfo {
 
 #[wasm_bindgen]
 pub fn parse_rom_header(rom_bin: &[u8]) -> RomInfo {
-    cartridge::header::parse(rom_bin).into()
+    cartridge::header::parse(rom_bin).unwrap().into()
 }

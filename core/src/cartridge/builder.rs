@@ -120,7 +120,7 @@ impl GamepakBuilder {
             ))
         }?;
 
-        let header = header::parse(&bytes);
+        let header = header::parse(&bytes)?;
         info!("Loaded ROM: {:?}", header);
 
         if !self.create_backup_file {
