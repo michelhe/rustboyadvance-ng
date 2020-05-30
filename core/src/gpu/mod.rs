@@ -601,9 +601,9 @@ impl DebugRead for Gpu {
     fn debug_read_8(&self, addr: Addr) -> u8 {
         let page = (addr >> 24) as usize;
         match page {
-            PAGE_PALRAM => self.palette_ram.read_8(addr),
-            PAGE_VRAM => self.vram.read_8(addr),
-            PAGE_OAM => self.vram.read_8(addr),
+            PAGE_PALRAM => self.palette_ram.read_8(addr & 0x3ff),
+            PAGE_VRAM => self.vram.read_8(addr & ((VIDEO_RAM_SIZE as u32) - 1)),
+            PAGE_OAM => self.vram.read_8(addr & 0x3ff),
             _ => unreachable!(),
         }
     }
