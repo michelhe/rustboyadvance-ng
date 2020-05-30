@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::str::from_utf8;
 
+use super::super::{GBAError, GBAResult};
+
 /// From GBATEK
 ///
 /// The first 192 bytes at 8000000h-80000BFh in ROM are used as cartridge header. The same header is also used for Multiboot images at 2000000h-20000BFh (plus some additional multiboot entries at 20000C0h and up).
@@ -38,22 +40,49 @@ pub struct CartridgeHeader {
     // joybus_entry_point: Addr,
 }
 
-pub fn parse(bytes: &[u8]) -> CartridgeHeader {
+fn calculate_checksum(bytes: &[u8]) -> u8 {
+    bytes
+        .iter()
+        .cloned()
+        .fold(0u8, u8::wrapping_sub)
+        .wrapping_sub(0x19)
+}
+
+pub fn parse(bytes: &[u8]) -> GBAResult<CartridgeHeader> {
+    if bytes.len() < 0xc0 {
+        return Err(GBAError::CartridgeLoadError(
+            "incomplete cartridge header".to_string(),
+        ));
+    }
+
+    let checksum = bytes[0xbd];
+    if calculate_checksum(&bytes[0xa0..=0xbc]) != checksum {
+        return Err(GBAError::CartridgeLoadError(
+            "invalid header checksum".to_string(),
+        ));
+    }
+
+    let game_title = from_utf8(&bytes[0xa0..0xac])
+        .map_err(|_| GBAError::CartridgeLoadError("invalid game title".to_string()))?;
+
+    let game_code = from_utf8(&bytes[0xac..0xb0])
+        .map_err(|_| GBAError::CartridgeLoadError("invalid game code".to_string()))?;
+
+    let maker_code = from_utf8(&bytes[0xb0..0xb2])
+        .map_err(|_| GBAError::CartridgeLoadError("invalid marker code".to_string()))?;
+
     // let (_, rom_entry_point) = le_u32(bytes).unwrap();
-    let game_title = from_utf8(&bytes[0xa0..0xac]).unwrap();
-    let game_code = from_utf8(&bytes[0xac..0xb0]).unwrap();
-    let maker_code = from_utf8(&bytes[0xb0..0xb2]).unwrap();
     // let (_, ram_entry_point) = le_u32(&bytes[0xc0..]).unwrap();
     // let (_, joybus_entry_point) = le_u32(&bytes[0xc0..]).unwrap();
 
-    CartridgeHeader {
+    Ok(CartridgeHeader {
         // rom_entry_point: rom_entry_point,
         game_title: String::from(game_title),
         game_code: String::from(game_code),
         maker_code: String::from(maker_code),
         software_version: bytes[0xbc],
-        checksum: bytes[0xbd],
+        checksum: checksum,
         // ram_entry_point: ram_entry_point,
         // joybus_entry_point: joybus_entry_point,
-    }
+    })
 }
