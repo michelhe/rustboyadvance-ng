@@ -82,6 +82,20 @@ impl Cartridge {
         self.symbols = other.symbols;
         self.backup = other.backup;
     }
+
+    #[inline]
+    /// From GBATEK:
+    /// Reading from GamePak ROM when no Cartridge is inserted -
+    ///     Because Gamepak uses the same signal-lines for both 16bit data and for lower 16bit halfword address,
+    ///     the entire gamepak ROM area is effectively filled by incrementing 16bit values (Address/2 AND FFFFh).
+    fn read_unused(&self, addr: Addr) -> u8 {
+        let x = (addr / 2) & 0xffff;
+        if addr & 1 != 0 {
+            (x >> 8) as u8
+        } else {
+            x as u8
+        }
+    }
 }
 
 use super::sysbus::consts::*;
@@ -106,7 +120,7 @@ impl Bus for Cartridge {
             },
             _ => {
                 if offset >= self.size {
-                    0xDD // TODO - open bus implementation
+                    self.read_unused(addr)
                 } else {
                     unsafe { *self.bytes.get_unchecked(offset as usize) }
                 }
@@ -167,6 +181,10 @@ impl Bus for Cartridge {
 impl DebugRead for Cartridge {
     fn debug_read_8(&mut self, addr: Addr) -> u8 {
         let offset = (addr & 0x01ff_ffff) as usize;
-        self.bytes[offset]
+        if offset >= self.size {
+            self.read_unused(addr)
+        } else {
+            self.bytes[offset]
+        }
     }
 }
