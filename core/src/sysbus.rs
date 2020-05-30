@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -7,6 +8,7 @@ use super::cartridge::Cartridge;
 use super::dma::DmaNotifer;
 use super::iodev::{IoDevices, WaitControl};
 use super::util::{BoxedMemory, WeakPointer};
+use super::GameBoyAdvance;
 
 pub mod consts {
     pub const WORK_RAM_SIZE: usize = 256 * 1024;
@@ -166,6 +168,14 @@ impl CycleLookupTables {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SysBus {
+    #[serde(skip)]
+    #[serde(default = "WeakPointer::default")]
+    /// Weak reference to the owning GameBoyAdvance, mut be set by calling SysBus::init(pointer) before the sysbus can be used
+    gba: WeakPointer<GameBoyAdvance>,
+
+    /// Contains the last read value from the BIOS
+    bios_value: Cell<u32>,
+
     pub io: IoDevices,
 
     bios: BoxedMemory,
@@ -188,6 +198,8 @@ impl SysBus {
 
         SysBus {
             io,
+            gba: WeakPointer::default(),
+            bios_value: Cell::new(0),
             bios: BoxedMemory::new(bios_rom),
             onboard_work_ram: BoxedMemory::new(vec![0; WORK_RAM_SIZE].into_boxed_slice()),
             internal_work_ram: BoxedMemory::new(vec![0; INTERNAL_RAM_SIZE].into_boxed_slice()),
@@ -200,7 +212,8 @@ impl SysBus {
     }
 
     /// must be called whenever this object is instanciated
-    pub fn created(&mut self) {
+    pub fn init(&mut self, gba: WeakPointer<GameBoyAdvance>) {
+        self.gba = gba;
         let ptr = SysBusPtr::new(self as *mut SysBus);
         // HACK
         self.io.set_sysbus_ptr(ptr.clone());
@@ -239,10 +252,98 @@ impl SysBus {
     }
 }
 
+#[inline]
+fn load_shifted(addr: u32, value: u32) -> u32 {
+    value >> ((addr & 3) << 3)
+}
+
+/// Helper for "open-bus" accesses
+/// http://problemkaputt.de/gbatek.htm#gbaunpredictablethings
+/// FIXME: Currently I'm cheating since my bus emulation is not accurate
+///     Instead of returning the last prefetched opcode, it will be more accurate
+///     to cache the read value for each bus access and return this value instead.Addr
+///     while 99% of the time this will be indeed the lsat prefetched opcode, it could also
+///     be a leftover value from DMA.
+///     However, doing it this way will have runtime overhead and the performance will suffer.
+macro_rules! read_invalid {
+    (open_bus_impl($sb:ident, $addr:expr)) => {{
+        use super::arm7tdmi::CpuState;
+        let value = match $sb.gba.cpu.cpsr.state() {
+            CpuState::ARM => {
+                $sb.gba.cpu.get_prefetched_opcode()
+            }
+            CpuState::THUMB => {
+                // [$+2]
+                let decoded = $sb.gba.cpu.get_decoded_opcode() & 0xffff;
+                // [$+4]
+                let prefetched = $sb.gba.cpu.get_prefetched_opcode() & 0xffff;
+                let r15 = $sb.gba.cpu.pc;
+                let page_r15 = (r15 >> 24) as usize;
+                match page_r15 {
+                    PAGE_EWRAM | PAGE_PALRAM | PAGE_VRAM | PAGE_GAMEPAK_WS0..=PAGE_GAMEPAK_WS2 => {
+                        // LSW = [$+4], MSW = [$+4]
+                        (prefetched << 16) | prefetched
+                    }
+                    PAGE_BIOS | PAGE_OAM => {
+                        if r15 & 3 == 0 {
+                            // LSW = [$+4], MSW = [$+6]   ;for opcodes at 4-byte aligned locations
+                            warn!("[OPEN-BUS] aligned PC in BIOS or OAM (addr={:08x}, r15={:08x})", $addr, r15);
+                            let r15_plus_6 = $sb.read_16(r15 + 6) as u32;
+                            (r15_plus_6 << 16) | prefetched
+                        } else {
+                            // LSW = [$+2], MSW = [$+4]   ;for opcodes at non-4-byte aligned locations
+                            (prefetched << 16) | decoded
+                        }
+                    }
+                    PAGE_IWRAM => {
+                        // OldLO=[$+2], OldHI=[$+2]
+                        if r15 & 3 == 0{
+                            // LSW = [$+4], MSW = OldHI   ;for opcodes at 4-byte aligned locations
+                            (decoded << 16) | prefetched
+                        } else {
+                            // LSW = OldLO, MSW = [$+4]   ;for opcodes at non-4-byte aligned locations
+                            (prefetched << 16) | decoded
+                        }
+                    }
+                    _ => (prefetched << 16) | prefetched,
+                }
+            }
+        };
+        load_shifted($addr, value)
+    }};
+    ($sb:ident, word($addr:expr)) => {{
+        read_invalid!(open_bus_impl($sb, $addr))
+    }};
+    ($sb:ident, half($addr:expr)) => {{
+        read_invalid!(open_bus_impl($sb, $addr)) as u16
+    }};
+    ($sb:ident, byte($addr:expr)) => {{
+        read_invalid!(open_bus_impl($sb, $addr)) as u8
+    }};
+}
+
 impl Bus for SysBus {
     fn read_32(&self, addr: Addr) -> u32 {
+        let aligned = addr & !3;
         match addr & 0xff000000 {
-            BIOS_ADDR => self.bios.read_32(addr),
+            BIOS_ADDR => {
+                if aligned > 0x3ffc {
+                    read_invalid!(self, word(addr))
+                } else {
+                    if self.gba.cpu.pc < 0x4000 {
+                        let value = self.bios.read_32(aligned);
+                        self.bios_value.set(value);
+                        value
+                    } else {
+                        trace!(
+                            "[BIOS-PROTECTION] Accessing BIOS region ({:08x}) {:x?}",
+                            addr,
+                            self.gba.cpu
+                        );
+                        self.bios_value.get()
+                    }
+                }
+            }
             EWRAM_ADDR => self.onboard_work_ram.read_32(addr & 0x3_fffc),
             IWRAM_ADDR => self.internal_work_ram.read_32(addr & 0x7ffc),
             IOMEM_ADDR => {
@@ -253,22 +354,38 @@ impl Bus for SysBus {
                 };
                 self.io.read_32(addr)
             }
-            PALRAM_ADDR | VRAM_ADDR | OAM_ADDR => self.io.gpu.read_32(addr),
+            PALRAM_ADDR | VRAM_ADDR | OAM_ADDR => self.io.gpu.read_32(aligned),
             GAMEPAK_WS0_LO | GAMEPAK_WS0_HI | GAMEPAK_WS1_LO | GAMEPAK_WS1_HI | GAMEPAK_WS2_LO => {
-                self.cartridge.read_32(addr)
+                self.cartridge.read_32(aligned)
             }
-            GAMEPAK_WS2_HI => self.cartridge.read_32(addr),
-            SRAM_LO | SRAM_HI => self.cartridge.read_32(addr),
-            _ => {
-                // TODO open-bus
-                0
-            }
+            GAMEPAK_WS2_HI => self.cartridge.read_32(aligned),
+            SRAM_LO | SRAM_HI => self.cartridge.read_32(aligned),
+            _ => read_invalid!(self, word(addr)),
         }
     }
 
     fn read_16(&self, addr: Addr) -> u16 {
+        let aligned = addr & !1;
         match addr & 0xff000000 {
-            BIOS_ADDR => self.bios.read_16(addr),
+            BIOS_ADDR => {
+                if aligned > 0x3ffe {
+                    read_invalid!(self, half(addr))
+                } else {
+                    let value = if self.gba.cpu.pc < 0x4000 {
+                        let value = self.bios.read_32(addr & !3);
+                        self.bios_value.set(value);
+                        value
+                    } else {
+                        trace!(
+                            "[BIOS-PROTECTION] Accessing BIOS region ({:08x}) {:x?}",
+                            addr,
+                            self.gba.cpu
+                        );
+                        self.bios_value.get()
+                    };
+                    (value >> ((addr & 2) * 8)) as u16
+                }
+            }
             EWRAM_ADDR => self.onboard_work_ram.read_16(addr & 0x3_fffe),
             IWRAM_ADDR => self.internal_work_ram.read_16(addr & 0x7ffe),
             IOMEM_ADDR => {
@@ -279,22 +396,37 @@ impl Bus for SysBus {
                 };
                 self.io.read_16(addr)
             }
-            PALRAM_ADDR | VRAM_ADDR | OAM_ADDR => self.io.gpu.read_16(addr),
+            PALRAM_ADDR | VRAM_ADDR | OAM_ADDR => self.io.gpu.read_16(aligned),
             GAMEPAK_WS0_LO | GAMEPAK_WS0_HI | GAMEPAK_WS1_LO | GAMEPAK_WS1_HI | GAMEPAK_WS2_LO => {
-                self.cartridge.read_16(addr)
+                self.cartridge.read_16(aligned)
             }
-            GAMEPAK_WS2_HI => self.cartridge.read_16(addr),
-            SRAM_LO | SRAM_HI => self.cartridge.read_16(addr),
-            _ => {
-                // TODO open-bus
-                0
-            }
+            GAMEPAK_WS2_HI => self.cartridge.read_16(aligned),
+            SRAM_LO | SRAM_HI => self.cartridge.read_16(aligned),
+            _ => read_invalid!(self, half(addr)),
         }
     }
 
     fn read_8(&self, addr: Addr) -> u8 {
         match addr & 0xff000000 {
-            BIOS_ADDR => self.bios.read_8(addr),
+            BIOS_ADDR => {
+                if addr > 0x3fff {
+                    read_invalid!(self, byte(addr))
+                } else {
+                    let value = if self.gba.cpu.pc < 0x4000 {
+                        let value = self.bios.read_32(addr & !3);
+                        self.bios_value.set(value);
+                        value
+                    } else {
+                        trace!(
+                            "[BIOS-PROTECTION] Accessing BIOS region ({:08x}) {:x?}",
+                            addr,
+                            self.gba.cpu
+                        );
+                        self.bios_value.get()
+                    };
+                    (value >> ((addr & 3) * 8)) as u8
+                }
+            }
             EWRAM_ADDR => self.onboard_work_ram.read_8(addr & 0x3_ffff),
             IWRAM_ADDR => self.internal_work_ram.read_8(addr & 0x7fff),
             IOMEM_ADDR => {
@@ -311,10 +443,7 @@ impl Bus for SysBus {
             }
             GAMEPAK_WS2_HI => self.cartridge.read_8(addr),
             SRAM_LO | SRAM_HI => self.cartridge.read_8(addr),
-            _ => {
-                // TODO open-bus
-                0
-            }
+            _ => read_invalid!(self, byte(addr)),
         }
     }
 
@@ -335,10 +464,7 @@ impl Bus for SysBus {
             GAMEPAK_WS0_LO => self.cartridge.write_32(addr, value),
             GAMEPAK_WS2_HI => self.cartridge.write_32(addr, value),
             SRAM_LO | SRAM_HI => self.cartridge.write_32(addr, value),
-            _ => {
-                // warn!("trying to write invalid address {:#x}", addr);
-                // TODO open bus
-            }
+            _ => {}
         }
     }
 
@@ -359,10 +485,7 @@ impl Bus for SysBus {
             GAMEPAK_WS0_LO => self.cartridge.write_16(addr, value),
             GAMEPAK_WS2_HI => self.cartridge.write_16(addr, value),
             SRAM_LO | SRAM_HI => self.cartridge.write_16(addr, value),
-            _ => {
-                // warn!("trying to write invalid address {:#x}", addr);
-                // TODO open bus
-            }
+            _ => {}
         }
     }
 
@@ -383,10 +506,7 @@ impl Bus for SysBus {
             GAMEPAK_WS0_LO => self.cartridge.write_8(addr, value),
             GAMEPAK_WS2_HI => self.cartridge.write_8(addr, value),
             SRAM_LO | SRAM_HI => self.cartridge.write_8(addr, value),
-            _ => {
-                // warn!("trying to write invalid address {:#x}", addr);
-                // TODO open bus
-            }
+            _ => {}
         }
     }
 }
@@ -412,7 +532,7 @@ impl DebugRead for SysBus {
             GAMEPAK_WS2_HI => self.cartridge.debug_read_8(addr),
             SRAM_LO | SRAM_HI => self.cartridge.debug_read_8(addr),
             _ => {
-                // TODO open-bus
+                // No open bus for debug reads
                 0
             }
         }

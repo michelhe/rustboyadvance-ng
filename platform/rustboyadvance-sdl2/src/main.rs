@@ -202,13 +202,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let gamepak = builder.build()?;
 
-    let mut gba = GameBoyAdvance::new(
+    let mut gba = Box::new(GameBoyAdvance::new(
         bios_bin.into_boxed_slice(),
         gamepak,
         video.clone(),
         audio.clone(),
         input.clone(),
-    );
+    ));
+    gba.init();
 
     if skip_bios {
         gba.skip_bios();
@@ -326,13 +327,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let bios_bin = read_bin_file(bios_path).unwrap();
 
                     // create a new emulator - TODO, export to a function
-                    gba = GameBoyAdvance::new(
+                    gba = Box::new(GameBoyAdvance::new(
                         bios_bin.into_boxed_slice(),
                         gamepak,
                         video.clone(),
                         audio.clone(),
                         input.clone(),
-                    );
+                    ));
+                    gba.init();
                     gba.skip_bios();
                 }
                 _ => {}

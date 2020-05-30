@@ -14,9 +14,11 @@ use super::iodev::*;
 use super::sound::SoundController;
 use super::sysbus::SysBus;
 use super::timer::Timers;
+use super::util::WeakPointer;
 
 use super::{AudioInterface, InputInterface, VideoInterface};
 
+#[derive(Clone)]
 pub struct GameBoyAdvance {
     pub sysbus: Box<SysBus>,
     pub cpu: arm7tdmi::Core,
@@ -89,9 +91,12 @@ impl GameBoyAdvance {
             overshoot_cycles: 0,
         };
 
-        gba.sysbus.created();
-
         gba
+    }
+
+    pub fn init(&mut self) {
+        let ref_to_self = WeakPointer::new(self as *mut GameBoyAdvance);
+        self.sysbus.init(ref_to_self);
     }
 
     pub fn from_saved_state(
@@ -132,7 +137,7 @@ impl GameBoyAdvance {
         self.sysbus = decoded.sysbus;
         self.cycles_to_next_event = 1;
 
-        self.sysbus.created();
+        self.init();
 
         Ok(())
     }
