@@ -384,6 +384,10 @@ impl Gpu {
                 self.render_mode4(2);
                 self.finalize_scanline(2, 2);
             }
+            5 => {
+                self.render_mode5(2);
+                self.finalize_scanline(2, 2);
+            }
             _ => panic!("{:?} not supported", self.dispcnt.mode()),
         }
         // self.mosaic_sfx();

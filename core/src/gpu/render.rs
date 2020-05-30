@@ -36,6 +36,11 @@ pub(super) static SCREEN_VIEWPORT: ViewPort = ViewPort {
     w: DISPLAY_WIDTH as i32,
     h: DISPLAY_HEIGHT as i32,
 };
+pub(super) static MODE5_VIEWPORT: ViewPort = ViewPort {
+    origin: (0, 0),
+    w: 160,
+    h: 128,
+};
 
 pub(super) mod utils {
     use super::Point;
