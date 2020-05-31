@@ -66,7 +66,7 @@ impl DmaChannel {
 
     pub fn write_src_high(&mut self, high: u16) {
         let src = self.src;
-        let high = high as u32;
+        let high = (high & 0xfff) as u32;
         self.src = (src & 0xffff) | (high << 16);
     }
 
@@ -77,7 +77,7 @@ impl DmaChannel {
 
     pub fn write_dst_high(&mut self, high: u16) {
         let dst = self.dst;
-        let high = high as u32;
+        let high = (high & 0xfff) as u32;
         self.dst = (dst & 0xffff) | (high << 16);
     }
 
