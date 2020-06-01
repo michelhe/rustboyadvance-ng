@@ -29,7 +29,7 @@ bytesize = "1.0.0"
 memmem = "0.1.1"
 log = "0.4.8"
 arrayvec = "0.5.1"
-sha2 = "0.8.1"
+sha2 = "0.8.2"
 hex-literal = "0.2.1"
 rustyline = { version = "6.0.0", optional = true }
 nom = { version = "5.0.0", optional = true }
