@@ -33,7 +33,7 @@ wasm-bindgen-console-logger = "0.1.1"
 bit = "^0.1"
 
 [dependencies.web-sys]
-version = "0.3.4"
+version = "0.3.41"
 features = [
   'CanvasRenderingContext2d',
   'ImageData',
