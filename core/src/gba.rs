@@ -28,11 +28,13 @@ pub struct GameBoyAdvance {
     pub cycles_to_next_event: usize,
 
     overshoot_cycles: usize,
+    interrupt_flags: SharedInterruptFlags,
 }
 
 #[derive(Serialize, Deserialize)]
 struct SaveState {
     sysbus: Box<SysBus>,
+    interrupt_flags: u16,
     cpu: arm7tdmi::Core,
 }
 
@@ -87,6 +89,7 @@ impl GameBoyAdvance {
 
             cycles_to_next_event: 1,
             overshoot_cycles: 0,
+            interrupt_flags: interrupt_flags,
         };
 
         gba.sysbus.created();
@@ -102,9 +105,17 @@ impl GameBoyAdvance {
     ) -> bincode::Result<GameBoyAdvance> {
         let decoded: Box<SaveState> = bincode::deserialize_from(savestate)?;
 
+        let arm7tdmi = decoded.cpu;
+        let mut sysbus = decoded.sysbus;
+        let interrupts = Rc::new(Cell::new(IrqBitmask(decoded.interrupt_flags)));
+
+        sysbus.io.connect_irq(interrupts.clone());
+
         Ok(GameBoyAdvance {
-            cpu: decoded.cpu,
-            sysbus: decoded.sysbus,
+            cpu: arm7tdmi,
+            sysbus: sysbus,
+
+            interrupt_flags: interrupts,
 
             video_device: video_device,
             audio_device: audio_device,
@@ -120,6 +131,7 @@ impl GameBoyAdvance {
         let s = SaveState {
             cpu: self.cpu.clone(),
             sysbus: self.sysbus.clone(),
+            interrupt_flags: self.interrupt_flags.get().value(),
         };
 
         bincode::serialize(&s)
@@ -130,6 +142,11 @@ impl GameBoyAdvance {
 
         self.cpu = decoded.cpu;
         self.sysbus = decoded.sysbus;
+        self.interrupt_flags = Rc::new(Cell::new(IrqBitmask(decoded.interrupt_flags)));
+
+        // Redistribute shared pointer for interrupts
+        self.sysbus.io.connect_irq(self.interrupt_flags.clone());
+
         self.cycles_to_next_event = 1;
 
         self.sysbus.created();

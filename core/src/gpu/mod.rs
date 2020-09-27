@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::bus::*;
 use super::dma::{DmaNotifer, TIMING_HBLANK, TIMING_VBLANK};
-use super::interrupt::{self, Interrupt, SharedInterruptFlags};
+use super::interrupt::{self, Interrupt, InterruptConnect, SharedInterruptFlags};
 pub use super::sysbus::consts::*;
 use super::util::BoxedMemory;
 use super::VideoInterface;
@@ -211,6 +211,12 @@ pub struct Gpu {
 
     #[debug_stub = "Frame Buffer"]
     pub(super) frame_buffer: Vec<u32>,
+}
+
+impl InterruptConnect for Gpu {
+    fn connect_irq(&mut self, interrupt_flags: SharedInterruptFlags) {
+        self.interrupt_flags = interrupt_flags;
+    }
 }
 
 impl Gpu {

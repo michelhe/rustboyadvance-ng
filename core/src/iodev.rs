@@ -4,7 +4,7 @@ use super::bus::*;
 use super::dma::DmaController;
 use super::gpu::regs::WindowFlags;
 use super::gpu::*;
-use super::interrupt::InterruptController;
+use super::interrupt::{InterruptConnect, InterruptController, SharedInterruptFlags};
 use super::keypad;
 use super::sound::SoundController;
 use super::sysbus::SysBusPtr;
@@ -65,6 +65,15 @@ impl IoDevices {
 
     pub fn set_sysbus_ptr(&mut self, ptr: SysBusPtr) {
         self.sysbus_ptr = ptr;
+    }
+}
+
+impl InterruptConnect for IoDevices {
+    fn connect_irq(&mut self, interrupt_flags: SharedInterruptFlags) {
+        self.intc.connect_irq(interrupt_flags.clone());
+        self.gpu.connect_irq(interrupt_flags.clone());
+        self.dmac.connect_irq(interrupt_flags.clone());
+        self.timers.connect_irq(interrupt_flags.clone());
     }
 }
 

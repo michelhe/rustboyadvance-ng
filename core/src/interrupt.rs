@@ -3,6 +3,12 @@ use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
 
+pub trait InterruptConnect {
+
+    // Connect a SharedInterruptFlags to this interrupt source
+    fn connect_irq(&mut self, interrupt_flags: SharedInterruptFlags);
+}
+
 #[derive(Serialize, Deserialize, Debug, Primitive, Copy, Clone, PartialEq)]
 #[allow(non_camel_case_types)]
 pub enum Interrupt {
@@ -49,6 +55,12 @@ impl InterruptController {
         let _if = self.interrupt_flags.get();
         let new_if = _if.0 & !value;
         self.interrupt_flags.set(IrqBitmask(new_if));
+    }
+}
+
+impl InterruptConnect for InterruptController {
+    fn connect_irq(&mut self, interrupt_flags: SharedInterruptFlags) {
+        self.interrupt_flags = interrupt_flags;
     }
 }
 

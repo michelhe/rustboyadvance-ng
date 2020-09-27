@@ -1,5 +1,5 @@
 use super::cartridge::BackupMedia;
-use super::interrupt::{self, Interrupt, SharedInterruptFlags};
+use super::interrupt::{self, Interrupt, InterruptConnect, SharedInterruptFlags};
 use super::iodev::consts::{REG_FIFO_A, REG_FIFO_B};
 use super::sysbus::SysBus;
 use super::Bus;
@@ -194,6 +194,14 @@ pub struct DmaController {
     pub channels: [DmaChannel; 4],
     pending_set: u8,
     cycles: usize,
+}
+
+impl InterruptConnect for DmaController {
+    fn connect_irq(&mut self, interrupt_flags: SharedInterruptFlags) {
+        for channel in &mut self.channels {
+            channel.interrupt_flags = interrupt_flags.clone();
+        }
+    }
 }
 
 impl DmaController {

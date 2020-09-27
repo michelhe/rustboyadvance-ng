@@ -1,4 +1,4 @@
-use super::interrupt::{self, Interrupt, SharedInterruptFlags};
+use super::interrupt::{self, Interrupt, InterruptConnect, SharedInterruptFlags};
 use super::iodev::consts::*;
 use super::sysbus::SysBus;
 
@@ -76,6 +76,14 @@ pub struct Timers {
     timers: [Timer; 4],
     running_timers: u8,
     pub trace: bool,
+}
+
+impl InterruptConnect for Timers {
+    fn connect_irq(&mut self, interrupt_flags: SharedInterruptFlags) {
+        for timer in &mut self.timers {
+            timer.interrupt_flags = interrupt_flags.clone();
+        }
+    }
 }
 
 impl std::ops::Index<usize> for Timers {
