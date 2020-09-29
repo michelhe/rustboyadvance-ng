@@ -59,6 +59,7 @@ pub mod gdb;
 #[cfg(feature = "debugger")]
 pub mod debugger;
 
+#[cfg(not(feature = "no_video_interface"))]
 pub trait VideoInterface {
     #[allow(unused_variables)]
     fn render(&mut self, buffer: &[u32]) {}
@@ -133,6 +134,8 @@ pub mod prelude {
     pub use super::gpu::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
     pub use super::util::{read_bin_file, write_bin_file};
     pub use super::Bus;
-    pub use super::{AudioInterface, InputInterface, StereoSample, VideoInterface};
+    pub use super::{AudioInterface, InputInterface, StereoSample};
+    #[cfg(not(feature = "no_video_interface"))]
+    pub use super::VideoInterface;
     pub use super::{GBAError, GBAResult, GameBoyAdvance};
 }

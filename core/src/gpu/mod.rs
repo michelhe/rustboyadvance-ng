@@ -1,5 +1,7 @@
+#[cfg(not(feature = "no_video_interface"))]
 use std::cell::RefCell;
 use std::fmt;
+#[cfg(not(feature = "no_video_interface"))]
 use std::rc::Rc;
 
 use serde::{Deserialize, Serialize};
@@ -9,6 +11,7 @@ use super::dma::{DmaNotifer, TIMING_HBLANK, TIMING_VBLANK};
 use super::interrupt::{self, Interrupt, InterruptConnect, SharedInterruptFlags};
 pub use super::sysbus::consts::*;
 use super::util::BoxedMemory;
+#[cfg(not(feature = "no_video_interface"))]
 use super::VideoInterface;
 
 use crate::bitfield::Bit;
@@ -172,6 +175,7 @@ impl Default for ObjBufferEntry {
     }
 }
 
+#[cfg(not(feature = "no_video_interface"))]
 type VideoDeviceRcRefCell = Rc<RefCell<dyn VideoInterface>>;
 
 #[derive(Serialize, Deserialize, Clone, DebugStub)]
@@ -414,7 +418,7 @@ impl Gpu {
         &mut self,
         completed: GpuState,
         dma_notifier: &mut D,
-        video_device: &VideoDeviceRcRefCell,
+        #[cfg(not(feature = "no_video_interface"))] video_device: &VideoDeviceRcRefCell,
     ) where
         D: DmaNotifer,
     {
@@ -470,7 +474,10 @@ impl Gpu {
                     };
 
                     dma_notifier.notify(TIMING_VBLANK);
+
+                    #[cfg(not(feature = "no_video_interface"))]
                     video_device.borrow_mut().render(&self.frame_buffer);
+
                     self.obj_buffer_reset();
                     self.cycles_left_for_current_state = CYCLES_HDRAW;
                     self.state = VBlankHDraw;
@@ -508,14 +515,19 @@ impl Gpu {
         mut cycles: usize,
         cycles_to_next_event: &mut usize,
         dma_notifier: &mut D,
-        video_device: &VideoDeviceRcRefCell,
+        #[cfg(not(feature = "no_video_interface"))] video_device: &VideoDeviceRcRefCell,
     ) where
         D: DmaNotifer,
     {
         loop {
             if self.cycles_left_for_current_state <= cycles {
                 cycles -= self.cycles_left_for_current_state;
-                self.on_state_completed(self.state, dma_notifier, video_device);
+                self.on_state_completed(
+                    self.state,
+                    dma_notifier,
+                    #[cfg(not(feature = "no_video_interface"))]
+                    video_device,
+                );
             } else {
                 self.cycles_left_for_current_state -= cycles;
                 break;
@@ -638,6 +650,7 @@ mod tests {
                     $cycles,
                     &mut cycles_to_next_event,
                     &mut dma_notifier,
+                    #[cfg(not(feature = "no_video_interface"))]
                     &video_clone,
                 );
                 total_cycles += $cycles;

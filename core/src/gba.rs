@@ -15,12 +15,15 @@ use super::sound::SoundController;
 use super::sysbus::SysBus;
 use super::timer::Timers;
 
-use super::{AudioInterface, InputInterface, VideoInterface};
+use super::{AudioInterface, InputInterface};
+#[cfg(not(feature = "no_video_interface"))]
+use super::VideoInterface;
 
 pub struct GameBoyAdvance {
     pub sysbus: Box<SysBus>,
     pub cpu: arm7tdmi::Core,
 
+    #[cfg(not(feature = "no_video_interface"))]
     pub video_device: Rc<RefCell<dyn VideoInterface>>,
     pub audio_device: Rc<RefCell<dyn AudioInterface>>,
     pub input_device: Rc<RefCell<dyn InputInterface>>,
@@ -55,6 +58,7 @@ impl GameBoyAdvance {
     pub fn new(
         bios_rom: Box<[u8]>,
         gamepak: Cartridge,
+        #[cfg(not(feature = "no_video_interface"))]
         video_device: Rc<RefCell<dyn VideoInterface>>,
         audio_device: Rc<RefCell<dyn AudioInterface>>,
         input_device: Rc<RefCell<dyn InputInterface>>,
@@ -83,6 +87,7 @@ impl GameBoyAdvance {
             cpu: cpu,
             sysbus: sysbus,
 
+            #[cfg(not(feature = "no_video_interface"))]
             video_device: video_device,
             audio_device: audio_device,
             input_device: input_device,
@@ -99,6 +104,7 @@ impl GameBoyAdvance {
 
     pub fn from_saved_state(
         savestate: &[u8],
+        #[cfg(not(feature = "no_video_interface"))]
         video_device: Rc<RefCell<dyn VideoInterface>>,
         audio_device: Rc<RefCell<dyn AudioInterface>>,
         input_device: Rc<RefCell<dyn InputInterface>>,
@@ -117,6 +123,7 @@ impl GameBoyAdvance {
 
             interrupt_flags: interrupts,
 
+            #[cfg(not(feature = "no_video_interface"))]
             video_device: video_device,
             audio_device: audio_device,
             input_device: input_device,
@@ -258,6 +265,7 @@ impl GameBoyAdvance {
             cycles,
             &mut cycles_to_next_event,
             self.sysbus.as_mut(),
+            #[cfg(not(feature = "no_video_interface"))]
             &self.video_device,
         );
         io.sound
@@ -292,6 +300,7 @@ impl GameBoyAdvance {
             cycles,
             &mut _ignored,
             self.sysbus.as_mut(),
+            #[cfg(not(feature = "no_video_interface"))]
             &self.video_device,
         );
         io.sound.update(cycles, &mut _ignored, &self.audio_device);
