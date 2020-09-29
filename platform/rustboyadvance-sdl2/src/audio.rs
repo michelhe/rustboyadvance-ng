@@ -40,9 +40,9 @@ impl AudioInterface for Sdl2AudioPlayer {
         self.freq
     }
 
-    fn push_sample(&mut self, sample: StereoSample<i16>) {
+    fn push_sample(&mut self, sample: &[i16]) {
         #![allow(unused_must_use)]
-        self.producer.push(sample);
+        self.producer.push((sample[0], sample[1]));
     }
 }
 

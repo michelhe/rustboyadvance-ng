@@ -1,29 +1,27 @@
 package com.mrmichel.rustdroid_emu.core;
 
 import com.mrmichel.rustboyadvance.EmulatorBindings;
+import com.mrmichel.rustboyadvance.IFrameRenderer;
+import com.mrmichel.rustboyadvance.Keypad;
 
 public class Emulator {
 
-    public class EmulatorException extends Exception {
-        public EmulatorException(String errorMessage) {
-            super(errorMessage);
-        }
-    }
-
+    public Keypad keypad;
     /// context received by the native binding
     private long ctx = -1;
 
-    private int[] frameBuffer;
-    public Keypad keypad;
-
-    public Emulator() {
-        this.frameBuffer = new int[240 * 160];
+    private AndroidAudioPlayer audioPlayer;
+    private IFrameRenderer frameRenderer;
+    public Emulator(IFrameRenderer frameRenderer, AndroidAudioPlayer audioPlayer) {
         this.keypad = new Keypad();
+        this.frameRenderer = frameRenderer;
+        this.audioPlayer = audioPlayer;
     }
 
-    public Emulator(long ctx) {
+    public Emulator(long ctx, IFrameRenderer frameRenderer, AndroidAudioPlayer audioPlayer) {
         this.ctx = ctx;
-        this.frameBuffer = new int[240 * 160];
+        this.frameRenderer = frameRenderer;
+        this.audioPlayer = audioPlayer;
         this.keypad = new Keypad();
 
     }
@@ -35,28 +33,37 @@ public class Emulator {
         return ctx;
     }
 
+    public void runMainLoop() {
+        EmulatorBindings.runMainLoop(this.ctx);
+    }
+
+    public void pause() {
+        EmulatorBindings.pause(this.ctx);
+        this.audioPlayer.pause();
+    }
+
+    public void resume() {
+        EmulatorBindings.resume(this.ctx);
+        this.audioPlayer.play();
+    }
+
+    public void setTurbo(boolean turbo) {
+        EmulatorBindings.setTurbo(ctx, turbo);
+    }
+
+    public void stop() {
+        EmulatorBindings.stop(this.ctx);
+        this.audioPlayer.pause();
+
+    }
+
     public int[] getFrameBuffer() {
-        return frameBuffer;
+        return EmulatorBindings.getFrameBuffer(this.ctx);
     }
-
-    public synchronized void runFrame() {
-        EmulatorBindings.setKeyState(ctx, keypad.getKeyState());
-        EmulatorBindings.runFrame(ctx, frameBuffer);
-    }
-
-    public synchronized short[] collectAudioSamples() {
-        return EmulatorBindings.collectAudioSamples(ctx);
-    }
-
-    public synchronized void setKeyState(int keyState) {
-        EmulatorBindings.setKeyState(this.ctx, keyState);
-    }
-
 
     public synchronized byte[] saveState() throws EmulatorBindings.NativeBindingException {
         return EmulatorBindings.saveState(this.ctx);
     }
-
 
     public synchronized void loadState(byte[] state) throws EmulatorBindings.NativeBindingException {
         if (ctx != -1) {
@@ -66,13 +73,12 @@ public class Emulator {
         }
     }
 
-
     public synchronized void open(byte[] bios, byte[] rom, String saveName, boolean skipBios) throws EmulatorBindings.NativeBindingException {
-        this.ctx = EmulatorBindings.openEmulator(bios, rom, this.frameBuffer, saveName, skipBios);
+        this.ctx = EmulatorBindings.openEmulator(bios, rom, this.frameRenderer, this.audioPlayer, this.keypad, saveName, skipBios);
     }
 
     public synchronized void openSavedState(byte[] savedState) throws EmulatorBindings.NativeBindingException {
-        this.ctx = EmulatorBindings.openSavedState(savedState, this.frameBuffer);
+        this.ctx = EmulatorBindings.openSavedState(savedState, this.frameRenderer, this.audioPlayer, this.keypad);
     }
 
     public synchronized void close() {
@@ -111,5 +117,11 @@ public class Emulator {
 
     public synchronized void log() {
         EmulatorBindings.log(this.ctx);
+    }
+
+    public class EmulatorException extends Exception {
+        public EmulatorException(String errorMessage) {
+            super(errorMessage);
+        }
     }
 }

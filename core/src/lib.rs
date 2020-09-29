@@ -76,7 +76,7 @@ pub trait AudioInterface {
     /// Sample should be normilized to siged 16bit values
     /// Note: It is not guarentied that the sample will be played
     #[allow(unused_variables)]
-    fn push_sample(&mut self, samples: StereoSample<i16>) {}
+    fn push_sample(&mut self, samples: &[i16]) {}
 }
 
 pub trait InputInterface {

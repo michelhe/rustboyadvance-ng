@@ -70,8 +70,8 @@ impl AudioInterface for Interface {
     }
 
     fn push_sample(&mut self, samples: StereoSample<i16>) {
-        self.audio_ring_buffer.prod.push(samples.0).unwrap();
-        self.audio_ring_buffer.prod.push(samples.1).unwrap();
+        self.audio_ring_buffer.producer().push(samples.0).unwrap();
+        self.audio_ring_buffer.producer().push(samples.1).unwrap();
     }
 }
 
@@ -170,7 +170,7 @@ impl Emulator {
     pub fn collect_audio_samples(&self) -> Result<Float32Array, JsValue> {
         let mut interface = self.interface.borrow_mut();
 
-        let consumer = &mut interface.audio_ring_buffer.cons;
+        let consumer = interface.audio_ring_buffer.consumer();
         let mut samples = Vec::with_capacity(consumer.len());
         while let Some(sample) = consumer.pop() {
             samples.push(convert_sample(sample));

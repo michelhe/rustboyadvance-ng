@@ -10,7 +10,6 @@ import android.graphics.BitmapFactory;
 
 import com.mrmichel.rustdroid_emu.Util;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.sql.Timestamp;
 import java.util.ArrayList;
@@ -74,7 +73,7 @@ public class SnapshotManager {
         SQLiteDatabase db = dbHelper.getWritableDatabase();
 
         File file = snapshot.getFile();
-        db.delete(dbHelper.TABLE_NAME, "dataFile = '" + file.toString() + "'", null);
+        db.delete(SnapshotDatabaseHelper.TABLE_NAME, "dataFile = '" + file.toString() + "'", null);
         file.delete();
     }
 

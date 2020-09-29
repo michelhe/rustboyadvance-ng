@@ -1,6 +1,5 @@
 package com.mrmichel.rustdroid_emu.ui;
 
-import android.app.Activity;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -8,7 +7,6 @@ import android.graphics.Bitmap;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
@@ -28,11 +26,11 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.preference.PreferenceManager;
 
 import com.mrmichel.rustboyadvance.EmulatorBindings;
+import com.mrmichel.rustboyadvance.Keypad;
 import com.mrmichel.rustdroid_emu.R;
 import com.mrmichel.rustdroid_emu.Util;
-import com.mrmichel.rustdroid_emu.core.AudioThread;
+import com.mrmichel.rustdroid_emu.core.AndroidAudioPlayer;
 import com.mrmichel.rustdroid_emu.core.Emulator;
-import com.mrmichel.rustdroid_emu.core.Keypad;
 import com.mrmichel.rustdroid_emu.core.RomManager;
 import com.mrmichel.rustdroid_emu.core.Snapshot;
 import com.mrmichel.rustdroid_emu.core.SnapshotManager;
@@ -42,7 +40,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.InputStream;
 
 public class EmulatorActivity extends AppCompatActivity implements View.OnClickListener, View.OnTouchListener {
 
@@ -53,15 +50,12 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
     private static final int LOAD_ROM_REQUESTCODE = 123;
     private static final int LOAD_SNAPSHOT_REQUESTCODE = 124;
 
-    private static int SAMPLE_RATE_HZ = 44100;
-
     private Menu menu;
 
     private RomManager.RomMetadataEntry romMetadata;
     private byte[] bios;
     private EmulationThread emulationThread;
-    private AudioThread audioThread;
-    private AudioTrack audioTrack;
+    private AndroidAudioPlayer audioPlayer;
     private byte[] on_resume_saved_state = null;
 
     private Emulator emulator;
@@ -78,7 +72,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
             if (!isEmulatorRunning()) {
                 return;
             }
-            emulationThread.setTurbo(((CompoundButton) findViewById(R.id.tbTurbo)).isChecked());
+            emulator.setTurbo(((CompoundButton) findViewById(R.id.tbTurbo)).isChecked());
         }
     }
 
@@ -244,18 +238,9 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
     }
 
     private void killThreads() {
-        if (audioThread != null) {
-            audioThread.setStopping(true);
-            try {
-                audioThread.join();
-            } catch (InterruptedException e) {
-                Log.e(TAG, "audio thread join interrupted");
-            }
-            audioThread = null;
-        }
         if (emulationThread != null) {
             try {
-                emulationThread.setStopping(true);
+                emulator.stop();
                 emulationThread.join();
             } catch (InterruptedException e) {
                 Log.e(TAG, "emulation thread join interrupted");
@@ -266,12 +251,8 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
 
     private void createThreads() {
         emulationThread = new EmulationThread(emulator, screenView);
-        audioThread = new AudioThread(audioTrack, emulator);
-
-        emulationThread.setTurbo(turboButton.isChecked());
-
+        emulator.setTurbo(turboButton.isChecked());
         emulationThread.start();
-        audioThread.start();
     }
 
     public void onRomLoaded(byte[] rom, String savePath) {
@@ -313,7 +294,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
 
             outState.putString("saveFile", saveFile.getPath());
 
-            outState.putBoolean("turbo", emulationThread.isTurbo());
+            outState.putBoolean("turbo", false);
 
         } catch (Exception e) {
             Util.showAlertDiaglogAndExit(this, e);
@@ -328,30 +309,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
         this.getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_HIDE_NAVIGATION);
 
-        if (Build.VERSION.SDK_INT >= 23) {
-            AudioTrack.Builder audioTrackBuilder = new AudioTrack.Builder()
-                    .setAudioFormat(new AudioFormat.Builder()
-                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                            .setSampleRate(SAMPLE_RATE_HZ)
-                            .setChannelMask(AudioFormat.CHANNEL_IN_STEREO | AudioFormat.CHANNEL_OUT_STEREO)
-                            .build()
-                    )
-                    .setBufferSizeInBytes(4096)
-                    .setTransferMode(AudioTrack.MODE_STREAM);
-            if (Build.VERSION.SDK_INT >= 26) {
-                audioTrackBuilder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY);
-            }
-            this.audioTrack = audioTrackBuilder.build();
-        } else {
-            this.audioTrack = new AudioTrack(
-                    AudioManager.STREAM_MUSIC,
-                    SAMPLE_RATE_HZ,
-                    AudioFormat.CHANNEL_IN_STEREO | AudioFormat.CHANNEL_OUT_STEREO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    4096,
-                    AudioTrack.MODE_STREAM);
-        }
-        this.audioTrack.play();
+        this.audioPlayer = new AndroidAudioPlayer();
 
         findViewById(R.id.bStart).setOnTouchListener(this);
         findViewById(R.id.bSelect).setOnTouchListener(this);
@@ -370,7 +328,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
         this.bios = getIntent().getByteArrayExtra("bios");
 
         this.screenView = findViewById(R.id.gba_view);
-        this.emulator = new Emulator();
+        this.emulator = new Emulator(this.screenView, this.audioPlayer);
 
         final String saveFilePath;
 
@@ -406,7 +364,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
                 boolean turbo = savedInstanceState.getBoolean("turbo");
 
                 turboButton.setPressed(turbo);
-                emulationThread.setTurbo(turbo);
+                emulator.setTurbo(turbo);
 
             } catch (Exception e) {
                 Util.showAlertDiaglogAndExit(thisActivity, e);
@@ -481,7 +439,6 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        audioTrack.stop();
         pauseEmulation();
         killThreads();
     }
@@ -489,7 +446,6 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
     @Override
     protected void onPause() {
         super.onPause();
-        audioTrack.stop();
         pauseEmulation();
         screenView.onPause();
     }
@@ -499,7 +455,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
         super.onResume();
         screenView.onResume();
         resumeEmulation();
-        audioTrack.play();
+        audioPlayer.play();
     }
 
     public void doSaveSnapshot() {

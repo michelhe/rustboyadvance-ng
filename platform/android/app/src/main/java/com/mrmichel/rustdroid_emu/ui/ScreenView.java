@@ -7,7 +7,9 @@ import android.util.AttributeSet;
 
 import androidx.preference.PreferenceManager;
 
-public class ScreenView extends GLSurfaceView implements SharedPreferences.OnSharedPreferenceChangeListener {
+import com.mrmichel.rustboyadvance.IFrameRenderer;
+
+public class ScreenView extends GLSurfaceView implements SharedPreferences.OnSharedPreferenceChangeListener, IFrameRenderer {
     private ScreenRenderer mRenderer;
 
     public ScreenView(Context context) {
@@ -33,11 +35,6 @@ public class ScreenView extends GLSurfaceView implements SharedPreferences.OnSha
         this.setRenderMode(RENDERMODE_WHEN_DIRTY);
     }
 
-    public void updateFrame(int[] frameBuffer) {
-        mRenderer.updateTexture(frameBuffer);
-        requestRender();
-    }
-
     public ScreenRenderer getRenderer() {
         return mRenderer;
     }
@@ -48,5 +45,11 @@ public class ScreenView extends GLSurfaceView implements SharedPreferences.OnSha
             boolean colorCorrection = sharedPreferences.getBoolean("color_correction", false);
             mRenderer.setColorCorrection(colorCorrection);
         }
+    }
+
+    @Override
+    public void renderFrame(int[] frameBuffer) {
+        mRenderer.updateTexture(frameBuffer);
+        requestRender();
     }
 }

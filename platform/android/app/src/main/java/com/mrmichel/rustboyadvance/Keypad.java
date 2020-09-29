@@ -1,4 +1,4 @@
-package com.mrmichel.rustdroid_emu.core;
+package com.mrmichel.rustboyadvance;
 
 public class Keypad {
     private int keyState;
@@ -9,6 +9,18 @@ public class Keypad {
 
     public void reset() {
         this.keyState = 0xffff;
+    }
+
+    public void onKeyDown(Key key) {
+        this.keyState = this.keyState & ~(1 << key.keyBit);
+    }
+
+    public void onKeyUp(Key key) {
+        this.keyState = this.keyState | (1 << key.keyBit);
+    }
+
+    public int getKeyState() {
+        return keyState;
     }
 
     public enum Key {
@@ -25,20 +37,8 @@ public class Keypad {
 
         private final int keyBit;
 
-        private Key(int keyBit) {
+        Key(int keyBit) {
             this.keyBit = keyBit;
         }
-    }
-
-    public void onKeyDown(Key key) {
-        this.keyState = this.keyState & ~(1 << key.keyBit);
-    }
-
-    public void onKeyUp(Key key) {
-        this.keyState = this.keyState | (1 << key.keyBit);
-    }
-
-    public int getKeyState() {
-        return keyState;
     }
 }

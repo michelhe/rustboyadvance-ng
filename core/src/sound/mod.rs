@@ -349,10 +349,10 @@ impl SoundController {
 
             let mut audio = audio_device.borrow_mut();
             self.output_buffer.drain(..).for_each(|(left, right)| {
-                audio.push_sample((
+                audio.push_sample(&[
                     (left.round() as i16) * (std::i16::MAX / 512),
                     (right.round() as i16) * (std::i16::MAX / 512),
-                ));
+                ]);
             });
         }
         if self.cycles_per_sample < *cycles_to_next_event {

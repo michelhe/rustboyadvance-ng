@@ -132,16 +132,20 @@ macro_rules! host_breakpoint {
 }
 
 pub mod audio {
-    use ringbuf::{Consumer, Producer, RingBuffer};
+    pub use ringbuf::{Consumer, Producer, RingBuffer};
 
     pub struct AudioRingBuffer {
-        pub prod: Producer<i16>,
-        pub cons: Consumer<i16>,
+        prod: Producer<i16>,
+        cons: Consumer<i16>,
     }
 
     impl AudioRingBuffer {
         pub fn new() -> AudioRingBuffer {
-            let rb = RingBuffer::new(4096 * 2);
+            AudioRingBuffer::new_with_capacity(2 * 4096)
+        }
+
+        pub fn new_with_capacity(capacity: usize) -> AudioRingBuffer {
+            let rb = RingBuffer::new(capacity);
             let (prod, cons) = rb.split();
 
             AudioRingBuffer { prod, cons }
@@ -153,6 +157,10 @@ pub mod audio {
 
         pub fn consumer(&mut self) -> &mut Consumer<i16> {
             &mut self.cons
+        }
+
+        pub fn split(self) -> (Producer<i16>, Consumer<i16>) {
+            (self.prod, self.cons)
         }
     }
 }
