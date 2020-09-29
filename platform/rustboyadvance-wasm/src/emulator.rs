@@ -69,9 +69,11 @@ impl AudioInterface for Interface {
         self.sample_rate
     }
 
-    fn push_sample(&mut self, samples: StereoSample<i16>) {
-        self.audio_ring_buffer.producer().push(samples.0).unwrap();
-        self.audio_ring_buffer.producer().push(samples.1).unwrap();
+    fn push_sample(&mut self, samples: &[i16]) {
+        let prod = self.audio_ring_buffer.producer();
+        for s in samples.iter() {
+            let _ = prod.push(*s);
+        }
     }
 }
 

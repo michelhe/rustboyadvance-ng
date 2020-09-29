@@ -44,14 +44,12 @@ impl HwInterface {
     }
 }
 
-// do nothing here, everything is handled in the libretro_backend::Core impl
-impl VideoInterface for HwInterface {}
-
 impl AudioInterface for HwInterface {
-    fn push_sample(&mut self, samples: StereoSample<i16>) {
+    fn push_sample(&mut self, samples: &[i16]) {
         let prod = self.audio_ring_buffer.producer();
-        prod.push(samples.0).unwrap();
-        prod.push(samples.1).unwrap();
+        for s in samples.iter() {
+            let _ = prod.push(*s);
+        }
     }
 }
 
@@ -122,7 +120,6 @@ impl libretro_backend::Core for RustBoyAdvanceCore {
                 let gba = GameBoyAdvance::new(
                     bios.into_boxed_slice(),
                     gamepak,
-                    hwif.clone(),
                     hwif.clone(),
                     hwif.clone(),
                 );

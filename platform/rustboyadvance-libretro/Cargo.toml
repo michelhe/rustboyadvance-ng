@@ -10,7 +10,7 @@ crate-type = ["cdylib"]
 
 
 [dependencies]
-rustboyadvance-core = { path = "../../core/" }
+rustboyadvance-core = { path = "../../core/", features = ["no_video_interface"] }
 log = "0.4.8"
 libc = "0.2"
 libretro-sys = "0.1.1"
