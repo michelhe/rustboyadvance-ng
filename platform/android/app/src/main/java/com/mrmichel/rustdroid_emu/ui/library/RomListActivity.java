@@ -25,9 +25,11 @@ import com.mrmichel.rustdroid_emu.R;
 import com.mrmichel.rustdroid_emu.Util;
 import com.mrmichel.rustdroid_emu.core.RomManager;
 import com.mrmichel.rustdroid_emu.ui.SettingsActivity;
-import com.mrmichel.rustdroid_emu.ui.SettingsFragment;
 
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 
@@ -38,6 +40,7 @@ public class RomListActivity extends AppCompatActivity {
     private static final int REQUEST_IMPORT_ROM = 100;
     private static final int REQUEST_IMPORT_DIR = 101;
     private static final int REQUEST_SET_IMAGE = 102;
+    private static final int REQUEST_IMPORT_SAVE = 103;
 
     private static String[] ALLOWED_EXTENSIONS = {"gba", "zip", "bin"};
 
@@ -111,6 +114,20 @@ public class RomListActivity extends AppCompatActivity {
                 intent.setType("image/*");
                 intent.putExtra("romId", entry.getId());
                 startActivityForResult(intent, REQUEST_SET_IMAGE);
+                return true;
+            case R.id.action_export_save_file:
+                File backupFile = entry.getBackupFile();
+                try {
+                    Util.shareFile(this, backupFile, "Sending " + backupFile.getName());
+                } catch (FileNotFoundException e) {
+                    Util.showAlertDialog(this, e);
+                }
+                return true;
+            case R.id.action_import_save_file:
+                intent = new Intent(Intent.ACTION_GET_CONTENT);
+                intent.setType("*/*");
+                startActivityForResult(intent, REQUEST_IMPORT_SAVE);
+                return true;
             default:
                 return super.onContextItemSelected(item);
         }
@@ -128,12 +145,14 @@ public class RomListActivity extends AppCompatActivity {
         switch (item.getItemId()) {
             case R.id.action_import_rom:
                 doImportRom();
+                return true;
             case R.id.action_import_directory:
                 doImportDirectory();
                 return true;
             case R.id.action_settings:
                 Intent intent = new Intent(this, SettingsActivity.class);
                 startActivity(intent);
+                return true;
             default:
                 return super.onOptionsItemSelected(item);
         }
@@ -189,12 +208,29 @@ public class RomListActivity extends AppCompatActivity {
 
                     }
                     catch (Exception e) {
-                        Util.showAlertDiaglogAndExit(this, e);
+                        Util.showAlertDialogAndExit(this, e);
                         return;
                     }
 
                     Log.d(TAG, "found bitmap");
                     romManager.updateScreenshot(romId, bitmap);
+                    break;
+                case REQUEST_IMPORT_SAVE:
+                    try {
+                        InputStream inputStream = getContentResolver().openInputStream(data.getData());
+                        byte[] saveData = new byte[inputStream.available()];
+                        inputStream.read(saveData);
+                        inputStream.close();
+
+                        File file = selectedEntry.getBackupFile();
+                        Log.d(TAG, "Saving imported save to " + file.getAbsolutePath());
+                        FileOutputStream fos = new FileOutputStream(file);
+                        fos.write(saveData);
+                        fos.close();
+                    } catch (Exception e) {
+                        Util.showAlertDialogAndExit(this, e);
+                    }
+                    break;
 
             }
 
