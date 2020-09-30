@@ -369,7 +369,9 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
         } else {
             int romId = getIntent().getIntExtra("romId", -1);
             if (-1 != romId) {
-                this.romMetadata = RomManager.getInstance(this).getRomMetadata(romId);
+                RomManager romManager = RomManager.getInstance(this);
+                romManager.updateLastPlayed(romId);
+                this.romMetadata = romManager.getRomMetadata(romId);
 
                 byte[] romData;
                 try {
@@ -404,6 +406,9 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
             case R.id.action_save_snapshot:
                 doSaveSnapshot();
                 return true;
+            case R.id.action_set_library_image:
+                doSaveScreenshotToLibrary();
+                return true;
             case R.id.action_settings:
                 Intent intent = new Intent(this, SettingsActivity.class);
                 startActivity(intent);
@@ -436,6 +441,20 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
     protected void onDestroy() {
         super.onDestroy();
         pauseEmulation();
+
+        if (this.romMetadata != null) {
+            if (this.romMetadata.getScreenshot() == null) {
+                // Save current screenshot
+                Bitmap screenshot = Bitmap.createBitmap(
+                        emulator.getFrameBuffer(),
+                        240,
+                        160,
+                        Bitmap.Config.RGB_565);
+
+                RomManager.getInstance(this).updateScreenshot(this.romMetadata.getId(), screenshot);
+
+            }
+        }
         killThreads();
     }
 
@@ -452,6 +471,26 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
         screenView.onResume();
         resumeEmulation();
         audioPlayer.play();
+    }
+
+    public void doSaveScreenshotToLibrary() {
+        if (!isEmulatorRunning() || null == this.romMetadata) {
+            Toast.makeText(this, "No game is running!", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        pauseEmulation();
+
+        Bitmap screenshot = Bitmap.createBitmap(
+                emulator.getFrameBuffer(),
+                240,
+                160,
+                Bitmap.Config.RGB_565);
+
+        RomManager.getInstance(this).updateScreenshot(this.romMetadata.getId(), screenshot);
+
+
+        resumeEmulation();
     }
 
     public void doSaveSnapshot() {
