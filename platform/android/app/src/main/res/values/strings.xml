@@ -14,6 +14,7 @@
     <string name="action_set_screenshot">Set Image</string>
 
     <string name="action_delete">Delete</string>
+    <string name="action_set_library_image"> Take screenshot for library view </string>
 
     <string name="title_activity_snapshot">Snapshot Manager</string>
 

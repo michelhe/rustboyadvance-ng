@@ -105,6 +105,7 @@ public class RomListActivity extends AppCompatActivity {
             case R.id.action_play:
                 romManager.updateLastPlayed(entry.getId());
                 Util.startEmulator(this, this.bios, entry.getId());
+                this.itemAdapter.notifyDataSetChanged();
                 return true;
             case R.id.action_delete:
                 romManager.deleteRomMetadata(itemAdapter.getItem(menuInfo.position));
@@ -214,6 +215,7 @@ public class RomListActivity extends AppCompatActivity {
 
                     Log.d(TAG, "found bitmap");
                     romManager.updateScreenshot(romId, bitmap);
+
                     break;
                 case REQUEST_IMPORT_SAVE:
                     try {
@@ -234,6 +236,7 @@ public class RomListActivity extends AppCompatActivity {
 
             }
 
+            this.itemAdapter.notifyDataSetChanged();
             mGridView.setAdapter(new RomListItemAdapter(this, romManager.getAllRomMetaData()));
             mGridView.invalidate();
 
