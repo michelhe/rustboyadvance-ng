@@ -14,13 +14,12 @@
 
     <item
         android:id="@+id/action_set_screenshot"
-        android:title="@string/action_set_screenshot"
-    />
+        android:title="@string/action_set_screenshot" />
 
     <item
+        android:id="@+id/action_view_snapshots"
         android:title="@string/action_view_snapshot"
-        app:showAsAction="withText"
-        android:id="@+id/action_view_snapshots" />
+        app:showAsAction="withText" />
 
 
     <item
@@ -28,4 +27,15 @@
         android:icon="@android:drawable/ic_menu_delete"
         android:title="@string/action_delete"
         app:showAsAction="ifRoom|withText" />
+
+    <item
+        android:id="@+id/action_import_save_file"
+        android:icon="@android:drawable/ic_menu_save"
+        android:title="Import Save File" />
+
+    <item
+        android:id="@+id/action_export_save_file"
+        android:icon="@android:drawable/ic_menu_share"
+        android:title="Export Save File" />
+
 </menu>

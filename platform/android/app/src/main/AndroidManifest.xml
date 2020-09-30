@@ -11,11 +11,25 @@
 
     <application
         android:allowBackup="true"
+        android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
+        android:isGame="true"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
+
+        <!-- Needed for Android >= Nougat for file access -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.mrmichel.rustdroid_emu.provider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/provider_paths" />
+        </provider>
+
         <activity android:name=".ui.snapshots.SnapshotPickerActivity" />
         <activity
             android:name=".ui.snapshots.SnapshotListFragment"
@@ -26,7 +40,8 @@
         <activity
             android:name=".ui.EmulatorActivity"
             android:label="@string/title_activity_emulator" />
-        <activity android:name=".ui.SettingsActivity"
+        <activity
+            android:name=".ui.SettingsActivity"
             android:label="Settings" />
         <activity android:name=".ui.SplashActivity">
             <intent-filter>

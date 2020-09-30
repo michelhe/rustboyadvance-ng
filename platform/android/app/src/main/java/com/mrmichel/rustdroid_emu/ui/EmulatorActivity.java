@@ -4,10 +4,6 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
-import android.media.AudioFormat;
-import android.media.AudioManager;
-import android.media.AudioTrack;
-import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -210,7 +206,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
 //                    onRomLoaded(rom, savePath);
 //                } catch (Exception e) {
 //                    Log.e(TAG, "got error while reading rom file");
-//                    Util.showAlertDiaglogAndExit(this, e);
+//                    Util.showAlertDialogAndExit(this, e);
 //                }
 //          }
             if (requestCode == LOAD_SNAPSHOT_REQUESTCODE) {
@@ -224,7 +220,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
                 try {
                     emulator.loadState(pickedSnapshot.load());
                 } catch (Exception e) {
-                    Util.showAlertDiaglogAndExit(this, e);
+                    Util.showAlertDialogAndExit(this, e);
                 }
                 resumeEmulation();
 
@@ -261,7 +257,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
 //        try {
 //            emulator.open(bios, rom, savePath);
 //        } catch (EmulatorBindings.NativeBindingException e) {
-//            Util.showAlertDiaglogAndExit(this, e);
+//            Util.showAlertDialogAndExit(this, e);
 //        }
 //
 //        createThreads();
@@ -297,7 +293,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
             outState.putBoolean("turbo", false);
 
         } catch (Exception e) {
-            Util.showAlertDiaglogAndExit(this, e);
+            Util.showAlertDialogAndExit(this, e);
         }
     }
 
@@ -367,7 +363,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
                 emulator.setTurbo(turbo);
 
             } catch (Exception e) {
-                Util.showAlertDiaglogAndExit(thisActivity, e);
+                Util.showAlertDialogAndExit(thisActivity, e);
             }
 
         } else {
@@ -380,7 +376,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
                     romData = Util.readFile(romMetadata.getRomFile());
                     this.emulator.open(bios, romData, romMetadata.getBackupFile().getAbsolutePath(), skipBios);
                 } catch (Exception e) {
-                    Util.showAlertDiaglogAndExit(this, e);
+                    Util.showAlertDialogAndExit(this, e);
                     return;
                 }
 
@@ -478,7 +474,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
 
         } catch (EmulatorBindings.NativeBindingException e) {
             Log.e(TAG, e.toString());
-            Util.showAlertDiaglogAndExit(this, e);
+            Util.showAlertDialogAndExit(this, e);
         } finally {
             resumeEmulation();
         }

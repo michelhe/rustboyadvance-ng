@@ -5,9 +5,12 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.net.Uri;
+import android.os.Build;
 import android.util.Log;
 
 import androidx.appcompat.app.AlertDialog;
+import androidx.core.content.FileProvider;
 
 import com.mrmichel.rustdroid_emu.ui.EmulatorActivity;
 
@@ -35,7 +38,7 @@ public class Util {
     }
 
 
-    public static void showAlertDiaglogAndExit(final Activity activity, Exception e) {
+    public static void showAlertDialogAndExit(final Activity activity, Exception e) {
         new AlertDialog.Builder(activity)
                 .setTitle(e.toString())
                 .setMessage(e.getMessage())
@@ -49,6 +52,15 @@ public class Util {
                 .setIcon(android.R.drawable.ic_dialog_alert)
                 .show();
     }
+
+    public static void showAlertDialog(final Activity activity, Exception e) {
+        new AlertDialog.Builder(activity)
+                .setTitle(e.toString())
+                .setMessage(e.getMessage())
+                .setIcon(android.R.drawable.ic_dialog_alert)
+                .show();
+    }
+
 
     public static byte[] compressBitmapToByteArray(Bitmap bitmap) {
         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
@@ -77,7 +89,7 @@ public class Util {
 
             int len;
 
-            while ( (len = gis.read(buffer, 0, 8192)) != -1) {
+            while ((len = gis.read(buffer, 0, 8192)) != -1) {
                 outputStream.write(buffer, 0, len);
             }
             gis.close();
@@ -88,14 +100,14 @@ public class Util {
         }
     }
 
-    public static byte[] readFile(File file) throws FileNotFoundException, IOException {
+    public static byte[] readFile(File file) throws IOException {
         byte[] buffer = new byte[8192];
         ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
         FileInputStream fis = new FileInputStream(file);
 
         int len;
 
-        while ( (len = fis.read(buffer, 0, 8192)) != -1) {
+        while ((len = fis.read(buffer, 0, 8192)) != -1) {
             outputStream.write(buffer, 0, len);
         }
         fis.close();
@@ -122,5 +134,31 @@ public class Util {
 
         md.update(bytes);
         return byteArrayToHexString(md.digest());
+    }
+
+    public static void shareFile(Context context, File file, String message) throws FileNotFoundException {
+        if (!file.exists()) {
+            throw new FileNotFoundException("file does not exist");
+        }
+
+        final Uri uri;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+            uri = Uri.fromFile(file);
+        } else {
+            uri = FileProvider.getUriForFile(context, context.getPackageName() + ".provider", file);
+        }
+
+        if (uri == null) {
+            throw new FileNotFoundException("could not find file to share");
+        }
+
+
+        Intent intentShareFile = new Intent(Intent.ACTION_SEND);
+        intentShareFile.setType("*/*");
+        intentShareFile.setFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        intentShareFile.putExtra(Intent.EXTRA_STREAM, uri);
+        intentShareFile.putExtra(Intent.EXTRA_TEXT, message);
+
+        context.startActivity(Intent.createChooser(intentShareFile, message));
     }
 }
