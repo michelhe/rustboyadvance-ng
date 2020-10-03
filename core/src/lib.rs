@@ -40,6 +40,7 @@ pub mod arm7tdmi;
 pub mod cartridge;
 pub mod disass;
 pub mod gpu;
+mod sched;
 pub mod sound;
 pub mod sysbus;
 pub use sysbus::SysBus;

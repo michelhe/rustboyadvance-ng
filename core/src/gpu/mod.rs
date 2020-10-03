@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::bus::*;
 use super::dma::{DmaNotifer, TIMING_HBLANK, TIMING_VBLANK};
 use super::interrupt::{self, Interrupt, InterruptConnect, SharedInterruptFlags};
+use super::sched::*;
 pub use super::sysbus::consts::*;
 use super::util::BoxedMemory;
 #[cfg(not(feature = "no_video_interface"))]
@@ -183,6 +184,11 @@ pub struct Gpu {
     pub state: GpuState,
     interrupt_flags: SharedInterruptFlags,
 
+    /// When deserializing this struct using serde, make sure to call Gpu:::set_scheduler
+    #[serde(skip)]
+    #[serde(default = "Scheduler::new_shared")]
+    scheduler: SharedScheduler,
+
     /// how many cycles left until next gpu state ?
     cycles_left_for_current_state: usize,
 
@@ -224,9 +230,11 @@ impl InterruptConnect for Gpu {
 }
 
 impl Gpu {
-    pub fn new(interrupt_flags: SharedInterruptFlags) -> Gpu {
+    pub fn new(mut scheduler: SharedScheduler, interrupt_flags: SharedInterruptFlags) -> Gpu {
+        scheduler.add_gpu_event(GpuEvent::HDraw, CYCLES_HDRAW);
         Gpu {
             interrupt_flags,
+            scheduler,
             dispcnt: DisplayControl(0x80),
             dispstat: DisplayStatus(0),
             backgrounds: [
@@ -259,6 +267,10 @@ impl Gpu {
 
             frame_buffer: vec![0; DISPLAY_WIDTH * DISPLAY_HEIGHT],
         }
+    }
+
+    pub fn set_scheduler(&mut self, scheduler: SharedScheduler) {
+        self.scheduler = scheduler;
     }
 
     pub fn write_dispcnt(&mut self, value: u16) {
@@ -414,6 +426,93 @@ impl Gpu {
         &self.frame_buffer
     }
 
+    #[inline]
+    fn update_vcount(&mut self, value: usize) {
+        self.vcount = value;
+        let vcount_setting = self.dispstat.vcount_setting();
+        self.dispstat
+            .set_vcount_flag(vcount_setting == self.vcount as u16);
+
+        if self.dispstat.vcount_irq_enable() && self.dispstat.get_vcount_flag() {
+            interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_VCounterMatch);
+        }
+    }
+
+    #[inline]
+    fn handle_hdraw<D: DmaNotifer>(&mut self, dma_notifier: &mut D) -> (GpuEvent, usize) {
+        self.dispstat.set_hblank_flag(true);
+        if self.dispstat.hblank_irq_enable() {
+            interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_HBlank);
+        };
+        dma_notifier.notify(TIMING_HBLANK);
+
+        // Next event
+        (GpuEvent::HBlank, CYCLES_HBLANK)
+    }
+
+    fn handle_hblank<D: DmaNotifer>(
+        &mut self,
+        dma_notifier: &mut D,
+        #[cfg(not(feature = "no_video_interface"))] video_device: &VideoDeviceRcRefCell,
+    ) -> (GpuEvent, usize) {
+        self.update_vcount(self.vcount + 1);
+
+        if self.vcount < DISPLAY_HEIGHT {
+            self.dispstat.set_hblank_flag(false);
+            self.render_scanline();
+            // update BG2/3 reference points on the end of a scanline
+            for i in 0..2 {
+                self.bg_aff[i].internal_x += self.bg_aff[i].pb as i16 as i32;
+                self.bg_aff[i].internal_y += self.bg_aff[i].pd as i16 as i32;
+            }
+
+            (GpuEvent::HDraw, CYCLES_HDRAW)
+        } else {
+            // latch BG2/3 reference points on vblank
+            for i in 0..2 {
+                self.bg_aff[i].internal_x = self.bg_aff[i].x;
+                self.bg_aff[i].internal_y = self.bg_aff[i].y;
+            }
+
+            self.dispstat.set_vblank_flag(true);
+            self.dispstat.set_hblank_flag(false);
+            if self.dispstat.vblank_irq_enable() {
+                interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_VBlank);
+            };
+
+            dma_notifier.notify(TIMING_VBLANK);
+
+            #[cfg(not(feature = "no_video_interface"))]
+            video_device.borrow_mut().render(&self.frame_buffer);
+
+            self.obj_buffer_reset();
+
+            (GpuEvent::VBlankHDraw, CYCLES_HDRAW)
+        }
+    }
+
+    fn handle_vblank_hdraw(&mut self) -> (GpuEvent, usize) {
+        self.dispstat.set_hblank_flag(true);
+        if self.dispstat.hblank_irq_enable() {
+            interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_HBlank);
+        };
+        (GpuEvent::VBlankHBlank, CYCLES_HBLANK)
+    }
+
+    fn handle_vblank_hblank(&mut self) -> (GpuEvent, usize) {
+        if self.vcount < DISPLAY_HEIGHT + VBLANK_LINES - 1 {
+            self.update_vcount(self.vcount + 1);
+            self.dispstat.set_hblank_flag(false);
+            (GpuEvent::VBlankHDraw, CYCLES_HDRAW)
+        } else {
+            self.update_vcount(0);
+            self.dispstat.set_vblank_flag(false);
+            self.dispstat.set_hblank_flag(false);
+            self.render_scanline();
+            (GpuEvent::HDraw, CYCLES_HDRAW)
+        }
+    }
+
     pub fn on_state_completed<D>(
         &mut self,
         completed: GpuState,
@@ -440,12 +539,8 @@ impl Gpu {
                 // Transition to HBlank
                 self.state = HBlank;
                 self.cycles_left_for_current_state = CYCLES_HBLANK;
-                self.dispstat.set_hblank_flag(true);
 
-                if self.dispstat.hblank_irq_enable() {
-                    interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_HBlank);
-                };
-                dma_notifier.notify(TIMING_HBLANK);
+                self.handle_hdraw(dma_notifier);
             }
             HBlank => {
                 update_vcount!(self.vcount + 1);
@@ -538,6 +633,29 @@ impl Gpu {
             *cycles_to_next_event = self.cycles_left_for_current_state;
         }
     }
+
+    pub fn on_event<D>(
+        &mut self,
+        event: GpuEvent,
+        extra_cycles: usize,
+        dma_notifier: &mut D,
+        #[cfg(not(feature = "no_video_interface"))] video_device: &VideoDeviceRcRefCell,
+    ) where
+        D: DmaNotifer,
+    {
+        let (next_event, cycles) = match event {
+            GpuEvent::HDraw => self.handle_hdraw(dma_notifier),
+            GpuEvent::HBlank => self.handle_hblank(
+                dma_notifier,
+                #[cfg(not(feature = "no_video_interface"))]
+                video_device,
+            ),
+            GpuEvent::VBlankHDraw => self.handle_vblank_hdraw(),
+            GpuEvent::VBlankHBlank => self.handle_vblank_hblank(),
+        };
+        self.scheduler
+            .schedule(EventType::Gpu(next_event), cycles - extra_cycles);
+    }
 }
 
 impl Bus for Gpu {
@@ -625,6 +743,7 @@ mod tests {
         frame_counter: usize,
     }
 
+    #[cfg(not(feature = "no_video_interface"))]
     impl VideoInterface for TestVideoInterface {
         fn render(&mut self, _buffer: &[u32]) {
             self.frame_counter += 1;
@@ -633,8 +752,13 @@ mod tests {
 
     #[test]
     fn test_gpu_state_machine() {
-        let mut gpu = Gpu::new(Rc::new(Cell::new(Default::default())));
+        let mut gpu = Gpu::new(
+            Scheduler::new_shared(),
+            Rc::new(Cell::new(Default::default())),
+        );
+        #[cfg(not(feature = "no_video_interface"))]
         let video = Rc::new(RefCell::new(TestVideoInterface::default()));
+        #[cfg(not(feature = "no_video_interface"))]
         let video_clone: VideoDeviceRcRefCell = video.clone();
         let mut dma_notifier = NopDmaNotifer;
         let mut cycles_to_next_event = CYCLES_FULL_REFRESH;
@@ -659,6 +783,7 @@ mod tests {
 
         for line in 0..160 {
             println!("line = {}", line);
+            #[cfg(not(feature = "no_video_interface"))]
             assert_eq!(video.borrow().frame_counter, 0);
             assert_eq!(gpu.vcount, line);
             assert_eq!(gpu.state, GpuState::HDraw);
@@ -676,6 +801,7 @@ mod tests {
             assert_eq!(gpu.interrupt_flags.get().LCD_VCounterMatch(), false);
         }
 
+        #[cfg(not(feature = "no_video_interface"))]
         assert_eq!(video.borrow().frame_counter, 1);
 
         for line in 0..68 {
@@ -694,6 +820,7 @@ mod tests {
             update!(CYCLES_HBLANK);
         }
 
+        #[cfg(not(feature = "no_video_interface"))]
         assert_eq!(video.borrow().frame_counter, 1);
         assert_eq!(total_cycles, CYCLES_FULL_REFRESH);
 

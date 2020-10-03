@@ -11,13 +11,14 @@ use super::dma::DmaController;
 use super::gpu::*;
 use super::interrupt::*;
 use super::iodev::*;
+use super::sched::{EventHandler, EventType, Scheduler, SharedScheduler};
 use super::sound::SoundController;
 use super::sysbus::SysBus;
 use super::timer::Timers;
 
-use super::{AudioInterface, InputInterface};
 #[cfg(not(feature = "no_video_interface"))]
 use super::VideoInterface;
+use super::{AudioInterface, InputInterface};
 
 pub struct GameBoyAdvance {
     pub sysbus: Box<SysBus>,
@@ -30,6 +31,8 @@ pub struct GameBoyAdvance {
 
     pub cycles_to_next_event: usize,
 
+    scheduler: SharedScheduler,
+
     overshoot_cycles: usize,
     interrupt_flags: SharedInterruptFlags,
 }
@@ -37,6 +40,7 @@ pub struct GameBoyAdvance {
 #[derive(Serialize, Deserialize)]
 struct SaveState {
     sysbus: Box<SysBus>,
+    scheduler: Scheduler,
     interrupt_flags: u16,
     cpu: arm7tdmi::Core,
 }
@@ -58,8 +62,7 @@ impl GameBoyAdvance {
     pub fn new(
         bios_rom: Box<[u8]>,
         gamepak: Cartridge,
-        #[cfg(not(feature = "no_video_interface"))]
-        video_device: Rc<RefCell<dyn VideoInterface>>,
+        #[cfg(not(feature = "no_video_interface"))] video_device: Rc<RefCell<dyn VideoInterface>>,
         audio_device: Rc<RefCell<dyn AudioInterface>>,
         input_device: Rc<RefCell<dyn InputInterface>>,
     ) -> GameBoyAdvance {
@@ -70,12 +73,14 @@ impl GameBoyAdvance {
         };
 
         let interrupt_flags = Rc::new(Cell::new(IrqBitmask(0)));
+        let scheduler = Scheduler::new_shared();
 
         let intc = InterruptController::new(interrupt_flags.clone());
-        let gpu = Box::new(Gpu::new(interrupt_flags.clone()));
+        let gpu = Box::new(Gpu::new(scheduler.clone(), interrupt_flags.clone()));
         let dmac = DmaController::new(interrupt_flags.clone());
         let timers = Timers::new(interrupt_flags.clone());
         let sound_controller = Box::new(SoundController::new(
+            scheduler.clone(),
             audio_device.borrow().get_sample_rate() as f32,
         ));
         let io = IoDevices::new(intc, gpu, dmac, timers, sound_controller);
@@ -92,6 +97,8 @@ impl GameBoyAdvance {
             audio_device: audio_device,
             input_device: input_device,
 
+            scheduler: scheduler,
+
             cycles_to_next_event: 1,
             overshoot_cycles: 0,
             interrupt_flags: interrupt_flags,
@@ -104,8 +111,7 @@ impl GameBoyAdvance {
 
     pub fn from_saved_state(
         savestate: &[u8],
-        #[cfg(not(feature = "no_video_interface"))]
-        video_device: Rc<RefCell<dyn VideoInterface>>,
+        #[cfg(not(feature = "no_video_interface"))] video_device: Rc<RefCell<dyn VideoInterface>>,
         audio_device: Rc<RefCell<dyn AudioInterface>>,
         input_device: Rc<RefCell<dyn InputInterface>>,
     ) -> bincode::Result<GameBoyAdvance> {
@@ -114,7 +120,10 @@ impl GameBoyAdvance {
         let arm7tdmi = decoded.cpu;
         let mut sysbus = decoded.sysbus;
         let interrupts = Rc::new(Cell::new(IrqBitmask(decoded.interrupt_flags)));
+        let scheduler = decoded.scheduler.make_shared();
 
+        sysbus.io.gpu.set_scheduler(scheduler.clone());
+        sysbus.io.sound.set_scheduler(scheduler.clone());
         sysbus.io.connect_irq(interrupts.clone());
 
         Ok(GameBoyAdvance {
@@ -131,6 +140,8 @@ impl GameBoyAdvance {
             cycles_to_next_event: 1,
 
             overshoot_cycles: 0,
+
+            scheduler: scheduler,
         })
     }
 
@@ -139,6 +150,7 @@ impl GameBoyAdvance {
             cpu: self.cpu.clone(),
             sysbus: self.sysbus.clone(),
             interrupt_flags: self.interrupt_flags.get().value(),
+            scheduler: (*self.scheduler).clone(),
         };
 
         bincode::serialize(&s)
@@ -149,10 +161,13 @@ impl GameBoyAdvance {
 
         self.cpu = decoded.cpu;
         self.sysbus = decoded.sysbus;
+        self.scheduler = Scheduler::make_shared(decoded.scheduler);
         self.interrupt_flags = Rc::new(Cell::new(IrqBitmask(decoded.interrupt_flags)));
 
-        // Redistribute shared pointer for interrupts
+        // Redistribute shared pointers
         self.sysbus.io.connect_irq(self.interrupt_flags.clone());
+        self.sysbus.io.gpu.set_scheduler(self.scheduler.clone());
+        self.sysbus.io.sound.set_scheduler(self.scheduler.clone());
 
         self.cycles_to_next_event = 1;
 
@@ -177,10 +192,12 @@ impl GameBoyAdvance {
     pub fn frame(&mut self) {
         self.key_poll();
 
+        let mut scheduler = self.scheduler.clone();
+
         let mut remaining_cycles = CYCLES_FULL_REFRESH - self.overshoot_cycles;
 
         while remaining_cycles > 0 {
-            let cycles = self.step();
+            let cycles = self.step(&mut scheduler);
             if remaining_cycles >= cycles {
                 remaining_cycles -= cycles;
             } else {
@@ -228,15 +245,15 @@ impl GameBoyAdvance {
         self.cpu.cycles - previous_cycles
     }
 
-    pub fn step(&mut self) -> usize {
+    pub fn step(&mut self, scheduler: &mut Scheduler) -> usize {
         // I hate myself for doing this, but rust left me no choice.
         let io = unsafe {
             let ptr = &mut *self.sysbus as *mut SysBus;
             &mut (*ptr).io as &mut IoDevices
         };
 
-        let mut cycles_left = self.cycles_to_next_event;
-        let mut cycles_to_next_event = std::usize::MAX;
+        let available_cycles = self.scheduler.get_cycles_to_next_event();
+        let mut cycles_left = available_cycles;
         let mut cycles = 0;
 
         while cycles_left > 0 {
@@ -259,18 +276,9 @@ impl GameBoyAdvance {
             cycles_left -= _cycles;
         }
 
-        // update gpu & sound
         io.timers.update(cycles, &mut self.sysbus);
-        io.gpu.update(
-            cycles,
-            &mut cycles_to_next_event,
-            self.sysbus.as_mut(),
-            #[cfg(not(feature = "no_video_interface"))]
-            &self.video_device,
-        );
-        io.sound
-            .update(cycles, &mut cycles_to_next_event, &self.audio_device);
-        self.cycles_to_next_event = cycles_to_next_event;
+
+        scheduler.run(cycles, self);
 
         cycles
     }
@@ -293,17 +301,11 @@ impl GameBoyAdvance {
         let cycles = self.step_cpu(io);
         let breakpoint = self.check_breakpoint();
 
-        let mut _ignored = 0;
-        // update gpu & sound
         io.timers.update(cycles, &mut self.sysbus);
-        io.gpu.update(
-            cycles,
-            &mut _ignored,
-            self.sysbus.as_mut(),
-            #[cfg(not(feature = "no_video_interface"))]
-            &self.video_device,
-        );
-        io.sound.update(cycles, &mut _ignored, &self.audio_device);
+
+        // update gpu & sound
+        let mut scheduler = self.scheduler.clone();
+        scheduler.run(cycles, self);
 
         breakpoint
     }
@@ -317,6 +319,25 @@ impl GameBoyAdvance {
     /// Reset the emulator
     pub fn soft_reset(&mut self) {
         self.cpu.reset(&mut self.sysbus);
+    }
+}
+
+impl EventHandler for GameBoyAdvance {
+    fn handle_event(&mut self, event: EventType, extra_cycles: usize) {
+        let io = unsafe {
+            let ptr = &mut *self.sysbus as *mut SysBus;
+            &mut (*ptr).io as &mut IoDevices
+        };
+        match event {
+            EventType::Gpu(event) => io.gpu.on_event(
+                event,
+                extra_cycles,
+                self.sysbus.as_mut(),
+                #[cfg(not(feature = "no_video_interface"))]
+                &self.video_device,
+            ),
+            EventType::Apu(event) => io.sound.on_event(event, extra_cycles, &self.audio_device),
+        }
     }
 }
 
@@ -337,6 +358,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(feature = "no_video_interface"))]
     impl VideoInterface for DummyInterface {}
     impl AudioInterface for DummyInterface {}
     impl InputInterface for DummyInterface {}
@@ -350,8 +372,14 @@ mod tests {
             .build()
             .unwrap();
         let dummy = Rc::new(RefCell::new(DummyInterface::new()));
-        let mut gba =
-            GameBoyAdvance::new(bios, cartridge, dummy.clone(), dummy.clone(), dummy.clone());
+        let mut gba = GameBoyAdvance::new(
+            bios,
+            cartridge,
+            #[cfg(not(feature = "no_video_interface"))]
+            dummy.clone(),
+            dummy.clone(),
+            dummy.clone(),
+        );
         gba.skip_bios();
 
         gba
