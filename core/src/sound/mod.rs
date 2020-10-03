@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::dma::DmaController;
 use super::iodev::consts::*;
+use super::sched::*;
 
 use crate::{AudioInterface, StereoSample};
 
@@ -62,6 +63,10 @@ type AudioDeviceRcRefCell = Rc<RefCell<dyn AudioInterface>>;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SoundController {
+    #[serde(skip)]
+    #[serde(default = "Scheduler::new_shared")]
+    scheduler: SharedScheduler,
+
     cycles: usize, // cycles count when we last provided a new sample.
 
     mse: bool,
@@ -101,9 +106,13 @@ pub struct SoundController {
 }
 
 impl SoundController {
-    pub fn new(audio_device_sample_rate: f32) -> SoundController {
+    pub fn new(mut scheduler: SharedScheduler, audio_device_sample_rate: f32) -> SoundController {
         let resampler = CosineResampler::new(32768_f32, audio_device_sample_rate);
+        let cycles_per_sample = 512;
+        scheduler.schedule(EventType::Apu(ApuEvent::Sample), cycles_per_sample);
         SoundController {
+            scheduler,
+            cycles_per_sample,
             cycles: 0,
             mse: false,
             left_volume: 0,
@@ -127,12 +136,15 @@ impl SoundController {
             sqr1_cur_vol: 0,
             sound_bias: 0x200,
             sample_rate: 32_768f32,
-            cycles_per_sample: 512,
             dma_sound: [Default::default(), Default::default()],
 
             resampler: resampler,
             output_buffer: Vec::with_capacity(1024),
         }
+    }
+
+    pub fn set_scheduler(&mut self, scheduler: SharedScheduler) {
+        self.scheduler = scheduler;
     }
 
     pub fn handle_read(&self, io_addr: u32) -> u16 {
@@ -277,6 +289,11 @@ impl SoundController {
                     self.resampler.in_freq = self.sample_rate;
                 }
                 self.cycles_per_sample = 512 >> resolution;
+                info!(
+                    "bias - setting sample frequency to {}hz",
+                    self.cycles_per_sample
+                );
+                // TODO this will not affect the currently scheduled sample event
             }
 
             _ => {
@@ -317,46 +334,47 @@ impl SoundController {
         }
     }
 
-    pub fn update(
-        &mut self,
-        cycles: usize,
-        cycles_to_next_event: &mut usize,
-        audio_device: &AudioDeviceRcRefCell,
-    ) {
-        self.cycles += cycles;
-        while self.cycles >= self.cycles_per_sample {
-            self.cycles -= self.cycles_per_sample;
+    #[inline]
+    fn on_sample(&mut self, extra_cycles: usize, audio_device: &AudioDeviceRcRefCell) {
+        let mut sample = [0f32; 2];
 
-            // time to push a new sample!
-
-            let mut sample = [0f32; 2];
-
-            for channel in 0..=1 {
-                let mut dma_sample = 0;
-                for dma in &mut self.dma_sound {
-                    if dma.is_stereo_channel_enabled(channel) {
-                        let value = dma.value as i16;
-                        dma_sample += value * (2 << dma.volume_shift);
-                    }
+        for channel in 0..=1 {
+            let mut dma_sample = 0;
+            for dma in &mut self.dma_sound {
+                if dma.is_stereo_channel_enabled(channel) {
+                    let value = dma.value as i16;
+                    dma_sample += value * (2 << dma.volume_shift);
                 }
-
-                apply_bias(&mut dma_sample, self.sound_bias.bit_range(0..10) as i16);
-                sample[channel] = dma_sample as i32 as f32;
             }
 
-            let stereo_sample = (sample[0], sample[1]);
-            self.resampler.feed(stereo_sample, &mut self.output_buffer);
-
-            let mut audio = audio_device.borrow_mut();
-            self.output_buffer.drain(..).for_each(|(left, right)| {
-                audio.push_sample(&[
-                    (left.round() as i16) * (std::i16::MAX / 512),
-                    (right.round() as i16) * (std::i16::MAX / 512),
-                ]);
-            });
+            apply_bias(&mut dma_sample, self.sound_bias.bit_range(0..10) as i16);
+            sample[channel] = dma_sample as i32 as f32;
         }
-        if self.cycles_per_sample < *cycles_to_next_event {
-            *cycles_to_next_event = self.cycles_per_sample;
+
+        let stereo_sample = (sample[0], sample[1]);
+        self.resampler.feed(stereo_sample, &mut self.output_buffer);
+
+        let mut audio = audio_device.borrow_mut();
+        self.output_buffer.drain(..).for_each(|(left, right)| {
+            audio.push_sample(&[
+                (left.round() as i16) * (std::i16::MAX / 512),
+                (right.round() as i16) * (std::i16::MAX / 512),
+            ]);
+        });
+
+        self.scheduler
+            .add_apu_event(ApuEvent::Sample, self.cycles_per_sample - extra_cycles);
+    }
+
+    pub fn on_event(
+        &mut self,
+        event: ApuEvent,
+        extra_cycles: usize,
+        audio_device: &AudioDeviceRcRefCell,
+    ) {
+        match event {
+            ApuEvent::Sample => self.on_sample(extra_cycles, audio_device),
+            _ => debug!("got {:?} event", event),
         }
     }
 }
