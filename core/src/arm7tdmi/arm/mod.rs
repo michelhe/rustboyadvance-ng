@@ -1,3 +1,4 @@
+#[cfg(feature = "debugger")]
 pub mod display;
 pub mod exec;
 
@@ -21,7 +22,6 @@ pub enum ArmDecodeErrorKind {
     InvalidHSBits(u32),
     IoError(io::ErrorKind),
 }
-use ArmDecodeErrorKind::*;
 
 #[derive(Debug, PartialEq)]
 pub struct ArmDecodeError {
@@ -30,6 +30,7 @@ pub struct ArmDecodeError {
     pub addr: Addr,
 }
 
+#[allow(dead_code)]
 impl ArmDecodeError {
     fn new(kind: ArmDecodeErrorKind, insn: u32, addr: Addr) -> ArmDecodeError {
         ArmDecodeError {
@@ -57,6 +58,7 @@ pub enum ArmCond {
     GT = 0b1100,
     LE = 0b1101,
     AL = 0b1110,
+    Invalid = 0b1111,
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
@@ -82,33 +84,10 @@ pub enum ArmFormat {
     Undefined,
 }
 
-#[derive(Debug, PartialEq, Primitive)]
-pub enum ArmHalfwordTransferType {
-    UnsignedHalfwords = 0b01,
-    SignedByte = 0b10,
-    SignedHalfwords = 0b11,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct ArmInstruction {
-    pub fmt: ArmFormat,
-    pub raw: u32,
-    pub pc: Addr,
-}
-
-impl ArmInstruction {
-    pub fn new(raw: u32, pc: Addr, fmt: ArmFormat) -> ArmInstruction {
-        ArmInstruction { fmt, raw, pc }
-    }
-}
-
-impl InstructionDecoder for ArmInstruction {
-    type IntType = u32;
-
-    fn decode(raw: u32, addr: Addr) -> Self {
+impl From<u32> for ArmFormat {
+    fn from(raw: u32) -> ArmFormat {
         use ArmFormat::*;
-
-        let fmt = if (0x0fff_fff0 & raw) == 0x012f_ff10 {
+        if (0x0fff_fff0 & raw) == 0x012f_ff10 {
             BranchExchange
         } else if (0x0e00_0000 & raw) == 0x0a00_0000 {
             BranchLink
@@ -140,7 +119,35 @@ impl InstructionDecoder for ArmInstruction {
             DataProcessing
         } else {
             Undefined
-        };
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Primitive)]
+pub enum ArmHalfwordTransferType {
+    UnsignedHalfwords = 0b01,
+    SignedByte = 0b10,
+    SignedHalfwords = 0b11,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ArmInstruction {
+    pub fmt: ArmFormat,
+    pub raw: u32,
+    pub pc: Addr,
+}
+
+impl ArmInstruction {
+    pub fn new(raw: u32, pc: Addr, fmt: ArmFormat) -> ArmInstruction {
+        ArmInstruction { fmt, raw, pc }
+    }
+}
+
+impl InstructionDecoder for ArmInstruction {
+    type IntType = u32;
+
+    fn decode(raw: u32, addr: Addr) -> Self {
+        let fmt = ArmFormat::from(raw);
 
         ArmInstruction {
             fmt: fmt,
@@ -160,208 +167,265 @@ impl InstructionDecoder for ArmInstruction {
     }
 }
 
-impl ArmInstruction {
-    fn make_decode_error(&self, kind: ArmDecodeErrorKind) -> ArmDecodeError {
-        ArmDecodeError {
-            kind: kind,
-            insn: self.raw,
-            addr: self.pc,
-        }
-    }
+pub trait ArmDecodeHelper {
+    fn cond(&self) -> ArmCond;
 
-    pub fn cond(&self) -> ArmCond {
-        ArmCond::from_u32(self.raw.bit_range(28..32)).unwrap()
-    }
+    fn rm(&self) -> usize;
 
-    pub fn rn(&self) -> usize {
-        match self.fmt {
-            ArmFormat::Multiply => self.raw.bit_range(12..16) as usize,
-            ArmFormat::MultiplyLong => self.raw.bit_range(8..12) as usize,
-            ArmFormat::BranchExchange => self.raw.bit_range(0..4) as usize,
-            _ => self.raw.bit_range(16..20) as usize,
-        }
-    }
+    fn rs(&self) -> usize;
 
-    pub fn rd(&self) -> usize {
-        match self.fmt {
-            ArmFormat::Multiply => self.raw.bit_range(16..20) as usize,
-            _ => self.raw.bit_range(12..16) as usize,
-        }
-    }
+    fn rd_lo(&self) -> usize;
 
-    pub fn rm(&self) -> usize {
-        self.raw.bit_range(0..4) as usize
-    }
+    fn rd_hi(&self) -> usize;
 
-    pub fn rs(&self) -> usize {
-        self.raw.bit_range(8..12) as usize
-    }
+    fn opcode(&self) -> AluOpCode;
 
-    pub fn rd_lo(&self) -> usize {
-        self.raw.bit_range(12..16) as usize
-    }
+    fn branch_offset(&self) -> i32;
 
-    pub fn rd_hi(&self) -> usize {
-        self.raw.bit_range(16..20) as usize
-    }
+    fn load_flag(&self) -> bool;
 
-    pub fn opcode(&self) -> AluOpCode {
-        use std::hint::unreachable_unchecked;
+    fn set_cond_flag(&self) -> bool;
 
-        unsafe {
-            if let Some(opc) = AluOpCode::from_u16(self.raw.bit_range(21..25) as u16) {
-                opc
-            } else {
-                unreachable_unchecked()
-            }
-        }
-    }
+    fn write_back_flag(&self) -> bool;
 
-    pub fn branch_offset(&self) -> i32 {
-        ((self.raw.bit_range(0..24) << 8) as i32) >> 6
-    }
+    fn accumulate_flag(&self) -> bool;
 
-    pub fn load_flag(&self) -> bool {
-        self.raw.bit(20)
-    }
+    fn u_flag(&self) -> bool;
 
-    pub fn set_cond_flag(&self) -> bool {
-        self.raw.bit(20)
-    }
+    fn halfword_data_transfer_type(&self) -> ArmHalfwordTransferType;
 
-    pub fn write_back_flag(&self) -> bool {
-        self.raw.bit(21)
-    }
+    fn transfer_size(&self) -> usize;
 
-    pub fn accumulate_flag(&self) -> bool {
-        self.raw.bit(21)
-    }
+    fn psr_and_force_user_flag(&self) -> bool;
 
-    pub fn u_flag(&self) -> bool {
-        self.raw.bit(22)
-    }
+    fn spsr_flag(&self) -> bool;
 
-    pub fn halfword_data_transfer_type(&self) -> Result<ArmHalfwordTransferType, ArmDecodeError> {
-        let bits = (self.raw & 0b1100000) >> 5;
-        match ArmHalfwordTransferType::from_u32(bits) {
-            Some(x) => Ok(x),
-            None => Err(ArmDecodeError::new(InvalidHSBits(bits), self.raw, self.pc)),
-        }
-    }
+    fn add_offset_flag(&self) -> bool;
 
-    pub fn transfer_size(&self) -> usize {
-        if self.raw.bit(22) {
-            1
-        } else {
-            4
-        }
-    }
+    fn pre_index_flag(&self) -> bool;
 
-    pub fn psr_and_force_user_flag(&self) -> bool {
-        self.raw.bit(22)
-    }
-
-    pub fn spsr_flag(&self) -> bool {
-        self.raw.bit(22)
-    }
-
-    pub fn add_offset_flag(&self) -> bool {
-        self.raw.bit(23)
-    }
-
-    pub fn pre_index_flag(&self) -> bool {
-        self.raw.bit(24)
-    }
-
-    pub fn link_flag(&self) -> bool {
-        self.raw.bit(24)
-    }
+    fn link_flag(&self) -> bool;
 
     /// gets offset used by ldr/str instructions
-    pub fn ldr_str_offset(&self) -> BarrelShifterValue {
-        let ofs = self.raw.bit_range(0..12);
-        if self.raw.bit(25) {
-            let rm = ofs & 0xf;
-            BarrelShifterValue::ShiftedRegister(ShiftedRegister {
-                reg: rm as usize,
-                shift_by: self.get_shift_reg_by(ofs),
-                bs_op: self.get_bs_op(ofs),
-                added: Some(self.add_offset_flag()),
-            })
-        } else {
-            let ofs = if self.add_offset_flag() {
-                ofs as u32
-            } else {
-                -(ofs as i32) as u32
-            };
-            BarrelShifterValue::ImmediateValue(ofs)
-        }
-    }
+    fn ldr_str_offset(&self) -> BarrelShifterValue;
 
-    #[inline(always)]
-    fn get_bs_op(&self, shift_field: u32) -> BarrelShiftOpCode {
-        BarrelShiftOpCode::from_u8(shift_field.bit_range(5..7) as u8).unwrap()
-    }
+    fn get_bs_op(&self) -> BarrelShiftOpCode;
 
-    #[inline(always)]
-    fn get_shift_reg_by(&self, shift_field: u32) -> ShiftRegisterBy {
-        if shift_field.bit(4) {
-            let rs = shift_field.bit_range(8..12) as usize;
-            ShiftRegisterBy::ByRegister(rs)
-        } else {
-            let amount = shift_field.bit_range(7..12) as u32;
-            ShiftRegisterBy::ByAmount(amount)
-        }
-    }
+    fn get_shift_reg_by(&self) -> ShiftRegisterBy;
 
-    pub fn ldr_str_hs_offset(&self) -> Result<BarrelShifterValue, ArmDecodeError> {
-        match self.fmt {
-            ArmFormat::HalfwordDataTransferImmediateOffset => {
-                let offset8 = (self.raw.bit_range(8..12) << 4) + self.raw.bit_range(0..4);
-                let offset8 = if self.add_offset_flag() {
-                    offset8
-                } else {
-                    (-(offset8 as i32)) as u32
-                };
-                Ok(BarrelShifterValue::ImmediateValue(offset8))
-            }
-            ArmFormat::HalfwordDataTransferRegOffset => {
-                Ok(BarrelShifterValue::ShiftedRegister(ShiftedRegister {
-                    reg: (self.raw & 0xf) as usize,
-                    shift_by: ShiftRegisterBy::ByAmount(0),
-                    bs_op: BarrelShiftOpCode::LSL,
-                    added: Some(self.add_offset_flag()),
-                }))
-            }
-            _ => Err(self.make_decode_error(DecodedPartDoesNotBelongToInstruction)),
-        }
-    }
+    fn ldr_str_hs_imm_offset(&self) -> BarrelShifterValue;
 
-    pub fn operand2(&self) -> BarrelShifterValue {
-        if self.raw.bit(25) {
-            let immediate = self.raw & 0xff;
-            let rotate = 2 * self.raw.bit_range(8..12);
-            BarrelShifterValue::RotatedImmediate(immediate, rotate)
-        } else {
-            let reg = self.raw & 0xf;
-            let shifted_reg = ShiftedRegister {
-                reg: reg as usize,
-                bs_op: self.get_bs_op(self.raw),
-                shift_by: self.get_shift_reg_by(self.raw),
-                added: None,
-            }; // TODO error handling
-            BarrelShifterValue::ShiftedRegister(shifted_reg)
-        }
-    }
+    fn ldr_str_hs_reg_offset(&self) -> BarrelShifterValue;
 
-    pub fn register_list(&self) -> u16 {
-        (self.raw & 0xffff) as u16
-    }
+    fn operand2(&self) -> BarrelShifterValue;
 
-    pub fn swi_comment(&self) -> u32 {
-        self.raw.bit_range(0..24)
-    }
+    fn register_list(&self) -> u16;
+
+    fn swi_comment(&self) -> u32;
 }
+
+macro_rules! arm_decode_helper_impl {
+    ($($t:ty),*) => {$(
+
+        impl ArmDecodeHelper for $t {
+            #[inline(always)]
+            fn cond(&self) -> ArmCond {
+                ArmCond::from_u32(self.bit_range(28..32)).unwrap()
+            }
+
+            #[inline(always)]
+            fn rm(&self) -> usize {
+                self.bit_range(0..4) as usize
+            }
+
+            #[inline(always)]
+            fn rs(&self) -> usize {
+                self.bit_range(8..12) as usize
+            }
+
+            #[inline(always)]
+            fn rd_lo(&self) -> usize {
+                self.bit_range(12..16) as usize
+            }
+
+            #[inline(always)]
+            fn rd_hi(&self) -> usize {
+                self.bit_range(16..20) as usize
+            }
+
+            #[inline(always)]
+            fn opcode(&self) -> AluOpCode {
+                use std::hint::unreachable_unchecked;
+
+                unsafe {
+                    if let Some(opc) = AluOpCode::from_u16(self.bit_range(21..25) as u16) {
+                        opc
+                    } else {
+                        unreachable_unchecked()
+                    }
+                }
+            }
+
+            #[inline(always)]
+            fn branch_offset(&self) -> i32 {
+                ((self.bit_range(0..24) << 8) as i32) >> 6
+            }
+
+            #[inline(always)]
+            fn load_flag(&self) -> bool {
+                self.bit(20)
+            }
+
+            #[inline(always)]
+            fn set_cond_flag(&self) -> bool {
+                self.bit(20)
+            }
+
+            #[inline(always)]
+            fn write_back_flag(&self) -> bool {
+                self.bit(21)
+            }
+
+            #[inline(always)]
+            fn accumulate_flag(&self) -> bool {
+                self.bit(21)
+            }
+
+            #[inline(always)]
+            fn u_flag(&self) -> bool {
+                self.bit(22)
+            }
+
+            #[inline(always)]
+            fn halfword_data_transfer_type(&self) -> ArmHalfwordTransferType {
+                let bits = (*self & 0b1100000) >> 5;
+                ArmHalfwordTransferType::from_u32(bits).unwrap()
+            }
+
+            #[inline(always)]
+            fn transfer_size(&self) -> usize {
+                if self.bit(22) {
+                    1
+                } else {
+                    4
+                }
+            }
+
+            #[inline(always)]
+            fn psr_and_force_user_flag(&self) -> bool {
+                self.bit(22)
+            }
+
+            #[inline(always)]
+            fn spsr_flag(&self) -> bool {
+                self.bit(22)
+            }
+
+            #[inline(always)]
+            fn add_offset_flag(&self) -> bool {
+                self.bit(23)
+            }
+
+            #[inline(always)]
+            fn pre_index_flag(&self) -> bool {
+                self.bit(24)
+            }
+
+            #[inline(always)]
+            fn link_flag(&self) -> bool {
+                self.bit(24)
+            }
+
+            /// gets offset used by ldr/str instructions
+            #[inline(always)]
+            fn ldr_str_offset(&self) -> BarrelShifterValue {
+                let ofs = self.bit_range(0..12);
+                if self.bit(25) {
+                    let rm = ofs & 0xf;
+                    BarrelShifterValue::ShiftedRegister(ShiftedRegister {
+                        reg: rm as usize,
+                        shift_by: self.get_shift_reg_by(),
+                        bs_op: self.get_bs_op(),
+                        added: Some(self.add_offset_flag()),
+                    })
+                } else {
+                    let ofs = if self.add_offset_flag() {
+                        ofs as u32
+                    } else {
+                        -(ofs as i32) as u32
+                    };
+                    BarrelShifterValue::ImmediateValue(ofs)
+                }
+            }
+
+            #[inline(always)]
+            fn get_bs_op(&self) -> BarrelShiftOpCode {
+                BarrelShiftOpCode::from_u8(self.bit_range(5..7) as u8).unwrap()
+            }
+
+            #[inline(always)]
+            fn get_shift_reg_by(&self) -> ShiftRegisterBy {
+                if self.bit(4) {
+                    let rs = self.bit_range(8..12) as usize;
+                    ShiftRegisterBy::ByRegister(rs)
+                } else {
+                    let amount = self.bit_range(7..12) as u32;
+                    ShiftRegisterBy::ByAmount(amount)
+                }
+            }
+
+            #[inline(always)]
+            fn ldr_str_hs_imm_offset(&self) -> BarrelShifterValue {
+                        let offset8 = (self.bit_range(8..12) << 4) + self.bit_range(0..4);
+                        let offset8 = if self.add_offset_flag() {
+                            offset8
+                        } else {
+                            (-(offset8 as i32)) as u32
+                        };
+                        BarrelShifterValue::ImmediateValue(offset8)
+            }
+
+            #[inline(always)]
+            fn ldr_str_hs_reg_offset(&self) -> BarrelShifterValue  {
+                BarrelShifterValue::ShiftedRegister(
+                    ShiftedRegister {
+                        reg: (self & 0xf) as usize,
+                        shift_by: ShiftRegisterBy::ByAmount(0),
+                            bs_op: BarrelShiftOpCode::LSL,
+                            added: Some(self.add_offset_flag()),
+                        })
+            }
+
+            fn operand2(&self) -> BarrelShifterValue {
+                if self.bit(25) {
+                    let immediate = self & 0xff;
+                    let rotate = 2 * self.bit_range(8..12);
+                    BarrelShifterValue::RotatedImmediate(immediate, rotate)
+                } else {
+                    let reg = self & 0xf;
+                    let shifted_reg = ShiftedRegister {
+                        reg: reg as usize,
+                        bs_op: self.get_bs_op(),
+                        shift_by: self.get_shift_reg_by(),
+                        added: None,
+                    }; // TODO error handling
+                    BarrelShifterValue::ShiftedRegister(shifted_reg)
+                }
+            }
+
+            fn register_list(&self) -> u16 {
+                (self & 0xffff) as u16
+            }
+
+            fn swi_comment(&self) -> u32 {
+                self.bit_range(0..24)
+            }
+        }
+    )*}
+
+}
+
+arm_decode_helper_impl!(u32);
 
 // #[cfg(test)]
 // /// All instructions constants were generated using an ARM assembler.

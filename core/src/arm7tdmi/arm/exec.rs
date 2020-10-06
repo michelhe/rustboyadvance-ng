@@ -7,16 +7,13 @@ use crate::arm7tdmi::{Addr, Core, CpuMode, CpuState, REG_LR, REG_PC};
 use crate::sysbus::SysBus;
 use crate::Bus;
 
+use super::ArmDecodeHelper;
 use super::*;
 
-#[inline(always)]
-fn get_bs_op(shift_field: u32) -> BarrelShiftOpCode {
-    BarrelShiftOpCode::from_u8(shift_field.bit_range(5..7) as u8).unwrap()
-}
-
 impl Core {
-    pub fn exec_arm(&mut self, bus: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
-        match insn.fmt {
+    #[cfg(not(feature = "arm7tdmi_dispatch_table"))]
+    pub fn exec_arm(&mut self, bus: &mut SysBus, insn: u32, fmt: ArmFormat) -> CpuAction {
+        match fmt {
             ArmFormat::BranchExchange => self.exec_arm_bx(bus, insn),
             ArmFormat::BranchLink => self.exec_arm_b_bl(bus, insn),
             ArmFormat::DataProcessing => self.exec_arm_data_processing(bus, insn),
@@ -37,18 +34,19 @@ impl Core {
         }
     }
 
-    pub fn arm_undefined(&mut self, _: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn arm_undefined(&mut self, _: &mut SysBus, insn: u32) -> CpuAction {
         panic!(
             "executing undefined arm instruction {:08x} at @{:08x}",
-            insn.raw, insn.pc
+            insn,
+            self.pc_arm()
         )
     }
 
     /// Cycles 2S+1N
-    pub fn exec_arm_b_bl(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn exec_arm_b_bl(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
         self.S_cycle32(sb, self.pc);
         if insn.link_flag() {
-            self.set_reg(REG_LR, (insn.pc + (self.word_size() as u32)) & !0b1);
+            self.set_reg(REG_LR, (self.pc_arm() + (self.word_size() as u32)) & !0b1);
         }
 
         self.pc = (self.pc as i32).wrapping_add(insn.branch_offset()) as u32 & !1;
@@ -78,8 +76,8 @@ impl Core {
     }
 
     /// Cycles 2S+1N
-    pub fn exec_arm_bx(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
-        self.branch_exchange(sb, self.get_reg(insn.raw.bit_range(0..4) as usize))
+    pub fn exec_arm_bx(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
+        self.branch_exchange(sb, self.get_reg(insn.bit_range(0..4) as usize))
     }
 
     fn move_from_status_register(
@@ -99,33 +97,29 @@ impl Core {
         CpuAction::AdvancePC
     }
 
-    pub fn exec_arm_mrs(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
-        self.move_from_status_register(sb, insn.raw.bit_range(12..16) as usize, insn.spsr_flag())
+    pub fn exec_arm_mrs(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
+        self.move_from_status_register(sb, insn.bit_range(12..16) as usize, insn.spsr_flag())
     }
 
     #[inline(always)]
-    fn decode_msr_param(&mut self, insn: &ArmInstruction) -> u32 {
-        if insn.raw.bit(25) {
-            let immediate = insn.raw & 0xff;
-            let rotate = 2 * insn.raw.bit_range(8..12);
+    fn decode_msr_param(&mut self, insn: u32) -> u32 {
+        if insn.bit(25) {
+            let immediate = insn & 0xff;
+            let rotate = 2 * insn.bit_range(8..12);
             self.ror(immediate, rotate, self.cpsr.C(), false, true)
         } else {
-            self.get_reg((insn.raw & 0b1111) as usize)
+            self.get_reg((insn & 0b1111) as usize)
         }
     }
 
     // #[cfg(feature = "arm7tdmi_dispatch_table")]
-    pub fn exec_arm_transfer_to_status(
-        &mut self,
-        sb: &mut SysBus,
-        insn: &ArmInstruction,
-    ) -> CpuAction {
+    pub fn exec_arm_transfer_to_status(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
         let value = self.decode_msr_param(insn);
 
-        let f = insn.raw.bit(19);
-        let s = insn.raw.bit(18);
-        let x = insn.raw.bit(17);
-        let c = insn.raw.bit(16);
+        let f = insn.bit(19);
+        let s = insn.bit(18);
+        let x = insn.bit(17);
+        let c = insn.bit(16);
 
         let mut mask = 0;
         if f {
@@ -181,51 +175,46 @@ impl Core {
     ///
     /// Cycles: 1S+x+y (from GBATEK)
     ///         Add x=1I cycles if Op2 shifted-by-register. Add y=1S+1N cycles if Rd=R15.
-    pub fn exec_arm_data_processing(
-        &mut self,
-        sb: &mut SysBus,
-        insn: &ArmInstruction,
-    ) -> CpuAction {
+    pub fn exec_arm_data_processing(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
         use AluOpCode::*;
 
-        let raw_insn = insn.raw;
         self.S_cycle32(sb, self.pc);
 
-        let rn = raw_insn.bit_range(16..20) as usize;
-        let rd = raw_insn.bit_range(12..16) as usize;
+        let rn = insn.bit_range(16..20) as usize;
+        let rd = insn.bit_range(12..16) as usize;
         let mut op1 = if rn == REG_PC {
-            insn.pc + 8
+            self.pc_arm() + 8
         } else {
             self.get_reg(rn)
         };
         let mut s_flag = insn.set_cond_flag();
         let opcode = insn.opcode();
 
-        let op2 = if raw_insn.bit(25) {
-            let immediate = raw_insn & 0xff;
-            let rotate = 2 * raw_insn.bit_range(8..12);
+        let op2 = if insn.bit(25) {
+            let immediate = insn & 0xff;
+            let rotate = 2 * insn.bit_range(8..12);
             // TODO refactor out
             let bs_carry_in = self.cpsr.C();
             self.bs_carry_out = bs_carry_in;
             self.ror(immediate, rotate, self.cpsr.C(), false, true)
         } else {
-            let reg = raw_insn & 0xf;
+            let reg = insn & 0xf;
 
-            let shift_by = if raw_insn.bit(4) {
+            let shift_by = if insn.bit(4) {
                 if rn == REG_PC {
                     op1 += 4;
                 }
 
-                let rs = raw_insn.bit_range(8..12) as usize;
+                let rs = insn.bit_range(8..12) as usize;
                 ShiftRegisterBy::ByRegister(rs)
             } else {
-                let amount = raw_insn.bit_range(7..12) as u32;
+                let amount = insn.bit_range(7..12) as u32;
                 ShiftRegisterBy::ByAmount(amount)
             };
 
             let shifted_reg = ShiftedRegister {
                 reg: reg as usize,
-                bs_op: get_bs_op(raw_insn),
+                bs_op: insn.get_bs_op(),
                 shift_by: shift_by,
                 added: None,
             };
@@ -277,7 +266,7 @@ impl Core {
                 MOV => op2,
                 BIC => op1 & (!op2),
                 MVN => !op2,
-                _ => panic!("{} should be a PSR transfer", opcode),
+                _ => panic!("DataProcessing should be a PSR transfer"),
             })
         };
 
@@ -304,17 +293,17 @@ impl Core {
     /// STR{cond}{B}{T} Rd,<Address>    | 2N            | ----  |  [Rn+/-<offset>]=Rd
     /// ------------------------------------------------------------------------------
     /// For LDR, add y=1S+1N if Rd=R15.
-    pub fn exec_arm_ldr_str(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn exec_arm_ldr_str(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
         let mut result = CpuAction::AdvancePC;
 
         let load = insn.load_flag();
         let pre_index = insn.pre_index_flag();
         let writeback = insn.write_back_flag();
-        let base_reg = insn.raw.bit_range(16..20) as usize;
-        let dest_reg = insn.raw.bit_range(12..16) as usize;
+        let base_reg = insn.bit_range(16..20) as usize;
+        let dest_reg = insn.bit_range(12..16) as usize;
         let mut addr = self.get_reg(base_reg);
         if base_reg == REG_PC {
-            addr = insn.pc + 8; // prefetching
+            addr = self.pc_arm() + 8; // prefetching
         }
         let offset = self.get_barrel_shifted_value(&insn.ldr_str_offset());
         let effective_addr = (addr as i32).wrapping_add(offset as i32) as Addr;
@@ -352,7 +341,7 @@ impl Core {
             }
         } else {
             let value = if dest_reg == REG_PC {
-                insn.pc + 12
+                self.pc_arm() + 12
             } else {
                 self.get_reg(dest_reg)
             };
@@ -381,12 +370,12 @@ impl Core {
         result
     }
 
-    pub fn exec_arm_ldr_str_hs_reg(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn exec_arm_ldr_str_hs_reg(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
         self.ldr_str_hs(
             sb,
             insn,
             BarrelShifterValue::ShiftedRegister(ShiftedRegister {
-                reg: (insn.raw & 0xf) as usize,
+                reg: (insn & 0xf) as usize,
                 shift_by: ShiftRegisterBy::ByAmount(0),
                 bs_op: BarrelShiftOpCode::LSL,
                 added: Some(insn.add_offset_flag()),
@@ -394,8 +383,8 @@ impl Core {
         )
     }
 
-    pub fn exec_arm_ldr_str_hs_imm(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
-        let offset8 = (insn.raw.bit_range(8..12) << 4) + insn.raw.bit_range(0..4);
+    pub fn exec_arm_ldr_str_hs_imm(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
+        let offset8 = (insn.bit_range(8..12) << 4) + insn.bit_range(0..4);
         let offset8 = if insn.add_offset_flag() {
             offset8
         } else {
@@ -408,7 +397,7 @@ impl Core {
     pub fn ldr_str_hs(
         &mut self,
         sb: &mut SysBus,
-        insn: &ArmInstruction,
+        insn: u32,
         offset: BarrelShifterValue,
     ) -> CpuAction {
         let mut result = CpuAction::AdvancePC;
@@ -416,11 +405,11 @@ impl Core {
         let load = insn.load_flag();
         let pre_index = insn.pre_index_flag();
         let writeback = insn.write_back_flag();
-        let base_reg = insn.raw.bit_range(16..20) as usize;
-        let dest_reg = insn.raw.bit_range(12..16) as usize;
+        let base_reg = insn.bit_range(16..20) as usize;
+        let dest_reg = insn.bit_range(12..16) as usize;
         let mut addr = self.get_reg(base_reg);
         if base_reg == REG_PC {
-            addr = insn.pc + 8; // prefetching
+            addr = self.pc_arm() + 8; // prefetching
         }
 
         let offset = self.get_barrel_shifted_value(&offset);
@@ -440,7 +429,7 @@ impl Core {
 
         if load {
             self.S_cycle32(sb, self.pc);
-            let data = match insn.halfword_data_transfer_type().unwrap() {
+            let data = match insn.halfword_data_transfer_type() {
                 ArmHalfwordTransferType::SignedByte => {
                     self.N_cycle8(sb, addr);
                     sb.read_8(addr) as u8 as i8 as u32
@@ -466,12 +455,12 @@ impl Core {
             }
         } else {
             let value = if dest_reg == REG_PC {
-                insn.pc + 12
+                self.pc_arm() + 12
             } else {
                 self.get_reg(dest_reg)
             };
 
-            match insn.halfword_data_transfer_type().unwrap() {
+            match insn.halfword_data_transfer_type() {
                 ArmHalfwordTransferType::UnsignedHalfwords => {
                     self.N_cycle32(sb, addr);
                     self.write_16(addr, value as u16, sb);
@@ -492,15 +481,15 @@ impl Core {
         result
     }
 
-    pub fn exec_arm_ldm_stm(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn exec_arm_ldm_stm(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
         let mut result = CpuAction::AdvancePC;
 
         let mut full = insn.pre_index_flag();
         let ascending = insn.add_offset_flag();
-        let s_flag = insn.raw.bit(22);
+        let s_flag = insn.bit(22);
         let is_load = insn.load_flag();
         let mut writeback = insn.write_back_flag();
-        let base_reg = insn.raw.bit_range(16..20) as usize;
+        let base_reg = insn.bit_range(16..20) as usize;
         let mut base_addr = self.get_reg(base_reg);
 
         let rlist = insn.register_list();
@@ -583,7 +572,7 @@ impl Core {
                     if rlist.bit(r) {
                         let val = if r != base_reg {
                             if r == REG_PC {
-                                insn.pc + 12
+                                self.pc_arm() + 12
                             } else {
                                 self.get_reg(r)
                             }
@@ -653,9 +642,9 @@ impl Core {
         result
     }
 
-    pub fn exec_arm_mul_mla(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
-        let rd = insn.raw.bit_range(16..20) as usize;
-        let rn = insn.raw.bit_range(12..16) as usize;
+    pub fn exec_arm_mul_mla(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
+        let rd = insn.bit_range(16..20) as usize;
+        let rn = insn.bit_range(12..16) as usize;
         let rs = insn.rs();
         let rm = insn.rm();
 
@@ -691,7 +680,7 @@ impl Core {
         CpuAction::AdvancePC
     }
 
-    pub fn exec_arm_mull_mlal(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn exec_arm_mull_mlal(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
         let rd_hi = insn.rd_hi();
         let rd_lo = insn.rd_lo();
         let rs = insn.rs();
@@ -734,9 +723,9 @@ impl Core {
         CpuAction::AdvancePC
     }
 
-    pub fn exec_arm_swp(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
-        let base_addr = self.get_reg(insn.raw.bit_range(16..20) as usize);
-        let rd = insn.raw.bit_range(12..16) as usize;
+    pub fn exec_arm_swp(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
+        let base_addr = self.get_reg(insn.bit_range(16..20) as usize);
+        let rd = insn.bit_range(12..16) as usize;
         if insn.transfer_size() == 1 {
             let t = sb.read_8(base_addr);
             self.N_cycle8(sb, base_addr);
@@ -756,7 +745,7 @@ impl Core {
         CpuAction::AdvancePC
     }
 
-    pub fn exec_arm_swi(&mut self, sb: &mut SysBus, insn: &ArmInstruction) -> CpuAction {
+    pub fn exec_arm_swi(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
         self.software_interrupt(sb, self.pc - 4, insn.swi_comment());
         CpuAction::FlushPipeline
     }

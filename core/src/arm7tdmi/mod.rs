@@ -62,12 +62,12 @@ pub trait InstructionDecoder: Sized {
     fn get_raw(&self) -> Self::IntType;
 }
 
-pub fn reg_string(reg: usize) -> &'static str {
+pub fn reg_string<T: Into<usize>>(reg: T) -> &'static str {
     let reg_names = &[
         "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "fp", "ip", "sp", "lr",
         "pc",
     ];
-    reg_names[reg]
+    reg_names[reg.into()]
 }
 
 #[derive(Debug, PartialEq, Primitive, Copy, Clone)]

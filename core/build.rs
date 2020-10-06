@@ -229,13 +229,18 @@ fn arm_format_to_handler(arm_fmt: &str) -> &'static str {
 fn generate_thumb_lut(file: &mut fs::File) -> Result<(), std::io::Error> {
     writeln!(
         file,
-        "use super::thumb::ThumbFormat;
+        "/// This file is auto-generated from the build script
 
-pub type ThumbInstructionHandler = fn(&mut Core, &mut SysBus, &ThumbInstruction) -> CpuAction;
+#[cfg(feature = \"debugger\")]
+use super::thumb::ThumbFormat;
 
+pub type ThumbInstructionHandler = fn(&mut Core, &mut SysBus, insn: u16) -> CpuAction;
+
+#[cfg_attr(not(feature = \"debugger\"), repr(transparent))]
 pub struct ThumbInstructionInfo {{
+    pub handler_fn: ThumbInstructionHandler,
+    #[cfg(feature = \"debugger\")]
     pub fmt: ThumbFormat,
-    pub handler_fn: ThumbInstructionHandler
 }}
 "
     )?;
@@ -250,8 +255,13 @@ pub struct ThumbInstructionInfo {{
         let handler_name = thumb_format_to_handler(thumb_fmt);
         writeln!(
             file,
-            "    /* {:#x} */ ThumbInstructionInfo {{ fmt: ThumbFormat::{}, handler_fn: Core::{} }},",
-            i, thumb_fmt, handler_name
+            "    /* {:#x} */
+    ThumbInstructionInfo {{
+        handler_fn: Core::{},
+        #[cfg(feature = \"debugger\")]
+        fmt: ThumbFormat::{},
+    }},",
+            i, handler_name, thumb_fmt
         )?;
     }
 
@@ -263,13 +273,18 @@ pub struct ThumbInstructionInfo {{
 fn generate_arm_lut(file: &mut fs::File) -> Result<(), std::io::Error> {
     writeln!(
         file,
-        "use super::arm::ArmFormat;
+        "/// This file is auto-generated from the build script
 
-pub type ArmInstructionHandler = fn(&mut Core, &mut SysBus, &ArmInstruction) -> CpuAction;
+#[cfg(feature = \"debugger\")]
+use super::arm::ArmFormat;
 
+pub type ArmInstructionHandler = fn(&mut Core, &mut SysBus, insn: u32) -> CpuAction;
+
+#[cfg_attr(not(feature = \"debugger\"), repr(transparent))]
 pub struct ArmInstructionInfo {{
+    pub handler_fn: ArmInstructionHandler,
+    #[cfg(feature = \"debugger\")]
     pub fmt: ArmFormat,
-    pub handler_fn: ArmInstructionHandler
 }}
 "
     )?;
@@ -280,8 +295,13 @@ pub struct ArmInstructionInfo {{
         let handler_name = arm_format_to_handler(arm_fmt);
         writeln!(
             file,
-            "    /* {:#x} */ ArmInstructionInfo {{ fmt: ArmFormat::{}, handler_fn: Core::{} }},",
-            i, arm_fmt, handler_name
+            "   /* {:#x} */
+    ArmInstructionInfo {{
+        handler_fn: Core::{},
+        #[cfg(feature = \"debugger\")]
+        fmt: ArmFormat::{},
+    }} ,",
+            i, handler_name, arm_fmt
         )?;
     }
     writeln!(file, "];")?;
