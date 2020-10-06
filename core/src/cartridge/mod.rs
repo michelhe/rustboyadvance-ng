@@ -85,8 +85,8 @@ impl Bus for Cartridge {
     }
 
     fn read_16(&self, addr: u32) -> u16 {
-        if let Some(gpio) = &self.gpio {
-            if is_gpio_access(addr) {
+        if is_gpio_access(addr) {
+            if let Some(gpio) = &self.gpio {
                 if !(gpio.is_readable()) {
                     warn!("trying to read GPIO when reads are not allowed");
                 }
@@ -116,8 +116,8 @@ impl Bus for Cartridge {
     }
 
     fn write_16(&mut self, addr: u32, value: u16) {
-        if let Some(gpio) = &mut self.gpio {
-            if is_gpio_access(addr) {
+        if is_gpio_access(addr) {
+            if let Some(gpio) = &mut self.gpio {
                 gpio.write(addr & 0x1ff_ffff, value);
                 return;
             }
