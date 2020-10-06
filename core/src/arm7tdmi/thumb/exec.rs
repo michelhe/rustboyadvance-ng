@@ -4,7 +4,9 @@ use crate::Bus;
 
 use crate::bit::BitIndex;
 
+use super::ThumbDecodeHelper;
 use super::*;
+
 fn push(cpu: &mut Core, bus: &mut SysBus, r: usize) {
     cpu.gpr[REG_SP] -= 4;
     let stack_addr = cpu.gpr[REG_SP] & !3;
@@ -21,10 +23,10 @@ impl Core {
     pub(in super::super) fn exec_thumb_move_shifted_reg(
         &mut self,
         sb: &mut SysBus,
-        insn: &ThumbInstruction,
+        insn: u16,
     ) -> CpuAction {
-        let rd = (insn.raw & 0b111) as usize;
-        let rs = insn.raw.bit_range(3..6) as usize;
+        let rd = (insn & 0b111) as usize;
+        let rs = insn.bit_range(3..6) as usize;
 
         let shift_amount = insn.offset5() as u8 as u32;
         let op2 = self.barrel_shift_op(
@@ -43,12 +45,8 @@ impl Core {
     }
 
     /// Format 2
-    pub(in super::super) fn exec_thumb_add_sub(
-        &mut self,
-        sb: &mut SysBus,
-        insn: &ThumbInstruction,
-    ) -> CpuAction {
-        let rd = (insn.raw & 0b111) as usize;
+    pub(in super::super) fn exec_thumb_add_sub(&mut self, sb: &mut SysBus, insn: u16) -> CpuAction {
+        let rd = (insn & 0b111) as usize;
         let op1 = self.get_reg(insn.rs());
         let op2 = if insn.is_immediate_operand() {
             insn.rn() as u32
@@ -75,13 +73,13 @@ impl Core {
     pub(in super::super) fn exec_thumb_data_process_imm(
         &mut self,
         sb: &mut SysBus,
-        insn: &ThumbInstruction,
+        insn: u16,
     ) -> CpuAction {
         use OpFormat3::*;
         let op = insn.format3_op();
-        let rd = insn.raw.bit_range(8..11) as usize;
+        let rd = insn.bit_range(8..11) as usize;
         let op1 = self.gpr[rd];
-        let op2_imm = (insn.raw & 0xff) as u32;
+        let op2_imm = (insn & 0xff) as u32;
         let mut carry = self.cpsr.C();
         let mut overflow = self.cpsr.V();
         let result = match op {
@@ -100,12 +98,8 @@ impl Core {
     }
 
     /// Format 4
-    pub(in super::super) fn exec_thumb_alu_ops(
-        &mut self,
-        sb: &mut SysBus,
-        insn: &ThumbInstruction,
-    ) -> CpuAction {
-        let rd = (insn.raw & 0b111) as usize;
+    pub(in super::super) fn exec_thumb_alu_ops(&mut self, sb: &mut SysBus, insn: u16) -> CpuAction {
+        let rd = (insn & 0b111) as usize;
         let rs = insn.rs();
         let dst = self.get_reg(rd);
         let src = self.get_reg(rs);
@@ -164,16 +158,16 @@ impl Core {
     pub(in super::super) fn exec_thumb_hi_reg_op_or_bx(
         &mut self,
         sb: &mut SysBus,
-        insn: &ThumbInstruction,
+        insn: u16,
     ) -> CpuAction {
         let op = insn.format5_op();
-        let rd = (insn.raw & 0b111) as usize;
-        let dst_reg = if insn.flag(ThumbInstruction::FLAG_H1) {
+        let rd = (insn & 0b111) as usize;
+        let dst_reg = if insn.bit(consts::flags::FLAG_H1) {
             rd + 8
         } else {
             rd
         };
-        let src_reg = if insn.flag(ThumbInstruction::FLAG_H2) {
+        let src_reg = if insn.bit(consts::flags::FLAG_H2) {
             insn.rs() + 8
         } else {
             insn.rs()
@@ -213,12 +207,8 @@ impl Core {
     }
 
     /// Format 6
-    pub(in super::super) fn exec_thumb_ldr_pc(
-        &mut self,
-        sb: &mut SysBus,
-        insn: &ThumbInstruction,
-    ) -> CpuAction {
-        let rd = insn.raw.bit_range(8..11) as usize;
+    pub(in super::super) fn exec_thumb_ldr_pc(&mut self, sb: &mut SysBus, insn: u16) -> CpuAction {
+        let rd = insn.bit_range(8..11) as usize;
 
         let ofs = insn.word8() as Addr;
         let addr = (self.pc & !3) + ofs;
@@ -238,11 +228,12 @@ impl Core {
     fn do_exec_thumb_ldr_str(
         &mut self,
         sb: &mut SysBus,
-        insn: &ThumbInstruction,
+        insn: u16,
+
         addr: Addr,
         is_transferring_bytes: bool,
     ) -> CpuAction {
-        let rd = (insn.raw & 0b111) as usize;
+        let rd = (insn & 0b111) as usize;
         if insn.is_load() {
             let data = if is_transferring_bytes {
                 self.S_cycle8(sb, addr);
@@ -276,26 +267,26 @@ impl Core {
     pub(in super::super) fn exec_thumb_ldr_str_reg_offset(
         &mut self,
         bus: &mut SysBus,
-        insn: &ThumbInstruction,
+        insn: u16,
     ) -> CpuAction {
-        let rb = insn.raw.bit_range(3..6) as usize;
+        let rb = insn.bit_range(3..6) as usize;
         let addr = self.gpr[rb].wrapping_add(self.gpr[insn.ro()]);
-        self.do_exec_thumb_ldr_str(bus, insn, addr, insn.raw.bit(10))
+        self.do_exec_thumb_ldr_str(bus, insn, addr, insn.bit(10))
     }
 
     /// Format 8
     pub(in super::super) fn exec_thumb_ldr_str_shb(
         &mut self,
         sb: &mut SysBus,
-        insn: &ThumbInstruction,
+        insn: u16,
     ) -> CpuAction {
-        let rb = insn.raw.bit_range(3..6) as usize;
-        let rd = (insn.raw & 0b111) as usize;
+        let rb = insn.bit_range(3..6) as usize;
+        let rd = (insn & 0b111) as usize;
 
         let addr = self.gpr[rb].wrapping_add(self.gpr[insn.ro()]);
         match (
-            insn.flag(ThumbInstruction::FLAG_SIGN_EXTEND),
-            insn.flag(ThumbInstruction::FLAG_HALFWORD),
+            insn.bit(consts::flags::FLAG_SIGN_EXTEND),
+            insn.bit(consts::flags::FLAG_HALFWORD),
         ) {
             (false, false) =>
             /* strh */
@@ -337,27 +328,27 @@ impl Core {
     pub(in super::super) fn exec_thumb_ldr_str_imm_offset(
         &mut self,
         sb: &mut SysBus,
-        insn: &ThumbInstruction,
+        insn: u16,
     ) -> CpuAction {
-        let rb = insn.raw.bit_range(3..6) as usize;
+        let rb = insn.bit_range(3..6) as usize;
 
-        let offset = if insn.raw.bit(12) {
+        let offset = if insn.bit(12) {
             insn.offset5()
         } else {
             (insn.offset5() << 3) >> 1
         };
         let addr = self.gpr[rb].wrapping_add(offset as u32);
-        self.do_exec_thumb_ldr_str(sb, insn, addr, insn.raw.bit(12))
+        self.do_exec_thumb_ldr_str(sb, insn, addr, insn.bit(12))
     }
 
     /// Format 10
     pub(in super::super) fn exec_thumb_ldr_str_halfword(
         &mut self,
         sb: &mut SysBus,
-        insn: &ThumbInstruction,
+        insn: u16,
     ) -> CpuAction {
-        let rb = insn.raw.bit_range(3..6) as usize;
-        let rd = (insn.raw & 0b111) as usize;
+        let rb = insn.bit_range(3..6) as usize;
+        let rd = (insn & 0b111) as usize;
         let base = self.gpr[rb] as i32;
         let addr = base.wrapping_add((insn.offset5() << 1) as i32) as Addr;
         if insn.is_load() {
@@ -378,10 +369,10 @@ impl Core {
     pub(in super::super) fn exec_thumb_ldr_str_sp(
         &mut self,
         sb: &mut SysBus,
-        insn: &ThumbInstruction,
+        insn: u16,
     ) -> CpuAction {
         let addr = self.gpr[REG_SP] + (insn.word8() as Addr);
-        let rd = insn.raw.bit_range(8..11) as usize;
+        let rd = insn.bit_range(8..11) as usize;
         if insn.is_load() {
             let data = self.ldr_word(addr, sb);
             self.S_cycle16(sb, addr);
@@ -400,13 +391,13 @@ impl Core {
     pub(in super::super) fn exec_thumb_load_address(
         &mut self,
         sb: &mut SysBus,
-        insn: &ThumbInstruction,
+        insn: u16,
     ) -> CpuAction {
-        let rd = insn.raw.bit_range(8..11) as usize;
-        let result = if insn.flag(ThumbInstruction::FLAG_SP) {
+        let rd = insn.bit_range(8..11) as usize;
+        let result = if insn.bit(consts::flags::FLAG_SP) {
             self.gpr[REG_SP] + (insn.word8() as Addr)
         } else {
-            (insn.pc & !0b10) + 4 + (insn.word8() as Addr)
+            (self.pc_thumb() & !0b10) + 4 + (insn.word8() as Addr)
         };
         self.gpr[rd] = result;
         self.S_cycle16(sb, self.pc + 2);
@@ -415,11 +406,7 @@ impl Core {
     }
 
     /// Format 13
-    pub(in super::super) fn exec_thumb_add_sp(
-        &mut self,
-        sb: &mut SysBus,
-        insn: &ThumbInstruction,
-    ) -> CpuAction {
+    pub(in super::super) fn exec_thumb_add_sp(&mut self, sb: &mut SysBus, insn: u16) -> CpuAction {
         let op1 = self.gpr[REG_SP] as i32;
         let op2 = insn.sword7();
 
@@ -433,13 +420,13 @@ impl Core {
     pub(in super::super) fn exec_thumb_push_pop(
         &mut self,
         sb: &mut SysBus,
-        insn: &ThumbInstruction,
+        insn: u16,
     ) -> CpuAction {
         let mut result = CpuAction::AdvancePC;
 
         // (From GBATEK) Execution Time: nS+1N+1I (POP), (n+1)S+2N+1I (POP PC), or (n-1)S+2N (PUSH).
         let is_pop = insn.is_load();
-        let pc_lr_flag = insn.flag(ThumbInstruction::FLAG_R);
+        let pc_lr_flag = insn.bit(consts::flags::FLAG_R);
         let rlist = insn.register_list();
         self.N_cycle16(sb, self.pc);
         let mut first = true;
@@ -482,16 +469,12 @@ impl Core {
     }
 
     /// Format 15
-    pub(in super::super) fn exec_thumb_ldm_stm(
-        &mut self,
-        sb: &mut SysBus,
-        insn: &ThumbInstruction,
-    ) -> CpuAction {
+    pub(in super::super) fn exec_thumb_ldm_stm(&mut self, sb: &mut SysBus, insn: u16) -> CpuAction {
         let mut result = CpuAction::AdvancePC;
 
         // (From GBATEK) Execution Time: nS+1N+1I (POP), (n+1)S+2N+1I (POP PC), or (n-1)S+2N (PUSH).
 
-        let rb = insn.raw.bit_range(8..11) as usize;
+        let rb = insn.bit_range(8..11) as usize;
         let base_reg = rb;
         let is_load = insn.is_load();
 
@@ -566,7 +549,7 @@ impl Core {
     pub(in super::super) fn exec_thumb_branch_with_cond(
         &mut self,
         sb: &mut SysBus,
-        insn: &ThumbInstruction,
+        insn: u16,
     ) -> CpuAction {
         if !self.check_arm_cond(insn.cond()) {
             self.S_cycle16(sb, self.pc + 2);
@@ -581,22 +564,14 @@ impl Core {
     }
 
     /// Format 17
-    pub(in super::super) fn exec_thumb_swi(
-        &mut self,
-        sb: &mut SysBus,
-        _insn: &ThumbInstruction,
-    ) -> CpuAction {
+    pub(in super::super) fn exec_thumb_swi(&mut self, sb: &mut SysBus, _insn: u16) -> CpuAction {
         self.N_cycle16(sb, self.pc);
         self.exception(sb, Exception::SoftwareInterrupt, self.pc - 2);
         CpuAction::FlushPipeline
     }
 
     /// Format 18
-    pub(in super::super) fn exec_thumb_branch(
-        &mut self,
-        sb: &mut SysBus,
-        insn: &ThumbInstruction,
-    ) -> CpuAction {
+    pub(in super::super) fn exec_thumb_branch(&mut self, sb: &mut SysBus, insn: u16) -> CpuAction {
         let offset = ((insn.offset11() << 21) >> 20) as i32;
         self.pc = (self.pc as i32).wrapping_add(offset) as u32;
         self.S_cycle16(sb, self.pc);
@@ -608,10 +583,10 @@ impl Core {
     pub(in super::super) fn exec_thumb_branch_long_with_link(
         &mut self,
         sb: &mut SysBus,
-        insn: &ThumbInstruction,
+        insn: u16,
     ) -> CpuAction {
         let mut off = insn.offset11();
-        if insn.flag(ThumbInstruction::FLAG_LOW_OFFSET) {
+        if insn.bit(consts::flags::FLAG_LOW_OFFSET) {
             self.S_cycle16(sb, self.pc);
             off = off << 1;
             let next_pc = (self.pc - 2) | 1;
@@ -628,15 +603,17 @@ impl Core {
         }
     }
 
-    pub fn thumb_undefined(&mut self, _: &mut SysBus, insn: &ThumbInstruction) -> CpuAction {
+    pub fn thumb_undefined(&mut self, _: &mut SysBus, insn: u16) -> CpuAction {
         panic!(
             "executing undefind thumb instruction {:04x} at @{:08x}",
-            insn.raw, insn.pc
+            insn,
+            self.pc_thumb()
         )
     }
 
-    pub fn exec_thumb(&mut self, bus: &mut SysBus, insn: &ThumbInstruction) -> CpuAction {
-        match insn.fmt {
+    #[cfg(not(feature = "arm7tdmi_dispatch_table"))]
+    pub fn exec_thumb(&mut self, bus: &mut SysBus, insn: u16, fmt: ThumbFormat) -> CpuAction {
+        match fmt {
             ThumbFormat::MoveShiftedReg => self.exec_thumb_move_shifted_reg(bus, insn),
             ThumbFormat::AddSub => self.exec_thumb_add_sub(bus, insn),
             ThumbFormat::DataProcessImm => self.exec_thumb_data_process_imm(bus, insn),

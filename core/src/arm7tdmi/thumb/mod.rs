@@ -5,6 +5,7 @@ use crate::bit::BitIndex;
 use crate::byteorder::{LittleEndian, ReadBytesExt};
 use crate::num::FromPrimitive;
 
+#[cfg(feature = "debugger")]
 pub mod display;
 pub mod exec;
 
@@ -53,26 +54,10 @@ pub enum ThumbFormat {
     Undefined,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct ThumbInstruction {
-    pub fmt: ThumbFormat,
-    pub raw: u16,
-    pub pc: Addr,
-}
-
-impl ThumbInstruction {
-    pub fn new(raw: u16, pc: Addr, fmt: ThumbFormat) -> ThumbInstruction {
-        ThumbInstruction { fmt, raw, pc }
-    }
-}
-
-impl InstructionDecoder for ThumbInstruction {
-    type IntType = u16;
-
-    fn decode(raw: u16, addr: Addr) -> Self {
-        use self::ThumbFormat::*;
-
-        let fmt = if raw & 0xf800 == 0x1800 {
+impl From<u16> for ThumbFormat {
+    fn from(raw: u16) -> ThumbFormat {
+        use ThumbFormat::*;
+        if raw & 0xf800 == 0x1800 {
             AddSub
         } else if raw & 0xe000 == 0x0000 {
             MoveShiftedReg
@@ -112,8 +97,28 @@ impl InstructionDecoder for ThumbInstruction {
             BranchLongWithLink
         } else {
             Undefined
-        };
+        }
+    }
+}
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ThumbInstruction {
+    pub fmt: ThumbFormat,
+    pub raw: u16,
+    pub pc: Addr,
+}
+
+impl ThumbInstruction {
+    pub fn new(raw: u16, pc: Addr, fmt: ThumbFormat) -> ThumbInstruction {
+        ThumbInstruction { fmt, raw, pc }
+    }
+}
+
+impl InstructionDecoder for ThumbInstruction {
+    type IntType = u16;
+
+    fn decode(raw: u16, addr: Addr) -> Self {
+        let fmt = ThumbFormat::from(raw);
         ThumbInstruction::new(raw, addr, fmt)
     }
 
@@ -203,118 +208,175 @@ impl From<OpFormat5> for AluOpCode {
     }
 }
 
-impl ThumbInstruction {
-    const FLAG_H1: usize = 7;
-    const FLAG_H2: usize = 6;
-    const FLAG_R: usize = 8;
-    const FLAG_S: usize = 7;
-    const FLAG_LOW_OFFSET: usize = 11;
-    const FLAG_SP: usize = 11;
-    const FLAG_SIGN_EXTEND: usize = 10;
-    const FLAG_HALFWORD: usize = 11;
-
-    pub fn rd(&self) -> usize {
-        match self.fmt {
-            ThumbFormat::DataProcessImm
-            | ThumbFormat::LdrPc
-            | ThumbFormat::LdrStrSp
-            | ThumbFormat::LoadAddress => self.raw.bit_range(8..11) as usize,
-            _ => (self.raw & 0b111) as usize,
-        }
-    }
-
-    pub fn rs(&self) -> usize {
-        self.raw.bit_range(3..6) as usize
-    }
-
-    pub fn rb(&self) -> usize {
-        match self.fmt {
-            ThumbFormat::LdmStm => self.raw.bit_range(8..11) as usize,
-            _ => self.raw.bit_range(3..6) as usize,
-        }
-    }
-
-    pub fn ro(&self) -> usize {
-        self.raw.bit_range(6..9) as usize
-    }
-
-    pub fn rn(&self) -> usize {
-        self.raw.bit_range(6..9) as usize
-    }
-
-    pub fn format1_op(&self) -> BarrelShiftOpCode {
-        BarrelShiftOpCode::from_u8(self.raw.bit_range(11..13) as u8).unwrap()
-    }
-
-    pub fn format3_op(&self) -> OpFormat3 {
-        OpFormat3::from_u8(self.raw.bit_range(11..13) as u8).unwrap()
-    }
-
-    pub fn format5_op(&self) -> OpFormat5 {
-        OpFormat5::from_u8(self.raw.bit_range(8..10) as u8).unwrap()
-    }
-
-    pub fn format4_alu_op(&self) -> ThumbAluOps {
-        ThumbAluOps::from_u16(self.raw.bit_range(6..10)).unwrap()
-    }
-
-    pub fn offset5(&self) -> u8 {
-        self.raw.bit_range(6..11) as u8
-    }
-
-    pub fn bcond_offset(&self) -> i32 {
-        ((((self.raw & 0xff) as u32) << 24) as i32) >> 23
-    }
-
-    pub fn offset11(&self) -> i32 {
-        (self.raw & 0x7FF) as i32
-    }
-
-    pub fn word8(&self) -> u16 {
-        (self.raw & 0xff) << 2
-    }
-
-    pub fn is_transferring_bytes(&self) -> bool {
-        match self.fmt {
-            ThumbFormat::LdrStrRegOffset => self.raw.bit(10),
-            ThumbFormat::LdrStrImmOffset => self.raw.bit(12),
-            _ => unreachable!(),
-        }
-    }
-
-    pub fn is_load(&self) -> bool {
-        self.raw.bit(11)
-    }
-
-    pub fn is_subtract(&self) -> bool {
-        self.raw.bit(9)
-    }
-
-    pub fn is_immediate_operand(&self) -> bool {
-        self.raw.bit(10)
-    }
-
-    pub fn cond(&self) -> ArmCond {
-        ArmCond::from_u8(self.raw.bit_range(8..12) as u8).expect("bad condition")
-    }
-
-    pub fn flag(&self, bit: usize) -> bool {
-        self.raw.bit(bit)
-    }
-
-    pub fn register_list(&self) -> u8 {
-        (self.raw & 0xff) as u8
-    }
-
-    pub fn sword7(&self) -> i32 {
-        let imm7 = self.raw & 0x7f;
-        if self.flag(ThumbInstruction::FLAG_S) {
-            -((imm7 << 2) as i32)
-        } else {
-            (imm7 << 2) as i32
-        }
+pub(super) mod consts {
+    pub(super) mod flags {
+        pub const FLAG_H1: usize = 7;
+        pub const FLAG_H2: usize = 6;
+        pub const FLAG_R: usize = 8;
+        pub const FLAG_S: usize = 7;
+        pub const FLAG_LOW_OFFSET: usize = 11;
+        pub const FLAG_SP: usize = 11;
+        pub const FLAG_SIGN_EXTEND: usize = 10;
+        pub const FLAG_HALFWORD: usize = 11;
     }
 }
+
+/// A trait which provides methods to extract thumb instruction fields
+pub trait ThumbDecodeHelper {
+    // Consts
+
+    // Methods
+
+    fn rs(&self) -> usize;
+
+    fn rb(&self) -> usize;
+
+    fn ro(&self) -> usize;
+
+    fn rn(&self) -> usize;
+
+    fn format1_op(&self) -> BarrelShiftOpCode;
+
+    fn format3_op(&self) -> OpFormat3;
+
+    fn format5_op(&self) -> OpFormat5;
+
+    fn format4_alu_op(&self) -> ThumbAluOps;
+
+    fn offset5(&self) -> u8;
+
+    fn bcond_offset(&self) -> i32;
+
+    fn offset11(&self) -> i32;
+
+    fn word8(&self) -> u16;
+
+    fn is_load(&self) -> bool;
+
+    fn is_subtract(&self) -> bool;
+
+    fn is_immediate_operand(&self) -> bool;
+
+    fn cond(&self) -> ArmCond;
+
+    fn flag(self, bit: usize) -> bool;
+
+    fn register_list(&self) -> u8;
+
+    fn sword7(&self) -> i32;
+}
+
+macro_rules! thumb_decode_helper_impl {
+    ($($t:ty),*) => {$(
+
+        impl ThumbDecodeHelper for $t {
+
+            #[inline]
+            fn rs(&self) -> usize {
+                self.bit_range(3..6) as usize
+            }
+
+            #[inline]
+            /// Note: not true for LdmStm
+            fn rb(&self) -> usize {
+                self.bit_range(3..6) as usize
+            }
+
+            #[inline]
+            fn ro(&self) -> usize {
+                self.bit_range(6..9) as usize
+            }
+
+            #[inline]
+            fn rn(&self) -> usize {
+                self.bit_range(6..9) as usize
+            }
+
+            #[inline]
+            fn format1_op(&self) -> BarrelShiftOpCode {
+                BarrelShiftOpCode::from_u8(self.bit_range(11..13) as u8).unwrap()
+            }
+
+            #[inline]
+            fn format3_op(&self) -> OpFormat3 {
+                OpFormat3::from_u8(self.bit_range(11..13) as u8).unwrap()
+            }
+
+            #[inline]
+            fn format5_op(&self) -> OpFormat5 {
+                OpFormat5::from_u8(self.bit_range(8..10) as u8).unwrap()
+            }
+
+            #[inline]
+            fn format4_alu_op(&self) -> ThumbAluOps {
+                ThumbAluOps::from_u16(self.bit_range(6..10)).unwrap()
+            }
+
+            #[inline]
+            fn offset5(&self) -> u8 {
+                self.bit_range(6..11) as u8
+            }
+
+            #[inline]
+            fn bcond_offset(&self) -> i32 {
+                ((((*self & 0xff) as u32) << 24) as i32) >> 23
+            }
+
+            #[inline]
+            fn offset11(&self) -> i32 {
+                (*self & 0x7FF) as i32
+            }
+
+            #[inline]
+            fn word8(&self) -> u16 {
+                (*self & 0xff) << 2
+            }
+
+            #[inline]
+            fn is_load(&self) -> bool {
+                self.bit(11)
+            }
+
+            #[inline]
+            fn is_subtract(&self) -> bool {
+                self.bit(9)
+            }
+
+            #[inline]
+            fn is_immediate_operand(&self) -> bool {
+                self.bit(10)
+            }
+
+            #[inline]
+            fn cond(&self) -> ArmCond {
+                ArmCond::from_u8(self.bit_range(8..12) as u8).expect("bad condition")
+            }
+
+            #[inline]
+            fn flag(self, bit: usize) -> bool {
+                self.bit(bit)
+            }
+
+            #[inline]
+            fn register_list(&self) -> u8 {
+                (*self & 0xff) as u8
+            }
+
+            #[inline]
+            fn sword7(&self) -> i32 {
+                let imm7 = *self & 0x7f;
+                if self.bit(consts::flags::FLAG_S) {
+                    -((imm7 << 2) as i32)
+                } else {
+                    (imm7 << 2) as i32
+                }
+            }
+        }
+
+    )*}
+}
+
+thumb_decode_helper_impl!(u16);
 
 // #[cfg(test)]
 // /// All instructions constants were generated using an ARM assembler.

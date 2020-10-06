@@ -1,22 +1,21 @@
 use std::fmt;
 
-#[cfg(feature = "debugger")]
 use crate::bit::BitIndex;
 
 use super::*;
-#[cfg(feature = "debugger")]
 use crate::arm7tdmi::*;
 
-#[cfg(feature = "debugger")]
+use super::ThumbDecodeHelper;
+
 impl ThumbInstruction {
     fn fmt_thumb_move_shifted_reg(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{op}\t{Rd}, {Rs}, #{Offset5}",
-            op = self.format1_op(),
-            Rd = reg_string(self.rd()),
-            Rs = reg_string(self.rs()),
-            Offset5 = self.offset5()
+            op = self.raw.format1_op(),
+            Rd = reg_string(self.raw & 0b111),
+            Rs = reg_string(self.raw.rs()),
+            Offset5 = self.raw.offset5()
         )
     }
 
@@ -24,8 +23,8 @@ impl ThumbInstruction {
         write!(
             f,
             "{op}\t{Rd}, #{Offset8:#x}",
-            op = self.format3_op(),
-            Rd = reg_string(self.rd()),
+            op = self.raw.format3_op(),
+            Rd = reg_string(self.raw.bit_range(8..11)),
             Offset8 = self.raw & 0xff
         )
     }
@@ -34,23 +33,23 @@ impl ThumbInstruction {
         write!(
             f,
             "{op}\t{Rd}, {Rs}",
-            op = self.format4_alu_op(),
-            Rd = reg_string(self.rd()),
-            Rs = reg_string(self.rs())
+            op = self.raw.format4_alu_op(),
+            Rd = reg_string(self.raw & 0b111),
+            Rs = reg_string(self.raw.rs())
         )
     }
 
     fn fmt_thumb_high_reg_op_or_bx(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let op = self.format5_op();
-        let dst_reg = if self.flag(ThumbInstruction::FLAG_H1) {
-            self.rd() + 8
+        let op = self.raw.format5_op();
+        let dst_reg = if self.raw.flag(consts::flags::FLAG_H1) {
+            self.raw & 0b111 + 8
         } else {
-            self.rd()
+            self.raw & 0b111
         };
-        let src_reg = if self.flag(ThumbInstruction::FLAG_H2) {
-            self.rs() + 8
+        let src_reg = if self.raw.flag(consts::flags::FLAG_H2) {
+            self.raw.rs() + 8
         } else {
-            self.rs()
+            self.raw.rs()
         };
 
         write!(f, "{}\t", op)?;
@@ -69,9 +68,9 @@ impl ThumbInstruction {
         write!(
             f,
             "ldr\t{Rd}, [pc, #{Imm:#x}] ; = #{effective:#x}",
-            Rd = reg_string(self.rd()),
-            Imm = self.word8(),
-            effective = (self.pc + 4 & !0b10) + (self.word8() as Addr)
+            Rd = reg_string(self.raw.bit_range(8..11)),
+            Imm = self.raw.word8(),
+            effective = (self.pc + 4 & !0b10) + (self.raw.word8() as Addr)
         )
     }
 
@@ -79,15 +78,11 @@ impl ThumbInstruction {
         write!(
             f,
             "{op}{b}\t{Rd}, [{Rb}, {Ro}]",
-            op = if self.is_load() { "ldr" } else { "str" },
-            b = if self.is_transferring_bytes() {
-                "b"
-            } else {
-                ""
-            },
-            Rd = reg_string(self.rd()),
-            Rb = reg_string(self.rb()),
-            Ro = reg_string(self.ro()),
+            op = if self.raw.is_load() { "ldr" } else { "str" },
+            b = if self.raw.bit(10) { "b" } else { "" },
+            Rd = reg_string(self.raw & 0b111),
+            Rb = reg_string(self.raw.rb()),
+            Ro = reg_string(self.raw.ro()),
         )
     }
 
@@ -97,8 +92,8 @@ impl ThumbInstruction {
             "{op}\t{Rd}, [{Rb}, {Ro}]",
             op = {
                 match (
-                    self.flag(ThumbInstruction::FLAG_SIGN_EXTEND),
-                    self.flag(ThumbInstruction::FLAG_HALFWORD),
+                    self.raw.flag(consts::flags::FLAG_SIGN_EXTEND),
+                    self.raw.flag(consts::flags::FLAG_HALFWORD),
                 ) {
                     (false, false) => "strh",
                     (false, true) => "ldrh",
@@ -106,27 +101,24 @@ impl ThumbInstruction {
                     (true, true) => "ldsh",
                 }
             },
-            Rd = reg_string(self.rd()),
-            Rb = reg_string(self.rb()),
-            Ro = reg_string(self.ro()),
+            Rd = reg_string(self.raw & 0b111),
+            Rb = reg_string(self.raw.rb()),
+            Ro = reg_string(self.raw.ro()),
         )
     }
 
     fn fmt_thumb_ldr_str_imm_offset(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let is_transferring_bytes = self.raw.bit(12);
         write!(
             f,
             "{op}{b}\t{Rd}, [{Rb}, #{imm:#x}]",
-            op = if self.is_load() { "ldr" } else { "str" },
-            b = if self.is_transferring_bytes() {
-                "b"
-            } else {
-                ""
-            },
-            Rd = reg_string(self.rd()),
-            Rb = reg_string(self.rb()),
+            op = if self.raw.is_load() { "ldr" } else { "str" },
+            b = if is_transferring_bytes { "b" } else { "" },
+            Rd = reg_string(self.raw & 0b111),
+            Rb = reg_string(self.raw.rb()),
             imm = {
-                let offset5 = self.offset5();
-                if self.is_transferring_bytes() {
+                let offset5 = self.raw.offset5();
+                if is_transferring_bytes {
                     offset5
                 } else {
                     (offset5 << 3) >> 1
@@ -139,10 +131,10 @@ impl ThumbInstruction {
         write!(
             f,
             "{op}\t{Rd}, [{Rb}, #{imm:#x}]",
-            op = if self.is_load() { "ldrh" } else { "strh" },
-            Rd = reg_string(self.rd()),
-            Rb = reg_string(self.rb()),
-            imm = self.offset5() << 1
+            op = if self.raw.is_load() { "ldrh" } else { "strh" },
+            Rd = reg_string(self.raw & 0b111),
+            Rb = reg_string(self.raw.rb()),
+            imm = self.raw.offset5() << 1
         )
     }
 
@@ -150,9 +142,9 @@ impl ThumbInstruction {
         write!(
             f,
             "{op}\t{Rd}, [sp, #{Imm:#x}]",
-            op = if self.is_load() { "ldr" } else { "str" },
-            Rd = reg_string(self.rd()),
-            Imm = self.word8(),
+            op = if self.raw.is_load() { "ldr" } else { "str" },
+            Rd = reg_string(self.raw.bit_range(8..11)),
+            Imm = self.raw.word8(),
         )
     }
 
@@ -160,35 +152,35 @@ impl ThumbInstruction {
         write!(
             f,
             "add\t{Rd}, {r}, #{Imm:#x}",
-            Rd = reg_string(self.rd()),
-            r = if self.flag(ThumbInstruction::FLAG_SP) {
+            Rd = reg_string(self.raw.bit_range(8..11)),
+            r = if self.raw.flag(consts::flags::FLAG_SP) {
                 "sp"
             } else {
                 "pc"
             },
-            Imm = self.word8(),
+            Imm = self.raw.word8(),
         )
     }
 
     fn fmt_thumb_add_sub(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let operand = if self.is_immediate_operand() {
+        let operand = if self.raw.is_immediate_operand() {
             format!("#{:x}", self.raw.bit_range(6..9))
         } else {
-            String::from(reg_string(self.rn()))
+            String::from(reg_string(self.raw.rn()))
         };
 
         write!(
             f,
             "{op}\t{Rd}, {Rs}, {operand}",
-            op = if self.is_subtract() { "sub" } else { "add" },
-            Rd = reg_string(self.rd()),
-            Rs = reg_string(self.rs()),
+            op = if self.raw.is_subtract() { "sub" } else { "add" },
+            Rd = reg_string(self.raw & 0b111),
+            Rs = reg_string(self.raw.rs()),
             operand = operand
         )
     }
 
     fn fmt_thumb_add_sp(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "add\tsp, #{imm:x}", imm = self.sword7())
+        write!(f, "add\tsp, #{imm:x}", imm = self.raw.sword7())
     }
 
     fn fmt_register_list(&self, f: &mut fmt::Formatter<'_>, rlist: u8) -> fmt::Result {
@@ -207,11 +199,11 @@ impl ThumbInstruction {
     }
 
     fn fmt_thumb_push_pop(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}\t{{", if self.is_load() { "pop" } else { "push" })?;
-        let rlist = self.register_list();
+        write!(f, "{}\t{{", if self.raw.is_load() { "pop" } else { "push" })?;
+        let rlist = self.raw.register_list();
         self.fmt_register_list(f, rlist)?;
-        if self.flag(ThumbInstruction::FLAG_R) {
-            let r = if self.is_load() { "pc" } else { "lr" };
+        if self.raw.flag(consts::flags::FLAG_R) {
+            let r = if self.raw.is_load() { "pc" } else { "lr" };
             if rlist != 0 {
                 write!(f, ", {}", r)?;
             } else {
@@ -225,10 +217,10 @@ impl ThumbInstruction {
         write!(
             f,
             "{op}\t{Rb}!, {{",
-            op = if self.is_load() { "ldm" } else { "stm" },
-            Rb = reg_string(self.rb()),
+            op = if self.raw.is_load() { "ldm" } else { "stm" },
+            Rb = reg_string(self.raw.rb()),
         )?;
-        self.fmt_register_list(f, self.register_list())?;
+        self.fmt_register_list(f, self.raw.register_list())?;
         write!(f, "}}")
     }
 
@@ -236,9 +228,9 @@ impl ThumbInstruction {
         write!(
             f,
             "b{cond}\t{addr:#x}",
-            cond = self.cond(),
+            cond = self.raw.cond(),
             addr = {
-                let offset = self.bcond_offset();
+                let offset = self.raw.bcond_offset();
                 (self.pc as i32 + 4).wrapping_add(offset) as Addr
             }
         )
@@ -253,7 +245,7 @@ impl ThumbInstruction {
             f,
             "b\t{addr:#x}",
             addr = {
-                let offset = (self.offset11() << 21) >> 20;
+                let offset = (self.raw.offset11() << 21) >> 20;
                 (self.pc as i32 + 4).wrapping_add(offset) as Addr
             }
         )
@@ -261,8 +253,8 @@ impl ThumbInstruction {
 
     fn fmt_thumb_branch_long_with_link(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "bl\t#0x{:08x}", {
-            let offset11 = self.offset11();
-            if self.flag(ThumbInstruction::FLAG_LOW_OFFSET) {
+            let offset11 = self.raw.offset11();
+            if self.raw.flag(consts::flags::FLAG_LOW_OFFSET) {
                 (offset11 << 1) as i32
             } else {
                 ((offset11 << 21) >> 9) as i32
