@@ -15,14 +15,16 @@ use super::sched::{EventHandler, EventType, Scheduler, SharedScheduler};
 use super::sound::SoundController;
 use super::sysbus::SysBus;
 use super::timer::Timers;
+use super::util::Shared;
 
 #[cfg(not(feature = "no_video_interface"))]
 use super::VideoInterface;
 use super::{AudioInterface, InputInterface};
 
 pub struct GameBoyAdvance {
-    pub sysbus: Box<SysBus>,
     pub cpu: arm7tdmi::Core,
+    pub sysbus: Box<SysBus>,
+    io_devs: Shared<IoDevices>,
 
     #[cfg(not(feature = "no_video_interface"))]
     pub video_device: Rc<RefCell<dyn VideoInterface>>,
@@ -39,8 +41,11 @@ pub struct GameBoyAdvance {
 
 #[derive(Serialize, Deserialize)]
 struct SaveState {
-    sysbus: Box<SysBus>,
     scheduler: Scheduler,
+    io_devs: IoDevices,
+    cartridge: Cartridge,
+    ewram: Box<[u8]>,
+    iwram: Box<[u8]>,
     interrupt_flags: u16,
     cpu: arm7tdmi::Core,
 }
@@ -83,14 +88,20 @@ impl GameBoyAdvance {
             scheduler.clone(),
             audio_device.borrow().get_sample_rate() as f32,
         ));
-        let io = IoDevices::new(intc, gpu, dmac, timers, sound_controller);
-        let sysbus = Box::new(SysBus::new(io, bios_rom, gamepak));
+        let io_devs = Shared::new(IoDevices::new(intc, gpu, dmac, timers, sound_controller));
+        let sysbus = Box::new(SysBus::new(
+            scheduler.clone(),
+            io_devs.clone(),
+            bios_rom,
+            gamepak,
+        ));
 
         let cpu = arm7tdmi::Core::new();
 
         let mut gba = GameBoyAdvance {
-            cpu: cpu,
-            sysbus: sysbus,
+            cpu,
+            sysbus,
+            io_devs,
 
             #[cfg(not(feature = "no_video_interface"))]
             video_device: video_device,
@@ -111,6 +122,8 @@ impl GameBoyAdvance {
 
     pub fn from_saved_state(
         savestate: &[u8],
+        bios: Box<[u8]>,
+        rom: Box<[u8]>,
         #[cfg(not(feature = "no_video_interface"))] video_device: Rc<RefCell<dyn VideoInterface>>,
         audio_device: Rc<RefCell<dyn AudioInterface>>,
         input_device: Rc<RefCell<dyn InputInterface>>,
@@ -118,17 +131,28 @@ impl GameBoyAdvance {
         let decoded: Box<SaveState> = bincode::deserialize_from(savestate)?;
 
         let arm7tdmi = decoded.cpu;
-        let mut sysbus = decoded.sysbus;
         let interrupts = Rc::new(Cell::new(IrqBitmask(decoded.interrupt_flags)));
         let scheduler = decoded.scheduler.make_shared();
+        let mut io_devs = Shared::new(decoded.io_devs);
+        let mut cartridge = decoded.cartridge;
+        cartridge.set_rom_bytes(rom);
+        io_devs.connect_irq(interrupts.clone());
+        io_devs.gpu.set_scheduler(scheduler.clone());
+        io_devs.sound.set_scheduler(scheduler.clone());
 
-        sysbus.io.gpu.set_scheduler(scheduler.clone());
-        sysbus.io.sound.set_scheduler(scheduler.clone());
-        sysbus.io.connect_irq(interrupts.clone());
+        let sysbus = Box::new(SysBus::new_with_memories(
+            scheduler.clone(),
+            io_devs.clone(),
+            cartridge,
+            bios,
+            decoded.ewram,
+            decoded.iwram,
+        ));
 
         Ok(GameBoyAdvance {
             cpu: arm7tdmi,
             sysbus: sysbus,
+            io_devs,
 
             interrupt_flags: interrupts,
 
@@ -141,37 +165,44 @@ impl GameBoyAdvance {
 
             overshoot_cycles: 0,
 
-            scheduler: scheduler,
+            scheduler,
         })
     }
 
     pub fn save_state(&self) -> bincode::Result<Vec<u8>> {
         let s = SaveState {
             cpu: self.cpu.clone(),
-            sysbus: self.sysbus.clone(),
+            io_devs: self.io_devs.clone_inner(),
+            cartridge: self.sysbus.cartridge.thin_copy(),
+            iwram: Box::from(self.sysbus.get_iwram()),
+            ewram: Box::from(self.sysbus.get_ewram()),
             interrupt_flags: self.interrupt_flags.get().value(),
-            scheduler: (*self.scheduler).clone(),
+            scheduler: self.scheduler.clone_inner(),
         };
 
         bincode::serialize(&s)
     }
 
-    pub fn restore_state(&mut self, bytes: &[u8]) -> bincode::Result<()> {
+    pub fn restore_state(&mut self, bytes: &[u8], bios: Box<[u8]>) -> bincode::Result<()> {
         let decoded: Box<SaveState> = bincode::deserialize_from(bytes)?;
 
         self.cpu = decoded.cpu;
-        self.sysbus = decoded.sysbus;
         self.scheduler = Scheduler::make_shared(decoded.scheduler);
         self.interrupt_flags = Rc::new(Cell::new(IrqBitmask(decoded.interrupt_flags)));
-
+        self.io_devs = Shared::new(decoded.io_devs);
+        // Restore memory state
+        self.sysbus.set_bios(bios);
+        self.sysbus.set_iwram(decoded.iwram);
+        self.sysbus.set_ewram(decoded.ewram);
         // Redistribute shared pointers
-        self.sysbus.io.connect_irq(self.interrupt_flags.clone());
-        self.sysbus.io.gpu.set_scheduler(self.scheduler.clone());
-        self.sysbus.io.sound.set_scheduler(self.scheduler.clone());
-
-        self.cycles_to_next_event = 1;
-
+        self.io_devs.connect_irq(self.interrupt_flags.clone());
+        self.io_devs.gpu.set_scheduler(self.scheduler.clone());
+        self.io_devs.sound.set_scheduler(self.scheduler.clone());
+        self.sysbus.set_scheduler(self.scheduler.clone());
+        self.sysbus.set_io_devices(self.io_devs.clone());
+        self.sysbus.cartridge.update_from(decoded.cartridge);
         self.sysbus.created();
+        self.cycles_to_next_event = 1;
 
         Ok(())
     }

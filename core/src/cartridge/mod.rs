@@ -38,7 +38,9 @@ pub type SymbolTable = HashMap<String, u32>;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Cartridge {
     pub header: CartridgeHeader,
+    #[serde(skip)]
     bytes: Box<[u8]>,
+    #[serde(skip)]
     size: usize,
     gpio: Option<Gpio>,
     symbols: Option<SymbolTable>, // TODO move it somewhere else
@@ -51,6 +53,34 @@ impl Cartridge {
     }
     pub fn get_gpio(&self) -> &Option<Gpio> {
         &self.gpio
+    }
+
+    pub fn set_rom_bytes(&mut self, bytes: Box<[u8]>) {
+        self.size = bytes.len();
+        self.bytes = bytes;
+    }
+
+    pub fn get_rom_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    // 'clones' the cartridge without the ROM buffer
+    pub fn thin_copy(&self) -> Cartridge {
+        Cartridge {
+            header: self.header.clone(),
+            bytes: Default::default(),
+            size: 0,
+            gpio: self.gpio.clone(),
+            symbols: self.symbols.clone(),
+            backup: self.backup.clone(),
+        }
+    }
+
+    pub fn update_from(&mut self, other: Cartridge) {
+        self.header = other.header;
+        self.gpio = other.gpio;
+        self.symbols = other.symbols;
+        self.backup = other.backup;
     }
 }
 

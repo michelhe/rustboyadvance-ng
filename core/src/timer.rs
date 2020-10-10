@@ -200,9 +200,9 @@ impl Timers {
                         }
                     }
                     if id == 0 || id == 1 {
-                        sb.io
-                            .sound
-                            .handle_timer_overflow(&mut sb.io.dmac, id, num_overflows);
+                        let io = unsafe { sb.io.inner_unsafe() };
+                        io.sound
+                            .handle_timer_overflow(&mut io.dmac, id, num_overflows);
                     }
                 }
             }

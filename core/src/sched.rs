@@ -1,5 +1,4 @@
-use std::cell::UnsafeCell;
-use std::rc::Rc;
+use super::util::Shared;
 
 use serde::{Deserialize, Serialize};
 
@@ -55,31 +54,7 @@ pub struct Scheduler {
     events: Vec<Event>,
 }
 
-// Opt-out of runtime borrow checking by using unsafe cell
-// SAFETY: We need to make sure that the scheduler event queue is not modified while iterating it.
-#[repr(transparent)]
-#[derive(Debug)]
-pub struct SharedScheduler(Rc<UnsafeCell<Scheduler>>);
-
-impl std::ops::Deref for SharedScheduler {
-    type Target = Scheduler;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { &(*self.0.get()) }
-    }
-}
-
-impl std::ops::DerefMut for SharedScheduler {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut (*self.0.get()) }
-    }
-}
-
-impl Clone for SharedScheduler {
-    fn clone(&self) -> SharedScheduler {
-        SharedScheduler(self.0.clone())
-    }
-}
+pub type SharedScheduler = Shared<Scheduler>;
 
 pub trait EventHandler {
     /// Handle the scheduler event
@@ -92,11 +67,11 @@ impl Scheduler {
             timestamp: 0,
             events: Vec::with_capacity(NUM_EVENTS),
         };
-        SharedScheduler(Rc::new(UnsafeCell::new(sched)))
+        SharedScheduler::new(sched)
     }
 
     pub fn make_shared(self) -> SharedScheduler {
-        SharedScheduler(Rc::new(UnsafeCell::new(self)))
+        SharedScheduler::new(self)
     }
 
     pub fn schedule(&mut self, typ: EventType, cycles: usize) {
