@@ -121,7 +121,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let bios_path = Path::new(matches.value_of("bios").unwrap_or_default());
     let bios_bin = match read_bin_file(bios_path) {
-        Ok(bios) => bios,
+        Ok(bios) => bios.into_boxed_slice(),
         _ => {
             ask_download_bios();
             std::process::exit(0);
@@ -203,7 +203,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gamepak = builder.build()?;
 
     let mut gba = GameBoyAdvance::new(
-        bios_bin.into_boxed_slice(),
+        bios_bin.clone(),
         gamepak,
         video.clone(),
         audio.clone(),
@@ -276,7 +276,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if savestate_path.is_file() {
                             let save = read_bin_file(&savestate_path)?;
                             info!("Restoring state from {:?}...", savestate_path);
-                            gba.restore_state(&save)?;
+                            gba.restore_state(&save, bios_bin.clone())?;
                             info!("Restored!");
                         } else {
                             info!("Savestate not created, please create one by pressing F5");

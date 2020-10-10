@@ -6,7 +6,8 @@ use super::bus::*;
 use super::cartridge::Cartridge;
 use super::dma::DmaNotifer;
 use super::iodev::{IoDevices, WaitControl};
-use super::util::{BoxedMemory, WeakPointer};
+use super::sched::Scheduler;
+use super::util::{BoxedMemory, Shared, WeakPointer};
 
 pub mod consts {
     pub const WORK_RAM_SIZE: usize = 256 * 1024;
@@ -164,9 +165,10 @@ impl CycleLookupTables {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Clone)]
 pub struct SysBus {
-    pub io: IoDevices,
+    pub io: Shared<IoDevices>,
+    scheduler: Shared<Scheduler>,
 
     bios: BoxedMemory,
     onboard_work_ram: BoxedMemory,
@@ -181,22 +183,68 @@ pub struct SysBus {
 pub type SysBusPtr = WeakPointer<SysBus>;
 
 impl SysBus {
-    pub fn new(io: IoDevices, bios_rom: Box<[u8]>, cartridge: Cartridge) -> SysBus {
+    pub fn new_with_memories(
+        scheduler: Shared<Scheduler>,
+        io: Shared<IoDevices>,
+        cartridge: Cartridge,
+        bios_rom: Box<[u8]>,
+        ewram: Box<[u8]>,
+        iwram: Box<[u8]>,
+    ) -> SysBus {
         let mut luts = CycleLookupTables::default();
         luts.init();
         luts.update_gamepak_waitstates(io.waitcnt);
 
         SysBus {
             io,
+            scheduler,
+            cartridge,
+
             bios: BoxedMemory::new(bios_rom),
-            onboard_work_ram: BoxedMemory::new(vec![0; WORK_RAM_SIZE].into_boxed_slice()),
-            internal_work_ram: BoxedMemory::new(vec![0; INTERNAL_RAM_SIZE].into_boxed_slice()),
-            cartridge: cartridge,
-
+            onboard_work_ram: BoxedMemory::new(ewram),
+            internal_work_ram: BoxedMemory::new(iwram),
             cycle_luts: luts,
-
             trace_access: false,
         }
+    }
+
+    pub fn new(
+        scheduler: Shared<Scheduler>,
+        io: Shared<IoDevices>,
+        bios_rom: Box<[u8]>,
+        cartridge: Cartridge,
+    ) -> SysBus {
+        let ewram = vec![0; WORK_RAM_SIZE].into_boxed_slice();
+        let iwram = vec![0; INTERNAL_RAM_SIZE].into_boxed_slice();
+        SysBus::new_with_memories(scheduler, io, cartridge, bios_rom, ewram, iwram)
+    }
+
+    pub fn set_bios(&mut self, buffer: Box<[u8]>) {
+        self.bios.mem = buffer;
+    }
+
+    pub fn set_ewram(&mut self, buffer: Box<[u8]>) {
+        self.onboard_work_ram.mem = buffer;
+    }
+
+    pub fn set_iwram(&mut self, buffer: Box<[u8]>) {
+        self.internal_work_ram.mem = buffer;
+    }
+
+    pub fn get_ewram(&self) -> &[u8] {
+        &self.onboard_work_ram.mem
+    }
+
+    pub fn get_iwram(&self) -> &[u8] {
+        &self.internal_work_ram.mem
+    }
+
+    pub fn set_scheduler(&mut self, s: Shared<Scheduler>) {
+        self.scheduler = s;
+    }
+
+    pub fn set_io_devices(&mut self, io_devs: Shared<IoDevices>) {
+        self.io = io_devs;
     }
 
     /// must be called whenever this object is instanciated
