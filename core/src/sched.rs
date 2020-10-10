@@ -29,6 +29,7 @@ pub enum ApuEvent {
 pub enum EventType {
     Gpu(GpuEvent),
     Apu(ApuEvent),
+    DmaActivateChannel(usize),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
