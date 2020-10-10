@@ -77,7 +77,7 @@ impl GameBoyAdvance {
 
         let intc = InterruptController::new(interrupt_flags.clone());
         let gpu = Box::new(Gpu::new(scheduler.clone(), interrupt_flags.clone()));
-        let dmac = DmaController::new(interrupt_flags.clone());
+        let dmac = DmaController::new(interrupt_flags.clone(), scheduler.clone());
         let timers = Timers::new(interrupt_flags.clone());
         let sound_controller = Box::new(SoundController::new(
             scheduler.clone(),
@@ -329,6 +329,7 @@ impl EventHandler for GameBoyAdvance {
             &mut (*ptr).io as &mut IoDevices
         };
         match event {
+            EventType::DmaActivateChannel(channel_id) => io.dmac.activate_channel(channel_id),
             EventType::Gpu(event) => io.gpu.on_event(
                 event,
                 extra_cycles,

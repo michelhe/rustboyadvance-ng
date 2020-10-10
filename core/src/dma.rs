@@ -1,6 +1,7 @@
 use super::cartridge::BackupMedia;
 use super::interrupt::{self, Interrupt, InterruptConnect, SharedInterruptFlags};
 use super::iodev::consts::{REG_FIFO_A, REG_FIFO_B};
+use super::sched::{EventType, Scheduler, SharedScheduler};
 use super::sysbus::SysBus;
 use super::Bus;
 
@@ -20,8 +21,6 @@ pub struct DmaChannel {
     internal: DmaInternalRegs,
 
     running: bool,
-    cycles: usize,
-    start_cycles: usize,
     fifo_mode: bool,
     irq: Interrupt,
     interrupt_flags: SharedInterruptFlags,
@@ -47,8 +46,7 @@ impl DmaChannel {
             dst: 0,
             wc: 0,
             ctrl: DmaChannelCtrl(0),
-            cycles: 0,
-            start_cycles: 0,
+
             fifo_mode: false,
             internal: Default::default(),
             interrupt_flags,
@@ -98,7 +96,6 @@ impl DmaChannel {
                 self.dst,
                 self.wc
             );
-            self.start_cycles = self.cycles;
             self.running = true;
             start_immediately = timing == 0;
             self.internal.src_addr = self.src;
@@ -177,7 +174,6 @@ impl DmaChannel {
             interrupt::signal_irq(&self.interrupt_flags, self.irq);
         }
         if self.ctrl.repeat() {
-            self.start_cycles = self.cycles;
             /* reload */
             if 3 == self.ctrl.dst_adj() {
                 self.internal.dst_addr = self.dst;
@@ -193,7 +189,9 @@ impl DmaChannel {
 pub struct DmaController {
     pub channels: [DmaChannel; 4],
     pending_set: u8,
-    cycles: usize,
+    #[serde(skip)]
+    #[serde(default = "Scheduler::new_shared")]
+    scheduler: SharedScheduler,
 }
 
 impl InterruptConnect for DmaController {
@@ -205,7 +203,7 @@ impl InterruptConnect for DmaController {
 }
 
 impl DmaController {
-    pub fn new(interrupt_flags: SharedInterruptFlags) -> DmaController {
+    pub fn new(interrupt_flags: SharedInterruptFlags, scheduler: SharedScheduler) -> DmaController {
         DmaController {
             channels: [
                 DmaChannel::new(0, interrupt_flags.clone()),
@@ -214,7 +212,7 @@ impl DmaController {
                 DmaChannel::new(3, interrupt_flags.clone()),
             ],
             pending_set: 0,
-            cycles: 0,
+            scheduler: scheduler,
         }
     }
 
@@ -240,9 +238,11 @@ impl DmaController {
             8 => self.channels[channel_id].write_word_count(value),
             10 => {
                 if self.channels[channel_id].write_dma_ctrl(value) {
-                    self.pending_set |= 1 << channel_id;
+                    // DMA actually starts after 3 cycles
+                    self.scheduler
+                        .schedule(EventType::DmaActivateChannel(channel_id), 3);
                 } else {
-                    self.pending_set &= !(1 << channel_id);
+                    self.deactivate_channel(channel_id);
                 }
             }
             _ => panic!("Invalid dma offset {:x}", ofs),
@@ -267,6 +267,14 @@ impl DmaController {
                 self.pending_set |= 1 << i;
             }
         }
+    }
+
+    pub fn activate_channel(&mut self, channel_id: usize) {
+        self.pending_set |= 1 << channel_id;
+    }
+
+    pub fn deactivate_channel(&mut self, channel_id: usize) {
+        self.pending_set &= !(1 << channel_id);
     }
 }
 
