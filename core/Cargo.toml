@@ -5,6 +5,7 @@ authors = ["Michel Heily <michelheily@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+cfg-if = "1.0.0"
 serde = { version = "1.0.104", features = ["derive", "rc"] }
 bincode = "1.2.1"
 byteorder = "1"
