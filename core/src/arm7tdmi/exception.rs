@@ -1,7 +1,6 @@
-use super::super::sysbus::SysBus;
 use super::cpu::Core;
+use super::memory::MemoryInterface;
 use super::{CpuMode, CpuState};
-use colored::*;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[allow(dead_code)]
@@ -17,8 +16,8 @@ pub enum Exception {
     Fiq = 0x1c,
 }
 
-impl Core {
-    pub fn exception(&mut self, sb: &mut SysBus, e: Exception, lr: u32) {
+impl<I: MemoryInterface> Core<I> {
+    pub fn exception(&mut self, e: Exception, lr: u32) {
         use Exception::*;
         let (new_mode, irq_disable, fiq_disable) = match e {
             Reset => (CpuMode::Supervisor, true, true),
@@ -30,18 +29,9 @@ impl Core {
             Irq => (CpuMode::Irq, true, false),
             Fiq => (CpuMode::Fiq, true, true),
         };
-        trace!(
-            "{}: {:?}, pc: {:#x}, new_mode: {:?} old_mode: {:?}",
-            "Exception".cyan(),
-            e,
-            self.pc,
-            new_mode,
-            self.cpsr.mode(),
-        );
-
         let new_bank = new_mode.bank_index();
-        self.spsr_bank[new_bank] = self.cpsr;
-        self.gpr_banked_r14[new_bank] = lr;
+        self.banks.spsr_bank[new_bank] = self.cpsr;
+        self.banks.gpr_banked_r14[new_bank] = lr;
         self.change_mode(self.cpsr.mode(), new_mode);
 
         // Set appropriate CPSR bits
@@ -56,21 +46,19 @@ impl Core {
 
         // Set PC to vector address
         self.pc = e as u32;
-        self.reload_pipeline32(sb);
+        self.reload_pipeline32();
     }
 
-    pub fn irq(&mut self, sb: &mut SysBus) {
+    #[inline]
+    pub fn irq(&mut self) {
         if !self.cpsr.irq_disabled() {
             let lr = self.get_next_pc() + 4;
-            self.exception(sb, Exception::Irq, lr);
+            self.exception(Exception::Irq, lr);
         }
     }
 
-    pub fn software_interrupt(&mut self, sb: &mut SysBus, lr: u32, _cmt: u32) {
-        match self.cpsr.state() {
-            CpuState::ARM => self.N_cycle32(sb, self.pc),
-            CpuState::THUMB => self.N_cycle16(sb, self.pc),
-        };
-        self.exception(sb, Exception::SoftwareInterrupt, lr);
+    #[inline]
+    pub fn software_interrupt(&mut self, lr: u32, _cmt: u32) {
+        self.exception(Exception::SoftwareInterrupt, lr);
     }
 }

@@ -231,7 +231,7 @@ impl InterruptConnect for Gpu {
 
 impl Gpu {
     pub fn new(mut scheduler: SharedScheduler, interrupt_flags: SharedInterruptFlags) -> Gpu {
-        scheduler.add_gpu_event(GpuEvent::HDraw, CYCLES_HDRAW);
+        scheduler.push_gpu_event(GpuEvent::HDraw, CYCLES_HDRAW);
         Gpu {
             interrupt_flags,
             scheduler,
@@ -654,7 +654,7 @@ impl Gpu {
             GpuEvent::VBlankHBlank => self.handle_vblank_hblank(),
         };
         self.scheduler
-            .schedule(EventType::Gpu(next_event), cycles - extra_cycles);
+            .push(EventType::Gpu(next_event), cycles - extra_cycles);
     }
 }
 

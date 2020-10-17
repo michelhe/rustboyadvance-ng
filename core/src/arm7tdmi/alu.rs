@@ -1,5 +1,6 @@
 use bit::BitIndex;
 
+use super::memory::MemoryInterface;
 use super::{Core, REG_PC};
 
 #[derive(Debug, Primitive, PartialEq)]
@@ -109,7 +110,7 @@ impl BarrelShifterValue {
     }
 }
 
-impl Core {
+impl<I: MemoryInterface> Core<I> {
     pub fn lsl(&mut self, val: u32, amount: u32, carry_in: bool) -> u32 {
         match amount {
             0 => {
@@ -215,6 +216,7 @@ impl Core {
     }
 
     /// Performs a generic barrel shifter operation
+    #[inline]
     pub fn barrel_shift_op(
         &mut self,
         shift: BarrelShiftOpCode,
@@ -253,6 +255,7 @@ impl Core {
         }
     }
 
+    #[inline]
     pub fn shift_by_register(
         &mut self,
         bs_op: BarrelShiftOpCode,
@@ -261,7 +264,6 @@ impl Core {
         carry: bool,
     ) -> u32 {
         let mut val = self.get_reg(reg);
-        self.add_cycle(); // +1I
         if reg == REG_PC {
             val += 4; // PC prefetching
         }

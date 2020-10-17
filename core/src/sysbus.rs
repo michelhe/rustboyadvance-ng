@@ -1,7 +1,6 @@
-use std::fmt;
-
 use serde::{Deserialize, Serialize};
 
+use super::arm7tdmi::memory::*;
 use super::bus::*;
 use super::cartridge::Cartridge;
 use super::dma::DmaNotifer;
@@ -44,32 +43,6 @@ pub mod consts {
 }
 
 use consts::*;
-
-#[derive(Debug, Copy, Clone)]
-pub enum MemoryAccessType {
-    NonSeq,
-    Seq,
-}
-
-impl fmt::Display for MemoryAccessType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            match self {
-                MemoryAccessType::NonSeq => "N",
-                MemoryAccessType::Seq => "S",
-            }
-        )
-    }
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub enum MemoryAccessWidth {
-    MemoryAccess8,
-    MemoryAccess16,
-    MemoryAccess32,
-}
 
 const CYCLE_LUT_SIZE: usize = 0x10;
 
@@ -261,33 +234,34 @@ impl SysBus {
     pub fn on_waitcnt_written(&mut self, waitcnt: WaitControl) {
         self.cycle_luts.update_gamepak_waitstates(waitcnt);
     }
+    pub fn idle_cycle(&mut self) {
+        self.scheduler.update(1);
+    }
 
     #[inline(always)]
-    pub fn get_cycles(
-        &self,
-        addr: Addr,
-        access: MemoryAccessType,
-        width: MemoryAccessWidth,
-    ) -> usize {
-        use MemoryAccessType::*;
+    pub fn add_cycles(&mut self, addr: Addr, access: MemoryAccess, width: MemoryAccessWidth) {
+        use MemoryAccess::*;
         use MemoryAccessWidth::*;
         let page = (addr >> 24) as usize;
 
         // TODO optimize out by making the LUTs have 0x100 entries for each possible page ?
-        if page > 0xF {
+        let cycles = if page > 0xF {
             // open bus
-            return 1;
-        }
-        match width {
-            MemoryAccess8 | MemoryAccess16 => match access {
-                NonSeq => self.cycle_luts.n_cycles16[page],
-                Seq => self.cycle_luts.s_cycles16[page],
-            },
-            MemoryAccess32 => match access {
-                NonSeq => self.cycle_luts.n_cycles32[page],
-                Seq => self.cycle_luts.s_cycles32[page],
-            },
-        }
+            1
+        } else {
+            match width {
+                MemoryAccess8 | MemoryAccess16 => match access {
+                    NonSeq => self.cycle_luts.n_cycles16[page],
+                    Seq => self.cycle_luts.s_cycles16[page],
+                },
+                MemoryAccess32 => match access {
+                    NonSeq => self.cycle_luts.n_cycles32[page],
+                    Seq => self.cycle_luts.s_cycles32[page],
+                },
+            }
+        };
+
+        self.scheduler.update(cycles);
     }
 }
 
@@ -474,6 +448,49 @@ impl DebugRead for SysBus {
                 0
             }
         }
+    }
+}
+
+impl MemoryInterface for SysBus {
+    #[inline]
+    fn load_8(&mut self, addr: u32, access: MemoryAccess) -> u8 {
+        self.add_cycles(addr, access, MemoryAccessWidth::MemoryAccess8);
+        self.read_8(addr)
+    }
+
+    #[inline]
+    fn load_16(&mut self, addr: u32, access: MemoryAccess) -> u16 {
+        self.add_cycles(addr, access, MemoryAccessWidth::MemoryAccess16);
+        self.read_16(addr)
+    }
+
+    #[inline]
+    fn load_32(&mut self, addr: u32, access: MemoryAccess) -> u32 {
+        self.add_cycles(addr, access, MemoryAccessWidth::MemoryAccess32);
+        self.read_32(addr)
+    }
+
+    #[inline]
+    fn store_8(&mut self, addr: u32, value: u8, access: MemoryAccess) {
+        self.add_cycles(addr, access, MemoryAccessWidth::MemoryAccess8);
+        self.write_8(addr, value);
+    }
+
+    #[inline]
+    fn store_16(&mut self, addr: u32, value: u16, access: MemoryAccess) {
+        self.add_cycles(addr, access, MemoryAccessWidth::MemoryAccess8);
+        self.write_16(addr, value);
+    }
+
+    #[inline]
+    fn store_32(&mut self, addr: u32, value: u32, access: MemoryAccess) {
+        self.add_cycles(addr, access, MemoryAccessWidth::MemoryAccess8);
+        self.write_32(addr, value);
+    }
+
+    #[inline]
+    fn idle_cycle(&mut self) {
+        self.scheduler.update(1)
     }
 }
 

@@ -1,3 +1,7 @@
+use std::cell::Cell;
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
+
 use super::util::Shared;
 
 use serde::{Deserialize, Serialize};
@@ -5,7 +9,7 @@ use serde::{Deserialize, Serialize};
 const NUM_EVENTS: usize = 32;
 
 #[repr(u32)]
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialOrd, PartialEq, Eq, Copy, Clone)]
 pub enum GpuEvent {
     HDraw,
     HBlank,
@@ -14,7 +18,7 @@ pub enum GpuEvent {
 }
 
 #[repr(u32)]
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialOrd, PartialEq, Eq, Copy, Clone)]
 pub enum ApuEvent {
     Psg1Generate,
     Psg2Generate,
@@ -24,48 +28,98 @@ pub enum ApuEvent {
 }
 
 #[repr(u32)]
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialOrd, PartialEq, Eq, Copy, Clone)]
 pub enum EventType {
+    RunLimitReached,
     Gpu(GpuEvent),
     Apu(ApuEvent),
     DmaActivateChannel(usize),
+    TimerOverflow(usize),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct Event {
+#[derive(Serialize, Deserialize, Debug, Clone, Eq)]
+pub struct Event {
     typ: EventType,
     /// Timestamp in cycles
     time: usize,
+    cancel: Cell<bool>,
 }
 
 impl Event {
     fn new(typ: EventType, time: usize) -> Event {
-        Event { typ, time }
+        Event {
+            typ,
+            time,
+            cancel: Cell::new(false),
+        }
     }
 
+    #[inline]
     fn get_type(&self) -> EventType {
         self.typ
     }
+
+    fn is_canceled(&self) -> bool {
+        self.cancel.get()
+    }
 }
 
+impl Ord for Event {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.time.cmp(&other.time).reverse()
+    }
+}
+
+/// Implement custom reverse ordering
+impl PartialOrd for Event {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        other.time.partial_cmp(&self.time)
+    }
+
+    #[inline]
+    fn lt(&self, other: &Self) -> bool {
+        other.time < self.time
+    }
+    #[inline]
+    fn le(&self, other: &Self) -> bool {
+        other.time <= self.time
+    }
+    #[inline]
+    fn gt(&self, other: &Self) -> bool {
+        other.time > self.time
+    }
+    #[inline]
+    fn ge(&self, other: &Self) -> bool {
+        other.time >= self.time
+    }
+}
+
+impl PartialEq for Event {
+    fn eq(&self, other: &Self) -> bool {
+        self.time == other.time
+    }
+}
+
+/// Event scheduelr for cycle aware components
+/// The scheduler should be "shared" to all event generating components.
+/// Each event generator software component can call Scheduler::schedule to generate an event later in the emulation.
+/// The scheduler should be updated for each increment in CPU cycles,
+///
+/// The main emulation loop can then call Scheduler::process_pending to handle the events.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Scheduler {
     timestamp: usize,
-    events: Vec<Event>,
+    events: BinaryHeap<Event>,
 }
 
 pub type SharedScheduler = Shared<Scheduler>;
-
-pub trait EventHandler {
-    /// Handle the scheduler event
-    fn handle_event(&mut self, e: EventType, extra_cycles: usize);
-}
 
 impl Scheduler {
     pub fn new_shared() -> SharedScheduler {
         let sched = Scheduler {
             timestamp: 0,
-            events: Vec::with_capacity(NUM_EVENTS),
+            events: BinaryHeap::with_capacity(NUM_EVENTS),
         };
         SharedScheduler::new(sched)
     }
@@ -74,45 +128,87 @@ impl Scheduler {
         SharedScheduler::new(self)
     }
 
-    pub fn schedule(&mut self, typ: EventType, cycles: usize) {
+    /// Schedule an event to be executed in `cycles` cycles from now
+    pub fn push(&mut self, typ: EventType, cycles: usize) {
         let event = Event::new(typ, self.timestamp + cycles);
-        let idx = self
-            .events
-            .binary_search_by(|e| e.time.cmp(&event.time))
-            .unwrap_or_else(|x| x);
-        self.events.insert(idx, event);
+        self.events.push(event);
     }
 
-    pub fn add_gpu_event(&mut self, e: GpuEvent, cycles: usize) {
-        self.schedule(EventType::Gpu(e), cycles);
+    /// Cancel all events with type `typ`
+    /// This method is rather expansive to call
+    pub fn cancel(&mut self, typ: EventType) {
+        self.events
+            .iter()
+            .filter(|e| e.typ == typ)
+            .for_each(|e| e.cancel.set(true));
     }
 
-    pub fn add_apu_event(&mut self, e: ApuEvent, cycles: usize) {
-        self.schedule(EventType::Apu(e), cycles);
+    pub fn push_gpu_event(&mut self, e: GpuEvent, cycles: usize) {
+        self.push(EventType::Gpu(e), cycles);
     }
 
-    pub fn run<H: EventHandler>(&mut self, cycles: usize, handler: &mut H) {
-        let run_to = self.timestamp + cycles;
-        self.timestamp = run_to;
+    pub fn push_apu_event(&mut self, e: ApuEvent, cycles: usize) {
+        self.push(EventType::Apu(e), cycles);
+    }
 
-        while self.events.len() > 0 {
-            if run_to >= self.events[0].time {
-                let event = self.events.remove(0);
-                handler.handle_event(event.get_type(), run_to - event.time);
+    /// Updates the scheduler timestamp
+    #[inline]
+    pub fn update(&mut self, cycles: usize) {
+        self.timestamp += cycles;
+    }
+
+    pub fn pop_pending_event(&mut self) -> Option<(EventType, usize)> {
+        if let Some(event) = self.events.peek() {
+            if self.timestamp >= event.time {
+                // remove the event
+                let event = self.events.pop().unwrap_or_else(|| unreachable!());
+                if !event.is_canceled() {
+                    Some((event.get_type(), self.timestamp - event.time))
+                } else {
+                    None
+                }
             } else {
-                return;
+                None
             }
+        } else {
+            None
         }
     }
 
+    #[inline]
+    pub fn fast_forward_to_next(&mut self) {
+        self.timestamp += self.get_cycles_to_next_event();
+    }
+
+    #[inline]
     pub fn get_cycles_to_next_event(&self) -> usize {
-        assert_ne!(self.events.len(), 0);
-        self.events[0].time - self.timestamp
+        if let Some(event) = self.events.peek() {
+            event.time - self.timestamp
+        } else {
+            0
+        }
+    }
+
+    #[inline]
+    /// The event queue is assumed to be not empty
+    pub fn timestamp_of_next_event(&self) -> usize {
+        self.events.peek().unwrap_or_else(|| unreachable!()).time
+    }
+
+    #[inline]
+    pub fn timestamp(&self) -> usize {
+        self.timestamp
     }
 
     #[allow(unused)]
     fn is_empty(&self) -> bool {
         self.events.is_empty()
+    }
+
+    pub fn measure_cycles<F: FnMut()>(&mut self, mut f: F) -> usize {
+        let start = self.timestamp;
+        f();
+        self.timestamp - start
     }
 }
 
@@ -158,13 +254,34 @@ mod test {
         fn is_event_done(&self, e: EventType) -> bool {
             (self.event_bitmask & get_event_bit(e)) != 0
         }
-    }
-
-    impl EventHandler for Holder {
         fn handle_event(&mut self, e: EventType, extra_cycles: usize) {
             println!("[holder] got event {:?} extra_cycles {}", e, extra_cycles);
             self.event_bitmask |= get_event_bit(e);
         }
+    }
+
+    #[test]
+    fn test_scheduler_ordering() {
+        let mut holder = Holder::new();
+        let mut sched = holder.sched.clone();
+        holder
+            .sched
+            .push(EventType::Gpu(GpuEvent::VBlankHDraw), 240);
+        holder
+            .sched
+            .push(EventType::Apu(ApuEvent::Psg1Generate), 60);
+        holder.sched.push(EventType::Apu(ApuEvent::Sample), 512);
+        holder
+            .sched
+            .push(EventType::Apu(ApuEvent::Psg2Generate), 13);
+        holder
+            .sched
+            .push(EventType::Apu(ApuEvent::Psg4Generate), 72);
+
+        assert_eq!(
+            sched.events.pop(),
+            Some(Event::new(EventType::Apu(ApuEvent::Psg2Generate), 13))
+        );
     }
 
     #[test]
@@ -178,17 +295,17 @@ mod test {
         let mut sched = holder.sched.clone();
         holder
             .sched
-            .schedule(EventType::Gpu(GpuEvent::VBlankHDraw), 240);
+            .push(EventType::Gpu(GpuEvent::VBlankHDraw), 240);
         holder
             .sched
-            .schedule(EventType::Apu(ApuEvent::Psg1Generate), 60);
-        holder.sched.schedule(EventType::Apu(ApuEvent::Sample), 512);
+            .push(EventType::Apu(ApuEvent::Psg1Generate), 60);
+        holder.sched.push(EventType::Apu(ApuEvent::Sample), 512);
         holder
             .sched
-            .schedule(EventType::Apu(ApuEvent::Psg2Generate), 13);
+            .push(EventType::Apu(ApuEvent::Psg2Generate), 13);
         holder
             .sched
-            .schedule(EventType::Apu(ApuEvent::Psg4Generate), 72);
+            .push(EventType::Apu(ApuEvent::Psg4Generate), 72);
 
         println!("all events");
         for e in sched.events.iter() {
@@ -199,7 +316,10 @@ mod test {
         macro_rules! run_for {
             ($cycles:expr) => {
                 println!("running the scheduler for {} cycles", $cycles);
-                sched.run($cycles, &mut holder);
+                sched.update($cycles);
+                while let Some((event, cycles_late)) = sched.pop_pending_event() {
+                    holder.handle_event(event, cycles_late);
+                }
                 if (!sched.is_empty()) {
                     println!(
                         "cycles for next event: {}",
@@ -211,6 +331,7 @@ mod test {
 
         run_for!(100);
 
+        println!("{:?}", *sched);
         assert_eq!(
             holder.is_event_done(EventType::Apu(ApuEvent::Psg1Generate)),
             true
