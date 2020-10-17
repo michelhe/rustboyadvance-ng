@@ -1,4 +1,5 @@
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::time;
 
 use crate::arm7tdmi::arm::ArmInstruction;
@@ -18,6 +19,8 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
 use hexdump;
+
+use goblin;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum DisassMode {
@@ -64,7 +67,28 @@ pub enum Command {
     TraceToggle(TraceFlags),
     SaveState(String),
     LoadState(String),
+    AddSymbolsFile(PathBuf, Option<u32>),
     ListSymbols(Option<String>),
+}
+
+fn find_nearest_symbol(addr: u32, symbols: &HashMap<String, u32>) -> Option<(String, u32)> {
+    let mut smallest_distance = u32::MAX;
+    let mut symbol = String::new();
+
+    for (k, v) in symbols.iter().filter(|(_k, v)| **v > addr) {
+        let distance = v - addr;
+        if distance < smallest_distance {
+            smallest_distance = distance;
+            symbol = k.to_string();
+        }
+    }
+
+    if smallest_distance < 0x1000 {
+        let symaddr = *symbols.get(&symbol).unwrap();
+        Some((symbol, symaddr))
+    } else {
+        None
+    }
 }
 
 impl Debugger {
@@ -73,6 +97,13 @@ impl Debugger {
         #[allow(unreachable_patterns)]
         match command {
             Info => {
+                let pc = self.gba.cpu.pc;
+                if let Some((sym, addr)) = find_nearest_symbol(pc, &self.symbols) {
+                    println!("PC at {}+{:#x} ({:08x})", sym, addr - pc, pc);
+                } else {
+                    println!("PC at {:08x}", pc);
+                }
+
                 println!("{}", self.gba.cpu);
                 println!("IME={}", self.gba.sysbus.io.intc.interrupt_master_enable);
                 println!("IE={:#?}", self.gba.sysbus.io.intc.interrupt_enable);
@@ -87,13 +118,20 @@ impl Debugger {
                         self.gba.cpu.step(&mut self.gba.sysbus);
                     }
                     if let Some(last_executed) = &self.gba.cpu.last_executed {
+                        let pc = last_executed.get_pc();
+                        let symbol =
+                            self.symbols
+                                .iter()
+                                .find_map(|(key, &val)| if val == pc { Some(key) } else { None });
+
+                        let text = if let Some(symbol) = symbol {
+                            format!("Executed at {} @0x{:08x}:", symbol, pc)
+                        } else {
+                            format!("Executed at @0x{:08x}:", pc)
+                        };
                         print!(
                             "{}\t{}",
-                            Colour::Black
-                                .bold()
-                                .italic()
-                                .on(Colour::White)
-                                .paint(format!("Executed at @0x{:08x}:", last_executed.get_pc(),)),
+                            Colour::Black.bold().italic().on(Colour::White).paint(text),
                             last_executed
                         );
                         println!(
@@ -222,30 +260,45 @@ impl Debugger {
                 let save = read_bin_file(&Path::new(&load_path))
                     .expect("failed to read save state from file");
                 self.gba
-                    .restore_state(&save)
+                    .restore_state(&save, Box::from(self.gba.sysbus.get_bios()))
                     .expect("failed to deserialize");
             }
             ListSymbols(Some(pattern)) => {
-                if let Some(symbols) = self.gba.sysbus.cartridge.get_symbols() {
-                    let matcher = SkimMatcherV2::default();
-                    for (k, v) in symbols
-                        .iter()
-                        .filter(|(k, _v)| matcher.fuzzy_match(k, &pattern).is_some())
-                    {
-                        println!("{}=0x{:08x}", k, v);
-                    }
-                } else {
-                    println!("symbols not loaded!");
+                let matcher = SkimMatcherV2::default();
+                for (k, v) in self
+                    .symbols
+                    .iter()
+                    .filter(|(k, _v)| matcher.fuzzy_match(k, &pattern).is_some())
+                {
+                    println!("{}=0x{:08x}", k, v);
                 }
             }
             ListSymbols(None) => {
-                if let Some(symbols) = self.gba.sysbus.cartridge.get_symbols() {
-                    for (k, v) in symbols.iter() {
-                        println!("{}=0x{:08x}", k, v);
+                for (k, v) in self.symbols.iter() {
+                    println!("{}=0x{:08x}", k, v);
+                }
+            }
+            AddSymbolsFile(elf_file, offset) => {
+                let offset = offset.unwrap_or(0);
+                if let Ok(elf_buffer) = read_bin_file(&elf_file) {
+                    if let Ok(elf) = goblin::elf::Elf::parse(&elf_buffer) {
+                        let strtab = elf.strtab;
+                        for sym in elf.syms.iter() {
+                            if let Some(Ok(name)) = strtab.get(sym.st_name) {
+                                self.symbols
+                                    .insert(name.to_owned(), offset + (sym.st_value as u32));
+                            } else {
+                                warn!("failed to parse symbol name sym {:?}", sym);
+                            }
+                        }
+                    } else {
+                        println!("[error] Failed to parse elf file!");
+                        return;
                     }
                 } else {
-                    println!("symbols not loaded!");
-                }
+                    println!("[error] Can't read elf file!");
+                    return;
+                };
             }
             _ => println!("Not Implemented",),
         }
@@ -493,6 +546,39 @@ impl Debugger {
                     }
                 }
             }
+            "add-symbols-file" | "load-symbols" | "load-syms" => match args.len() {
+                1 => {
+                    if let Value::Identifier(elf_file) = &args[0] {
+                        Ok(Command::AddSymbolsFile(PathBuf::from(elf_file), None))
+                    } else {
+                        Err(DebuggerError::InvalidArgument(String::from(
+                            "expected a filename",
+                        )))
+                    }
+                }
+                2 => {
+                    if let Value::Identifier(elf_file) = &args[0] {
+                        if let Value::Num(offset) = &args[1] {
+                            Ok(Command::AddSymbolsFile(
+                                PathBuf::from(elf_file),
+                                Some(*offset),
+                            ))
+                        } else {
+                            Err(DebuggerError::InvalidArgument(String::from(
+                                "expected a number",
+                            )))
+                        }
+                    } else {
+                        Err(DebuggerError::InvalidArgument(String::from(
+                            "expected a filename",
+                        )))
+                    }
+                }
+                _ => Err(DebuggerError::InvalidCommandFormat(format!(
+                    "usage: {} path/to/elf [offset]",
+                    command
+                ))),
+            },
             "list-symbols" | "list-syms" | "symbols" | "syms" => match args.len() {
                 0 => Ok(Command::ListSymbols(None)),
                 1 => {

@@ -53,9 +53,9 @@ criterion = "0.3"
 
 [features]
 default = ["arm7tdmi_dispatch_table"]
-debugger = ["nom", "rustyline", "fuzzy-matcher"]
-gdb = ["gdbstub"]
 elf_support = ["goblin"]
+debugger = ["nom", "rustyline", "fuzzy-matcher", "elf_support"]
+gdb = ["gdbstub"]
 # Uses lookup tables when executing instructions instead of `match` statements.
 # Faster, but consumes more memory.
 arm7tdmi_dispatch_table = []

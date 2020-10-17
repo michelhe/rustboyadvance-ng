@@ -231,6 +231,10 @@ impl SysBus {
         self.internal_work_ram.mem = buffer;
     }
 
+    pub fn get_bios(&self) -> &[u8] {
+        &self.bios.mem
+    }
+
     pub fn get_ewram(&self) -> &[u8] {
         &self.onboard_work_ram.mem
     }
