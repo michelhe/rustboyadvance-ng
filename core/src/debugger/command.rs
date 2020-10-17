@@ -105,17 +105,17 @@ impl Debugger {
                 }
 
                 println!("{}", self.gba.cpu);
-                println!("IME={}", self.gba.sysbus.io.intc.interrupt_master_enable);
-                println!("IE={:#?}", self.gba.sysbus.io.intc.interrupt_enable);
-                println!("IF={:#?}", self.gba.sysbus.io.intc.interrupt_flags);
+                println!("IME={}", self.gba.io_devs.intc.interrupt_master_enable);
+                println!("IE={:#?}", self.gba.io_devs.intc.interrupt_enable);
+                println!("IF={:#?}", self.gba.io_devs.intc.interrupt_flags);
             }
-            GpuInfo => println!("GPU: {:#?}", self.gba.sysbus.io.gpu),
+            GpuInfo => println!("GPU: {:#?}", self.gba.io_devs.gpu),
             GpioInfo => println!("GPIO: {:#?}", self.gba.sysbus.cartridge.get_gpio()),
             Step(count) => {
                 for _ in 0..count {
-                    self.gba.cpu.step(&mut self.gba.sysbus);
+                    self.gba.cpu.step();
                     while self.gba.cpu.last_executed.is_none() {
-                        self.gba.cpu.step(&mut self.gba.sysbus);
+                        self.gba.cpu.step();
                     }
                     if let Some(last_executed) = &self.gba.cpu.last_executed {
                         let pc = last_executed.get_pc();
@@ -143,6 +143,7 @@ impl Debugger {
                         );
                     }
                 }
+                println!("cycles: {}", self.gba.scheduler.timestamp());
                 println!("{}\n", self.gba.cpu);
             }
             Continue => 'running: loop {
@@ -218,7 +219,7 @@ impl Debugger {
             // TileView(bg) => create_tile_view(bg, &self.gba),
             Reset => {
                 println!("resetting cpu...");
-                self.gba.cpu.reset(&mut self.gba.sysbus);
+                self.gba.cpu.reset();
                 println!("cpu is restarted!")
             }
             TraceToggle(flags) => {

@@ -4,37 +4,36 @@ use super::super::alu::*;
 use crate::arm7tdmi::psr::RegPSR;
 use crate::arm7tdmi::CpuAction;
 use crate::arm7tdmi::{Addr, Core, CpuMode, CpuState, REG_LR, REG_PC};
-use crate::sysbus::SysBus;
-use crate::Bus;
+
+use super::super::memory::{MemoryAccess, MemoryInterface};
+use MemoryAccess::*;
 
 use super::ArmDecodeHelper;
 use super::*;
 
-impl Core {
+impl<I: MemoryInterface> Core<I> {
     #[cfg(not(feature = "arm7tdmi_dispatch_table"))]
-    pub fn exec_arm(&mut self, bus: &mut SysBus, insn: u32, fmt: ArmFormat) -> CpuAction {
+    pub fn exec_arm(&mut self, insn: u32, fmt: ArmFormat) -> CpuAction {
         match fmt {
-            ArmFormat::BranchExchange => self.exec_arm_bx(bus, insn),
-            ArmFormat::BranchLink => self.exec_arm_b_bl(bus, insn),
-            ArmFormat::DataProcessing => self.exec_arm_data_processing(bus, insn),
-            ArmFormat::SoftwareInterrupt => self.exec_arm_swi(bus, insn),
-            ArmFormat::SingleDataTransfer => self.exec_arm_ldr_str(bus, insn),
-            ArmFormat::HalfwordDataTransferImmediateOffset => {
-                self.exec_arm_ldr_str_hs_imm(bus, insn)
-            }
-            ArmFormat::HalfwordDataTransferRegOffset => self.exec_arm_ldr_str_hs_reg(bus, insn),
-            ArmFormat::BlockDataTransfer => self.exec_arm_ldm_stm(bus, insn),
-            ArmFormat::MoveFromStatus => self.exec_arm_mrs(bus, insn),
-            ArmFormat::MoveToStatus => self.exec_arm_transfer_to_status(bus, insn),
-            ArmFormat::MoveToFlags => self.exec_arm_transfer_to_status(bus, insn),
-            ArmFormat::Multiply => self.exec_arm_mul_mla(bus, insn),
-            ArmFormat::MultiplyLong => self.exec_arm_mull_mlal(bus, insn),
-            ArmFormat::SingleDataSwap => self.exec_arm_swp(bus, insn),
-            ArmFormat::Undefined => self.arm_undefined(bus, insn),
+            ArmFormat::BranchExchange => self.exec_arm_bx(insn),
+            ArmFormat::BranchLink => self.exec_arm_b_bl(insn),
+            ArmFormat::DataProcessing => self.exec_arm_data_processing(insn),
+            ArmFormat::SoftwareInterrupt => self.exec_arm_swi(insn),
+            ArmFormat::SingleDataTransfer => self.exec_arm_ldr_str(insn),
+            ArmFormat::HalfwordDataTransferImmediateOffset => self.exec_arm_ldr_str_hs_imm(insn),
+            ArmFormat::HalfwordDataTransferRegOffset => self.exec_arm_ldr_str_hs_reg(insn),
+            ArmFormat::BlockDataTransfer => self.exec_arm_ldm_stm(insn),
+            ArmFormat::MoveFromStatus => self.exec_arm_mrs(insn),
+            ArmFormat::MoveToStatus => self.exec_arm_transfer_to_status(insn),
+            ArmFormat::MoveToFlags => self.exec_arm_transfer_to_status(insn),
+            ArmFormat::Multiply => self.exec_arm_mul_mla(insn),
+            ArmFormat::MultiplyLong => self.exec_arm_mull_mlal(insn),
+            ArmFormat::SingleDataSwap => self.exec_arm_swp(insn),
+            ArmFormat::Undefined => self.arm_undefined(insn),
         }
     }
 
-    pub fn arm_undefined(&mut self, _: &mut SysBus, insn: u32) -> CpuAction {
+    pub fn arm_undefined(&mut self, insn: u32) -> CpuAction {
         panic!(
             "executing undefined arm instruction {:08x} at @{:08x}",
             insn,
@@ -42,63 +41,51 @@ impl Core {
         )
     }
 
-    /// Cycles 2S+1N
-    pub fn exec_arm_b_bl(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
-        self.S_cycle32(sb, self.pc);
+    /// Branch and Branch with Link (B, BL)
+    /// Execution Time: 2S + 1N
+    pub fn exec_arm_b_bl(&mut self, insn: u32) -> CpuAction {
         if insn.link_flag() {
             self.set_reg(REG_LR, (self.pc_arm() + (self.word_size() as u32)) & !0b1);
         }
 
         self.pc = (self.pc as i32).wrapping_add(insn.branch_offset()) as u32 & !1;
 
-        self.reload_pipeline32(sb);
-        CpuAction::FlushPipeline
+        self.reload_pipeline32(); // Implies 2S + 1N
+        CpuAction::PipelineFlushed
     }
 
-    pub fn branch_exchange(&mut self, sb: &mut SysBus, mut addr: Addr) -> CpuAction {
-        match self.cpsr.state() {
-            CpuState::ARM => self.S_cycle32(sb, self.pc),
-            CpuState::THUMB => self.S_cycle16(sb, self.pc),
-        }
+    pub fn branch_exchange(&mut self, mut addr: Addr) -> CpuAction {
         if addr.bit(0) {
             addr = addr & !0x1;
             self.cpsr.set_state(CpuState::THUMB);
             self.pc = addr;
-            self.reload_pipeline16(sb);
+            self.reload_pipeline16();
         } else {
             addr = addr & !0x3;
             self.cpsr.set_state(CpuState::ARM);
             self.pc = addr;
-            self.reload_pipeline32(sb);
+            self.reload_pipeline32();
         }
-
-        CpuAction::FlushPipeline
+        CpuAction::PipelineFlushed
     }
-
+    /// Branch and Exchange (BX)
     /// Cycles 2S+1N
-    pub fn exec_arm_bx(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
-        self.branch_exchange(sb, self.get_reg(insn.bit_range(0..4) as usize))
+    pub fn exec_arm_bx(&mut self, insn: u32) -> CpuAction {
+        self.branch_exchange(self.get_reg(insn.bit_range(0..4) as usize))
     }
 
-    fn move_from_status_register(
-        &mut self,
-        sb: &mut SysBus,
-        rd: usize,
-        is_spsr: bool,
-    ) -> CpuAction {
-        let result = if is_spsr {
+    /// Move from status register
+    /// 1S
+    pub fn exec_arm_mrs(&mut self, insn: u32) -> CpuAction {
+        let rd = insn.bit_range(12..16) as usize;
+        let result = if insn.spsr_flag() {
             self.spsr.get()
         } else {
             self.cpsr.get()
         };
         self.set_reg(rd, result);
-        self.S_cycle32(sb, self.pc);
 
-        CpuAction::AdvancePC
-    }
-
-    pub fn exec_arm_mrs(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
-        self.move_from_status_register(sb, insn.bit_range(12..16) as usize, insn.spsr_flag())
+        CpuAction::AdvancePC(Seq)
     }
 
     #[inline(always)]
@@ -112,8 +99,9 @@ impl Core {
         }
     }
 
-    // #[cfg(feature = "arm7tdmi_dispatch_table")]
-    pub fn exec_arm_transfer_to_status(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
+    /// Move to status register
+    /// 1S
+    pub fn exec_arm_transfer_to_status(&mut self, insn: u32) -> CpuAction {
         let value = self.decode_msr_param(insn);
 
         let f = insn.bit(19);
@@ -158,9 +146,8 @@ impl Core {
                 }
             }
         }
-        self.S_cycle32(sb, self.pc);
 
-        CpuAction::AdvancePC
+        CpuAction::AdvancePC(Seq)
     }
 
     fn transfer_spsr_mode(&mut self) {
@@ -175,10 +162,8 @@ impl Core {
     ///
     /// Cycles: 1S+x+y (from GBATEK)
     ///         Add x=1I cycles if Op2 shifted-by-register. Add y=1S+1N cycles if Rd=R15.
-    pub fn exec_arm_data_processing(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
+    pub fn exec_arm_data_processing(&mut self, insn: u32) -> CpuAction {
         use AluOpCode::*;
-
-        self.S_cycle32(sb, self.pc);
 
         let rn = insn.bit_range(16..20) as usize;
         let rd = insn.bit_range(12..16) as usize;
@@ -204,7 +189,7 @@ impl Core {
                 if rn == REG_PC {
                     op1 += 4;
                 }
-
+                self.idle_cycle();
                 let rs = insn.bit_range(8..12) as usize;
                 ShiftRegisterBy::ByRegister(rs)
             } else {
@@ -270,16 +255,16 @@ impl Core {
             })
         };
 
-        let mut result = CpuAction::AdvancePC;
+        let mut result = CpuAction::AdvancePC(Seq);
         if let Some(alu_res) = alu_res {
             self.set_reg(rd, alu_res as u32);
             if rd == REG_PC {
                 // T bit might have changed
                 match self.cpsr.state() {
-                    CpuState::ARM => self.reload_pipeline32(sb),
-                    CpuState::THUMB => self.reload_pipeline16(sb),
+                    CpuState::ARM => self.reload_pipeline32(),
+                    CpuState::THUMB => self.reload_pipeline16(),
                 };
-                result = CpuAction::FlushPipeline;
+                result = CpuAction::PipelineFlushed;
             }
         }
 
@@ -293,8 +278,8 @@ impl Core {
     /// STR{cond}{B}{T} Rd,<Address>    | 2N            | ----  |  [Rn+/-<offset>]=Rd
     /// ------------------------------------------------------------------------------
     /// For LDR, add y=1S+1N if Rd=R15.
-    pub fn exec_arm_ldr_str(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
-        let mut result = CpuAction::AdvancePC;
+    pub fn exec_arm_ldr_str(&mut self, insn: u32) -> CpuAction {
+        let mut result = CpuAction::AdvancePC(NonSeq);
 
         let load = insn.load_flag();
         let pre_index = insn.pre_index_flag();
@@ -305,7 +290,7 @@ impl Core {
         if base_reg == REG_PC {
             addr = self.pc_arm() + 8; // prefetching
         }
-        let offset = self.get_barrel_shifted_value(&insn.ldr_str_offset());
+        let offset = self.get_barrel_shifted_value(&insn.ldr_str_offset()); // TODO: wrong to use in here
         let effective_addr = (addr as i32).wrapping_add(offset as i32) as Addr;
 
         // TODO - confirm this
@@ -321,23 +306,20 @@ impl Core {
         };
 
         if load {
-            self.S_cycle32(sb, self.pc);
             let data = if insn.transfer_size() == 1 {
-                self.N_cycle8(sb, addr);
-                sb.read_8(addr) as u32
+                self.load_8(addr, NonSeq) as u32
             } else {
-                self.N_cycle32(sb, addr);
-                self.ldr_word(addr, sb)
+                self.ldr_word(addr, NonSeq)
             };
 
             self.set_reg(dest_reg, data);
 
             // +1I
-            self.add_cycle();
+            self.idle_cycle();
 
             if dest_reg == REG_PC {
-                self.reload_pipeline32(sb);
-                result = CpuAction::FlushPipeline;
+                self.reload_pipeline32();
+                result = CpuAction::PipelineFlushed;
             }
         } else {
             let value = if dest_reg == REG_PC {
@@ -346,13 +328,10 @@ impl Core {
                 self.get_reg(dest_reg)
             };
             if insn.transfer_size() == 1 {
-                self.N_cycle8(sb, addr);
-                self.write_8(addr, value as u8, sb);
+                self.store_8(addr, value as u8, NonSeq);
             } else {
-                self.N_cycle32(sb, addr);
-                self.write_32(addr & !0x3, value, sb);
+                self.store_aligned_32(addr & !0x3, value, NonSeq);
             };
-            self.N_cycle32(sb, self.pc);
         }
 
         if !load || base_reg != dest_reg {
@@ -370,9 +349,8 @@ impl Core {
         result
     }
 
-    pub fn exec_arm_ldr_str_hs_reg(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
+    pub fn exec_arm_ldr_str_hs_reg(&mut self, insn: u32) -> CpuAction {
         self.ldr_str_hs(
-            sb,
             insn,
             BarrelShifterValue::ShiftedRegister(ShiftedRegister {
                 reg: (insn & 0xf) as usize,
@@ -383,24 +361,19 @@ impl Core {
         )
     }
 
-    pub fn exec_arm_ldr_str_hs_imm(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
+    pub fn exec_arm_ldr_str_hs_imm(&mut self, insn: u32) -> CpuAction {
         let offset8 = (insn.bit_range(8..12) << 4) + insn.bit_range(0..4);
         let offset8 = if insn.add_offset_flag() {
             offset8
         } else {
             (-(offset8 as i32)) as u32
         };
-        self.ldr_str_hs(sb, insn, BarrelShifterValue::ImmediateValue(offset8))
+        self.ldr_str_hs(insn, BarrelShifterValue::ImmediateValue(offset8))
     }
 
     #[inline(always)]
-    pub fn ldr_str_hs(
-        &mut self,
-        sb: &mut SysBus,
-        insn: u32,
-        offset: BarrelShifterValue,
-    ) -> CpuAction {
-        let mut result = CpuAction::AdvancePC;
+    pub fn ldr_str_hs(&mut self, insn: u32, offset: BarrelShifterValue) -> CpuAction {
+        let mut result = CpuAction::AdvancePC(NonSeq);
 
         let load = insn.load_flag();
         let pre_index = insn.pre_index_flag();
@@ -428,30 +401,20 @@ impl Core {
         };
 
         if load {
-            self.S_cycle32(sb, self.pc);
             let data = match insn.halfword_data_transfer_type() {
-                ArmHalfwordTransferType::SignedByte => {
-                    self.N_cycle8(sb, addr);
-                    sb.read_8(addr) as u8 as i8 as u32
-                }
-                ArmHalfwordTransferType::SignedHalfwords => {
-                    self.N_cycle16(sb, addr);
-                    self.ldr_sign_half(addr, sb)
-                }
-                ArmHalfwordTransferType::UnsignedHalfwords => {
-                    self.N_cycle16(sb, addr);
-                    self.ldr_half(addr, sb)
-                }
+                ArmHalfwordTransferType::SignedByte => self.load_8(addr, NonSeq) as u8 as i8 as u32,
+                ArmHalfwordTransferType::SignedHalfwords => self.ldr_sign_half(addr, NonSeq),
+                ArmHalfwordTransferType::UnsignedHalfwords => self.ldr_half(addr, NonSeq),
             };
 
             self.set_reg(dest_reg, data);
 
             // +1I
-            self.add_cycle();
+            self.idle_cycle();
 
             if dest_reg == REG_PC {
-                self.reload_pipeline32(sb);
-                result = CpuAction::FlushPipeline;
+                self.reload_pipeline32();
+                result = CpuAction::PipelineFlushed;
             }
         } else {
             let value = if dest_reg == REG_PC {
@@ -462,9 +425,7 @@ impl Core {
 
             match insn.halfword_data_transfer_type() {
                 ArmHalfwordTransferType::UnsignedHalfwords => {
-                    self.N_cycle32(sb, addr);
-                    self.write_16(addr, value as u16, sb);
-                    self.N_cycle32(sb, self.pc);
+                    self.store_aligned_16(addr, value as u16, NonSeq);
                 }
                 _ => panic!("invalid HS flags for L=0"),
             };
@@ -481,8 +442,8 @@ impl Core {
         result
     }
 
-    pub fn exec_arm_ldm_stm(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
-        let mut result = CpuAction::AdvancePC;
+    pub fn exec_arm_ldm_stm(&mut self, insn: u32) -> CpuAction {
+        let mut result = CpuAction::AdvancePC(NonSeq);
 
         let mut full = insn.pre_index_flag();
         let ascending = insn.add_offset_flag();
@@ -537,8 +498,7 @@ impl Core {
 
         if rlist != 0 {
             if is_load {
-                self.add_cycle();
-                self.N_cycle32(sb, self.pc);
+                let mut access = NonSeq;
                 for r in 0..16 {
                     if rlist.bit(r) {
                         if r == base_reg {
@@ -547,27 +507,25 @@ impl Core {
                         if full {
                             addr = addr.wrapping_add(4);
                         }
-
-                        let val = sb.read_32(addr);
-                        self.S_cycle32(sb, self.pc);
-
+                        let val = self.load_32(addr, access);
+                        access = Seq;
                         self.set_reg(r, val);
-
                         if r == REG_PC {
                             if psr_transfer {
                                 self.transfer_spsr_mode();
                             }
-                            self.reload_pipeline32(sb);
-                            result = CpuAction::FlushPipeline;
+                            self.reload_pipeline32();
+                            result = CpuAction::PipelineFlushed;
                         }
-
                         if !full {
                             addr = addr.wrapping_add(4);
                         }
                     }
                 }
+                self.idle_cycle();
             } else {
                 let mut first = true;
+                let mut access = NonSeq;
                 for r in 0..16 {
                     if rlist.bit(r) {
                         let val = if r != base_reg {
@@ -593,27 +551,22 @@ impl Core {
                             addr = addr.wrapping_add(4);
                         }
 
-                        if first {
-                            self.N_cycle32(sb, addr);
-                            first = false;
-                        } else {
-                            self.S_cycle32(sb, addr);
-                        }
-                        self.write_32(addr, val, sb);
+                        first = false;
 
+                        self.store_aligned_32(addr, val, access);
+                        access = Seq;
                         if !full {
                             addr = addr.wrapping_add(4);
                         }
                     }
                 }
-                self.N_cycle32(sb, self.pc);
             }
         } else {
             if is_load {
-                let val = self.ldr_word(addr, sb);
+                let val = self.ldr_word(addr, NonSeq);
                 self.set_reg(REG_PC, val & !3);
-                self.reload_pipeline32(sb);
-                result = CpuAction::FlushPipeline;
+                self.reload_pipeline32();
+                result = CpuAction::PipelineFlushed;
             } else {
                 // block data store with empty rlist
                 let addr = match (ascending, full) {
@@ -622,7 +575,7 @@ impl Core {
                     (true, false) => addr,
                     (true, true) => addr.wrapping_add(4),
                 };
-                self.write_32(addr, self.pc + 4, sb);
+                self.store_aligned_32(addr, self.pc + 4, NonSeq);
             }
             addr = if ascending {
                 addr.wrapping_add(0x40)
@@ -642,7 +595,9 @@ impl Core {
         result
     }
 
-    pub fn exec_arm_mul_mla(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
+    /// Multiply and Multiply-Accumulate (MUL, MLA)
+    /// Execution Time: 1S+mI for MUL, and 1S+(m+1)I for MLA.
+    pub fn exec_arm_mul_mla(&mut self, insn: u32) -> CpuAction {
         let rd = insn.bit_range(16..20) as usize;
         let rn = insn.bit_range(12..16) as usize;
         let rs = insn.rs();
@@ -658,14 +613,14 @@ impl Core {
 
         if insn.accumulate_flag() {
             result = result.wrapping_add(self.get_reg(rn));
-            self.add_cycle();
+            self.idle_cycle();
         }
 
         self.set_reg(rd, result);
 
         let m = self.get_required_multipiler_array_cycles(op2);
         for _ in 0..m {
-            self.add_cycle();
+            self.idle_cycle();
         }
 
         if insn.set_cond_flag() {
@@ -675,12 +630,12 @@ impl Core {
             self.cpsr.set_V(false);
         }
 
-        self.S_cycle32(sb, self.pc);
-
-        CpuAction::AdvancePC
+        CpuAction::AdvancePC(Seq)
     }
 
-    pub fn exec_arm_mull_mlal(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
+    /// Multiply Long and Multiply-Accumulate Long (MULL, MLAL)
+    /// Execution Time: 1S+(m+1)I for MULL, and 1S+(m+2)I for MLAL
+    pub fn exec_arm_mull_mlal(&mut self, insn: u32) -> CpuAction {
         let rd_hi = insn.rd_hi();
         let rd_lo = insn.rd_lo();
         let rs = insn.rs();
@@ -694,21 +649,18 @@ impl Core {
         } else {
             (op1 as u64).wrapping_mul(op2 as u64)
         };
-        self.add_cycle();
-
         if insn.accumulate_flag() {
             let hi = self.get_reg(rd_hi) as u64;
             let lo = self.get_reg(rd_lo) as u64;
             result = result.wrapping_add(hi << 32 | lo);
-            self.add_cycle();
+            self.idle_cycle();
         }
-
         self.set_reg(rd_hi, (result >> 32) as i32 as u32);
         self.set_reg(rd_lo, (result & 0xffffffff) as i32 as u32);
-
+        self.idle_cycle();
         let m = self.get_required_multipiler_array_cycles(self.get_reg(rs));
         for _ in 0..m {
-            self.add_cycle();
+            self.idle_cycle();
         }
 
         if insn.set_cond_flag() {
@@ -718,35 +670,32 @@ impl Core {
             self.cpsr.set_V(false);
         }
 
-        self.S_cycle32(sb, self.pc);
-
-        CpuAction::AdvancePC
+        CpuAction::AdvancePC(Seq)
     }
 
-    pub fn exec_arm_swp(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
+    /// ARM Opcodes: Memory: Single Data Swap (SWP)
+    /// Execution Time: 1S+2N+1I. That is, 2N data cycles, 1S code cycle, plus 1I.
+    pub fn exec_arm_swp(&mut self, insn: u32) -> CpuAction {
         let base_addr = self.get_reg(insn.bit_range(16..20) as usize);
         let rd = insn.bit_range(12..16) as usize;
         if insn.transfer_size() == 1 {
-            let t = sb.read_8(base_addr);
-            self.N_cycle8(sb, base_addr);
-            sb.write_8(base_addr, self.get_reg(insn.rm()) as u8);
-            self.S_cycle8(sb, base_addr);
+            let t = self.load_8(base_addr, NonSeq);
+            self.store_8(base_addr, self.get_reg(insn.rm()) as u8, Seq);
             self.set_reg(rd, t as u32);
         } else {
-            let t = self.ldr_word(base_addr, sb);
-            self.N_cycle32(sb, base_addr);
-            self.write_32(base_addr, self.get_reg(insn.rm()), sb);
-            self.S_cycle32(sb, base_addr);
+            let t = self.ldr_word(base_addr, NonSeq);
+            self.store_aligned_32(base_addr, self.get_reg(insn.rm()), Seq);
             self.set_reg(rd, t as u32);
         }
-        self.add_cycle();
-        self.N_cycle32(sb, self.pc);
+        self.idle_cycle();
 
-        CpuAction::AdvancePC
+        CpuAction::AdvancePC(NonSeq)
     }
 
-    pub fn exec_arm_swi(&mut self, sb: &mut SysBus, insn: u32) -> CpuAction {
-        self.software_interrupt(sb, self.pc - 4, insn.swi_comment());
-        CpuAction::FlushPipeline
+    /// ARM Software Interrupt
+    /// Execution Time: 2S+1N
+    pub fn exec_arm_swi(&mut self, insn: u32) -> CpuAction {
+        self.software_interrupt(self.pc - 4, insn.swi_comment()); // Implies 2S + 1N
+        CpuAction::PipelineFlushed
     }
 }

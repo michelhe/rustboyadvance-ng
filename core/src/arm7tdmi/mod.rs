@@ -12,6 +12,7 @@ use thumb::ThumbInstruction;
 pub mod cpu;
 pub use cpu::*;
 pub mod alu;
+pub mod memory;
 pub use alu::*;
 pub mod exception;
 pub mod psr;
@@ -22,11 +23,6 @@ pub const REG_LR: usize = 14;
 pub const REG_SP: usize = 13;
 
 pub(self) use crate::Addr;
-
-pub enum CpuAction {
-    AdvancePC,
-    FlushPipeline,
-}
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum DecodedInstruction {

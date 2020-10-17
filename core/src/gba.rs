@@ -11,7 +11,7 @@ use super::dma::DmaController;
 use super::gpu::*;
 use super::interrupt::*;
 use super::iodev::*;
-use super::sched::{EventHandler, EventType, Scheduler, SharedScheduler};
+use super::sched::{EventType, Scheduler, SharedScheduler};
 use super::sound::SoundController;
 use super::sysbus::SysBus;
 use super::timer::Timers;
@@ -22,21 +22,15 @@ use super::VideoInterface;
 use super::{AudioInterface, InputInterface};
 
 pub struct GameBoyAdvance {
-    pub cpu: arm7tdmi::Core,
-    pub sysbus: Box<SysBus>,
-    io_devs: Shared<IoDevices>,
-
+    pub cpu: Box<arm7tdmi::Core<SysBus>>,
+    pub sysbus: Shared<SysBus>,
+    pub io_devs: Shared<IoDevices>,
+    pub scheduler: SharedScheduler,
+    interrupt_flags: SharedInterruptFlags,
     #[cfg(not(feature = "no_video_interface"))]
     pub video_device: Rc<RefCell<dyn VideoInterface>>,
     pub audio_device: Rc<RefCell<dyn AudioInterface>>,
     pub input_device: Rc<RefCell<dyn InputInterface>>,
-
-    pub cycles_to_next_event: usize,
-
-    scheduler: SharedScheduler,
-
-    overshoot_cycles: usize,
-    interrupt_flags: SharedInterruptFlags,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -47,7 +41,13 @@ struct SaveState {
     ewram: Box<[u8]>,
     iwram: Box<[u8]>,
     interrupt_flags: u16,
-    cpu: arm7tdmi::Core,
+    cpu_state: arm7tdmi::SavedCpuState,
+}
+
+#[derive(Debug, PartialEq)]
+enum BusMaster {
+    Dma,
+    Cpu,
 }
 
 /// Checks if the bios provided is the real one
@@ -83,20 +83,20 @@ impl GameBoyAdvance {
         let intc = InterruptController::new(interrupt_flags.clone());
         let gpu = Box::new(Gpu::new(scheduler.clone(), interrupt_flags.clone()));
         let dmac = DmaController::new(interrupt_flags.clone(), scheduler.clone());
-        let timers = Timers::new(interrupt_flags.clone());
+        let timers = Timers::new(interrupt_flags.clone(), scheduler.clone());
         let sound_controller = Box::new(SoundController::new(
             scheduler.clone(),
             audio_device.borrow().get_sample_rate() as f32,
         ));
         let io_devs = Shared::new(IoDevices::new(intc, gpu, dmac, timers, sound_controller));
-        let sysbus = Box::new(SysBus::new(
+        let sysbus = Shared::new(SysBus::new(
             scheduler.clone(),
             io_devs.clone(),
             bios_rom,
             gamepak,
         ));
 
-        let cpu = arm7tdmi::Core::new();
+        let cpu = Box::new(arm7tdmi::Core::new(sysbus.clone()));
 
         let mut gba = GameBoyAdvance {
             cpu,
@@ -110,8 +110,6 @@ impl GameBoyAdvance {
 
             scheduler: scheduler,
 
-            cycles_to_next_event: 1,
-            overshoot_cycles: 0,
             interrupt_flags: interrupt_flags,
         };
 
@@ -130,7 +128,6 @@ impl GameBoyAdvance {
     ) -> bincode::Result<GameBoyAdvance> {
         let decoded: Box<SaveState> = bincode::deserialize_from(savestate)?;
 
-        let arm7tdmi = decoded.cpu;
         let interrupts = Rc::new(Cell::new(IrqBitmask(decoded.interrupt_flags)));
         let scheduler = decoded.scheduler.make_shared();
         let mut io_devs = Shared::new(decoded.io_devs);
@@ -139,14 +136,17 @@ impl GameBoyAdvance {
         io_devs.connect_irq(interrupts.clone());
         io_devs.gpu.set_scheduler(scheduler.clone());
         io_devs.sound.set_scheduler(scheduler.clone());
-
-        let sysbus = Box::new(SysBus::new_with_memories(
+        let sysbus = Shared::new(SysBus::new_with_memories(
             scheduler.clone(),
             io_devs.clone(),
             cartridge,
             bios,
             decoded.ewram,
             decoded.iwram,
+        ));
+        let arm7tdmi = Box::new(arm7tdmi::Core::from_saved_state(
+            sysbus.clone(),
+            decoded.cpu_state,
         ));
 
         Ok(GameBoyAdvance {
@@ -161,17 +161,13 @@ impl GameBoyAdvance {
             audio_device: audio_device,
             input_device: input_device,
 
-            cycles_to_next_event: 1,
-
-            overshoot_cycles: 0,
-
             scheduler,
         })
     }
 
     pub fn save_state(&self) -> bincode::Result<Vec<u8>> {
         let s = SaveState {
-            cpu: self.cpu.clone(),
+            cpu_state: self.cpu.save_state(),
             io_devs: self.io_devs.clone_inner(),
             cartridge: self.sysbus.cartridge.thin_copy(),
             iwram: Box::from(self.sysbus.get_iwram()),
@@ -186,11 +182,12 @@ impl GameBoyAdvance {
     pub fn restore_state(&mut self, bytes: &[u8], bios: Box<[u8]>) -> bincode::Result<()> {
         let decoded: Box<SaveState> = bincode::deserialize_from(bytes)?;
 
-        self.cpu = decoded.cpu;
+        self.cpu.restore_state(decoded.cpu_state);
         self.scheduler = Scheduler::make_shared(decoded.scheduler);
         self.interrupt_flags = Rc::new(Cell::new(IrqBitmask(decoded.interrupt_flags)));
         self.io_devs = Shared::new(decoded.io_devs);
         // Restore memory state
+        self.cpu.set_memory_interface(self.sysbus.clone());
         self.sysbus.set_bios(bios);
         self.sysbus.set_iwram(decoded.iwram);
         self.sysbus.set_ewram(decoded.ewram);
@@ -202,7 +199,6 @@ impl GameBoyAdvance {
         self.sysbus.set_io_devices(self.io_devs.clone());
         self.sysbus.cartridge.update_from(decoded.cartridge);
         self.sysbus.created();
-        self.cycles_to_next_event = 1;
 
         Ok(())
     }
@@ -222,24 +218,113 @@ impl GameBoyAdvance {
 
     pub fn frame(&mut self) {
         self.key_poll();
+        static mut OVERSHOOT: usize = 0;
+        unsafe {
+            OVERSHOOT = self.run(CYCLES_FULL_REFRESH - OVERSHOOT);
+        }
+    }
 
-        let mut scheduler = self.scheduler.clone();
+    #[inline]
+    fn dma_step(&mut self) {
+        self.io_devs.dmac.perform_work(&mut self.sysbus);
+    }
 
-        let mut remaining_cycles = CYCLES_FULL_REFRESH - self.overshoot_cycles;
+    #[inline]
+    pub fn cpu_step(&mut self) {
+        if self.io_devs.intc.irq_pending() {
+            self.cpu.irq();
+            self.io_devs.haltcnt = HaltState::Running;
+        }
+        self.cpu.step();
+    }
 
-        while remaining_cycles > 0 {
-            let cycles = self.step(&mut scheduler);
-            if remaining_cycles >= cycles {
-                remaining_cycles -= cycles;
-            } else {
-                self.overshoot_cycles = cycles - remaining_cycles;
-                return;
+    #[inline]
+    fn get_bus_master(&mut self) -> Option<BusMaster> {
+        match (self.io_devs.dmac.is_active(), self.io_devs.haltcnt) {
+            (true, _) => Some(BusMaster::Dma),
+            (false, HaltState::Running) => Some(BusMaster::Cpu),
+            (false, _) => None,
+        }
+    }
+
+    /// Runs the emulation for a given amount of cycles
+    /// @return number of extra cycle ran in this iteration
+    #[inline]
+    fn run(&mut self, cycles_to_run: usize) -> usize {
+        let run_start_time = self.scheduler.timestamp();
+
+        // Register an event to mark the end of this run
+        self.scheduler
+            .push(EventType::RunLimitReached, cycles_to_run);
+
+        let mut running = true;
+        while running {
+            // The tricky part is to avoid unnecessary calls for Scheduler::process_pending,
+            // performance-wise it would be best to run as many cycles as fast as possible while we know there are no pending events.
+            // Fast forward emulation until an event occurs
+            while self.scheduler.timestamp() <= self.scheduler.timestamp_of_next_event() {
+                // 3 Options:
+                // 1. DMA is active - thus CPU is blocked
+                // 2. DMA inactive and halt state is RUN - CPU can run
+                // 3. DMA inactive and halt state is HALT - CPU is blocked
+                match self.get_bus_master() {
+                    Some(BusMaster::Dma) => self.dma_step(),
+                    Some(BusMaster::Cpu) => self.cpu_step(),
+                    None => {
+                        if self.io_devs.intc.irq_pending() {
+                            self.io_devs.haltcnt = HaltState::Running;
+                        } else {
+                            self.scheduler.fast_forward_to_next();
+                            let (event, cycles_late) = self
+                                .scheduler
+                                .pop_pending_event()
+                                .unwrap_or_else(|| unreachable!());
+                            self.handle_event(event, cycles_late, &mut running);
+                        }
+                    }
+                }
+            }
+
+            while let Some((event, cycles_late)) = self.scheduler.pop_pending_event() {
+                self.handle_event(event, cycles_late, &mut running);
             }
         }
 
-        self.overshoot_cycles = 0;
+        let total_cycles_ran = self.scheduler.timestamp() - run_start_time;
+        total_cycles_ran - cycles_to_run
     }
 
+    #[inline]
+    fn handle_event(&mut self, event: EventType, cycles_late: usize, running: &mut bool) {
+        let io = &mut (*self.io_devs);
+        match event {
+            EventType::RunLimitReached => {
+                *running = false;
+            }
+            EventType::DmaActivateChannel(channel_id) => io.dmac.activate_channel(channel_id),
+            EventType::TimerOverflow(channel_id) => {
+                let timers = &mut io.timers;
+                let dmac = &mut io.dmac;
+                let apu = &mut io.sound;
+                timers.handle_overflow_event(channel_id, cycles_late, apu, dmac);
+            }
+            EventType::Gpu(event) => io.gpu.on_event(
+                event,
+                cycles_late,
+                &mut *self.sysbus,
+                #[cfg(not(feature = "no_video_interface"))]
+                &self.video_device,
+            ),
+            EventType::Apu(event) => io.sound.on_event(event, cycles_late, &self.audio_device),
+        }
+    }
+
+    pub fn skip_bios(&mut self) {
+        self.cpu.skip_bios();
+        self.sysbus.io.gpu.skip_bios();
+    }
+
+    #[cfg(feature = "debugger")]
     pub fn add_breakpoint(&mut self, addr: u32) -> Option<usize> {
         if !self.cpu.breakpoints.contains(&addr) {
             let new_index = self.cpu.breakpoints.len();
@@ -250,6 +335,7 @@ impl GameBoyAdvance {
         }
     }
 
+    #[cfg(feature = "debugger")]
     pub fn check_breakpoint(&self) -> Option<u32> {
         let next_pc = self.cpu.get_next_pc();
         for bp in &self.cpu.breakpoints {
@@ -261,82 +347,23 @@ impl GameBoyAdvance {
         None
     }
 
-    pub fn skip_bios(&mut self) {
-        self.cpu.skip_bios();
-        self.sysbus.io.gpu.skip_bios();
-    }
-
-    pub fn step_cpu(&mut self, io: &mut IoDevices) -> usize {
-        if io.intc.irq_pending() {
-            self.cpu.irq(&mut self.sysbus);
-            io.haltcnt = HaltState::Running;
-        }
-        let previous_cycles = self.cpu.cycles;
-        self.cpu.step(&mut self.sysbus);
-        self.cpu.cycles - previous_cycles
-    }
-
-    pub fn step(&mut self, scheduler: &mut Scheduler) -> usize {
-        // I hate myself for doing this, but rust left me no choice.
-        let io = unsafe {
-            let ptr = &mut *self.sysbus as *mut SysBus;
-            &mut (*ptr).io as &mut IoDevices
-        };
-
-        let available_cycles = self.scheduler.get_cycles_to_next_event();
-        let mut cycles_left = available_cycles;
-        let mut cycles = 0;
-
-        while cycles_left > 0 {
-            let _cycles = if !io.dmac.is_active() {
-                if HaltState::Running == io.haltcnt {
-                    self.step_cpu(io)
-                } else {
-                    cycles = cycles_left;
-                    break;
-                }
-            } else {
-                io.dmac.perform_work(&mut self.sysbus);
-                return cycles;
-            };
-
-            cycles += _cycles;
-            if cycles_left < _cycles {
-                break;
-            }
-            cycles_left -= _cycles;
-        }
-
-        io.timers.update(cycles, &mut self.sysbus);
-
-        scheduler.run(cycles, self);
-
-        cycles
-    }
-
     #[cfg(feature = "debugger")]
     /// 'step' function that checks for breakpoints
     /// TODO avoid code duplication
     pub fn step_debugger(&mut self) -> Option<u32> {
-        // I hate myself for doing this, but rust left me no choice.
-        let io = unsafe {
-            let ptr = &mut *self.sysbus as *mut SysBus;
-            &mut (*ptr).io as &mut IoDevices
-        };
-
         // clear any pending DMAs
-        while io.dmac.is_active() {
-            io.dmac.perform_work(&mut self.sysbus);
-        }
+        self.dma_step();
 
-        let cycles = self.step_cpu(io);
+        // Run the CPU
+        let _cycles = self.scheduler.measure_cycles(|| {
+            self.cpu_step();
+        });
+
         let breakpoint = self.check_breakpoint();
 
-        io.timers.update(cycles, &mut self.sysbus);
-
-        // update gpu & sound
-        let mut scheduler = self.scheduler.clone();
-        scheduler.run(cycles, self);
+        while let Some((event, cycles_late)) = self.scheduler.pop_pending_event() {
+            self.handle_event(event, cycles_late, &mut running);
+        }
 
         breakpoint
     }
@@ -349,27 +376,7 @@ impl GameBoyAdvance {
 
     /// Reset the emulator
     pub fn soft_reset(&mut self) {
-        self.cpu.reset(&mut self.sysbus);
-    }
-}
-
-impl EventHandler for GameBoyAdvance {
-    fn handle_event(&mut self, event: EventType, extra_cycles: usize) {
-        let io = unsafe {
-            let ptr = &mut *self.sysbus as *mut SysBus;
-            &mut (*ptr).io as &mut IoDevices
-        };
-        match event {
-            EventType::DmaActivateChannel(channel_id) => io.dmac.activate_channel(channel_id),
-            EventType::Gpu(event) => io.gpu.on_event(
-                event,
-                extra_cycles,
-                self.sysbus.as_mut(),
-                #[cfg(not(feature = "no_video_interface"))]
-                &self.video_device,
-            ),
-            EventType::Apu(event) => io.sound.on_event(event, extra_cycles, &self.audio_device),
-        }
+        self.cpu.reset();
     }
 }
 

@@ -109,7 +109,7 @@ impl SoundController {
     pub fn new(mut scheduler: SharedScheduler, audio_device_sample_rate: f32) -> SoundController {
         let resampler = CosineResampler::new(32768_f32, audio_device_sample_rate);
         let cycles_per_sample = 512;
-        scheduler.schedule(EventType::Apu(ApuEvent::Sample), cycles_per_sample);
+        scheduler.push(EventType::Apu(ApuEvent::Sample), cycles_per_sample);
         SoundController {
             scheduler,
             cycles_per_sample,
@@ -363,7 +363,7 @@ impl SoundController {
         });
 
         self.scheduler
-            .add_apu_event(ApuEvent::Sample, self.cycles_per_sample - extra_cycles);
+            .push_apu_event(ApuEvent::Sample, self.cycles_per_sample - extra_cycles);
     }
 
     pub fn on_event(
