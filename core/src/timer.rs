@@ -142,8 +142,7 @@ impl Timers {
         timer.is_scheduled = true;
         timer.start_time = self.scheduler.timestamp();
         let cycles = (timer.ticks_to_overflow() as usize) << timer.prescalar_shift;
-        self.scheduler
-            .push(EventType::TimerOverflow(id), cycles);
+        self.scheduler.push(EventType::TimerOverflow(id), cycles);
     }
 
     fn cancel_timer_event(&mut self, id: usize) {

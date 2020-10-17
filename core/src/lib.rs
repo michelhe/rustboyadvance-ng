@@ -26,7 +26,6 @@ extern crate log;
 #[macro_use]
 extern crate hex_literal;
 
-#[macro_use]
 extern crate cfg_if;
 
 use zip;
