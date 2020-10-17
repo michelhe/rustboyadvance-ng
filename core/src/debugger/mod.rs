@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{prelude::*, BufReader};
 
@@ -39,6 +40,7 @@ pub struct Debugger {
     pub gba: GameBoyAdvance,
     running: bool,
     pub previous_command: Option<Command>,
+    pub symbols: HashMap<String, u32>,
 }
 
 impl Debugger {
@@ -47,6 +49,7 @@ impl Debugger {
             gba: gba,
             running: false,
             previous_command: None,
+            symbols: HashMap::new(),
         }
     }
 
