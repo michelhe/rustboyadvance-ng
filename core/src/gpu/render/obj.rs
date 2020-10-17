@@ -55,7 +55,7 @@ impl ObjAttrs {
 }
 
 impl Gpu {
-    fn get_affine_matrix(&self, affine_index: u32) -> AffineMatrix {
+    fn get_affine_matrix(&mut self, affine_index: u32) -> AffineMatrix {
         let mut offset = AFFINE_FILL + affine_index * 16 * 2;
         let pa = self.oam.read_16(offset) as i16 as i32;
         offset += 2 + AFFINE_FILL;
@@ -68,7 +68,7 @@ impl Gpu {
         AffineMatrix { pa, pb, pc, pd }
     }
 
-    fn read_obj_attrs(&self, obj: usize) -> ObjAttrs {
+    fn read_obj_attrs(&mut self, obj: usize) -> ObjAttrs {
         let addr = ATTRS_SIZE * (obj as u32);
         let attr0 = Attribute0(self.oam.read_16(addr + 0));
         let attr1 = Attribute1(self.oam.read_16(addr + 2));

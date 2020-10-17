@@ -288,7 +288,8 @@ impl SysBus {
 }
 
 impl Bus for SysBus {
-    fn read_32(&self, addr: Addr) -> u32 {
+    #[inline]
+    fn read_32(&mut self, addr: Addr) -> u32 {
         match addr & 0xff000000 {
             BIOS_ADDR => self.bios.read_32(addr),
             EWRAM_ADDR => self.onboard_work_ram.read_32(addr & 0x3_fffc),
@@ -314,7 +315,8 @@ impl Bus for SysBus {
         }
     }
 
-    fn read_16(&self, addr: Addr) -> u16 {
+    #[inline]
+    fn read_16(&mut self, addr: Addr) -> u16 {
         match addr & 0xff000000 {
             BIOS_ADDR => self.bios.read_16(addr),
             EWRAM_ADDR => self.onboard_work_ram.read_16(addr & 0x3_fffe),
@@ -340,7 +342,8 @@ impl Bus for SysBus {
         }
     }
 
-    fn read_8(&self, addr: Addr) -> u8 {
+    #[inline]
+    fn read_8(&mut self, addr: Addr) -> u8 {
         match addr & 0xff000000 {
             BIOS_ADDR => self.bios.read_8(addr),
             EWRAM_ADDR => self.onboard_work_ram.read_8(addr & 0x3_ffff),
@@ -366,6 +369,7 @@ impl Bus for SysBus {
         }
     }
 
+    #[inline]
     fn write_32(&mut self, addr: Addr, value: u32) {
         match addr & 0xff000000 {
             BIOS_ADDR => {}
@@ -390,6 +394,7 @@ impl Bus for SysBus {
         }
     }
 
+    #[inline]
     fn write_16(&mut self, addr: Addr, value: u16) {
         match addr & 0xff000000 {
             BIOS_ADDR => {}
@@ -414,6 +419,7 @@ impl Bus for SysBus {
         }
     }
 
+    #[inline]
     fn write_8(&mut self, addr: Addr, value: u8) {
         match addr & 0xff000000 {
             BIOS_ADDR => {}
@@ -440,7 +446,7 @@ impl Bus for SysBus {
 }
 
 impl DebugRead for SysBus {
-    fn debug_read_8(&self, addr: Addr) -> u8 {
+    fn debug_read_8(&mut self, addr: Addr) -> u8 {
         match addr & 0xff000000 {
             BIOS_ADDR => self.bios.debug_read_8(addr),
             EWRAM_ADDR => self.onboard_work_ram.debug_read_8(addr & 0x3_ffff),

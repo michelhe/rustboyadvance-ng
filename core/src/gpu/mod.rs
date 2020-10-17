@@ -298,7 +298,7 @@ impl Gpu {
     }
 
     /// helper method that reads the palette index from a base address and x + y
-    pub fn read_pixel_index(&self, addr: u32, x: u32, y: u32, format: PixelFormat) -> usize {
+    pub fn read_pixel_index(&mut self, addr: u32, x: u32, y: u32, format: PixelFormat) -> usize {
         match format {
             PixelFormat::BPP4 => self.read_pixel_index_bpp4(addr, x, y),
             PixelFormat::BPP8 => self.read_pixel_index_bpp8(addr, x, y),
@@ -306,7 +306,7 @@ impl Gpu {
     }
 
     #[inline]
-    pub fn read_pixel_index_bpp4(&self, addr: u32, x: u32, y: u32) -> usize {
+    pub fn read_pixel_index_bpp4(&mut self, addr: u32, x: u32, y: u32) -> usize {
         let ofs = addr + index2d!(u32, x / 2, y, 4);
         let ofs = ofs as usize;
         let byte = self.vram.read_8(ofs as u32);
@@ -318,13 +318,13 @@ impl Gpu {
     }
 
     #[inline]
-    pub fn read_pixel_index_bpp8(&self, addr: u32, x: u32, y: u32) -> usize {
+    pub fn read_pixel_index_bpp8(&mut self, addr: u32, x: u32, y: u32) -> usize {
         let ofs = addr;
         self.vram.read_8(ofs + index2d!(u32, x, y, 8)) as usize
     }
 
     #[inline(always)]
-    pub fn get_palette_color(&self, index: u32, palette_bank: u32, offset: u32) -> Rgb15 {
+    pub fn get_palette_color(&mut self, index: u32, palette_bank: u32, offset: u32) -> Rgb15 {
         if index == 0 || (palette_bank != 0 && index % 16 == 0) {
             return Rgb15::TRANSPARENT;
         }
@@ -659,7 +659,7 @@ impl Gpu {
 }
 
 impl Bus for Gpu {
-    fn read_8(&self, addr: Addr) -> u8 {
+    fn read_8(&mut self, addr: Addr) -> u8 {
         let page = (addr >> 24) as usize;
         match page {
             PAGE_PALRAM => self.palette_ram.read_8(addr & 0x3ff),
@@ -716,7 +716,7 @@ impl Bus for Gpu {
 }
 
 impl DebugRead for Gpu {
-    fn debug_read_8(&self, addr: Addr) -> u8 {
+    fn debug_read_8(&mut self, addr: Addr) -> u8 {
         let page = (addr >> 24) as usize;
         match page {
             PAGE_PALRAM => self.palette_ram.read_8(addr & 0x3ff),

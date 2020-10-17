@@ -1,20 +1,20 @@
 pub type Addr = u32;
 
 pub trait Bus {
-    fn read_32(&self, addr: Addr) -> u32 {
+    fn read_32(&mut self, addr: Addr) -> u32 {
         self.read_16(addr) as u32 | (self.read_16(addr + 2) as u32) << 16
     }
 
-    fn read_16(&self, addr: Addr) -> u16 {
+    fn read_16(&mut self, addr: Addr) -> u16 {
         self.default_read_16(addr)
     }
 
     #[inline(always)]
-    fn default_read_16(&self, addr: Addr) -> u16 {
+    fn default_read_16(&mut self, addr: Addr) -> u16 {
         self.read_8(addr) as u16 | (self.read_8(addr + 1) as u16) << 8
     }
 
-    fn read_8(&self, addr: Addr) -> u8;
+    fn read_8(&mut self, addr: Addr) -> u8;
 
     fn write_32(&mut self, addr: Addr, value: u32) {
         self.write_16(addr, (value & 0xffff) as u16);
@@ -33,7 +33,7 @@ pub trait Bus {
 
     fn write_8(&mut self, addr: Addr, value: u8);
 
-    fn get_bytes(&self, range: std::ops::Range<u32>) -> Vec<u8> {
+    fn get_bytes(&mut self, range: std::ops::Range<u32>) -> Vec<u8> {
         let mut bytes = Vec::new();
         for b in range {
             bytes.push(self.read_8(b));
@@ -44,17 +44,17 @@ pub trait Bus {
 
 /// Helper trait for reading memory as if we were an all-powerfull debugger
 pub trait DebugRead: Bus {
-    fn debug_read_32(&self, addr: Addr) -> u32 {
+    fn debug_read_32(&mut self, addr: Addr) -> u32 {
         self.debug_read_16(addr) as u32 | (self.debug_read_16(addr + 2) as u32) << 16
     }
 
-    fn debug_read_16(&self, addr: Addr) -> u16 {
+    fn debug_read_16(&mut self, addr: Addr) -> u16 {
         self.debug_read_8(addr) as u16 | (self.debug_read_8(addr + 1) as u16) << 8
     }
 
-    fn debug_read_8(&self, addr: Addr) -> u8;
+    fn debug_read_8(&mut self, addr: Addr) -> u8;
 
-    fn debug_get_bytes(&self, range: std::ops::Range<u32>) -> Vec<u8> {
+    fn debug_get_bytes(&mut self, range: std::ops::Range<u32>) -> Vec<u8> {
         let mut bytes = Vec::new();
         for b in range {
             bytes.push(self.debug_read_8(b));

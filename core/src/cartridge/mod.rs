@@ -64,7 +64,7 @@ impl Cartridge {
         &self.bytes
     }
 
-    // 'clones' the cartridge without the ROM buffer
+    // 'Clones' the cartridge without the ROM buffer
     pub fn thin_copy(&self) -> Cartridge {
         Cartridge {
             header: self.header.clone(),
@@ -96,7 +96,7 @@ fn is_gpio_access(addr: u32) -> bool {
 }
 
 impl Bus for Cartridge {
-    fn read_8(&self, addr: Addr) -> u8 {
+    fn read_8(&mut self, addr: Addr) -> u8 {
         let offset = (addr & 0x01ff_ffff) as usize;
         match addr & 0xff000000 {
             SRAM_LO | SRAM_HI => match &self.backup {
@@ -114,7 +114,7 @@ impl Bus for Cartridge {
         }
     }
 
-    fn read_16(&self, addr: u32) -> u16 {
+    fn read_16(&mut self, addr: u32) -> u16 {
         if is_gpio_access(addr) {
             if let Some(gpio) = &self.gpio {
                 if !(gpio.is_readable()) {
@@ -165,7 +165,7 @@ impl Bus for Cartridge {
 }
 
 impl DebugRead for Cartridge {
-    fn debug_read_8(&self, addr: Addr) -> u8 {
+    fn debug_read_8(&mut self, addr: Addr) -> u8 {
         let offset = (addr & 0x01ff_ffff) as usize;
         self.bytes[offset]
     }

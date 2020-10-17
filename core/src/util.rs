@@ -274,7 +274,7 @@ impl BoxedMemory {
 }
 
 impl Bus for BoxedMemory {
-    fn read_8(&self, addr: Addr) -> u8 {
+    fn read_8(&mut self, addr: Addr) -> u8 {
         unsafe { *self.mem.get_unchecked(addr as usize) }
     }
 
@@ -286,7 +286,7 @@ impl Bus for BoxedMemory {
 }
 
 impl DebugRead for BoxedMemory {
-    fn debug_read_8(&self, addr: Addr) -> u8 {
+    fn debug_read_8(&mut self, addr: Addr) -> u8 {
         self.mem[addr as usize]
     }
 }

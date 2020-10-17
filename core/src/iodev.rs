@@ -78,7 +78,7 @@ impl InterruptConnect for IoDevices {
 }
 
 impl Bus for IoDevices {
-    fn read_16(&self, addr: Addr) -> u16 {
+    fn read_16(&mut self, addr: Addr) -> u16 {
         let io = self;
         let io_addr = addr + IO_BASE;
         if addr > 0x0800 {
@@ -134,7 +134,7 @@ impl Bus for IoDevices {
         }
     }
 
-    fn read_8(&self, addr: Addr) -> u8 {
+    fn read_8(&mut self, addr: Addr) -> u8 {
         let t = self.read_16(addr & !1);
         if addr & 1 != 0 {
             (t >> 8) as u8
@@ -300,7 +300,7 @@ impl Bus for IoDevices {
 }
 
 impl DebugRead for IoDevices {
-    fn debug_read_8(&self, addr: Addr) -> u8 {
+    fn debug_read_8(&mut self, addr: Addr) -> u8 {
         self.read_8(addr)
     }
 }

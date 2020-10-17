@@ -59,7 +59,7 @@ impl Gpu {
     }
 
     #[allow(unused)]
-    fn layer_to_pixel(&self, x: usize, y: usize, layer: &RenderLayer) -> Rgb15 {
+    fn layer_to_pixel(&mut self, x: usize, y: usize, layer: &RenderLayer) -> Rgb15 {
         match layer.kind {
             RenderLayerKind::Background0 => self.backgrounds[0].line[x],
             RenderLayerKind::Background1 => self.backgrounds[1].line[x],

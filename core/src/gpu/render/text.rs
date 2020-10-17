@@ -124,16 +124,13 @@ impl Gpu {
             let tile_index = self.vram.read_8(map_addr) as u32;
             let tile_addr = char_block + tile_index * 0x40;
 
-            let color = self.get_palette_color(
-                self.read_pixel_index(
-                    tile_addr,
-                    (t.0 % 8) as u32,
-                    (t.1 % 8) as u32,
-                    PixelFormat::BPP8,
-                ) as u32,
-                0,
-                0,
-            );
+            let pixel_index = self.read_pixel_index(
+                tile_addr,
+                (t.0 % 8) as u32,
+                (t.1 % 8) as u32,
+                PixelFormat::BPP8,
+            ) as u32;
+            let color = self.get_palette_color(pixel_index, 0, 0);
             self.backgrounds[bg].line[screen_x as usize] = color;
         }
     }
