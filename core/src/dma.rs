@@ -1,9 +1,9 @@
+use super::arm7tdmi::memory::{MemoryAccess, MemoryInterface};
 use super::cartridge::BackupMedia;
 use super::interrupt::{self, Interrupt, InterruptConnect, SharedInterruptFlags};
 use super::iodev::consts::{REG_FIFO_A, REG_FIFO_B};
 use super::sched::{EventType, Scheduler, SharedScheduler};
 use super::sysbus::SysBus;
-use super::Bus;
 
 use num::FromPrimitive;
 use serde::{Deserialize, Serialize};
@@ -151,22 +151,26 @@ impl DmaChannel {
 
         let fifo_mode = self.fifo_mode;
 
+        let mut access = MemoryAccess::NonSeq;
         if fifo_mode {
             for _ in 0..4 {
-                let v = sb.read_32(self.internal.src_addr & !3);
-                sb.write_32(self.internal.dst_addr & !3, v);
+                let v = sb.load_32(self.internal.src_addr & !3, access);
+                sb.store_32(self.internal.dst_addr & !3, v, access);
+                access = MemoryAccess::Seq;
                 self.internal.src_addr += 4;
             }
         } else if word_size == 4 {
             for _ in 0..count {
-                let w = sb.read_32(self.internal.src_addr & !3);
-                sb.write_32(self.internal.dst_addr & !3, w);
+                let w = sb.load_32(self.internal.src_addr & !3, access);
+                sb.store_32(self.internal.dst_addr & !3, w, access);
+                access = MemoryAccess::Seq;
                 self.xfer_adj_addrs(word_size);
             }
         } else {
             for _ in 0..count {
-                let hw = sb.read_16(self.internal.src_addr & !1);
-                sb.write_16(self.internal.dst_addr & !1, hw);
+                let hw = sb.load_16(self.internal.src_addr & !1, access);
+                sb.store_16(self.internal.dst_addr & !1, hw, access);
+                access = MemoryAccess::Seq;
                 self.xfer_adj_addrs(word_size)
             }
         }
@@ -240,7 +244,7 @@ impl DmaController {
                 if self.channels[channel_id].write_dma_ctrl(value) {
                     // DMA actually starts after 3 cycles
                     self.scheduler
-                        .schedule(EventType::DmaActivateChannel(channel_id), 3);
+                        .push(EventType::DmaActivateChannel(channel_id), 3);
                 } else {
                     self.deactivate_channel(channel_id);
                 }
