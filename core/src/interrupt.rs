@@ -4,7 +4,6 @@ use std::rc::Rc;
 use serde::{Deserialize, Serialize};
 
 pub trait InterruptConnect {
-
     // Connect a SharedInterruptFlags to this interrupt source
     fn connect_irq(&mut self, interrupt_flags: SharedInterruptFlags);
 }
