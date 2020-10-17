@@ -56,10 +56,12 @@ pub fn parse(bytes: &[u8]) -> GBAResult<CartridgeHeader> {
     }
 
     let checksum = bytes[0xbd];
-    if calculate_checksum(&bytes[0xa0..=0xbc]) != checksum {
-        return Err(GBAError::CartridgeLoadError(
-            "invalid header checksum".to_string(),
-        ));
+    let calculated_checksum = calculate_checksum(&bytes[0xa0..=0xbc]);
+    if calculated_checksum != checksum {
+        warn!(
+            "invalid header checksum, calculated {:02x} but expected {:02x}",
+            calculated_checksum, checksum
+        );
     }
 
     let game_title = from_utf8(&bytes[0xa0..0xac])
