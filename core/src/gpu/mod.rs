@@ -11,7 +11,6 @@ use super::dma::{DmaNotifer, TIMING_HBLANK, TIMING_VBLANK};
 use super::interrupt::{self, Interrupt, InterruptConnect, SharedInterruptFlags};
 use super::sched::*;
 pub use super::sysbus::consts::*;
-use super::util::BoxedMemory;
 #[cfg(not(feature = "no_video_interface"))]
 use super::VideoInterface;
 
@@ -210,9 +209,9 @@ pub struct Gpu {
     pub bldalpha: BlendAlpha,
     pub bldy: u16,
 
-    pub palette_ram: BoxedMemory,
-    pub vram: BoxedMemory,
-    pub oam: BoxedMemory,
+    pub palette_ram: Box<[u8]>,
+    pub vram: Box<[u8]>,
+    pub oam: Box<[u8]>,
 
     pub(super) vram_obj_tiles_start: u32,
 
@@ -259,9 +258,9 @@ impl Gpu {
             vcount: 0,
             cycles_left_for_current_state: CYCLES_HDRAW,
 
-            palette_ram: BoxedMemory::new(vec![0; PALETTE_RAM_SIZE].into_boxed_slice()),
-            vram: BoxedMemory::new(vec![0; VIDEO_RAM_SIZE].into_boxed_slice()),
-            oam: BoxedMemory::new(vec![0; OAM_SIZE].into_boxed_slice()),
+            palette_ram: vec![0; PALETTE_RAM_SIZE].into_boxed_slice(),
+            vram: vec![0; VIDEO_RAM_SIZE].into_boxed_slice(),
+            oam: vec![0; OAM_SIZE].into_boxed_slice(),
 
             obj_buffer: vec![Default::default(); DISPLAY_WIDTH * DISPLAY_HEIGHT],
 

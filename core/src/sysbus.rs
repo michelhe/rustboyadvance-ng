@@ -6,7 +6,7 @@ use super::cartridge::Cartridge;
 use super::dma::DmaNotifer;
 use super::iodev::{IoDevices, WaitControl};
 use super::sched::Scheduler;
-use super::util::{BoxedMemory, Shared, WeakPointer};
+use super::util::{Shared, WeakPointer};
 
 pub mod consts {
     pub const WORK_RAM_SIZE: usize = 256 * 1024;
@@ -144,8 +144,8 @@ pub struct SysBus {
     scheduler: Shared<Scheduler>,
 
     bios: BoxedMemory,
-    onboard_work_ram: BoxedMemory,
-    internal_work_ram: BoxedMemory,
+    ewram: Box<[u8]>,
+    iwram: Box<[u8]>,
     pub cartridge: Cartridge,
 
     cycle_luts: CycleLookupTables,
@@ -173,9 +173,9 @@ impl SysBus {
             scheduler,
             cartridge,
 
-            bios: BoxedMemory::new(bios_rom),
-            onboard_work_ram: BoxedMemory::new(ewram),
-            internal_work_ram: BoxedMemory::new(iwram),
+            bios: bios_rom,
+            ewram,
+            iwram,
             cycle_luts: luts,
             trace_access: false,
         }
@@ -192,28 +192,20 @@ impl SysBus {
         SysBus::new_with_memories(scheduler, io, cartridge, bios_rom, ewram, iwram)
     }
 
-    pub fn set_bios(&mut self, buffer: Box<[u8]>) {
-        self.bios.mem = buffer;
-    }
-
     pub fn set_ewram(&mut self, buffer: Box<[u8]>) {
-        self.onboard_work_ram.mem = buffer;
+        self.ewram = buffer;
     }
 
     pub fn set_iwram(&mut self, buffer: Box<[u8]>) {
-        self.internal_work_ram.mem = buffer;
-    }
-
-    pub fn get_bios(&self) -> &[u8] {
-        &self.bios.mem
+        self.iwram = buffer;
     }
 
     pub fn get_ewram(&self) -> &[u8] {
-        &self.onboard_work_ram.mem
+        &self.ewram
     }
 
     pub fn get_iwram(&self) -> &[u8] {
-        &self.internal_work_ram.mem
+        &self.iwram
     }
 
     pub fn set_scheduler(&mut self, s: Shared<Scheduler>) {
@@ -270,8 +262,8 @@ impl Bus for SysBus {
     fn read_32(&mut self, addr: Addr) -> u32 {
         match addr & 0xff000000 {
             BIOS_ADDR => self.bios.read_32(addr),
-            EWRAM_ADDR => self.onboard_work_ram.read_32(addr & 0x3_fffc),
-            IWRAM_ADDR => self.internal_work_ram.read_32(addr & 0x7ffc),
+            EWRAM_ADDR => self.ewram.read_32(addr & 0x3_fffc),
+            IWRAM_ADDR => self.iwram.read_32(addr & 0x7ffc),
             IOMEM_ADDR => {
                 let addr = if addr & 0xfffc == 0x8000 {
                     0x800
@@ -297,8 +289,8 @@ impl Bus for SysBus {
     fn read_16(&mut self, addr: Addr) -> u16 {
         match addr & 0xff000000 {
             BIOS_ADDR => self.bios.read_16(addr),
-            EWRAM_ADDR => self.onboard_work_ram.read_16(addr & 0x3_fffe),
-            IWRAM_ADDR => self.internal_work_ram.read_16(addr & 0x7ffe),
+            EWRAM_ADDR => self.ewram.read_16(addr & 0x3_fffe),
+            IWRAM_ADDR => self.iwram.read_16(addr & 0x7ffe),
             IOMEM_ADDR => {
                 let addr = if addr & 0xfffe == 0x8000 {
                     0x800
@@ -324,8 +316,8 @@ impl Bus for SysBus {
     fn read_8(&mut self, addr: Addr) -> u8 {
         match addr & 0xff000000 {
             BIOS_ADDR => self.bios.read_8(addr),
-            EWRAM_ADDR => self.onboard_work_ram.read_8(addr & 0x3_ffff),
-            IWRAM_ADDR => self.internal_work_ram.read_8(addr & 0x7fff),
+            EWRAM_ADDR => self.ewram.read_8(addr & 0x3_ffff),
+            IWRAM_ADDR => self.iwram.read_8(addr & 0x7fff),
             IOMEM_ADDR => {
                 let addr = if addr & 0xffff == 0x8000 {
                     0x800
@@ -351,8 +343,8 @@ impl Bus for SysBus {
     fn write_32(&mut self, addr: Addr, value: u32) {
         match addr & 0xff000000 {
             BIOS_ADDR => {}
-            EWRAM_ADDR => self.onboard_work_ram.write_32(addr & 0x3_fffc, value),
-            IWRAM_ADDR => self.internal_work_ram.write_32(addr & 0x7ffc, value),
+            EWRAM_ADDR => self.ewram.write_32(addr & 0x3_fffc, value),
+            IWRAM_ADDR => self.iwram.write_32(addr & 0x7ffc, value),
             IOMEM_ADDR => {
                 let addr = if addr & 0xfffc == 0x8000 {
                     0x800
@@ -376,8 +368,8 @@ impl Bus for SysBus {
     fn write_16(&mut self, addr: Addr, value: u16) {
         match addr & 0xff000000 {
             BIOS_ADDR => {}
-            EWRAM_ADDR => self.onboard_work_ram.write_16(addr & 0x3_fffe, value),
-            IWRAM_ADDR => self.internal_work_ram.write_16(addr & 0x7ffe, value),
+            EWRAM_ADDR => self.ewram.write_16(addr & 0x3_fffe, value),
+            IWRAM_ADDR => self.iwram.write_16(addr & 0x7ffe, value),
             IOMEM_ADDR => {
                 let addr = if addr & 0xfffe == 0x8000 {
                     0x800
@@ -401,8 +393,8 @@ impl Bus for SysBus {
     fn write_8(&mut self, addr: Addr, value: u8) {
         match addr & 0xff000000 {
             BIOS_ADDR => {}
-            EWRAM_ADDR => self.onboard_work_ram.write_8(addr & 0x3_ffff, value),
-            IWRAM_ADDR => self.internal_work_ram.write_8(addr & 0x7fff, value),
+            EWRAM_ADDR => self.ewram.write_8(addr & 0x3_ffff, value),
+            IWRAM_ADDR => self.iwram.write_8(addr & 0x7fff, value),
             IOMEM_ADDR => {
                 let addr = if addr & 0xffff == 0x8000 {
                     0x800
@@ -427,8 +419,8 @@ impl DebugRead for SysBus {
     fn debug_read_8(&mut self, addr: Addr) -> u8 {
         match addr & 0xff000000 {
             BIOS_ADDR => self.bios.debug_read_8(addr),
-            EWRAM_ADDR => self.onboard_work_ram.debug_read_8(addr & 0x3_ffff),
-            IWRAM_ADDR => self.internal_work_ram.debug_read_8(addr & 0x7fff),
+            EWRAM_ADDR => self.ewram.debug_read_8(addr & 0x3_ffff),
+            IWRAM_ADDR => self.iwram.debug_read_8(addr & 0x7fff),
             IOMEM_ADDR => {
                 let addr = if addr & 0xffff == 0x8000 {
                     0x800

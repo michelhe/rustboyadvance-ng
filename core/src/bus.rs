@@ -62,3 +62,26 @@ pub trait DebugRead: Bus {
         bytes
     }
 }
+
+/// The caller is assumed to handle out of bound accesses,
+/// For performance reasons, this impl trusts that 'addr' is within the array range.
+impl Bus for Box<[u8]> {
+    #[inline]
+    fn read_8(&mut self, addr: Addr) -> u8 {
+        unsafe { *self.get_unchecked(addr as usize) }
+    }
+
+    #[inline]
+    fn write_8(&mut self, addr: Addr, value: u8) {
+        unsafe {
+            *self.get_unchecked_mut(addr as usize) = value;
+        }
+    }
+}
+
+impl DebugRead for Box<[u8]> {
+    #[inline]
+    fn debug_read_8(&mut self, addr: Addr) -> u8 {
+        self[addr as usize]
+    }
+}

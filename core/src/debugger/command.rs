@@ -261,7 +261,7 @@ impl Debugger {
                 let save = read_bin_file(&Path::new(&load_path))
                     .expect("failed to read save state from file");
                 self.gba
-                    .restore_state(&save, Box::from(self.gba.sysbus.get_bios()))
+                    .restore_state(&save)
                     .expect("failed to deserialize");
             }
             ListSymbols(Some(pattern)) => {

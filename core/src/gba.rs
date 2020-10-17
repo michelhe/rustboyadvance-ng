@@ -179,7 +179,7 @@ impl GameBoyAdvance {
         bincode::serialize(&s)
     }
 
-    pub fn restore_state(&mut self, bytes: &[u8], bios: Box<[u8]>) -> bincode::Result<()> {
+    pub fn restore_state(&mut self, bytes: &[u8]) -> bincode::Result<()> {
         let decoded: Box<SaveState> = bincode::deserialize_from(bytes)?;
 
         self.cpu.restore_state(decoded.cpu_state);
@@ -188,7 +188,6 @@ impl GameBoyAdvance {
         self.io_devs = Shared::new(decoded.io_devs);
         // Restore memory state
         self.cpu.set_memory_interface(self.sysbus.clone());
-        self.sysbus.set_bios(bios);
         self.sysbus.set_iwram(decoded.iwram);
         self.sysbus.set_ewram(decoded.ewram);
         // Redistribute shared pointers

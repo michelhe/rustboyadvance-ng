@@ -276,7 +276,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if savestate_path.is_file() {
                             let save = read_bin_file(&savestate_path)?;
                             info!("Restoring state from {:?}...", savestate_path);
-                            gba.restore_state(&save, bios_bin.clone())?;
+                            gba.restore_state(&save)?;
                             info!("Restored!");
                         } else {
                             info!("Savestate not created, please create one by pressing F5");

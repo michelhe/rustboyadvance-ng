@@ -6,8 +6,6 @@ use std::path::Path;
 use std::ptr;
 use std::time;
 
-use super::bus::{Addr, Bus, DebugRead};
-
 #[cfg(not(target_arch = "wasm32"))]
 type Instant = time::Instant;
 #[cfg(not(target_arch = "wasm32"))]
@@ -258,35 +256,5 @@ where
 {
     fn default() -> Shared<T> {
         Shared::new(Default::default())
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[repr(transparent)]
-pub struct BoxedMemory {
-    pub mem: Box<[u8]>,
-}
-
-impl BoxedMemory {
-    pub fn new(boxed_slice: Box<[u8]>) -> BoxedMemory {
-        BoxedMemory { mem: boxed_slice }
-    }
-}
-
-impl Bus for BoxedMemory {
-    fn read_8(&mut self, addr: Addr) -> u8 {
-        unsafe { *self.mem.get_unchecked(addr as usize) }
-    }
-
-    fn write_8(&mut self, addr: Addr, value: u8) {
-        unsafe {
-            *self.mem.get_unchecked_mut(addr as usize) = value;
-        }
-    }
-}
-
-impl DebugRead for BoxedMemory {
-    fn debug_read_8(&mut self, addr: Addr) -> u8 {
-        self.mem[addr as usize]
     }
 }
