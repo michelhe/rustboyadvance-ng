@@ -1,7 +1,7 @@
 use super::dma::DmaController;
 use super::interrupt::{self, Interrupt, InterruptConnect, SharedInterruptFlags};
 use super::iodev::consts::*;
-use super::sched::{EventType, Scheduler, SharedScheduler};
+use super::sched::{EventType, Scheduler, SchedulerConnect, SharedScheduler};
 use super::sound::SoundController;
 
 use num::FromPrimitive;
@@ -106,6 +106,12 @@ impl InterruptConnect for Timers {
         for timer in &mut self.timers {
             timer.interrupt_flags = interrupt_flags.clone();
         }
+    }
+}
+
+impl SchedulerConnect for Timers {
+    fn connect_scheduler(&mut self, scheduler: SharedScheduler) {
+        self.scheduler = scheduler;
     }
 }
 

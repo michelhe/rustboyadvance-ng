@@ -7,7 +7,7 @@ use super::bus::*;
 use super::cartridge::Cartridge;
 use super::dma::DmaNotifer;
 use super::iodev::{IoDevices, WaitControl};
-use super::sched::Scheduler;
+use super::sched::*;
 use super::util::{Shared, WeakPointer};
 
 pub mod consts {
@@ -158,6 +158,12 @@ pub struct SysBus {
 
 pub type SysBusPtr = WeakPointer<SysBus>;
 
+impl SchedulerConnect for SysBus {
+    fn connect_scheduler(&mut self, scheduler: SharedScheduler) {
+        self.scheduler = scheduler;
+    }
+}
+
 impl SysBus {
     pub fn new_with_memories(
         scheduler: Shared<Scheduler>,
@@ -210,10 +216,6 @@ impl SysBus {
 
     pub fn get_iwram(&self) -> &[u8] {
         &self.iwram
-    }
-
-    pub fn set_scheduler(&mut self, s: Shared<Scheduler>) {
-        self.scheduler = s;
     }
 
     pub fn set_io_devices(&mut self, io_devs: Shared<IoDevices>) {

@@ -212,6 +212,10 @@ impl Scheduler {
     }
 }
 
+pub trait SchedulerConnect {
+    fn connect_scheduler(&mut self, scheduler: SharedScheduler);
+}
+
 #[cfg(test)]
 mod test {
 

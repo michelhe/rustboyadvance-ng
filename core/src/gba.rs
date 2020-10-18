@@ -11,7 +11,7 @@ use super::dma::DmaController;
 use super::gpu::*;
 use super::interrupt::*;
 use super::iodev::*;
-use super::sched::{EventType, Scheduler, SharedScheduler};
+use super::sched::{EventType, Scheduler, SchedulerConnect, SharedScheduler};
 use super::sound::SoundController;
 use super::sysbus::SysBus;
 use super::timer::Timers;
@@ -134,8 +134,7 @@ impl GameBoyAdvance {
         let mut cartridge = decoded.cartridge;
         cartridge.set_rom_bytes(rom);
         io_devs.connect_irq(interrupts.clone());
-        io_devs.gpu.set_scheduler(scheduler.clone());
-        io_devs.sound.set_scheduler(scheduler.clone());
+        io_devs.connect_scheduler(scheduler.clone());
         let mut sysbus = Shared::new(SysBus::new_with_memories(
             scheduler.clone(),
             io_devs.clone(),
@@ -194,9 +193,8 @@ impl GameBoyAdvance {
         self.sysbus.set_ewram(decoded.ewram);
         // Redistribute shared pointers
         self.io_devs.connect_irq(self.interrupt_flags.clone());
-        self.io_devs.gpu.set_scheduler(self.scheduler.clone());
-        self.io_devs.sound.set_scheduler(self.scheduler.clone());
-        self.sysbus.set_scheduler(self.scheduler.clone());
+        self.io_devs.connect_scheduler(self.scheduler.clone());
+        self.sysbus.connect_scheduler(self.scheduler.clone());
         self.sysbus.set_io_devices(self.io_devs.clone());
         self.sysbus.cartridge.update_from(decoded.cartridge);
         self.sysbus.init(self.cpu.weak_ptr());

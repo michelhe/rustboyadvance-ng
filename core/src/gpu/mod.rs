@@ -183,7 +183,7 @@ pub struct Gpu {
     pub state: GpuState,
     interrupt_flags: SharedInterruptFlags,
 
-    /// When deserializing this struct using serde, make sure to call Gpu:::set_scheduler
+    /// When deserializing this struct using serde, make sure to call connect_scheduler
     #[serde(skip)]
     #[serde(default = "Scheduler::new_shared")]
     scheduler: SharedScheduler,
@@ -228,6 +228,12 @@ impl InterruptConnect for Gpu {
     }
 }
 
+impl SchedulerConnect for Gpu {
+    fn connect_scheduler(&mut self, scheduler: SharedScheduler) {
+        self.scheduler = scheduler;
+    }
+}
+
 impl Gpu {
     pub fn new(mut scheduler: SharedScheduler, interrupt_flags: SharedInterruptFlags) -> Gpu {
         scheduler.push_gpu_event(GpuEvent::HDraw, CYCLES_HDRAW);
@@ -266,10 +272,6 @@ impl Gpu {
 
             frame_buffer: vec![0; DISPLAY_WIDTH * DISPLAY_HEIGHT],
         }
-    }
-
-    pub fn set_scheduler(&mut self, scheduler: SharedScheduler) {
-        self.scheduler = scheduler;
     }
 
     pub fn write_dispcnt(&mut self, value: u16) {

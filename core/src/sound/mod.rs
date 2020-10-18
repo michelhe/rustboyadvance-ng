@@ -105,6 +105,12 @@ pub struct SoundController {
     output_buffer: Vec<StereoSample<f32>>,
 }
 
+impl SchedulerConnect for SoundController {
+    fn connect_scheduler(&mut self, scheduler: SharedScheduler) {
+        self.scheduler = scheduler;
+    }
+}
+
 impl SoundController {
     pub fn new(mut scheduler: SharedScheduler, audio_device_sample_rate: f32) -> SoundController {
         let resampler = CosineResampler::new(32768_f32, audio_device_sample_rate);
@@ -141,10 +147,6 @@ impl SoundController {
             resampler: resampler,
             output_buffer: Vec::with_capacity(1024),
         }
-    }
-
-    pub fn set_scheduler(&mut self, scheduler: SharedScheduler) {
-        self.scheduler = scheduler;
     }
 
     pub fn handle_read(&self, io_addr: u32) -> u16 {

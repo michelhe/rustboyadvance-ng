@@ -6,6 +6,7 @@ use super::gpu::regs::WindowFlags;
 use super::gpu::*;
 use super::interrupt::{InterruptConnect, InterruptController, SharedInterruptFlags};
 use super::keypad;
+use super::sched::{SchedulerConnect, SharedScheduler};
 use super::sound::SoundController;
 use super::sysbus::SysBusPtr;
 use super::timer::Timers;
@@ -74,6 +75,15 @@ impl InterruptConnect for IoDevices {
         self.gpu.connect_irq(interrupt_flags.clone());
         self.dmac.connect_irq(interrupt_flags.clone());
         self.timers.connect_irq(interrupt_flags.clone());
+    }
+}
+
+impl SchedulerConnect for IoDevices {
+    fn connect_scheduler(&mut self, scheduler: SharedScheduler) {
+        self.gpu.connect_scheduler(scheduler.clone());
+        self.sound.connect_scheduler(scheduler.clone());
+        self.dmac.connect_scheduler(scheduler.clone());
+        self.timers.connect_scheduler(scheduler.clone());
     }
 }
 

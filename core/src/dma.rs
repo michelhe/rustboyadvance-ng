@@ -2,7 +2,7 @@ use super::arm7tdmi::memory::{MemoryAccess, MemoryInterface};
 use super::cartridge::BackupMedia;
 use super::interrupt::{self, Interrupt, InterruptConnect, SharedInterruptFlags};
 use super::iodev::consts::{REG_FIFO_A, REG_FIFO_B};
-use super::sched::{EventType, Scheduler, SharedScheduler};
+use super::sched::{EventType, Scheduler, SchedulerConnect, SharedScheduler};
 use super::sysbus::SysBus;
 
 use num::FromPrimitive;
@@ -203,6 +203,12 @@ impl InterruptConnect for DmaController {
         for channel in &mut self.channels {
             channel.interrupt_flags = interrupt_flags.clone();
         }
+    }
+}
+
+impl SchedulerConnect for DmaController {
+    fn connect_scheduler(&mut self, scheduler: SharedScheduler) {
+        self.scheduler = scheduler;
     }
 }
 
