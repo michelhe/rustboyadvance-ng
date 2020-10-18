@@ -4,7 +4,7 @@ pub use super::exception::Exception;
 
 use super::{arm::ArmCond, psr::RegPSR, Addr, CpuMode, CpuState};
 
-use crate::util::Shared;
+use crate::util::{Shared, WeakPointer};
 
 use super::memory::{MemoryAccess, MemoryInterface};
 use MemoryAccess::*;
@@ -146,6 +146,10 @@ impl<I: MemoryInterface> Core<I> {
             #[cfg(feature = "debugger")]
             trace_exceptions: false,
         }
+    }
+
+    pub fn weak_ptr(&mut self) -> WeakPointer<Core<I>> {
+        WeakPointer::new(self as *mut Core<I>)
     }
 
     pub fn from_saved_state(bus: Shared<I>, state: SavedCpuState) -> Core<I> {

@@ -113,9 +113,9 @@ impl Debugger {
             GpioInfo => println!("GPIO: {:#?}", self.gba.sysbus.cartridge.get_gpio()),
             Step(count) => {
                 for _ in 0..count {
-                    self.gba.cpu.step();
+                    self.gba.step_debugger();
                     while self.gba.cpu.last_executed.is_none() {
-                        self.gba.cpu.step();
+                        self.gba.step_debugger();
                     }
                     if let Some(last_executed) = &self.gba.cpu.last_executed {
                         let pc = last_executed.get_pc();

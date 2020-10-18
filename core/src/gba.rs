@@ -113,7 +113,7 @@ impl GameBoyAdvance {
             interrupt_flags: interrupt_flags,
         };
 
-        gba.sysbus.created();
+        gba.sysbus.init(gba.cpu.weak_ptr());
 
         gba
     }
@@ -136,7 +136,7 @@ impl GameBoyAdvance {
         io_devs.connect_irq(interrupts.clone());
         io_devs.gpu.set_scheduler(scheduler.clone());
         io_devs.sound.set_scheduler(scheduler.clone());
-        let sysbus = Shared::new(SysBus::new_with_memories(
+        let mut sysbus = Shared::new(SysBus::new_with_memories(
             scheduler.clone(),
             io_devs.clone(),
             cartridge,
@@ -144,10 +144,12 @@ impl GameBoyAdvance {
             decoded.ewram,
             decoded.iwram,
         ));
-        let arm7tdmi = Box::new(arm7tdmi::Core::from_saved_state(
+        let mut arm7tdmi = Box::new(arm7tdmi::Core::from_saved_state(
             sysbus.clone(),
             decoded.cpu_state,
         ));
+
+        sysbus.init(arm7tdmi.weak_ptr());
 
         Ok(GameBoyAdvance {
             cpu: arm7tdmi,
@@ -197,7 +199,7 @@ impl GameBoyAdvance {
         self.sysbus.set_scheduler(self.scheduler.clone());
         self.sysbus.set_io_devices(self.io_devs.clone());
         self.sysbus.cartridge.update_from(decoded.cartridge);
-        self.sysbus.created();
+        self.sysbus.init(self.cpu.weak_ptr());
 
         Ok(())
     }
@@ -354,14 +356,13 @@ impl GameBoyAdvance {
         self.dma_step();
 
         // Run the CPU
-        let _cycles = self.scheduler.measure_cycles(|| {
-            self.cpu_step();
-        });
+        self.cpu_step();
 
         let breakpoint = self.check_breakpoint();
 
+        let mut _running = true;
         while let Some((event, cycles_late)) = self.scheduler.pop_pending_event() {
-            self.handle_event(event, cycles_late, &mut running);
+            self.handle_event(event, cycles_late, &mut _running);
         }
 
         breakpoint

@@ -36,6 +36,7 @@ use std::fmt;
 #[macro_use]
 pub mod util;
 pub mod arm7tdmi;
+mod bios;
 pub mod cartridge;
 pub mod disass;
 pub mod gpu;

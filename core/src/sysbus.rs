@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+use super::arm7tdmi;
 use super::arm7tdmi::memory::*;
+use super::bios::Bios;
 use super::bus::*;
 use super::cartridge::Cartridge;
 use super::dma::DmaNotifer;
@@ -142,8 +144,9 @@ impl CycleLookupTables {
 pub struct SysBus {
     pub io: Shared<IoDevices>,
     scheduler: Shared<Scheduler>,
+    arm_core: WeakPointer<arm7tdmi::Core<SysBus>>,
 
-    bios: BoxedMemory,
+    bios: Bios,
     ewram: Box<[u8]>,
     iwram: Box<[u8]>,
     pub cartridge: Cartridge,
@@ -171,9 +174,10 @@ impl SysBus {
         SysBus {
             io,
             scheduler,
+            arm_core: WeakPointer::default(),
             cartridge,
 
-            bios: bios_rom,
+            bios: Bios::new(bios_rom),
             ewram,
             iwram,
             cycle_luts: luts,
@@ -217,7 +221,9 @@ impl SysBus {
     }
 
     /// must be called whenever this object is instanciated
-    pub fn created(&mut self) {
+    pub fn init(&mut self, arm_core: WeakPointer<arm7tdmi::Core<SysBus>>) {
+        self.arm_core = arm_core.clone();
+        self.bios.connect_arm_core(arm_core.clone());
         let ptr = SysBusPtr::new(self as *mut SysBus);
         // HACK
         self.io.set_sysbus_ptr(ptr.clone());
@@ -261,7 +267,13 @@ impl Bus for SysBus {
     #[inline]
     fn read_32(&mut self, addr: Addr) -> u32 {
         match addr & 0xff000000 {
-            BIOS_ADDR => self.bios.read_32(addr),
+            BIOS_ADDR => {
+                if addr <= 0x3ffc {
+                    self.bios.read_32(addr)
+                } else {
+                    0 // TODO open-bus
+                }
+            }
             EWRAM_ADDR => self.ewram.read_32(addr & 0x3_fffc),
             IWRAM_ADDR => self.iwram.read_32(addr & 0x7ffc),
             IOMEM_ADDR => {
@@ -288,7 +300,13 @@ impl Bus for SysBus {
     #[inline]
     fn read_16(&mut self, addr: Addr) -> u16 {
         match addr & 0xff000000 {
-            BIOS_ADDR => self.bios.read_16(addr),
+            BIOS_ADDR => {
+                if addr <= 0x3ffe {
+                    self.bios.read_16(addr)
+                } else {
+                    0 // TODO open-bus
+                }
+            }
             EWRAM_ADDR => self.ewram.read_16(addr & 0x3_fffe),
             IWRAM_ADDR => self.iwram.read_16(addr & 0x7ffe),
             IOMEM_ADDR => {
@@ -315,7 +333,13 @@ impl Bus for SysBus {
     #[inline]
     fn read_8(&mut self, addr: Addr) -> u8 {
         match addr & 0xff000000 {
-            BIOS_ADDR => self.bios.read_8(addr),
+            BIOS_ADDR => {
+                if addr <= 0x3fff {
+                    self.bios.read_8(addr)
+                } else {
+                    0 // TODO open-bus
+                }
+            }
             EWRAM_ADDR => self.ewram.read_8(addr & 0x3_ffff),
             IWRAM_ADDR => self.iwram.read_8(addr & 0x7fff),
             IOMEM_ADDR => {
