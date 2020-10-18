@@ -113,22 +113,6 @@ impl DmaChannel {
         return start_immediately;
     }
 
-    #[inline]
-    fn xfer_adj_addrs(&mut self, word_size: u32) {
-        match self.ctrl.src_adj() {
-            /* Increment */ 0 => self.internal.src_addr += word_size,
-            /* Decrement */ 1 => self.internal.src_addr -= word_size,
-            /* Fixed */ 2 => {}
-            _ => panic!("forbidden DMA source address adjustment"),
-        }
-        match self.ctrl.dst_adj() {
-            /* Increment[+Reload] */ 0 | 3 => self.internal.dst_addr += word_size,
-            /* Decrement */ 1 => self.internal.dst_addr -= word_size,
-            /* Fixed */ 2 => {}
-            _ => panic!("forbidden DMA dest address adjustment"),
-        }
-    }
-
     fn xfer(&mut self, sb: &mut SysBus) {
         let word_size = if self.ctrl.is_32bit() { 4 } else { 2 };
         let count = match self.internal.count {
@@ -151,6 +135,19 @@ impl DmaChannel {
 
         let fifo_mode = self.fifo_mode;
 
+        let src_adj = match self.ctrl.src_adj() {
+            /* Increment */ 0 => word_size,
+            /* Decrement */ 1 => 0 - word_size,
+            /* Fixed */ 2 => 0,
+            _ => panic!("forbidden DMA source address adjustment"),
+        };
+        let dst_adj = match self.ctrl.dst_adj() {
+            /* Increment[+Reload] */ 0 | 3 => word_size,
+            /* Decrement */ 1 => 0 - word_size,
+            /* Fixed */ 2 => 0,
+            _ => panic!("forbidden DMA dest address adjustment"),
+        };
+
         let mut access = MemoryAccess::NonSeq;
         if fifo_mode {
             for _ in 0..4 {
@@ -164,14 +161,16 @@ impl DmaChannel {
                 let w = sb.load_32(self.internal.src_addr & !3, access);
                 sb.store_32(self.internal.dst_addr & !3, w, access);
                 access = MemoryAccess::Seq;
-                self.xfer_adj_addrs(word_size);
+                self.internal.src_addr += src_adj;
+                self.internal.dst_addr += dst_adj;
             }
         } else {
             for _ in 0..count {
                 let hw = sb.load_16(self.internal.src_addr & !1, access);
                 sb.store_16(self.internal.dst_addr & !1, hw, access);
                 access = MemoryAccess::Seq;
-                self.xfer_adj_addrs(word_size)
+                self.internal.src_addr += src_adj;
+                self.internal.dst_addr += dst_adj;
             }
         }
         if self.ctrl.is_triggering_irq() {
