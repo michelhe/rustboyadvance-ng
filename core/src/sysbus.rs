@@ -263,8 +263,51 @@ impl SysBus {
 
         self.scheduler.update(cycles);
     }
+
+    /// Helper for "open-bus" accesses
+    /// http://problemkaputt.de/gbatek.htm#gbaunpredictablethings
+    /// Reading from Unused Memory (00004000-01FFFFFF,10000000-FFFFFFFF)
+    /// `addr` is considered to be an address of
+    fn read_invalid(&mut self, addr: Addr) -> u32 {
+        warn!("invalid read @{:08x}", addr);
+        use super::arm7tdmi::CpuState;
+        let value = match self.arm_core.cpsr.state() {
+            CpuState::ARM => self.arm_core.get_prefetched_opcode(),
+            CpuState::THUMB => {
+                // For THUMB code the result consists of two 16bit fragments and depends on the address area
+                // and alignment where the opcode was stored.
+
+                let decoded = self.arm_core.get_decoded_opcode() & 0xffff; // [$+2]
+                let prefetched = self.arm_core.get_prefetched_opcode() & 0xffff; // [$+4]
+                let r15 = self.arm_core.pc;
+                let mut value = prefetched;
+                match (r15 >> 24) as usize {
+                    PAGE_BIOS | PAGE_OAM => {
+                        // TODO this is probably wrong, according to GBATEK, we should be using $+6 here but it isn't prefetched yet.
+                        value = value << 16;
+                        value |= decoded;
+                    }
+                    PAGE_IWRAM => {
+                        // OldLO=[$+2], OldHI=[$+2]
+                        if r15 & 3 == 0 {
+                            // LSW = [$+4], MSW = OldHI   ;for opcodes at 4-byte aligned locations
+                            value |= decoded << 16;
+                        } else {
+                            // LSW = OldLO, MSW = [$+4]   ;for opcodes at non-4-byte aligned locations
+                            value = value << 16;
+                            value |= decoded;
+                        }
+                    }
+                    _ => value |= value << 16,
+                }
+                value
+            }
+        };
+        value >> ((addr & 3) << 3)
+    }
 }
 
+/// Todo - implement bound checks for EWRAM/IWRAM
 impl Bus for SysBus {
     #[inline]
     fn read_32(&mut self, addr: Addr) -> u32 {
@@ -273,7 +316,7 @@ impl Bus for SysBus {
                 if addr <= 0x3ffc {
                     self.bios.read_32(addr)
                 } else {
-                    0 // TODO open-bus
+                    self.read_invalid(addr)
                 }
             }
             EWRAM_ADDR => self.ewram.read_32(addr & 0x3_fffc),
@@ -292,10 +335,7 @@ impl Bus for SysBus {
             }
             GAMEPAK_WS2_HI => self.cartridge.read_32(addr),
             SRAM_LO | SRAM_HI => self.cartridge.read_32(addr),
-            _ => {
-                // TODO open-bus
-                0
-            }
+            _ => self.read_invalid(addr),
         }
     }
 
@@ -306,7 +346,7 @@ impl Bus for SysBus {
                 if addr <= 0x3ffe {
                     self.bios.read_16(addr)
                 } else {
-                    0 // TODO open-bus
+                    self.read_invalid(addr) as u16
                 }
             }
             EWRAM_ADDR => self.ewram.read_16(addr & 0x3_fffe),
@@ -325,10 +365,7 @@ impl Bus for SysBus {
             }
             GAMEPAK_WS2_HI => self.cartridge.read_16(addr),
             SRAM_LO | SRAM_HI => self.cartridge.read_16(addr),
-            _ => {
-                // TODO open-bus
-                0
-            }
+            _ => self.read_invalid(addr) as u16,
         }
     }
 
@@ -339,7 +376,7 @@ impl Bus for SysBus {
                 if addr <= 0x3fff {
                     self.bios.read_8(addr)
                 } else {
-                    0 // TODO open-bus
+                    self.read_invalid(addr) as u8
                 }
             }
             EWRAM_ADDR => self.ewram.read_8(addr & 0x3_ffff),
@@ -358,10 +395,7 @@ impl Bus for SysBus {
             }
             GAMEPAK_WS2_HI => self.cartridge.read_8(addr),
             SRAM_LO | SRAM_HI => self.cartridge.read_8(addr),
-            _ => {
-                // TODO open-bus
-                0
-            }
+            _ => self.read_invalid(addr) as u8,
         }
     }
 

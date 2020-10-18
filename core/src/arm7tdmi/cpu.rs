@@ -457,6 +457,16 @@ impl<I: MemoryInterface> Core<I> {
         self.pc = self.pc.wrapping_add(4)
     }
 
+    #[inline]
+    pub fn get_decoded_opcode(&self) -> u32 {
+        self.pipeline[0]
+    }
+
+    #[inline]
+    pub fn get_prefetched_opcode(&self) -> u32 {
+        self.pipeline[1]
+    }
+
     /// Perform a pipeline step
     /// If an instruction was executed in this step, return it.
     pub fn step(&mut self) {
