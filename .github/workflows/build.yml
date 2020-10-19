@@ -57,6 +57,28 @@ jobs:
         name: rustboyadvance-sdl2-x86_64-unknown-linux-gnu
         path: artifacts
 
+  build-android-apk:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout 🛎️
+      uses: actions/checkout@v2
+      with:
+        submodules: recursive
+    - name: Install toolchains
+      run: rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android
+    - name: Build APK
+      working-directory: ./platform/android
+      run: ./gradlew build
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: rustdroid.apk
+        path: ./platform/android/app/build/outputs/apk/release/app-release-unsigned.apk
+
+
+
   build-windows-64:
 
     runs-on: windows-2019
