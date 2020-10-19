@@ -65,11 +65,11 @@ public class Emulator {
         return EmulatorBindings.saveState(this.ctx);
     }
 
-    public synchronized void loadState(byte[] state) throws EmulatorBindings.NativeBindingException {
+    public synchronized void loadState(byte[] state) throws EmulatorBindings.NativeBindingException, EmulatorException {
         if (ctx != -1) {
             EmulatorBindings.loadState(this.ctx, state);
         } else {
-            openSavedState(state);
+            throw new EmulatorException("Call open() first");
         }
     }
 
@@ -77,8 +77,8 @@ public class Emulator {
         this.ctx = EmulatorBindings.openEmulator(bios, rom, this.frameRenderer, this.audioPlayer, this.keypad, saveName, skipBios);
     }
 
-    public synchronized void openSavedState(byte[] savedState) throws EmulatorBindings.NativeBindingException {
-        this.ctx = EmulatorBindings.openSavedState(savedState, this.frameRenderer, this.audioPlayer, this.keypad);
+    public synchronized void openSavedState(byte[] bios, byte[] rom, byte[] savedState) throws EmulatorBindings.NativeBindingException {
+        this.ctx = EmulatorBindings.openSavedState(bios, rom, savedState, this.frameRenderer, this.audioPlayer, this.keypad);
     }
 
     public synchronized void close() {

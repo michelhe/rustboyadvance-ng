@@ -289,6 +289,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
             fis.close();
 
             outState.putString("saveFile", saveFile.getPath());
+            outState.putInt("romId", this.romMetadata.getId());
 
             outState.putBoolean("turbo", false);
 
@@ -334,6 +335,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
 
         if (null != savedInstanceState && (saveFilePath = savedInstanceState.getString("saveFile")) != null) {
             final EmulatorActivity thisActivity = this;
+            int romId = getIntent().getIntExtra("romId", -1);
 
             // busy wait until surface view is ready
             try {
@@ -353,7 +355,18 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
                 saveFile.delete();
 
                 byte[] savedState = outputStream.toByteArray();
-                emulator.openSavedState(savedState);
+                RomManager romManager = RomManager.getInstance(this);
+                romManager.updateLastPlayed(romId);
+                this.romMetadata = romManager.getRomMetadata(romId);
+
+                byte[] romData;
+                try {
+                    romData = Util.readFile(romMetadata.getRomFile());
+                } catch (Exception e) {
+                    Util.showAlertDialogAndExit(this, e);
+                    return;
+                }
+                emulator.openSavedState(this.bios, romData, savedState);
 
                 createThreads();
 

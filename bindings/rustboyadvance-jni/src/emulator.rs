@@ -224,14 +224,24 @@ impl EmulatorContext {
 
     pub fn native_open_saved_state(
         env: &JNIEnv,
-        state: jbyteArray,
+        bios: jbyteArray,
+        rom: jbyteArray,
+        savestate: jbyteArray,
         renderer_obj: JObject,
         audio_player: JObject,
         keypad_obj: JObject,
     ) -> Result<EmulatorContext, String> {
-        let state = env
-            .convert_byte_array(state)
-            .map_err(|e| format!("could not get state buffer, error {}", e))?;
+        let bios = env
+            .convert_byte_array(savestate)
+            .map_err(|e| format!("could not get bios buffer, error {}", e))?
+            .into_boxed_slice();
+        let rom = env
+            .convert_byte_array(savestate)
+            .map_err(|e| format!("could not get rom buffer, error {}", e))?
+            .into_boxed_slice();
+        let savestate = env
+            .convert_byte_array(savestate)
+            .map_err(|e| format!("could not get savestate buffer, error {}", e))?;
 
         let renderer = Renderer::new(env, renderer_obj)?;
 
@@ -240,13 +250,13 @@ impl EmulatorContext {
             audio_producer: None,
             key_state: 0xffff,
         }));
-        let gba =
-            GameBoyAdvance::from_saved_state(&state, hw.clone(), hw.clone()).map_err(|e| {
-                format!(
-                    "failed to create GameBoyAdvance from saved state, error {:?}",
-                    e
-                )
-            })?;
+        let gba = GameBoyAdvance::from_saved_state(&savestate, bios, rom, hw.clone(), hw.clone())
+            .map_err(|e| {
+            format!(
+                "failed to create GameBoyAdvance from saved savestate, error {:?}",
+                e
+            )
+        })?;
 
         let keypad = Keypad::new(env, keypad_obj);
 
