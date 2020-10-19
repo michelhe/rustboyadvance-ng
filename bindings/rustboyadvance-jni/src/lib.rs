@@ -106,14 +106,18 @@ pub mod bindings {
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_openSavedState(
         env: JNIEnv,
         _obj: JClass,
-        state: jbyteArray,
+        bios: jbyteArray,
+        rom: jbyteArray,
+        savestate: jbyteArray,
         renderer_obj: JObject,
         audio_player_obj: JObject,
         keypad_obj: JObject,
     ) -> jlong {
         match EmulatorContext::native_open_saved_state(
             &env,
-            state,
+            bios,
+            rom,
+            savestate,
             renderer_obj,
             audio_player_obj,
             keypad_obj,
@@ -287,7 +291,6 @@ pub mod bindings {
         _obj: JClass,
         ctx: jlong,
     ) {
-        let ctx = cast_ctx(ctx);
-        info!("CPU LOG: {:#x?}", ctx.gba.cpu);
+        info!("unimplemented")
     }
 }

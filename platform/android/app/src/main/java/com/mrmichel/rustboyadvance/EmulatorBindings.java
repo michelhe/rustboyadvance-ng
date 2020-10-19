@@ -27,6 +27,8 @@ public class EmulatorBindings {
     /**
      * Open a new emulator context from a saved state buffer
      *
+     * @param bios        bytearray of the GBA bios
+     * @param rom         bytearray of the rom to run
      * @param savedState  saved state buffer
      * @param renderer    renderer instance
      * @param audioPlayer audio player instance
@@ -34,7 +36,7 @@ public class EmulatorBindings {
      * @return
      * @throws NativeBindingException
      */
-    public static native long openSavedState(byte[] savedState, IFrameRenderer renderer, IAudioPlayer audioPlayer, Keypad keypad) throws NativeBindingException;
+    public static native long openSavedState(byte[] bios, byte[] rom, byte[] savedState, IFrameRenderer renderer, IAudioPlayer audioPlayer, Keypad keypad) throws NativeBindingException;
 
     /**
      * Destroys the emulator instance
