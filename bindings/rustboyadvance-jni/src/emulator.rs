@@ -232,11 +232,11 @@ impl EmulatorContext {
         keypad_obj: JObject,
     ) -> Result<EmulatorContext, String> {
         let bios = env
-            .convert_byte_array(savestate)
+            .convert_byte_array(bios)
             .map_err(|e| format!("could not get bios buffer, error {}", e))?
             .into_boxed_slice();
         let rom = env
-            .convert_byte_array(savestate)
+            .convert_byte_array(rom)
             .map_err(|e| format!("could not get rom buffer, error {}", e))?
             .into_boxed_slice();
         let savestate = env
