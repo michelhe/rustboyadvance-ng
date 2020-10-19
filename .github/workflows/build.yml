@@ -87,7 +87,7 @@ jobs:
 
     - name: Build APK
       working-directory: ./platform/android
-      run: ./gradlew build
+      run: ./gradlew assemble
     - name: Upload artifacts
       uses: actions/upload-artifact@v2
       with:
