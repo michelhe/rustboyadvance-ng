@@ -722,7 +722,7 @@ impl DebugRead for Gpu {
         match page {
             PAGE_PALRAM => self.palette_ram.read_8(addr & 0x3ff),
             PAGE_VRAM => self.vram.read_8(addr & ((VIDEO_RAM_SIZE as u32) - 1)),
-            PAGE_OAM => self.vram.read_8(addr & 0x3ff),
+            PAGE_OAM => self.oam.read_8(addr & 0x3ff),
             _ => unreachable!(),
         }
     }
