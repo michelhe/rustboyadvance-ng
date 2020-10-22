@@ -88,12 +88,12 @@ impl<I: MemoryInterface> MemoryInterface for Core<I> {
 
     #[inline]
     fn load_16(&mut self, addr: u32, access: MemoryAccess) -> u16 {
-        self.bus.load_16(addr, access)
+        self.bus.load_16(addr & !1, access)
     }
 
     #[inline]
     fn load_32(&mut self, addr: u32, access: MemoryAccess) -> u32 {
-        self.bus.load_32(addr, access)
+        self.bus.load_32(addr & !3, access)
     }
 
     #[inline]
@@ -102,12 +102,12 @@ impl<I: MemoryInterface> MemoryInterface for Core<I> {
     }
     #[inline]
     fn store_16(&mut self, addr: u32, value: u16, access: MemoryAccess) {
-        self.bus.store_16(addr, value, access);
+        self.bus.store_16(addr & !1, value, access);
     }
 
     #[inline]
     fn store_32(&mut self, addr: u32, value: u32, access: MemoryAccess) {
-        self.bus.store_32(addr, value, access);
+        self.bus.store_32(addr & !3, value, access);
     }
 
     #[inline]
