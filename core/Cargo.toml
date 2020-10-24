@@ -13,7 +13,7 @@ num = "0.2.1"
 num-traits = "0.2"
 enum-primitive-derive = "^0.1"
 bit = "^0.1"
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 colored = "1.9"
 ansi_term = "0.12.1"
 hexdump = "0.1.0"

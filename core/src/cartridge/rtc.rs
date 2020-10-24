@@ -1,6 +1,7 @@
 use bit::BitIndex;
 use bit_reverse::LookupReverse;
 use chrono::prelude::*;
+use chrono::Duration;
 use serde::{Deserialize, Serialize};
 
 use num::FromPrimitive;
@@ -9,6 +10,7 @@ use std::cmp;
 
 use super::super::interrupt::{self, Interrupt, InterruptConnect, SharedInterruptFlags};
 use super::super::sched::*;
+use super::super::gba::CPU_CLOCK;
 use super::gpio::{GpioDevice, GpioDirection};
 
 fn num2bcd(mut num: u8) -> u8 {
@@ -100,7 +102,7 @@ impl Command {
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
-enum RtcState {
+enum SerialState {
     Idle,
     WaitForChipSelectHigh,
     GetCommandByte,
@@ -193,18 +195,29 @@ impl SerialBuffer {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+enum InterruptCtx {
+    Disabled,
+    Alarm(NaiveTime),
+    Frequency(usize),
+    PerMinute,
+}
+
 /// Model of the S3511 8pin RTC
 /// Datasheet: http://pdf.datasheetcatalog.com/datasheets/2300/341055_DS.pdf
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Rtc {
-    state: RtcState,
+    state: SerialState,
     sck: PortValue,
     sio: PortValue,
     cs: PortValue,
-    status_register: registers::StatusRegister,
-    int_register: u16,
     serial_buffer: SerialBuffer,
     internal_buffer: [u8; 8],
+
+    int_register: u16,
+    status_register: registers::StatusRegister,
+
+    interrupt_ctx: InterruptCtx,
 
     interrupt_flags: SharedInterruptFlags,
     #[serde(skip)]
@@ -227,23 +240,37 @@ impl SchedulerConnect for Rtc {
 impl Rtc {
     pub fn new() -> Self {
         Rtc {
-            state: RtcState::Idle,
+            state: SerialState::Idle,
             sck: PortValue(0),
             sio: PortValue(0),
             cs: PortValue(0),
-            status_register: registers::StatusRegister(0x82),
-            int_register: 0x8000,
             serial_buffer: SerialBuffer::new(),
             internal_buffer: [0; 8],
+            int_register: 0x8000,
+            status_register: registers::StatusRegister(0x82),
+            interrupt_ctx: InterruptCtx::Disabled,
             /// the interrupt_flags are created after this will be created, so connect it later with InterruptConnect
             interrupt_flags: Default::default(),
             scheduler: Scheduler::new_shared(),
         }
     }
 
+    const ALARM_CHECK_EVENT_CYCLES: usize = CPU_CLOCK;
+
     /// Handler for the alram event
     pub fn alarm_handler(&mut self) {
-        interrupt::signal_irq(&self.interrupt_flags, Interrupt::GamePak);
+        if let InterruptCtx::Alarm(alarm_time) = self.interrupt_ctx {
+            let current_time = Local::now().naive_local().time();
+            let duration_since = current_time.signed_duration_since(alarm_time);
+            info!("{:?} {:?} {:?}", current_time, alarm_time, duration_since);
+            if duration_since >= Duration::zero() {
+                info!("ALARM ALARM ALARM");
+                interrupt::signal_irq(&self.interrupt_flags, Interrupt::GamePak);
+            }
+            self.scheduler.push(EventType::RtcAlarm, Rtc::ALARM_CHECK_EVENT_CYCLES);
+        } else {
+            panic!("alarm event when alarm interrupt is not enabled");
+        }
     }
 
     fn serial_read(&mut self) {
@@ -253,14 +280,14 @@ impl Rtc {
     fn force_reset(&mut self) {
         info!("RTC: force reset");
         self.serial_buffer.reset();
-        self.state = RtcState::Idle;
+        self.state = SerialState::Idle;
         self.status_register.write(0);
         // TODO according to the S3511 datasheet,
         // the date time registers should be reset to 0-0-0-0..
     }
 
     fn serial_transfer_in_progress(&self) -> bool {
-        use RtcState::*;
+        use SerialState::*;
         match self.state {
             Idle | WaitForChipSelectHigh => false,
             _ => true,
@@ -316,49 +343,59 @@ impl Rtc {
             StatusRegisterAccess => {
                 self.status_register.write(self.internal_buffer[0]);
 
+                let intme = self.status_register.intme();
                 let intae = self.status_register.intae();
                 let intfe = self.status_register.intfe();
 
-                let mode_24h = self.status_register.mode_24h();
+                self.scheduler.cancel(EventType::RtcAlarm);
 
-                if intae {
-                    // Alaram time
-
-                    let time = registers::TimeRegister(self.int_register);
-                    let (ampm, hour, minute) = time.parse();
-
-                    if ampm != mode_24h {
-                        warn!("RTC: Invalid alram time setting");
-                        return;
+                match (intme, intae, intfe) {
+                    (false, false, false) => {
+                        info!("RTC - disable interrupt line");
+                        self.interrupt_ctx = InterruptCtx::Disabled;
                     }
+                    (false, true, false) => {
+                        // Alaram time
+                        info!("RTC - setting alram interrupt");
 
-                    let hour = if mode_24h { hour + 12 } else { hour };
+                        let time = registers::TimeRegister(self.int_register);
+                        let (ampm, hour, minute) = time.parse();
 
-                    let time = NaiveTime::from_hms(u32::from(hour), u32::from(minute), 0);
-                    info!("RTC: Alarm Time set to {}", time);
+                        let hour = hour + 1; // zero based field
+                        let hour = if ampm { hour + 12 } else { hour };
 
-                    warn!("RTC: Alarm time not implemented");
-                }
-                if intfe {
-                    // Alaram frequency duty
-                    let mut frequency = 0;
+                        let time = NaiveTime::from_hms(u32::from(hour), u32::from(minute), 0);
+                        info!("RTC: Alarm Time set to {}", time);
 
-                    // TODO frequency calculation is not correct
-                    let upper_byte = self.int_register >> 8;
-                    let lower_byte = self.int_register & 0xff;
-                    for i in 0..8 {
-                        if upper_byte.bit(i) {
-                            frequency |= 1 << (i - 1);
+                        self.interrupt_ctx = InterruptCtx::Alarm(time);
+
+                        self.scheduler.push(EventType::RtcAlarm, Rtc::ALARM_CHECK_EVENT_CYCLES);
+                    }
+                    (false, false, true) => {
+                        // alaram frequency duty
+                        let mut frequency = 0;
+
+                        // todo frequency calculation is not correct
+                        let upper_byte = self.int_register >> 8;
+                        let lower_byte = self.int_register & 0xff;
+                        for i in 0..8 {
+                            if upper_byte.bit(i) {
+                                frequency |= 1 << (i - 1);
+                            }
                         }
-                    }
-                    for i in 0..8 {
-                        if lower_byte.bit(i) {
-                            frequency |= 1 << (i + 8 - 1);
+                        for i in 0..8 {
+                            if lower_byte.bit(i) {
+                                frequency |= 1 << (i + 8 - 1);
+                            }
                         }
+                        info!("rtc: alarm frequency configured to {}hz", frequency);
+                        warn!("rtc: alaram frequency not supported!");
                     }
-                    info!("RTC: alarm frequency configured to {}HZ", frequency);
-                    warn!("RTC: alaram frequency not supported!");
+                    _ => {
+                        error!("RTC: unsupported combination of INTME/INTAE/INTFE")
+                    }
                 }
+                
             }
             AlarmSetting1 => {
                 self.int_register =
@@ -391,7 +428,7 @@ impl GpioDevice for Rtc {
             trace!("RTC: CS went from low to high!");
         }
 
-        use RtcState::*;
+        use SerialState::*;
 
         if self.cs.low() && self.serial_transfer_in_progress() {
             debug!(
@@ -635,15 +672,15 @@ mod tests {
     }
 
     fn start_serial_transfer(rtc: &mut Rtc, gpio_state: &[GpioDirection; 4]) {
-        assert_eq!(rtc.state, RtcState::Idle);
+        assert_eq!(rtc.state, SerialState::Idle);
 
         // set CS low,
         rtc.write(&gpio_state, 0b0001);
-        assert_eq!(rtc.state, RtcState::WaitForChipSelectHigh);
+        assert_eq!(rtc.state, SerialState::WaitForChipSelectHigh);
 
         // set CS high, SCK rising edge
         rtc.write(&gpio_state, 0b0101);
-        assert_eq!(rtc.state, RtcState::GetCommandByte);
+        assert_eq!(rtc.state, SerialState::GetCommandByte);
     }
 
     #[test]
@@ -693,7 +730,7 @@ mod tests {
         transmit_bits(&mut rtc, &gpio_state, &[0, 1, 1, 0, 0, 0, 1, 0]);
         assert_eq!(
             rtc.state,
-            RtcState::RxFromMaster {
+            SerialState::RxFromMaster {
                 cmd: Command::StatusRegisterAccess,
                 byte_count: 1,
                 byte_index: 0,
@@ -718,7 +755,7 @@ mod tests {
         transmit_bits(&mut rtc, &gpio_state, &[0, 1, 1, 0, 0, 0, 1, 1]);
         assert_eq!(
             rtc.state,
-            RtcState::TxToMaster {
+            SerialState::TxToMaster {
                 byte_count: 1,
                 byte_index: 0,
             }
@@ -742,7 +779,7 @@ mod tests {
         transmit_bits(&mut rtc, &gpio_state, &[0, 1, 1, 0, 0, 1, 0, 1]);
         assert_eq!(
             rtc.state,
-            RtcState::TxToMaster {
+            SerialState::TxToMaster {
                 byte_count: 7,
                 byte_index: 0
             }
@@ -751,7 +788,7 @@ mod tests {
         gpio_state[Port::Sio.index()] = GpioDirection::In;
         let mut bytes = [0; 7];
         receive_bytes(&mut rtc, &gpio_state, &mut bytes);
-        assert_eq!(rtc.state, RtcState::Idle);
+        assert_eq!(rtc.state, SerialState::Idle);
 
         println!("{:x?}", bytes);
         let local: DateTime<Local> = Local::now();

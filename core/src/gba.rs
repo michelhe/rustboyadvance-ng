@@ -92,6 +92,7 @@ impl GameBoyAdvance {
         ));
         let io_devs = Shared::new(IoDevices::new(intc, gpu, dmac, timers, sound_controller));
         if let Some(rtc) = gamepak.get_rtc_mut() {
+            info!("connect rtc");
             rtc.connect_irq(interrupt_flags.clone());
             rtc.connect_scheduler(scheduler.clone());
         }
