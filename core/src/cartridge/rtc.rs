@@ -7,7 +7,9 @@ use num::FromPrimitive;
 
 use std::cmp;
 
-use super::gpio::{GpioDevice, GpioDirection, GpioState};
+use super::super::interrupt::{self, Interrupt, InterruptConnect, SharedInterruptFlags};
+use super::super::sched::*;
+use super::gpio::{GpioDevice, GpioDirection};
 
 fn num2bcd(mut num: u8) -> u8 {
     num = cmp::min(num, 99);
@@ -22,6 +24,10 @@ fn num2bcd(mut num: u8) -> u8 {
         num /= 10;
     }
     bcd
+}
+
+fn bcd2num(bcd: u8) -> u8 {
+    (bcd & 0xf) + ((bcd >> 4) * 10)
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
@@ -65,27 +71,30 @@ impl PortValue {
     }
 }
 
-/// RTC Registers codes in the GBA
+/// RTC Commands codes in the GBA
+/// From Section 2.Command configuration
 #[derive(Primitive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
-enum RegisterKind {
-    ForceReset = 0,
-    DateTime = 2,
-    ForceIrq = 3,
-    Status = 4,
-    Time = 6,
-    Free = 7,
+enum Command {
+    ForceReset = 0b000,
+    StatusRegisterAccess = 0b100,
+    DateTimeAccess = 0b010,
+    TimeAccess = 0b110,
+    AlarmSetting1 = 0b001,
+    TestModeStart = 0b011,
+    TestModeEnd = 0b111,
 }
 
-impl RegisterKind {
+impl Command {
     fn param_count(&self) -> u8 {
-        use RegisterKind::*;
+        use Command::*;
         match self {
             ForceReset => 0,
-            DateTime => 7,
-            ForceIrq => 0,
-            Status => 1,
-            Time => 3,
-            Free => 0,
+            DateTimeAccess => 7,
+            TestModeStart => 0,
+            StatusRegisterAccess => 1,
+            TimeAccess => 3,
+            AlarmSetting1 => 2,
+            TestModeEnd => 0,
         }
     }
 }
@@ -96,7 +105,7 @@ enum RtcState {
     WaitForChipSelectHigh,
     GetCommandByte,
     RxFromMaster {
-        reg: RegisterKind,
+        cmd: Command,
         byte_count: u8,
         byte_index: u8,
     },
@@ -185,15 +194,34 @@ impl SerialBuffer {
 }
 
 /// Model of the S3511 8pin RTC
+/// Datasheet: http://pdf.datasheetcatalog.com/datasheets/2300/341055_DS.pdf
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Rtc {
     state: RtcState,
     sck: PortValue,
     sio: PortValue,
     cs: PortValue,
-    status: registers::StatusRegister,
+    status_register: registers::StatusRegister,
+    int_register: u16,
     serial_buffer: SerialBuffer,
     internal_buffer: [u8; 8],
+
+    interrupt_flags: SharedInterruptFlags,
+    #[serde(skip)]
+    #[serde(default = "Scheduler::new_shared")]
+    scheduler: SharedScheduler,
+}
+
+impl InterruptConnect for Rtc {
+    fn connect_irq(&mut self, interrupt_flags: SharedInterruptFlags) {
+        self.interrupt_flags = interrupt_flags;
+    }
+}
+
+impl SchedulerConnect for Rtc {
+    fn connect_scheduler(&mut self, scheduler: SharedScheduler) {
+        self.scheduler = scheduler;
+    }
 }
 
 impl Rtc {
@@ -203,10 +231,19 @@ impl Rtc {
             sck: PortValue(0),
             sio: PortValue(0),
             cs: PortValue(0),
-            status: registers::StatusRegister(0x82),
+            status_register: registers::StatusRegister(0x82),
+            int_register: 0x8000,
             serial_buffer: SerialBuffer::new(),
             internal_buffer: [0; 8],
+            /// the interrupt_flags are created after this will be created, so connect it later with InterruptConnect
+            interrupt_flags: Default::default(),
+            scheduler: Scheduler::new_shared(),
         }
+    }
+
+    /// Handler for the alram event
+    pub fn alarm_handler(&mut self) {
+        interrupt::signal_irq(&self.interrupt_flags, Interrupt::GamePak);
     }
 
     fn serial_read(&mut self) {
@@ -214,9 +251,10 @@ impl Rtc {
     }
 
     fn force_reset(&mut self) {
+        info!("RTC: force reset");
         self.serial_buffer.reset();
         self.state = RtcState::Idle;
-        self.status.write(0);
+        self.status_register.write(0);
         // TODO according to the S3511 datasheet,
         // the date time registers should be reset to 0-0-0-0..
     }
@@ -229,50 +267,103 @@ impl Rtc {
         }
     }
 
+    fn read_time_register(&self, local_datetime: &DateTime<Local>, buffer: &mut [u8]) {
+        let (hour, ampm) = if self.status_register.mode_24h() {
+            (local_datetime.hour(), 0)
+        } else {
+            let (flag, hour12) = local_datetime.hour12();
+            (hour12 - 1, flag as u8)
+        };
+        buffer[0] = ampm | num2bcd(hour as u8);
+        buffer[1] = num2bcd(local_datetime.minute() as u8);
+        buffer[2] = num2bcd(local_datetime.second() as u8);
+    }
+
     /// Loads a register contents into an internal buffer
-    fn load_register(&mut self, r: RegisterKind) {
+    fn read_command(&mut self, r: Command) {
         match r {
-            RegisterKind::Status => self.internal_buffer[0] = self.status.read(),
-            RegisterKind::DateTime => {
+            Command::StatusRegisterAccess => self.internal_buffer[0] = self.status_register.read(),
+            Command::DateTimeAccess => {
                 let local: DateTime<Local> = Local::now();
                 let year = local.year();
                 assert!(year >= 2000 && year <= 2099); // Wonder if I will live to see this one fail
-
-                let hour = if self.status.mode_24h() {
-                    local.hour()
-                } else {
-                    let (_, hour12) = local.hour12();
-                    hour12 - 1
-                };
 
                 self.internal_buffer[0] = num2bcd((year % 100) as u8);
                 self.internal_buffer[1] = num2bcd(local.month() as u8);
                 self.internal_buffer[2] = num2bcd(local.day() as u8);
                 self.internal_buffer[3] = num2bcd(local.weekday().number_from_monday() as u8);
-                self.internal_buffer[4] = num2bcd(hour as u8);
-                self.internal_buffer[5] = num2bcd(local.minute() as u8);
-                self.internal_buffer[6] = num2bcd(local.second() as u8);
+                let mut time_buffer = [0; 3];
+                self.read_time_register(&local, &mut time_buffer);
+                self.internal_buffer[4] = time_buffer[0];
+                self.internal_buffer[5] = time_buffer[1];
+                self.internal_buffer[6] = time_buffer[2];
             }
-            RegisterKind::Time => {
+            Command::TimeAccess => {
                 let local: DateTime<Local> = Local::now();
-                let hour = if self.status.mode_24h() {
-                    local.hour()
-                } else {
-                    let (_, hour12) = local.hour12();
-                    hour12 - 1
-                };
-                self.internal_buffer[0] = num2bcd(hour as u8);
-                self.internal_buffer[1] = num2bcd(local.minute() as u8);
-                self.internal_buffer[2] = num2bcd(local.second() as u8);
+                let mut time_buffer = [0; 3];
+                self.read_time_register(&local, &mut time_buffer);
+                self.internal_buffer[0] = time_buffer[0];
+                self.internal_buffer[1] = time_buffer[1];
+                self.internal_buffer[2] = time_buffer[2];
             }
             _ => warn!("RTC: read {:?} not implemented", r),
         }
     }
 
-    fn store_register(&mut self, r: RegisterKind) {
-        use RegisterKind::*;
+    fn write_command(&mut self, r: Command) {
+        use Command::*;
         match r {
-            Status => self.status.write(self.internal_buffer[0]),
+            StatusRegisterAccess => {
+                self.status_register.write(self.internal_buffer[0]);
+
+                let intae = self.status_register.intae();
+                let intfe = self.status_register.intfe();
+
+                let mode_24h = self.status_register.mode_24h();
+
+                if intae {
+                    // Alaram time
+
+                    let time = registers::TimeRegister(self.int_register);
+                    let (ampm, hour, minute) = time.parse();
+
+                    if ampm != mode_24h {
+                        warn!("RTC: Invalid alram time setting");
+                        return;
+                    }
+
+                    let hour = if mode_24h { hour + 12 } else { hour };
+
+                    let time = NaiveTime::from_hms(u32::from(hour), u32::from(minute), 0);
+                    info!("RTC: Alarm Time set to {}", time);
+
+                    warn!("RTC: Alarm time not implemented");
+                }
+                if intfe {
+                    // Alaram frequency duty
+                    let mut frequency = 0;
+
+                    // TODO frequency calculation is not correct
+                    let upper_byte = self.int_register >> 8;
+                    let lower_byte = self.int_register & 0xff;
+                    for i in 0..8 {
+                        if upper_byte.bit(i) {
+                            frequency |= 1 << (i - 1);
+                        }
+                    }
+                    for i in 0..8 {
+                        if lower_byte.bit(i) {
+                            frequency |= 1 << (i + 8 - 1);
+                        }
+                    }
+                    info!("RTC: alarm frequency configured to {}HZ", frequency);
+                    warn!("RTC: alaram frequency not supported!");
+                }
+            }
+            AlarmSetting1 => {
+                self.int_register =
+                    (u16::from(self.internal_buffer[0]) << 8) + u16::from(self.internal_buffer[1]);
+            }
             ForceReset => self.force_reset(),
             _ => warn!("RTC: write {:?} not implemented", r),
         }
@@ -280,7 +371,7 @@ impl Rtc {
 }
 
 impl GpioDevice for Rtc {
-    fn write(&mut self, gpio_state: &GpioState, data: u16) {
+    fn write(&mut self, gpio_state: &[GpioDirection; 4], data: u16) {
         assert_eq!(gpio_state[Port::Sck.index()], GpioDirection::Out);
         assert_eq!(gpio_state[Port::Cs.index()], GpioDirection::Out);
 
@@ -352,21 +443,21 @@ impl GpioDevice for Rtc {
                     command = command.swap_bits();
                 }
 
-                let reg = RegisterKind::from_u8(command.bit_range(4..7)).expect("RTC bad register");
-                let byte_count = reg.param_count();
+                let cmd = Command::from_u8(command.bit_range(4..7)).expect("RTC bad command");
+                let byte_count = cmd.param_count();
 
                 let is_read_operation = command.bit(7);
 
                 debug!(
                     "RTC: got command: {} {:?} args len: {}",
                     if is_read_operation { "READ" } else { "WRITE" },
-                    reg,
+                    cmd,
                     byte_count
                 );
 
                 if byte_count != 0 {
                     if is_read_operation {
-                        self.load_register(reg);
+                        self.read_command(cmd);
                         self.state = TxToMaster {
                             byte_count,
                             byte_index: 0,
@@ -374,7 +465,7 @@ impl GpioDevice for Rtc {
                         self.serial_buffer.reset();
                     } else {
                         self.state = RxFromMaster {
-                            reg,
+                            cmd,
                             byte_count,
                             byte_index: 0,
                         };
@@ -382,7 +473,7 @@ impl GpioDevice for Rtc {
                     }
                 } else {
                     assert!(!is_read_operation);
-                    self.store_register(reg);
+                    self.write_command(cmd);
                     self.state = Idle;
                     self.serial_buffer.reset();
                 }
@@ -425,7 +516,7 @@ impl GpioDevice for Rtc {
                 };
             }
             RxFromMaster {
-                reg,
+                cmd,
                 byte_count,
                 byte_index,
             } => {
@@ -445,11 +536,11 @@ impl GpioDevice for Rtc {
                 let byte_index = byte_index + 1;
 
                 if byte_index == byte_count {
-                    self.store_register(reg);
+                    self.write_command(cmd);
                     self.state = Idle;
                 } else {
                     self.state = RxFromMaster {
-                        reg,
+                        cmd,
                         byte_count,
                         byte_index,
                     }
@@ -458,7 +549,7 @@ impl GpioDevice for Rtc {
         }
     }
 
-    fn read(&self, _gpio_state: &GpioState) -> u16 {
+    fn read(&self, _gpio_state: &[GpioDirection; 4]) -> u16 {
         let mut result = 0;
         result.set_bit(Port::Sck.index(), self.sck.high());
         result.set_bit(Port::Sio.index(), self.sio.high());
@@ -468,6 +559,8 @@ impl GpioDevice for Rtc {
 }
 
 mod registers {
+
+    use super::bcd2num;
 
     bitfield! {
         #[derive(Serialize, Deserialize, Clone)]
@@ -491,6 +584,26 @@ mod registers {
             self.0 = !Self::IGNORED_MASK & value;
         }
     }
+
+    bitfield! {
+        #[derive(Serialize, Deserialize, Clone)]
+        pub struct TimeRegister(u16);
+        impl Debug;
+        u8;
+        pub minutes, set_minutes : 6, 0;
+        pub hours, set_hours: 13, 8;
+        pub ampm_flag, set_ampm_flag : 15;
+    }
+
+    impl TimeRegister {
+        pub(super) fn parse(&self) -> (bool, u8, u8) {
+            (
+                self.ampm_flag(),
+                bcd2num(self.hours()),
+                bcd2num(self.minutes()),
+            )
+        }
+    }
 }
 
 #[cfg(test)]
@@ -499,12 +612,12 @@ mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
-    fn transmit(rtc: &mut Rtc, gpio_state: &GpioState, bit: u8) {
+    fn transmit(rtc: &mut Rtc, gpio_state: &[GpioDirection; 4], bit: u8) {
         rtc.write(&gpio_state, 0b0100_u16 | (u16::from(bit) << 1));
         rtc.write(&gpio_state, 0b0101_u16);
     }
 
-    fn receive_bytes(rtc: &mut Rtc, gpio_state: &GpioState, bytes: &mut [u8]) {
+    fn receive_bytes(rtc: &mut Rtc, gpio_state: &[GpioDirection; 4], bytes: &mut [u8]) {
         for byte in bytes.iter_mut() {
             for i in 0..8 {
                 rtc.write(&gpio_state, 0b0100_u16);
@@ -515,13 +628,13 @@ mod tests {
         }
     }
 
-    fn transmit_bits(rtc: &mut Rtc, gpio_state: &GpioState, bits: &[u8]) {
+    fn transmit_bits(rtc: &mut Rtc, gpio_state: &[GpioDirection; 4], bits: &[u8]) {
         for bit in bits.iter() {
             transmit(rtc, gpio_state, *bit);
         }
     }
 
-    fn start_serial_transfer(rtc: &mut Rtc, gpio_state: &GpioState) {
+    fn start_serial_transfer(rtc: &mut Rtc, gpio_state: &[GpioDirection; 4]) {
         assert_eq!(rtc.state, RtcState::Idle);
 
         // set CS low,
@@ -573,21 +686,21 @@ mod tests {
     fn test_rtc_status() {
         setup_rtc!(rtc, gpio_state);
 
-        rtc.status.set_mode_24h(false);
+        rtc.status_register.set_mode_24h(false);
         start_serial_transfer(&mut rtc, &mut gpio_state);
 
-        // write Status register command
+        // write StatusRegisterAccess register command
         transmit_bits(&mut rtc, &gpio_state, &[0, 1, 1, 0, 0, 0, 1, 0]);
         assert_eq!(
             rtc.state,
             RtcState::RxFromMaster {
-                reg: RegisterKind::Status,
+                cmd: Command::StatusRegisterAccess,
                 byte_count: 1,
                 byte_index: 0,
             }
         );
 
-        assert_eq!(rtc.status.mode_24h(), false);
+        assert_eq!(rtc.status_register.mode_24h(), false);
 
         let mut serial_buffer = SerialBuffer::new();
         serial_buffer.load_byte(1 << 6);
@@ -597,11 +710,11 @@ mod tests {
         }
 
         assert!(rtc.serial_buffer.is_empty());
-        assert_eq!(rtc.status.mode_24h(), true);
+        assert_eq!(rtc.status_register.mode_24h(), true);
 
         start_serial_transfer(&mut rtc, &mut gpio_state);
 
-        // read Status register command
+        // read StatusRegisterAccess register command
         transmit_bits(&mut rtc, &gpio_state, &[0, 1, 1, 0, 0, 0, 1, 1]);
         assert_eq!(
             rtc.state,

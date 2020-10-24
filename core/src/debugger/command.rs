@@ -49,7 +49,7 @@ bitflags! {
 pub enum Command {
     Info,
     GpuInfo,
-    GpioInfo,
+    RtcInfo,
     Step(usize),
     Continue,
     Frame(usize),
@@ -110,7 +110,7 @@ impl Debugger {
                 println!("IF={:#?}", self.gba.io_devs.intc.interrupt_flags);
             }
             GpuInfo => println!("GPU: {:#?}", self.gba.io_devs.gpu),
-            GpioInfo => println!("GPIO: {:#?}", self.gba.sysbus.cartridge.get_gpio()),
+            RtcInfo => println!("GPIO: {:#?}", self.gba.sysbus.cartridge.get_rtc()),
             Step(count) => {
                 for _ in 0..count {
                     self.gba.step_debugger();
@@ -344,7 +344,7 @@ impl Debugger {
         match command.as_ref() {
             "i" | "info" => Ok(Command::Info),
             "gpuinfo" => Ok(Command::GpuInfo),
-            "gpio" => Ok(Command::GpioInfo),
+            "rtc" => Ok(Command::RtcInfo),
             "s" | "step" => {
                 let count = match args.len() {
                     0 => 1,

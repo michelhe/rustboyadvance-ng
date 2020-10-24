@@ -35,6 +35,7 @@ pub enum EventType {
     Apu(ApuEvent),
     DmaActivateChannel(usize),
     TimerOverflow(usize),
+    RtcAlarm,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Eq)]

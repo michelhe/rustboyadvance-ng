@@ -8,8 +8,9 @@ use super::super::{GBAError, GBAResult};
 use super::backup::eeprom::*;
 use super::backup::flash::*;
 use super::backup::{BackupFile, BackupType};
-use super::gpio::Gpio;
+use super::gpio::{GpioDirection, GpioPortControl};
 use super::header;
+use super::rtc::Rtc;
 use super::BackupMedia;
 use super::Cartridge;
 
@@ -176,11 +177,11 @@ impl GamepakBuilder {
 
         let backup = create_backup(save_type, self.save_path);
 
-        let gpio = match gpio_device {
+        let rtc = match gpio_device {
             GpioDeviceType::None => None,
             GpioDeviceType::Rtc => {
                 info!("Emulating RTC!");
-                Some(Gpio::new_rtc())
+                Some(Rtc::new())
             }
             _ => unimplemented!("Gpio device {:?} not implemented", gpio_device),
         };
@@ -188,11 +189,14 @@ impl GamepakBuilder {
         let size = bytes.len();
         Ok(Cartridge {
             header: header,
-            gpio: gpio,
             bytes: bytes.into_boxed_slice(),
             size: size,
             backup: backup,
             symbols: symbols,
+
+            rtc: rtc,
+            gpio_direction: [GpioDirection::Out; 4],
+            gpio_control: GpioPortControl::WriteOnly,
         })
     }
 }

@@ -14,8 +14,9 @@ pub use backup::BackupType;
 use backup::{BackupFile, BackupMemoryInterface};
 
 mod gpio;
+use gpio::*;
 mod rtc;
-use gpio::Gpio;
+use rtc::Rtc;
 
 mod builder;
 mod loader;
@@ -42,17 +43,24 @@ pub struct Cartridge {
     bytes: Box<[u8]>,
     #[serde(skip)]
     size: usize,
-    gpio: Option<Gpio>,
     symbols: Option<SymbolTable>, // TODO move it somewhere else
     pub(in crate) backup: BackupMedia,
+    // Gpio stuff
+    rtc: Option<Rtc>,
+    gpio_direction: [GpioDirection; 4],
+    gpio_control: GpioPortControl,
 }
 
 impl Cartridge {
     pub fn get_symbols(&self) -> &Option<SymbolTable> {
         &self.symbols
     }
-    pub fn get_gpio(&self) -> &Option<Gpio> {
-        &self.gpio
+    pub fn get_rtc(&self) -> &Option<Rtc> {
+        &self.rtc
+    }
+
+    pub fn get_rtc_mut(&mut self) -> &mut Option<Rtc> {
+        &mut self.rtc
     }
 
     pub fn set_rom_bytes(&mut self, bytes: Box<[u8]>) {
@@ -70,15 +78,19 @@ impl Cartridge {
             header: self.header.clone(),
             bytes: Default::default(),
             size: 0,
-            gpio: self.gpio.clone(),
             symbols: self.symbols.clone(),
             backup: self.backup.clone(),
+            rtc: self.rtc.clone(),
+            gpio_control: self.gpio_control,
+            gpio_direction: self.gpio_direction,
         }
     }
 
     pub fn update_from(&mut self, other: Cartridge) {
         self.header = other.header;
-        self.gpio = other.gpio;
+        self.rtc = other.rtc;
+        self.gpio_control = other.gpio_control;
+        self.gpio_direction = other.gpio_direction;
         self.symbols = other.symbols;
         self.backup = other.backup;
     }
@@ -130,11 +142,11 @@ impl Bus for Cartridge {
 
     fn read_16(&mut self, addr: u32) -> u16 {
         if is_gpio_access(addr) {
-            if let Some(gpio) = &self.gpio {
-                if !(gpio.is_readable()) {
+            if self.rtc.is_some() {
+                if !(self.is_gpio_readable()) {
                     warn!("trying to read GPIO when reads are not allowed");
                 }
-                return gpio.read(addr & 0x1ff_ffff);
+                return self.gpio_read(addr & 0x1ff_ffff);
             }
         }
 
@@ -161,8 +173,8 @@ impl Bus for Cartridge {
 
     fn write_16(&mut self, addr: u32, value: u16) {
         if is_gpio_access(addr) {
-            if let Some(gpio) = &mut self.gpio {
-                gpio.write(addr & 0x1ff_ffff, value);
+            if self.rtc.is_some() {
+                self.gpio_write(addr & 0x1ff_ffff, value);
                 return;
             }
         }

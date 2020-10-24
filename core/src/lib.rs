@@ -49,7 +49,7 @@ pub mod iodev;
 pub use interrupt::Interrupt;
 pub use interrupt::SharedInterruptFlags;
 pub mod gba;
-pub use gba::GameBoyAdvance;
+pub use gba::{GameBoyAdvance, CPU_CLOCK};
 pub mod bus;
 pub mod dma;
 pub mod keypad;

@@ -21,6 +21,8 @@ use super::util::Shared;
 use super::VideoInterface;
 use super::{AudioInterface, InputInterface};
 
+pub const CPU_CLOCK: usize = 16 * 1024 * 1024;
+
 pub struct GameBoyAdvance {
     pub cpu: Box<arm7tdmi::Core<SysBus>>,
     pub sysbus: Shared<SysBus>,
@@ -66,7 +68,7 @@ fn check_real_bios(bios: &[u8]) -> bool {
 impl GameBoyAdvance {
     pub fn new(
         bios_rom: Box<[u8]>,
-        gamepak: Cartridge,
+        mut gamepak: Cartridge,
         #[cfg(not(feature = "no_video_interface"))] video_device: Rc<RefCell<dyn VideoInterface>>,
         audio_device: Rc<RefCell<dyn AudioInterface>>,
         input_device: Rc<RefCell<dyn InputInterface>>,
@@ -89,6 +91,10 @@ impl GameBoyAdvance {
             audio_device.borrow().get_sample_rate() as f32,
         ));
         let io_devs = Shared::new(IoDevices::new(intc, gpu, dmac, timers, sound_controller));
+        if let Some(rtc) = gamepak.get_rtc_mut() {
+            rtc.connect_irq(interrupt_flags.clone());
+            rtc.connect_scheduler(scheduler.clone());
+        }
         let sysbus = Shared::new(SysBus::new(
             scheduler.clone(),
             io_devs.clone(),
@@ -134,6 +140,10 @@ impl GameBoyAdvance {
         let mut cartridge = decoded.cartridge;
         cartridge.set_rom_bytes(rom);
         io_devs.connect_irq(interrupts.clone());
+        if let Some(rtc) = cartridge.get_rtc_mut() {
+            rtc.connect_irq(interrupts.clone());
+            rtc.connect_scheduler(scheduler.clone());
+        }
         io_devs.connect_scheduler(scheduler.clone());
         let mut sysbus = Shared::new(SysBus::new_with_memories(
             scheduler.clone(),
@@ -193,6 +203,11 @@ impl GameBoyAdvance {
         self.sysbus.set_ewram(decoded.ewram);
         // Redistribute shared pointers
         self.io_devs.connect_irq(self.interrupt_flags.clone());
+        if let Some(rtc) = self.sysbus.cartridge.get_rtc_mut() {
+            rtc.connect_irq(self.interrupt_flags.clone());
+            rtc.connect_scheduler(self.scheduler.clone());
+        }
+
         self.io_devs.connect_scheduler(self.scheduler.clone());
         self.sysbus.connect_scheduler(self.scheduler.clone());
         self.sysbus.set_io_devices(self.io_devs.clone());
@@ -315,6 +330,14 @@ impl GameBoyAdvance {
                 &self.video_device,
             ),
             EventType::Apu(event) => io.sound.on_event(event, cycles_late, &self.audio_device),
+
+            EventType::RtcAlarm => {
+                if let Some(rtc) = self.sysbus.cartridge.get_rtc_mut() {
+                    rtc.alarm_handler();
+                } else {
+                    unreachable!("Got RTC alarm when RTC not configurued");
+                }
+            }
         }
     }
 
