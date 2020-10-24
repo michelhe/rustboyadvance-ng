@@ -4,7 +4,9 @@ use std::str;
 use log::log;
 use log::Level;
 
+use super::bus::Bus;
 use super::iodev::consts::{REG_DEBUG_ENABLE, REG_DEBUG_FLAGS, REG_DEBUG_STRING};
+
 pub const DEBUG_STRING_SIZE: usize = 0x100;
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -30,14 +32,15 @@ impl DebugPort {
             || (x >= REG_DEBUG_STRING && x <= REG_DEBUG_STRING + (DEBUG_STRING_SIZE as u32))
     }
 
-    pub fn read(&self, addr: u32) -> u16 {
+    pub fn read(&mut self, addr: u32) -> u16 {
+        if !self.enable {
+            return 0;
+        }
         match addr {
-            REG_DEBUG_ENABLE => {
-                if self.enable {
-                    0x1DEA
-                } else {
-                    0
-                }
+            REG_DEBUG_ENABLE => 0x1DEA,
+            REG_DEBUG_FLAGS => self.flags.0,
+            x if x >= REG_DEBUG_STRING && x <= REG_DEBUG_STRING + (DEBUG_STRING_SIZE as u32) => {
+                self.debug_string.read_16(addr - REG_DEBUG_STRING)
             }
             _ => 0,
         }
@@ -45,7 +48,10 @@ impl DebugPort {
 
     pub fn write(&mut self, addr: u32, value: u16) {
         match addr {
-            REG_DEBUG_ENABLE => self.enable = value == 0xC0DE,
+            REG_DEBUG_ENABLE => {
+                self.enable = value == 0xC0DE;
+                info!("mGBA log enabled: {}", self.enable);
+            }
             REG_DEBUG_FLAGS => {
                 if self.enable {
                     self.flags.0 = value;
@@ -53,9 +59,9 @@ impl DebugPort {
                 }
             }
             x if x >= REG_DEBUG_STRING && x <= REG_DEBUG_STRING + (DEBUG_STRING_SIZE as u32) => {
-                let index = (addr - REG_DEBUG_STRING) as usize;
-                self.debug_string[index] = (value & 0xff) as u8;
-                self.debug_string[index + 1] = (value >> 8) as u8;
+                if self.enable {
+                    self.debug_string.write_16(addr - REG_DEBUG_STRING, value);
+                }
             }
             _ => unreachable!(),
         }
