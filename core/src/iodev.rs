@@ -6,6 +6,7 @@ use super::gpu::regs::WindowFlags;
 use super::gpu::*;
 use super::interrupt::{InterruptConnect, InterruptController, SharedInterruptFlags};
 use super::keypad;
+use super::mgba_debug::DebugPort;
 use super::sched::{SchedulerConnect, SharedScheduler};
 use super::sound::SoundController;
 use super::sysbus::SysBusPtr;
@@ -33,6 +34,7 @@ pub struct IoDevices {
     pub post_boot_flag: bool,
     pub waitcnt: WaitControl, // TODO also implement 4000800
     pub haltcnt: HaltState,
+    pub debug: DebugPort,
 
     // HACK
     // my ownership design sucks
@@ -59,6 +61,7 @@ impl IoDevices {
             haltcnt: HaltState::Running,
             keyinput: keypad::KEYINPUT_ALL_RELEASED,
             waitcnt: WaitControl(0),
+            debug: DebugPort::new(),
 
             sysbus_ptr: Default::default(),
         }
@@ -91,9 +94,10 @@ impl Bus for IoDevices {
     fn read_16(&mut self, addr: Addr) -> u16 {
         let io = self;
         let io_addr = addr + IO_BASE;
-        if addr > 0x0800 {
-            return 0;
-        }
+        // if addr > 0x0800 {
+        //     return 0;
+        // }
+
         match io_addr {
             REG_DISPCNT => io.gpu.dispcnt.0,
             REG_DISPSTAT => io.gpu.dispstat.0,
@@ -133,6 +137,8 @@ impl Bus for IoDevices {
             REG_HALTCNT => 0,
             REG_KEYINPUT => io.keyinput as u16,
 
+            x if DebugPort::is_debug_access(x) => io.debug.read(io_addr),
+
             _ => {
                 trace!(
                     "Unimplemented read from {:x} {}",
@@ -155,9 +161,9 @@ impl Bus for IoDevices {
 
     fn write_16(&mut self, addr: Addr, value: u16) {
         let mut io = self;
-        if addr > 0x0800 {
-            return;
-        }
+        // if addr > 0x0800 {
+        //     return;
+        // }
         let io_addr = addr + IO_BASE;
 
         macro_rules! write_reference_point {
@@ -275,6 +281,8 @@ impl Bus for IoDevices {
                     io.haltcnt = HaltState::Halt;
                 }
             }
+
+            x if DebugPort::is_debug_access(x) => io.debug.write(io_addr, value),
 
             _ => {
                 trace!(
@@ -446,6 +454,10 @@ pub mod consts {
     pub const REG_IME: Addr = 0x0400_0208;          //  2    R/W    Interrupt Master Enable Register
     pub const REG_POSTFLG: Addr = 0x0400_0300;      //  1    R/W    Undocumented - Post Boot Flag
     pub const REG_HALTCNT: Addr = 0x0400_0301;      //  1    W      Undocumented - Power Down Control
+
+    pub const REG_DEBUG_STRING: Addr = 0x04FF_F600;
+    pub const REG_DEBUG_FLAGS: Addr = 0x04FF_F700;
+    pub const REG_DEBUG_ENABLE: Addr = 0x04FF_F780;
 }
 
 pub fn io_reg_string(addr: u32) -> &'static str {
@@ -554,6 +566,9 @@ pub fn io_reg_string(addr: u32) -> &'static str {
         REG_IME => "REG_IME",
         REG_POSTFLG => "REG_POSTFLG",
         REG_HALTCNT => "REG_HALTCNT",
+        REG_DEBUG_STRING => "REG_DEBUG_STRING",
+        REG_DEBUG_FLAGS => "REG_DEBUG_FLAGS",
+        REG_DEBUG_ENABLE => "REG_DEBUG_ENABLE",
         _ => "UNKNOWN",
     }
 }

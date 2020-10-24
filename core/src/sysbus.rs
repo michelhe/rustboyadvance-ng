@@ -325,7 +325,7 @@ impl Bus for SysBus {
                 let addr = if addr & 0xfffc == 0x8000 {
                     0x800
                 } else {
-                    addr & 0x7fc
+                    addr & 0x00fffffc
                 };
                 self.io.read_32(addr)
             }
@@ -355,7 +355,7 @@ impl Bus for SysBus {
                 let addr = if addr & 0xfffe == 0x8000 {
                     0x800
                 } else {
-                    addr & 0x7fe
+                    addr & 0x00fffffe
                 };
                 self.io.read_16(addr)
             }
@@ -385,7 +385,7 @@ impl Bus for SysBus {
                 let addr = if addr & 0xffff == 0x8000 {
                     0x800
                 } else {
-                    addr & 0x7ff
+                    addr & 0x00ffffff
                 };
                 self.io.read_8(addr)
             }
@@ -409,7 +409,7 @@ impl Bus for SysBus {
                 let addr = if addr & 0xfffc == 0x8000 {
                     0x800
                 } else {
-                    addr & 0x7fc
+                    addr & 0x00fffffc
                 };
                 self.io.write_32(addr, value)
             }
@@ -434,7 +434,7 @@ impl Bus for SysBus {
                 let addr = if addr & 0xfffe == 0x8000 {
                     0x800
                 } else {
-                    addr & 0x7fe
+                    addr & 0x00fffffe
                 };
                 self.io.write_16(addr, value)
             }
@@ -459,7 +459,7 @@ impl Bus for SysBus {
                 let addr = if addr & 0xffff == 0x8000 {
                     0x800
                 } else {
-                    addr & 0x7ff
+                    addr & 0x00ffffff
                 };
                 self.io.write_8(addr, value)
             }
@@ -485,7 +485,7 @@ impl DebugRead for SysBus {
                 let addr = if addr & 0xffff == 0x8000 {
                     0x800
                 } else {
-                    addr & 0x7ff
+                    addr & 0x00ffffff
                 };
                 self.io.debug_read_8(addr)
             }

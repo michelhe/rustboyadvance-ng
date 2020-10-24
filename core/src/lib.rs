@@ -55,6 +55,7 @@ pub mod dma;
 pub mod keypad;
 pub mod timer;
 pub use bus::*;
+mod mgba_debug;
 pub(crate) mod overrides;
 
 #[cfg(feature = "gdb")]
