@@ -92,6 +92,7 @@ impl GpuState {
 
 use GpuState::*;
 
+#[repr(transparent)]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Scanline {
     inner: Vec<Rgb15>,
@@ -134,6 +135,17 @@ pub struct Background {
 
     // for mosaic
     mosaic_first_row: Scanline,
+}
+
+impl Background {
+    #[inline]
+    pub fn get_priority(&self) -> u16 {
+        self.bgcnt.priority()
+    }
+    #[inline]
+    pub fn pixel_at(&self, x: usize) -> Rgb15 {
+        self.line[x]
+    }
 }
 
 #[derive(Debug, Default, Copy, Clone)]

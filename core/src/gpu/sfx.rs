@@ -38,15 +38,8 @@ impl From<WindowFlags> for BlendFlags {
 }
 
 impl Gpu {
-    /// Returns background indexes in render order. Filters range by bg_start..=bg_end.
-    fn sorted_backgrounds(&self, bg_start: usize, bg_end: usize) -> ArrayVec<[usize; 4]> {
-        let mut backgrounds: ArrayVec<[usize; 4]> = (bg_start..=bg_end).collect();
-        backgrounds.sort_by_key(|bg| (self.backgrounds[*bg].bgcnt.priority(), *bg));
-        backgrounds
-    }
-
     /// Filters a background indexes array by whether they're active
-    fn active_backgrounds(
+    fn active_backgrounds_for_window(
         &self,
         backgrounds: &[usize],
         window_flags: WindowFlags,
@@ -54,7 +47,7 @@ impl Gpu {
         backgrounds
             .iter()
             .copied()
-            .filter(|bg| self.dispcnt.enable_bg(*bg) && window_flags.bg_enabled(*bg))
+            .filter(|bg| window_flags.bg_enabled(*bg))
             .collect()
     }
 
@@ -73,29 +66,30 @@ impl Gpu {
     /// Composes the render layers into a final scanline while applying needed special effects, and render it to the frame buffer
     pub fn finalize_scanline(&mut self, bg_start: usize, bg_end: usize) {
         let backdrop_color = Rgb15(self.palette_ram.read_16(0));
-        let sorted_backgrounds = self.sorted_backgrounds(bg_start, bg_end);
+
+        // filter out disabled backgrounds and sort by priority
+        // the backgrounds are sorted once for the entire scanline
+        let mut sorted_backgrounds: ArrayVec<[usize; 4]> = (bg_start..=bg_end)
+            .filter(|bg| self.dispcnt.enable_bg(*bg))
+            .collect();
+        sorted_backgrounds.sort_by_key(|bg| (self.backgrounds[*bg].bgcnt.priority(), *bg));
 
         let y = self.vcount;
-        let output = unsafe {
-            let ptr = self.frame_buffer[y * DISPLAY_WIDTH..].as_mut_ptr();
-            std::slice::from_raw_parts_mut(ptr, DISPLAY_WIDTH)
-        };
+
         if !self.dispcnt.is_using_windows() {
-            let win = WindowInfo::new(WindowType::WinNone, WindowFlags::all());
-            let backgrounds = self.active_backgrounds(&sorted_backgrounds, win.flags);
             for x in 0..DISPLAY_WIDTH {
-                let pixel = self.compose_pixel(x, y, &win, &backgrounds, backdrop_color);
-                output[x] = pixel.to_rgb24();
+                let win = WindowInfo::new(WindowType::WinNone, WindowFlags::all());
+                self.finalize_pixel(x, y, &win, &sorted_backgrounds, backdrop_color);
             }
         } else {
             let mut occupied = [false; DISPLAY_WIDTH];
             let mut occupied_count = 0;
             if self.dispcnt.enable_window0() && self.win0.contains_y(y) {
                 let win = WindowInfo::new(WindowType::Win0, self.win0.flags);
-                let backgrounds = self.active_backgrounds(&sorted_backgrounds, win.flags);
+                let backgrounds =
+                    self.active_backgrounds_for_window(&sorted_backgrounds, win.flags);
                 for x in self.win0.left()..self.win0.right() {
-                    let pixel = self.compose_pixel(x, y, &win, &backgrounds, backdrop_color);
-                    output[x] = pixel.to_rgb24();
+                    self.finalize_pixel(x, y, &win, &backgrounds, backdrop_color);
                     occupied[x] = true;
                     occupied_count += 1;
                 }
@@ -105,25 +99,27 @@ impl Gpu {
             }
             if self.dispcnt.enable_window1() && self.win1.contains_y(y) {
                 let win = WindowInfo::new(WindowType::Win1, self.win1.flags);
-                let backgrounds = self.active_backgrounds(&sorted_backgrounds, win.flags);
+                let backgrounds =
+                    self.active_backgrounds_for_window(&sorted_backgrounds, win.flags);
                 for x in self.win1.left()..self.win1.right() {
-                    if !occupied[x] {
-                        let pixel = self.compose_pixel(x, y, &win, &backgrounds, backdrop_color);
-                        output[x] = pixel.to_rgb24();
-                        occupied[x] = true;
-                        occupied_count += 1;
+                    if occupied[x] {
+                        continue;
                     }
+                    self.finalize_pixel(x, y, &win, &backgrounds, backdrop_color);
+                    occupied[x] = true;
+                    occupied_count += 1;
                 }
             }
             if occupied_count == DISPLAY_WIDTH {
                 return;
             }
             let win_out = WindowInfo::new(WindowType::WinOut, self.winout_flags);
-            let win_out_backgrounds = self.active_backgrounds(&sorted_backgrounds, win_out.flags);
+            let win_out_backgrounds =
+                self.active_backgrounds_for_window(&sorted_backgrounds, win_out.flags);
             if self.dispcnt.enable_obj_window() {
                 let win_obj = WindowInfo::new(WindowType::WinObj, self.winobj_flags);
                 let win_obj_backgrounds =
-                    self.active_backgrounds(&sorted_backgrounds, win_obj.flags);
+                    self.active_backgrounds_for_window(&sorted_backgrounds, win_obj.flags);
                 for x in 0..DISPLAY_WIDTH {
                     if occupied[x] {
                         continue;
@@ -131,28 +127,14 @@ impl Gpu {
                     let obj_entry = self.obj_buffer_get(x, y);
                     if obj_entry.window {
                         // WinObj
-                        let pixel = self.compose_pixel(
-                            x,
-                            y,
-                            &win_obj,
-                            &win_obj_backgrounds,
-                            backdrop_color,
-                        );
-                        output[x] = pixel.to_rgb24();
-                        occupied[x] = true;
-                        occupied_count += 1;
+                        self.finalize_pixel(x, y, &win_obj, &win_obj_backgrounds, backdrop_color);
+                    // occupied[x] = true;
+                    // occupied_count += 1;
                     } else {
                         // WinOut
-                        let pixel = self.compose_pixel(
-                            x,
-                            y,
-                            &win_out,
-                            &win_out_backgrounds,
-                            backdrop_color,
-                        );
-                        output[x] = pixel.to_rgb24();
-                        occupied[x] = true;
-                        occupied_count += 1;
+                        self.finalize_pixel(x, y, &win_out, &win_out_backgrounds, backdrop_color);
+                        // occupied[x] = true;
+                        // occupied_count += 1;
                     }
                 }
             } else {
@@ -160,106 +142,118 @@ impl Gpu {
                     if occupied[x] {
                         continue;
                     }
-                    let pixel =
-                        self.compose_pixel(x, y, &win_out, &win_out_backgrounds, backdrop_color);
-                    output[x] = pixel.to_rgb24();
-                    occupied[x] = true;
-                    occupied_count += 1;
+                    self.finalize_pixel(x, y, &win_out, &win_out_backgrounds, backdrop_color);
+                    // occupied[x] = true;
+                    // occupied_count += 1;
                 }
             }
         }
     }
 
-    fn compose_pixel(
-        &self,
+    fn finalize_pixel(
+        &mut self,
         x: usize,
         y: usize,
         win: &WindowInfo,
         backgrounds: &[usize],
         backdrop_color: Rgb15,
-    ) -> Rgb15 {
-        let mut layers = ArrayVec::<[_; 7]>::new();
-        unsafe {
-            layers.push_unchecked(RenderLayer::backdrop(backdrop_color));
-        }
+    ) {
+        let output = unsafe {
+            let ptr = self.frame_buffer[y * DISPLAY_WIDTH..].as_mut_ptr();
+            std::slice::from_raw_parts_mut(ptr, DISPLAY_WIDTH)
+        };
 
-        for bg in backgrounds.iter() {
-            let bg_pixel = self.backgrounds[*bg].line[x];
-            if !bg_pixel.is_transparent() {
-                unsafe {
-                    layers.push_unchecked(RenderLayer::background(
-                        *bg,
-                        bg_pixel,
-                        self.backgrounds[*bg].bgcnt.priority(),
-                    ));
-                }
+        // The backdrop layer is the default
+        let backdrop_layer = RenderLayer::backdrop(backdrop_color);
+
+        // Backgrounds are already sorted
+        // lets start by taking the first 2 backgrounds that have an opaque pixel at x
+        let mut it = backgrounds
+            .iter()
+            .filter(|i| !self.backgrounds[**i].line[x].is_transparent())
+            .take(2);
+
+        let mut top_layer = it.next().map_or(backdrop_layer, |bg| {
+            let background = &self.backgrounds[*bg];
+            RenderLayer::background(*bg, background.pixel_at(x), background.get_priority())
+        });
+
+        let mut bot_layer = it.next().map_or(backdrop_layer, |bg| {
+            let background = &self.backgrounds[*bg];
+            RenderLayer::background(*bg, background.pixel_at(x), background.get_priority())
+        });
+
+        drop(it);
+
+        // Now that backgrounds are taken care of, we need to check if there is an object pixel that takes priority of one of the layers
+        let obj_entry = self.obj_buffer_get(x, y);
+        if win.flags.obj_enabled() && self.dispcnt.enable_obj() && !obj_entry.color.is_transparent()
+        {
+            let obj_layer = RenderLayer::objects(obj_entry.color, obj_entry.priority);
+            if obj_layer.priority <= top_layer.priority {
+                bot_layer = top_layer;
+                top_layer = obj_layer;
+            } else if obj_layer.priority <= bot_layer.priority {
+                bot_layer = obj_layer;
             }
         }
 
         let obj_entry = self.obj_buffer_get(x, y);
-        if self.dispcnt.enable_obj() && win.flags.obj_enabled() && !obj_entry.color.is_transparent()
-        {
-            unsafe {
-                layers.push_unchecked(RenderLayer::objects(obj_entry.color, obj_entry.priority))
-            }
-        }
+        let obj_alpha_blend = top_layer.is_object() && obj_entry.alpha;
 
-        // now, sort the layers
-        layers.sort_by_key(|k| (k.priority, k.priority_by_type));
+        let top_flags = self.bldcnt.top();
+        let bot_flags = self.bldcnt.bottom();
 
-        let top_pixel = layers[0].pixel; // self.layer_to_pixel(x, y, &layers[0]);
-        let mut result = top_pixel;
-        'blend: loop {
-            /* loop hack so we can leave this block early */
-            let obj_sfx = obj_entry.alpha && layers[0].is_object();
-            if win.flags.sfx_enabled() || obj_sfx {
-                let top_layer_flags = self.bldcnt.top();
-                let bot_layer_flags = self.bldcnt.bottom();
+        let sfx_enabled = (self.bldcnt.mode() != BldMode::BldNone || obj_alpha_blend)
+            && top_flags.contains_render_layer(&top_layer); // sfx must at least have a first target configured
 
-                if !(top_layer_flags.contains_render_layer(&layers[0]) || obj_sfx) {
-                    break 'blend;
-                }
+        if win.flags.sfx_enabled() && sfx_enabled {
+            if top_layer.is_object()
+                && obj_alpha_blend
+                && bot_flags.contains_render_layer(&bot_layer)
+            {
+                output[x] = self.do_alpha(top_layer.pixel, bot_layer.pixel).to_rgb24();
+            } else {
+                let (top_layer, bot_layer) = (top_layer, bot_layer);
 
-                // if this is object alpha blending, ensure that the bottom layer contains a color to blend with
-                let blend_mode = if obj_sfx
-                    && layers.len() > 1
-                    && bot_layer_flags.contains_render_layer(&layers[1])
-                {
-                    BldMode::BldAlpha
-                } else {
-                    self.bldcnt.mode()
-                };
-
-                match blend_mode {
+                match self.bldcnt.mode() {
                     BldMode::BldAlpha => {
-                        let bot_pixel = if layers.len() > 1 {
-                            if !(bot_layer_flags.contains_render_layer(&layers[1])) {
-                                break 'blend;
-                            }
-                            layers[1].pixel //self.layer_to_pixel(x, y, &layers[1])
+                        output[x] = if bot_flags.contains_render_layer(&bot_layer) {
+                            self.do_alpha(top_layer.pixel, bot_layer.pixel).to_rgb24()
                         } else {
-                            backdrop_color
-                        };
+                            // alpha blending must have a 2nd target
+                            top_layer.pixel.to_rgb24()
+                        }
+                    }
+                    BldMode::BldWhite => output[x] = self.do_brighten(top_layer.pixel).to_rgb24(),
 
-                        let eva = self.bldalpha.eva();
-                        let evb = self.bldalpha.evb();
-                        result = top_pixel.blend_with(bot_pixel, eva, evb);
-                    }
-                    BldMode::BldWhite => {
-                        let evy = self.bldy;
-                        result = top_pixel.blend_with(Rgb15::WHITE, 16 - evy, evy);
-                    }
-                    BldMode::BldBlack => {
-                        let evy = self.bldy;
-                        result = top_pixel.blend_with(Rgb15::BLACK, 16 - evy, evy);
-                    }
-                    BldMode::BldNone => {
-                        result = top_pixel;
-                    }
+                    BldMode::BldBlack => output[x] = self.do_darken(top_layer.pixel).to_rgb24(),
+
+                    BldMode::BldNone => output[x] = top_layer.pixel.to_rgb24(),
                 }
             }
-            break 'blend;
+        } else {
+            // no blending, just use the top pixel
+            output[x] = top_layer.pixel.to_rgb24();
         }
-        result
+    }
+
+    #[inline]
+    fn do_alpha(&self, upper: Rgb15, lower: Rgb15) -> Rgb15 {
+        let eva = self.bldalpha.eva();
+        let evb = self.bldalpha.evb();
+        upper.blend_with(lower, eva, evb)
+    }
+
+    #[inline]
+    fn do_brighten(&self, c: Rgb15) -> Rgb15 {
+        let evy = self.bldy;
+        c.blend_with(Rgb15::WHITE, 16 - evy, evy)
+    }
+
+    #[inline]
+    fn do_darken(&self, c: Rgb15) -> Rgb15 {
+        let evy = self.bldy;
+        c.blend_with(Rgb15::BLACK, 16 - evy, evy)
     }
 }
