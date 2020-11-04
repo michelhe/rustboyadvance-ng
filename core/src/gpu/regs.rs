@@ -148,10 +148,12 @@ impl BlendFlags {
         BlendFlags::BG3,
     ];
 
+    #[inline]
     pub fn from_bg(bg: usize) -> BlendFlags {
         Self::BG_LAYER_FLAG[bg]
     }
 
+    #[inline]
     pub fn obj_enabled(&self) -> bool {
         self.contains(BlendFlags::OBJ)
     }

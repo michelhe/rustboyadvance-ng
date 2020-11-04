@@ -25,13 +25,11 @@ impl RenderLayerKind {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct RenderLayer {
     pub kind: RenderLayerKind,
     pub priority: u16,
     pub pixel: Rgb15,
-    /// priority used to distinguish between sprites, backgrounds and backdrop
-    pub priority_by_type: u8,
 }
 
 impl RenderLayer {
@@ -40,7 +38,6 @@ impl RenderLayer {
             kind: RenderLayerKind::from_usize(1 << bg).unwrap(),
             pixel: pixel,
             priority: priority,
-            priority_by_type: 1,
         }
     }
 
@@ -49,7 +46,6 @@ impl RenderLayer {
             kind: RenderLayerKind::Objects,
             pixel: pixel,
             priority: priority,
-            priority_by_type: 0,
         }
     }
 
@@ -58,7 +54,6 @@ impl RenderLayer {
             kind: RenderLayerKind::Backdrop,
             pixel: pixel,
             priority: 4,
-            priority_by_type: 2,
         }
     }
 
@@ -85,7 +80,7 @@ mod tests {
         layers.push(RenderLayer::background(2, pixel, 2));
         layers.push(RenderLayer::backdrop(backdrop));
         layers.push(RenderLayer::objects(pixel, 1));
-        layers.sort_by_key(|k| (k.priority, k.priority_by_type));
+        layers.sort_by_key(|k| (k.priority, k.kind));
         assert_eq!(RenderLayer::background(3, pixel, 0), layers[0]);
     }
 }

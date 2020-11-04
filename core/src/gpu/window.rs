@@ -76,4 +76,9 @@ impl WindowInfo {
     pub fn new(typ: WindowType, flags: WindowFlags) -> WindowInfo {
         WindowInfo { typ, flags }
     }
+
+    #[inline]
+    pub fn is_none(&self) -> bool {
+        self.typ == WindowType::WinNone
+    }
 }
