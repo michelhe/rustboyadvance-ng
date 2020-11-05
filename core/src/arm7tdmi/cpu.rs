@@ -346,7 +346,7 @@ impl<I: MemoryInterface> Core<I> {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub(super) fn check_arm_cond(&self, cond: ArmCond) -> bool {
         use ArmCond::*;
         match cond {
@@ -469,6 +469,7 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Perform a pipeline step
     /// If an instruction was executed in this step, return it.
+    #[inline]
     pub fn step(&mut self) {
         match self.cpsr.state() {
             CpuState::ARM => {
