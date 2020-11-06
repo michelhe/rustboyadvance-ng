@@ -9,15 +9,12 @@ use crate::Bus;
 
 impl Gpu {
     pub(in super::super) fn render_reg_bg(&mut self, bg: usize) {
-        let (h_ofs, v_ofs) = (
-            self.backgrounds[bg].bghofs as u32,
-            self.backgrounds[bg].bgvofs as u32,
-        );
-        let tileset_base = self.backgrounds[bg].bgcnt.char_block();
-        let tilemap_base = self.backgrounds[bg].bgcnt.screen_block();
-        let (tile_size, pixel_format) = self.backgrounds[bg].bgcnt.tile_format();
+        let (h_ofs, v_ofs) = (self.bg_hofs[bg] as u32, self.bg_vofs[bg] as u32);
+        let tileset_base = self.bgcnt[bg].char_block();
+        let tilemap_base = self.bgcnt[bg].screen_block();
+        let (tile_size, pixel_format) = self.bgcnt[bg].tile_format();
 
-        let (bg_width, bg_height) = self.backgrounds[bg].bgcnt.size_regular();
+        let (bg_width, bg_height) = self.bgcnt[bg].size_regular();
 
         let screen_y = self.vcount as u32;
         let mut screen_x = 0;
@@ -70,7 +67,7 @@ impl Gpu {
                                 PixelFormat::BPP8 => 0u32,
                             };
                             let color = self.get_palette_color(index as u32, palette_bank, 0);
-                            self.backgrounds[bg].line[screen_x as usize] = color;
+                            self.bg_line[bg][screen_x as usize] = color;
                             screen_x += 1;
                             if (DISPLAY_WIDTH as u32) == screen_x {
                                 return;
@@ -96,17 +93,17 @@ impl Gpu {
     pub(in super::super) fn render_aff_bg(&mut self, bg: usize) {
         assert!(bg == 2 || bg == 3);
 
-        let texture_size = 128 << self.backgrounds[bg].bgcnt.bg_size();
+        let texture_size = 128 << self.bgcnt[bg].size;
         let viewport = ViewPort::new(texture_size, texture_size);
 
         let ref_point = self.get_ref_point(bg);
         let pa = self.bg_aff[bg - 2].pa as i16 as i32;
         let pc = self.bg_aff[bg - 2].pc as i16 as i32;
 
-        let screen_block = self.backgrounds[bg].bgcnt.screen_block();
-        let char_block = self.backgrounds[bg].bgcnt.char_block();
+        let screen_block = self.bgcnt[bg].screen_block();
+        let char_block = self.bgcnt[bg].char_block();
 
-        let wraparound = self.backgrounds[bg].bgcnt.affine_wraparound();
+        let wraparound = self.bgcnt[bg].affine_wraparound;
 
         for screen_x in 0..(DISPLAY_WIDTH as i32) {
             let mut t = utils::transform_bg_point(ref_point, screen_x, pa, pc);
@@ -116,7 +113,7 @@ impl Gpu {
                     t.0 = t.0.rem_euclid(texture_size);
                     t.1 = t.1.rem_euclid(texture_size);
                 } else {
-                    self.backgrounds[bg].line[screen_x as usize] = Rgb15::TRANSPARENT;
+                    self.bg_line[bg][screen_x as usize] = Rgb15::TRANSPARENT;
                     continue;
                 }
             }
@@ -131,7 +128,7 @@ impl Gpu {
                 PixelFormat::BPP8,
             ) as u32;
             let color = self.get_palette_color(pixel_index, 0, 0);
-            self.backgrounds[bg].line[screen_x as usize] = color;
+            self.bg_line[bg][screen_x as usize] = color;
         }
     }
 }

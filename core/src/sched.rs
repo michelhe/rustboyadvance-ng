@@ -128,6 +128,18 @@ impl Scheduler {
         SharedScheduler::new(self)
     }
 
+    #[inline]
+    #[allow(unused)]
+    pub fn num_pending_events(&self) -> usize {
+        self.events.len()
+    }
+
+    #[inline]
+    #[allow(unused)]
+    pub fn peek_next(&self) -> Option<EventType> {
+        self.events.peek().map(|e| e.typ)
+    }
+
     /// Schedule an event to be executed in `cycles` cycles from now
     pub fn push(&mut self, typ: EventType, cycles: usize) {
         let event = Event::new(typ, self.timestamp + cycles);
