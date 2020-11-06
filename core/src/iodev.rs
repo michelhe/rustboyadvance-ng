@@ -2,6 +2,7 @@ use std::cmp;
 
 use super::bus::*;
 use super::dma::DmaController;
+use super::gpu::regs::GpuMemoryMappedIO;
 use super::gpu::regs::WindowFlags;
 use super::gpu::*;
 use super::interrupt::{InterruptConnect, InterruptController, SharedInterruptFlags};
@@ -99,13 +100,13 @@ impl Bus for IoDevices {
         // }
 
         match io_addr {
-            REG_DISPCNT => io.gpu.dispcnt.0,
-            REG_DISPSTAT => io.gpu.dispstat.0,
+            REG_DISPCNT => io.gpu.dispcnt.read(),
+            REG_DISPSTAT => io.gpu.dispstat.read(),
             REG_VCOUNT => io.gpu.vcount as u16,
-            REG_BG0CNT => io.gpu.backgrounds[0].bgcnt.0,
-            REG_BG1CNT => io.gpu.backgrounds[1].bgcnt.0,
-            REG_BG2CNT => io.gpu.backgrounds[2].bgcnt.0,
-            REG_BG3CNT => io.gpu.backgrounds[3].bgcnt.0,
+            REG_BG0CNT => io.gpu.bgcnt[0].read(),
+            REG_BG1CNT => io.gpu.bgcnt[1].read(),
+            REG_BG2CNT => io.gpu.bgcnt[2].read(),
+            REG_BG3CNT => io.gpu.bgcnt[3].read(),
             REG_WIN0H => ((io.gpu.win0.left as u16) << 8 | (io.gpu.win0.right as u16)),
             REG_WIN1H => ((io.gpu.win1.left as u16) << 8 | (io.gpu.win1.right as u16)),
             REG_WIN0V => ((io.gpu.win0.top as u16) << 8 | (io.gpu.win0.bottom as u16)),
@@ -116,8 +117,8 @@ impl Bus for IoDevices {
             REG_WINOUT => {
                 ((io.gpu.winobj_flags.bits() as u16) << 8) | (io.gpu.winout_flags.bits() as u16)
             }
-            REG_BLDCNT => io.gpu.bldcnt.0,
-            REG_BLDALPHA => io.gpu.bldalpha.0,
+            REG_BLDCNT => io.gpu.bldcnt.read(),
+            REG_BLDALPHA => io.gpu.bldalpha.read(),
 
             REG_IME => io.intc.interrupt_master_enable as u16,
             REG_IE => io.intc.interrupt_enable.0 as u16,
@@ -187,19 +188,19 @@ impl Bus for IoDevices {
 
         match io_addr {
             REG_DISPCNT => io.gpu.write_dispcnt(value),
-            REG_DISPSTAT => io.gpu.dispstat.0 = value | (io.gpu.dispstat.0 & 7),
-            REG_BG0CNT => io.gpu.backgrounds[0].bgcnt.0 = value,
-            REG_BG1CNT => io.gpu.backgrounds[1].bgcnt.0 = value,
-            REG_BG2CNT => io.gpu.backgrounds[2].bgcnt.0 = value,
-            REG_BG3CNT => io.gpu.backgrounds[3].bgcnt.0 = value,
-            REG_BG0HOFS => io.gpu.backgrounds[0].bghofs = value & 0x1ff,
-            REG_BG0VOFS => io.gpu.backgrounds[0].bgvofs = value & 0x1ff,
-            REG_BG1HOFS => io.gpu.backgrounds[1].bghofs = value & 0x1ff,
-            REG_BG1VOFS => io.gpu.backgrounds[1].bgvofs = value & 0x1ff,
-            REG_BG2HOFS => io.gpu.backgrounds[2].bghofs = value & 0x1ff,
-            REG_BG2VOFS => io.gpu.backgrounds[2].bgvofs = value & 0x1ff,
-            REG_BG3HOFS => io.gpu.backgrounds[3].bghofs = value & 0x1ff,
-            REG_BG3VOFS => io.gpu.backgrounds[3].bgvofs = value & 0x1ff,
+            REG_DISPSTAT => io.gpu.dispstat.write(value),
+            REG_BG0CNT => io.gpu.bgcnt[0].write(value),
+            REG_BG1CNT => io.gpu.bgcnt[1].write(value),
+            REG_BG2CNT => io.gpu.bgcnt[2].write(value),
+            REG_BG3CNT => io.gpu.bgcnt[3].write(value),
+            REG_BG0HOFS => io.gpu.bg_hofs[0] = value & 0x1ff,
+            REG_BG0VOFS => io.gpu.bg_vofs[0] = value & 0x1ff,
+            REG_BG1HOFS => io.gpu.bg_hofs[1] = value & 0x1ff,
+            REG_BG1VOFS => io.gpu.bg_vofs[1] = value & 0x1ff,
+            REG_BG2HOFS => io.gpu.bg_hofs[2] = value & 0x1ff,
+            REG_BG2VOFS => io.gpu.bg_vofs[2] = value & 0x1ff,
+            REG_BG3HOFS => io.gpu.bg_hofs[3] = value & 0x1ff,
+            REG_BG3VOFS => io.gpu.bg_vofs[3] = value & 0x1ff,
             REG_BG2X_L | REG_BG3X_L => write_reference_point!(low bg x internal_x),
             REG_BG2Y_L | REG_BG3Y_L => write_reference_point!(low bg y internal_y),
             REG_BG2X_H | REG_BG3X_H => write_reference_point!(high bg x internal_x),
@@ -247,8 +248,8 @@ impl Bus for IoDevices {
                 io.gpu.winobj_flags = WindowFlags::from(value >> 8);
             }
             REG_MOSAIC => io.gpu.mosaic.0 = value,
-            REG_BLDCNT => io.gpu.bldcnt.0 = value,
-            REG_BLDALPHA => io.gpu.bldalpha.0 = value,
+            REG_BLDCNT => io.gpu.bldcnt.write(value),
+            REG_BLDALPHA => io.gpu.bldalpha.write(value),
             REG_BLDY => io.gpu.bldy = cmp::min(value & 0b11111, 16),
 
             REG_IME => io.intc.interrupt_master_enable = value != 0,

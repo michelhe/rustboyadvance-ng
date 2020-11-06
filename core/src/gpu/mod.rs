@@ -1,6 +1,5 @@
 #[cfg(not(feature = "no_video_interface"))]
 use std::cell::RefCell;
-use std::fmt;
 #[cfg(not(feature = "no_video_interface"))]
 use std::rc::Rc;
 
@@ -14,7 +13,6 @@ pub use super::sysbus::consts::*;
 #[cfg(not(feature = "no_video_interface"))]
 use super::VideoInterface;
 
-use crate::bitfield::Bit;
 use crate::num::FromPrimitive;
 
 mod render;
@@ -66,88 +64,6 @@ pub enum PixelFormat {
     BPP8 = 1,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
-#[serde(deny_unknown_fields)]
-pub enum GpuState {
-    HDraw = 0,
-    HBlank,
-    VBlankHDraw,
-    VBlankHBlank,
-}
-
-impl Default for GpuState {
-    fn default() -> GpuState {
-        GpuState::HDraw
-    }
-}
-
-impl GpuState {
-    pub fn is_vblank(&self) -> bool {
-        match self {
-            VBlankHBlank | VBlankHDraw => true,
-            _ => false,
-        }
-    }
-}
-
-use GpuState::*;
-
-#[repr(transparent)]
-#[derive(Serialize, Deserialize, Clone)]
-pub struct Scanline {
-    inner: Vec<Rgb15>,
-}
-
-impl Default for Scanline {
-    fn default() -> Scanline {
-        Scanline {
-            inner: vec![Rgb15::TRANSPARENT; DISPLAY_WIDTH],
-        }
-    }
-}
-
-impl fmt::Debug for Scanline {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "...")
-    }
-}
-
-impl std::ops::Index<usize> for Scanline {
-    type Output = Rgb15;
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.inner[index]
-    }
-}
-
-impl std::ops::IndexMut<usize> for Scanline {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.inner[index]
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Default, Clone)]
-pub struct Background {
-    pub bgcnt: BgControl,
-    pub bgvofs: u16,
-    pub bghofs: u16,
-
-    line: Scanline,
-
-    // for mosaic
-    mosaic_first_row: Scanline,
-}
-
-impl Background {
-    #[inline]
-    pub fn get_priority(&self) -> u16 {
-        self.bgcnt.priority()
-    }
-    #[inline]
-    pub fn pixel_at(&self, x: usize) -> Rgb15 {
-        self.line[x]
-    }
-}
-
 #[derive(Debug, Default, Copy, Clone)]
 pub struct AffineMatrix {
     pub pa: i32,
@@ -192,7 +108,6 @@ type VideoDeviceRcRefCell = Rc<RefCell<dyn VideoInterface>>;
 
 #[derive(Serialize, Deserialize, Clone, DebugStub)]
 pub struct Gpu {
-    pub state: GpuState,
     interrupt_flags: SharedInterruptFlags,
 
     /// When deserializing this struct using serde, make sure to call connect_scheduler
@@ -208,30 +123,25 @@ pub struct Gpu {
     pub dispcnt: DisplayControl,
     pub dispstat: DisplayStatus,
 
-    pub backgrounds: [Background; 4],
+    pub bgcnt: [BgControl; 4],
+    pub bg_vofs: [u16; 4],
+    pub bg_hofs: [u16; 4],
     pub bg_aff: [BgAffine; 2],
-
     pub win0: Window,
     pub win1: Window,
     pub winout_flags: WindowFlags,
     pub winobj_flags: WindowFlags,
-
     pub mosaic: RegMosaic,
     pub bldcnt: BlendControl,
     pub bldalpha: BlendAlpha,
     pub bldy: u16,
-
     pub palette_ram: Box<[u8]>,
     pub vram: Box<[u8]>,
     pub oam: Box<[u8]>,
-
     pub(super) vram_obj_tiles_start: u32,
-
-    #[debug_stub = "Sprite Buffer"]
-    pub obj_buffer: Vec<ObjBufferEntry>,
-
-    #[debug_stub = "Frame Buffer"]
-    pub(super) frame_buffer: Vec<u32>,
+    pub(super) obj_buffer: Box<[ObjBufferEntry]>,
+    pub(super) frame_buffer: Box<[u32]>,
+    pub(super) bg_line: [Box<[Rgb15]>; 4],
 }
 
 impl InterruptConnect for Gpu {
@@ -249,56 +159,59 @@ impl SchedulerConnect for Gpu {
 impl Gpu {
     pub fn new(mut scheduler: SharedScheduler, interrupt_flags: SharedInterruptFlags) -> Gpu {
         scheduler.push_gpu_event(GpuEvent::HDraw, CYCLES_HDRAW);
+
+        fn alloc_scanline_buffer() -> Box<[Rgb15]> {
+            vec![Rgb15::TRANSPARENT; DISPLAY_WIDTH].into_boxed_slice()
+        }
+
         Gpu {
             interrupt_flags,
             scheduler,
-            dispcnt: DisplayControl(0x80),
-            dispstat: DisplayStatus(0),
-            backgrounds: [
-                Background::default(),
-                Background::default(),
-                Background::default(),
-                Background::default(),
-            ],
+            dispcnt: DisplayControl::from(0x80),
+            dispstat: Default::default(),
+            bgcnt: Default::default(),
+            bg_vofs: [0; 4],
+            bg_hofs: [0; 4],
             bg_aff: [BgAffine::default(); 2],
             win0: Window::default(),
             win1: Window::default(),
             winout_flags: WindowFlags::from(0),
             winobj_flags: WindowFlags::from(0),
             mosaic: RegMosaic(0),
-            bldcnt: BlendControl(0),
-            bldalpha: BlendAlpha(0),
+            bldcnt: BlendControl::default(),
+            bldalpha: BlendAlpha::default(),
             bldy: 0,
 
-            vram_obj_tiles_start: VRAM_OBJ_TILES_START_TEXT,
-
-            state: HDraw,
             vcount: 0,
             cycles_left_for_current_state: CYCLES_HDRAW,
-
             palette_ram: vec![0; PALETTE_RAM_SIZE].into_boxed_slice(),
             vram: vec![0; VIDEO_RAM_SIZE].into_boxed_slice(),
             oam: vec![0; OAM_SIZE].into_boxed_slice(),
-
-            obj_buffer: vec![Default::default(); DISPLAY_WIDTH * DISPLAY_HEIGHT],
-
-            frame_buffer: vec![0; DISPLAY_WIDTH * DISPLAY_HEIGHT],
+            obj_buffer: vec![Default::default(); DISPLAY_WIDTH * DISPLAY_HEIGHT].into_boxed_slice(),
+            frame_buffer: vec![0; DISPLAY_WIDTH * DISPLAY_HEIGHT].into_boxed_slice(),
+            bg_line: [
+                alloc_scanline_buffer(),
+                alloc_scanline_buffer(),
+                alloc_scanline_buffer(),
+                alloc_scanline_buffer(),
+            ],
+            vram_obj_tiles_start: VRAM_OBJ_TILES_START_TEXT,
         }
     }
 
+    #[inline]
     pub fn write_dispcnt(&mut self, value: u16) {
-        let new_dispcnt = DisplayControl(value);
-        let old_mode = self.dispcnt.mode();
-        let new_mode = new_dispcnt.mode();
+        let old_mode = self.dispcnt.mode;
+        self.dispcnt.write(value);
+        let new_mode = self.dispcnt.mode;
         if old_mode != new_mode {
             debug!("[GPU] Display mode changed! {} -> {}", old_mode, new_mode);
-            self.vram_obj_tiles_start = if new_dispcnt.mode() >= 3 {
+            self.vram_obj_tiles_start = if new_mode >= 3 {
                 VRAM_OBJ_TILES_START_BITMAP
             } else {
                 VRAM_OBJ_TILES_START_TEXT
             };
         }
-        self.dispcnt = new_dispcnt;
     }
 
     pub fn skip_bios(&mut self) {
@@ -368,7 +281,7 @@ impl Gpu {
     }
 
     pub fn render_scanline(&mut self) {
-        if self.dispcnt.force_blank() {
+        if self.dispcnt.force_blank {
             for x in self.frame_buffer[self.vcount * DISPLAY_WIDTH..]
                 .iter_mut()
                 .take(DISPLAY_WIDTH)
@@ -378,35 +291,35 @@ impl Gpu {
             return;
         }
 
-        if self.dispcnt.enable_obj() {
+        if self.dispcnt.enable_obj {
             self.render_objs();
         }
-        match self.dispcnt.mode() {
+        match self.dispcnt.mode {
             0 => {
                 for bg in 0..=3 {
-                    if self.dispcnt.enable_bg(bg) {
+                    if self.dispcnt.enable_bg[bg] {
                         self.render_reg_bg(bg);
                     }
                 }
                 self.finalize_scanline(0, 3);
             }
             1 => {
-                if self.dispcnt.enable_bg(2) {
+                if self.dispcnt.enable_bg[2] {
                     self.render_aff_bg(2);
                 }
-                if self.dispcnt.enable_bg(1) {
+                if self.dispcnt.enable_bg[1] {
                     self.render_reg_bg(1);
                 }
-                if self.dispcnt.enable_bg(0) {
+                if self.dispcnt.enable_bg[0] {
                     self.render_reg_bg(0);
                 }
                 self.finalize_scanline(0, 2);
             }
             2 => {
-                if self.dispcnt.enable_bg(3) {
+                if self.dispcnt.enable_bg[3] {
                     self.render_aff_bg(3);
                 }
-                if self.dispcnt.enable_bg(2) {
+                if self.dispcnt.enable_bg[2] {
                     self.render_aff_bg(2);
                 }
                 self.finalize_scanline(2, 3);
@@ -423,7 +336,7 @@ impl Gpu {
                 self.render_mode5(2);
                 self.finalize_scanline(2, 2);
             }
-            _ => panic!("{:?} not supported", self.dispcnt.mode()),
+            _ => panic!("{:?} not supported", self.dispcnt.mode),
         }
         // self.mosaic_sfx();
     }
@@ -442,19 +355,18 @@ impl Gpu {
     #[inline]
     fn update_vcount(&mut self, value: usize) {
         self.vcount = value;
-        let vcount_setting = self.dispstat.vcount_setting();
-        self.dispstat
-            .set_vcount_flag(vcount_setting == self.vcount as u16);
+        let vcount_setting = self.dispstat.vcount_setting;
+        self.dispstat.vcount_flag = vcount_setting == self.vcount;
 
-        if self.dispstat.vcount_irq_enable() && self.dispstat.get_vcount_flag() {
+        if self.dispstat.vcount_irq_enable && self.dispstat.vcount_flag {
             interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_VCounterMatch);
         }
     }
 
     #[inline]
-    fn handle_hdraw<D: DmaNotifer>(&mut self, dma_notifier: &mut D) -> (GpuEvent, usize) {
-        self.dispstat.set_hblank_flag(true);
-        if self.dispstat.hblank_irq_enable() {
+    fn handle_hdraw_end<D: DmaNotifer>(&mut self, dma_notifier: &mut D) -> (GpuEvent, usize) {
+        self.dispstat.hblank_flag = true;
+        if self.dispstat.hblank_irq_enable {
             interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_HBlank);
         };
         dma_notifier.notify(TIMING_HBLANK);
@@ -463,7 +375,7 @@ impl Gpu {
         (GpuEvent::HBlank, CYCLES_HBLANK)
     }
 
-    fn handle_hblank<D: DmaNotifer>(
+    fn handle_hblank_end<D: DmaNotifer>(
         &mut self,
         dma_notifier: &mut D,
         #[cfg(not(feature = "no_video_interface"))] video_device: &VideoDeviceRcRefCell,
@@ -471,7 +383,7 @@ impl Gpu {
         self.update_vcount(self.vcount + 1);
 
         if self.vcount < DISPLAY_HEIGHT {
-            self.dispstat.set_hblank_flag(false);
+            self.dispstat.hblank_flag = false;
             self.render_scanline();
             // update BG2/3 reference points on the end of a scanline
             for i in 0..2 {
@@ -487,9 +399,9 @@ impl Gpu {
                 self.bg_aff[i].internal_y = self.bg_aff[i].y;
             }
 
-            self.dispstat.set_vblank_flag(true);
-            self.dispstat.set_hblank_flag(false);
-            if self.dispstat.vblank_irq_enable() {
+            self.dispstat.vblank_flag = true;
+            self.dispstat.hblank_flag = false;
+            if self.dispstat.vblank_irq_enable {
                 interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_VBlank);
             };
 
@@ -504,146 +416,25 @@ impl Gpu {
         }
     }
 
-    fn handle_vblank_hdraw(&mut self) -> (GpuEvent, usize) {
-        self.dispstat.set_hblank_flag(true);
-        if self.dispstat.hblank_irq_enable() {
+    fn handle_vblank_hdraw_end(&mut self) -> (GpuEvent, usize) {
+        self.dispstat.hblank_flag = true;
+        if self.dispstat.hblank_irq_enable {
             interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_HBlank);
         };
         (GpuEvent::VBlankHBlank, CYCLES_HBLANK)
     }
 
-    fn handle_vblank_hblank(&mut self) -> (GpuEvent, usize) {
+    fn handle_vblank_hblank_end(&mut self) -> (GpuEvent, usize) {
         if self.vcount < DISPLAY_HEIGHT + VBLANK_LINES - 1 {
             self.update_vcount(self.vcount + 1);
-            self.dispstat.set_hblank_flag(false);
+            self.dispstat.hblank_flag = false;
             (GpuEvent::VBlankHDraw, CYCLES_HDRAW)
         } else {
             self.update_vcount(0);
-            self.dispstat.set_vblank_flag(false);
-            self.dispstat.set_hblank_flag(false);
+            self.dispstat.vblank_flag = false;
+            self.dispstat.hblank_flag = false;
             self.render_scanline();
             (GpuEvent::HDraw, CYCLES_HDRAW)
-        }
-    }
-
-    pub fn on_state_completed<D>(
-        &mut self,
-        completed: GpuState,
-        dma_notifier: &mut D,
-        #[cfg(not(feature = "no_video_interface"))] video_device: &VideoDeviceRcRefCell,
-    ) where
-        D: DmaNotifer,
-    {
-        macro_rules! update_vcount {
-            ($value:expr) => {
-                self.vcount = $value;
-                let vcount_setting = self.dispstat.vcount_setting();
-                self.dispstat
-                    .set_vcount_flag(vcount_setting == self.vcount as u16);
-
-                if self.dispstat.vcount_irq_enable() && self.dispstat.get_vcount_flag() {
-                    interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_VCounterMatch);
-                }
-            };
-        }
-
-        match completed {
-            HDraw => {
-                // Transition to HBlank
-                self.state = HBlank;
-                self.cycles_left_for_current_state = CYCLES_HBLANK;
-
-                self.handle_hdraw(dma_notifier);
-            }
-            HBlank => {
-                update_vcount!(self.vcount + 1);
-
-                if self.vcount < DISPLAY_HEIGHT {
-                    self.state = HDraw;
-                    self.dispstat.set_hblank_flag(false);
-                    self.render_scanline();
-                    // update BG2/3 reference points on the end of a scanline
-                    for i in 0..2 {
-                        self.bg_aff[i].internal_x += self.bg_aff[i].pb as i16 as i32;
-                        self.bg_aff[i].internal_y += self.bg_aff[i].pd as i16 as i32;
-                    }
-                    self.cycles_left_for_current_state = CYCLES_HDRAW;
-                } else {
-                    // latch BG2/3 reference points on vblank
-                    for i in 0..2 {
-                        self.bg_aff[i].internal_x = self.bg_aff[i].x;
-                        self.bg_aff[i].internal_y = self.bg_aff[i].y;
-                    }
-
-                    self.dispstat.set_vblank_flag(true);
-                    self.dispstat.set_hblank_flag(false);
-                    if self.dispstat.vblank_irq_enable() {
-                        interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_VBlank);
-                    };
-
-                    dma_notifier.notify(TIMING_VBLANK);
-
-                    #[cfg(not(feature = "no_video_interface"))]
-                    video_device.borrow_mut().render(&self.frame_buffer);
-
-                    self.obj_buffer_reset();
-                    self.cycles_left_for_current_state = CYCLES_HDRAW;
-                    self.state = VBlankHDraw;
-                }
-            }
-            VBlankHDraw => {
-                self.cycles_left_for_current_state = CYCLES_HBLANK;
-                self.state = VBlankHBlank;
-
-                self.dispstat.set_hblank_flag(true);
-                if self.dispstat.hblank_irq_enable() {
-                    interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_HBlank);
-                };
-            }
-            VBlankHBlank => {
-                if self.vcount < DISPLAY_HEIGHT + VBLANK_LINES - 1 {
-                    update_vcount!(self.vcount + 1);
-                    self.dispstat.set_hblank_flag(false);
-                    self.cycles_left_for_current_state = CYCLES_HDRAW;
-                    self.state = VBlankHDraw;
-                } else {
-                    update_vcount!(0);
-                    self.dispstat.set_vblank_flag(false);
-                    self.dispstat.set_hblank_flag(false);
-                    self.render_scanline();
-                    self.cycles_left_for_current_state = CYCLES_HDRAW;
-                    self.state = HDraw;
-                }
-            }
-        };
-    }
-
-    pub fn update<D>(
-        &mut self,
-        mut cycles: usize,
-        cycles_to_next_event: &mut usize,
-        dma_notifier: &mut D,
-        #[cfg(not(feature = "no_video_interface"))] video_device: &VideoDeviceRcRefCell,
-    ) where
-        D: DmaNotifer,
-    {
-        loop {
-            if self.cycles_left_for_current_state <= cycles {
-                cycles -= self.cycles_left_for_current_state;
-                self.on_state_completed(
-                    self.state,
-                    dma_notifier,
-                    #[cfg(not(feature = "no_video_interface"))]
-                    video_device,
-                );
-            } else {
-                self.cycles_left_for_current_state -= cycles;
-                break;
-            }
-        }
-
-        if self.cycles_left_for_current_state < *cycles_to_next_event {
-            *cycles_to_next_event = self.cycles_left_for_current_state;
         }
     }
 
@@ -657,14 +448,14 @@ impl Gpu {
         D: DmaNotifer,
     {
         let (next_event, cycles) = match event {
-            GpuEvent::HDraw => self.handle_hdraw(dma_notifier),
-            GpuEvent::HBlank => self.handle_hblank(
+            GpuEvent::HDraw => self.handle_hdraw_end(dma_notifier),
+            GpuEvent::HBlank => self.handle_hblank_end(
                 dma_notifier,
                 #[cfg(not(feature = "no_video_interface"))]
                 video_device,
             ),
-            GpuEvent::VBlankHDraw => self.handle_vblank_hdraw(),
-            GpuEvent::VBlankHBlank => self.handle_vblank_hblank(),
+            GpuEvent::VBlankHDraw => self.handle_vblank_hdraw_end(),
+            GpuEvent::VBlankHBlank => self.handle_vblank_hblank_end(),
         };
         self.scheduler
             .push(EventType::Gpu(next_event), cycles - extra_cycles);
@@ -765,32 +556,32 @@ mod tests {
 
     #[test]
     fn test_gpu_state_machine() {
-        let mut gpu = Gpu::new(
-            Scheduler::new_shared(),
-            Rc::new(Cell::new(Default::default())),
-        );
+        let mut sched = Scheduler::new_shared();
+        let mut gpu = Gpu::new(sched.clone(), Rc::new(Cell::new(Default::default())));
         #[cfg(not(feature = "no_video_interface"))]
         let video = Rc::new(RefCell::new(TestVideoInterface::default()));
         #[cfg(not(feature = "no_video_interface"))]
         let video_clone: VideoDeviceRcRefCell = video.clone();
         let mut dma_notifier = NopDmaNotifer;
-        let mut cycles_to_next_event = CYCLES_FULL_REFRESH;
 
-        gpu.dispstat.set_vcount_setting(0);
-        gpu.dispstat.set_vcount_irq_enable(true);
-
-        let mut total_cycles = 0;
+        gpu.dispstat.vcount_setting = 0;
+        gpu.dispstat.vcount_irq_enable = true;
 
         macro_rules! update {
             ($cycles:expr) => {
-                gpu.update(
-                    $cycles,
-                    &mut cycles_to_next_event,
-                    &mut dma_notifier,
-                    #[cfg(not(feature = "no_video_interface"))]
-                    &video_clone,
-                );
-                total_cycles += $cycles;
+                sched.update($cycles);
+                let (event, cycles_late) = sched.pop_pending_event().unwrap();
+                assert_eq!(cycles_late, 0);
+                match event {
+                    EventType::Gpu(event) => gpu.on_event(
+                        event,
+                        cycles_late,
+                        &mut dma_notifier,
+                        #[cfg(not(feature = "no_video_interface"))]
+                        &video_clone,
+                    ),
+                    _ => panic!("Found unexpected event in queue!"),
+                }
             };
         }
 
@@ -799,15 +590,16 @@ mod tests {
             #[cfg(not(feature = "no_video_interface"))]
             assert_eq!(video.borrow().frame_counter, 0);
             assert_eq!(gpu.vcount, line);
-            assert_eq!(gpu.state, GpuState::HDraw);
-            assert_eq!(gpu.dispstat.get_hblank_flag(), false);
-            assert_eq!(gpu.dispstat.get_vblank_flag(), false);
+            assert_eq!(sched.peek_next(), Some(EventType::Gpu(GpuEvent::HDraw)));
+            assert_eq!(gpu.dispstat.hblank_flag, false);
+            assert_eq!(gpu.dispstat.vblank_flag, false);
 
             update!(CYCLES_HDRAW);
 
-            assert_eq!(gpu.state, GpuState::HBlank);
-            assert_eq!(gpu.dispstat.get_hblank_flag(), true);
-            assert_eq!(gpu.dispstat.get_vblank_flag(), false);
+            println!("{:?}", sched.num_pending_events());
+            assert_eq!(sched.peek_next(), Some(EventType::Gpu(GpuEvent::HBlank)));
+            assert_eq!(gpu.dispstat.hblank_flag, true);
+            assert_eq!(gpu.dispstat.vblank_flag, false);
 
             update!(CYCLES_HBLANK);
 
@@ -819,15 +611,21 @@ mod tests {
 
         for line in 0..68 {
             println!("line = {}", 160 + line);
-            assert_eq!(gpu.dispstat.get_hblank_flag(), false);
-            assert_eq!(gpu.dispstat.get_vblank_flag(), true);
-            assert_eq!(gpu.state, GpuState::VBlankHDraw);
+            assert_eq!(gpu.dispstat.hblank_flag, false);
+            assert_eq!(gpu.dispstat.vblank_flag, true);
+            assert_eq!(
+                sched.peek_next(),
+                Some(EventType::Gpu(GpuEvent::VBlankHDraw))
+            );
 
             update!(CYCLES_HDRAW);
 
-            assert_eq!(gpu.dispstat.get_hblank_flag(), true);
-            assert_eq!(gpu.dispstat.get_vblank_flag(), true);
-            assert_eq!(gpu.state, GpuState::VBlankHBlank);
+            assert_eq!(gpu.dispstat.hblank_flag, true);
+            assert_eq!(gpu.dispstat.vblank_flag, true);
+            assert_eq!(
+                sched.peek_next(),
+                Some(EventType::Gpu(GpuEvent::VBlankHBlank))
+            );
             assert_eq!(gpu.interrupt_flags.get().LCD_VCounterMatch(), false);
 
             update!(CYCLES_HBLANK);
@@ -835,13 +633,13 @@ mod tests {
 
         #[cfg(not(feature = "no_video_interface"))]
         assert_eq!(video.borrow().frame_counter, 1);
-        assert_eq!(total_cycles, CYCLES_FULL_REFRESH);
+        assert_eq!(sched.timestamp(), CYCLES_FULL_REFRESH);
 
         assert_eq!(gpu.interrupt_flags.get().LCD_VCounterMatch(), true);
         assert_eq!(gpu.cycles_left_for_current_state, CYCLES_HDRAW);
-        assert_eq!(gpu.state, GpuState::HDraw);
+        assert_eq!(sched.peek_next(), Some(EventType::Gpu(GpuEvent::HDraw)));
         assert_eq!(gpu.vcount, 0);
-        assert_eq!(gpu.dispstat.get_vcount_flag(), true);
-        assert_eq!(gpu.dispstat.get_hblank_flag(), false);
+        assert_eq!(gpu.dispstat.vcount_flag, true);
+        assert_eq!(gpu.dispstat.hblank_flag, false);
     }
 }

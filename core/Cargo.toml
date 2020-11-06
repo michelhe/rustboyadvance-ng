@@ -41,6 +41,7 @@ fuzzy-matcher = { version = "0.3.4", optional = true }
 bit_reverse = "0.1.8"
 yaml-rust = "0.4"
 lazy_static = "1.4.0"
+smart-default = "0.6.0"
 
 [target.'cfg(target_arch="wasm32")'.dependencies]
 instant = { version = "0.1.2", features = ["wasm-bindgen"] }

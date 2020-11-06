@@ -16,7 +16,7 @@ impl Gpu {
         let pc = self.bg_aff[bg - 2].pc as i32;
         let ref_point = self.get_ref_point(bg);
 
-        let wraparound = self.backgrounds[bg].bgcnt.affine_wraparound();
+        let wraparound = self.bgcnt[bg].affine_wraparound;
 
         for x in 0..DISPLAY_WIDTH {
             let mut t = utils::transform_bg_point(ref_point, x as i32, pa, pc);
@@ -25,19 +25,19 @@ impl Gpu {
                     t.0 = t.0.rem_euclid(SCREEN_VIEWPORT.w);
                     t.1 = t.1.rem_euclid(SCREEN_VIEWPORT.h);
                 } else {
-                    self.backgrounds[bg].line[x] = Rgb15::TRANSPARENT;
+                    self.bg_line[bg][x] = Rgb15::TRANSPARENT;
                     continue;
                 }
             }
             let pixel_index = index2d!(u32, t.0, t.1, DISPLAY_WIDTH);
             let pixel_ofs = 2 * pixel_index;
             let color = Rgb15(self.vram.read_16(pixel_ofs));
-            self.backgrounds[bg].line[x] = color;
+            self.bg_line[bg][x] = color;
         }
     }
 
     pub(in super::super) fn render_mode4(&mut self, bg: usize) {
-        let page_ofs: u32 = match self.dispcnt.display_frame() {
+        let page_ofs: u32 = match self.dispcnt.display_frame_select {
             0 => 0x0600_0000 - VRAM_ADDR,
             1 => 0x0600_a000 - VRAM_ADDR,
             _ => unreachable!(),
@@ -49,7 +49,7 @@ impl Gpu {
         let pc = self.bg_aff[bg - 2].pc as i32;
         let ref_point = self.get_ref_point(bg);
 
-        let wraparound = self.backgrounds[bg].bgcnt.affine_wraparound();
+        let wraparound = self.bgcnt[bg].affine_wraparound;
 
         for x in 0..DISPLAY_WIDTH {
             let mut t = utils::transform_bg_point(ref_point, x as i32, pa, pc);
@@ -58,7 +58,7 @@ impl Gpu {
                     t.0 = t.0.rem_euclid(SCREEN_VIEWPORT.w);
                     t.1 = t.1.rem_euclid(SCREEN_VIEWPORT.h);
                 } else {
-                    self.backgrounds[bg].line[x] = Rgb15::TRANSPARENT;
+                    self.bg_line[bg][x] = Rgb15::TRANSPARENT;
                     continue;
                 }
             }
@@ -66,12 +66,12 @@ impl Gpu {
             let bitmap_ofs = page_ofs + (bitmap_index as u32);
             let index = self.vram.read_8(bitmap_ofs) as u32;
             let color = self.get_palette_color(index, 0, 0);
-            self.backgrounds[bg].line[x] = color;
+            self.bg_line[bg][x] = color;
         }
     }
 
     pub(in super::super) fn render_mode5(&mut self, bg: usize) {
-        let page_ofs: u32 = match self.dispcnt.display_frame() {
+        let page_ofs: u32 = match self.dispcnt.display_frame_select {
             0 => 0x0600_0000 - VRAM_ADDR,
             1 => 0x0600_a000 - VRAM_ADDR,
             _ => unreachable!(),
@@ -83,7 +83,7 @@ impl Gpu {
         let pc = self.bg_aff[bg - 2].pc as i32;
         let ref_point = self.get_ref_point(bg);
 
-        let wraparound = self.backgrounds[bg].bgcnt.affine_wraparound();
+        let wraparound = self.bgcnt[bg].affine_wraparound;
 
         for x in 0..DISPLAY_WIDTH {
             let mut t = utils::transform_bg_point(ref_point, x as i32, pa, pc);
@@ -92,13 +92,13 @@ impl Gpu {
                     t.0 = t.0.rem_euclid(MODE5_VIEWPORT.w);
                     t.1 = t.1.rem_euclid(MODE5_VIEWPORT.h);
                 } else {
-                    self.backgrounds[bg].line[x] = Rgb15::TRANSPARENT;
+                    self.bg_line[bg][x] = Rgb15::TRANSPARENT;
                     continue;
                 }
             }
             let pixel_ofs = page_ofs + 2 * index2d!(u32, t.0, t.1, MODE5_VIEWPORT.w);
             let color = Rgb15(self.vram.read_16(pixel_ofs));
-            self.backgrounds[bg].line[x] = color;
+            self.bg_line[bg][x] = color;
         }
     }
 }
