@@ -88,14 +88,14 @@ impl DmaChannel {
         let timing = ctrl.timing();
         let mut start_immediately = false;
         if ctrl.is_enabled() && !self.ctrl.is_enabled() {
-            trace!(
-                "DMA{} enabled! timing={} src={:#x} dst={:#x} cnt={}",
-                self.id,
-                timing,
-                self.src,
-                self.dst,
-                self.wc
-            );
+            // trace!(
+            //     "DMA{} enabled! timing={} src={:#x} dst={:#x} cnt={}",
+            //     self.id,
+            //     timing,
+            //     self.src,
+            //     self.dst,
+            //     self.wc
+            // );
             self.running = true;
             start_immediately = timing == 0;
             self.internal.src_addr = self.src;

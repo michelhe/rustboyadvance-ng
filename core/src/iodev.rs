@@ -131,6 +131,13 @@ impl Bus for IoDevices {
             REG_DMA1CNT_H => io.dmac.channels[1].ctrl.0,
             REG_DMA2CNT_H => io.dmac.channels[2].ctrl.0,
             REG_DMA3CNT_H => io.dmac.channels[3].ctrl.0,
+            // Even though these registers are write only,
+            // some games may still try to read them.
+            // TODO: should this be treated as an open-bus read?
+            REG_DMA0CNT_L => 0,
+            REG_DMA1CNT_L => 0,
+            REG_DMA2CNT_L => 0,
+            REG_DMA3CNT_L => 0,
 
             REG_WAITCNT => io.waitcnt.0,
 
