@@ -82,9 +82,35 @@ pub struct SavedCpuState {
     pub cpsr: RegPSR,
     pub(super) spsr: RegPSR,
 
-    pub(super) banks: Box<BankedRegisters>,
+    pub(super) banks: BankedRegisters,
 
     pub(super) bs_carry_out: bool,
+}
+
+#[derive(Clone, Debug)]
+#[cfg(feature = "debugger")]
+struct DebuggerInfo {
+    last_executed: Option<DecodedInstruction>,
+    /// store the gpr before executing an instruction to show diff in the Display impl
+    gpr_previous: [u32; 15],
+    breakpoints: Vec<u32>,
+    verbose: bool,
+    trace_opcodes: bool,
+    trace_exceptions: bool,
+}
+
+#[cfg(feature = "debugger")]
+impl Default for DebuggerInfo {
+    fn default() -> DebuggerInfo {
+        DebuggerInfo {
+            last_executed: None,
+            gpr_previous: [0; 15],
+            breakpoints: Vec::new(),
+            verbose: false,
+            trace_opcodes: false,
+            trace_exceptions: false,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -102,21 +128,10 @@ pub struct Core<I: MemoryInterface> {
     // Todo - do I still need this?
     pub(super) bs_carry_out: bool,
 
-    pub(super) banks: Box<BankedRegisters>, // Putting these in a box so the most-used Cpu fields in the same cacheline
+    pub(super) banks: BankedRegisters,
 
     #[cfg(feature = "debugger")]
-    pub last_executed: Option<DecodedInstruction>,
-    /// store the gpr before executing an instruction to show diff in the Display impl
-    #[cfg(feature = "debugger")]
-    gpr_previous: [u32; 15],
-    #[cfg(feature = "debugger")]
-    pub breakpoints: Vec<u32>,
-    #[cfg(feature = "debugger")]
-    pub verbose: bool,
-    #[cfg(feature = "debugger")]
-    pub trace_opcodes: bool,
-    #[cfg(feature = "debugger")]
-    pub trace_exceptions: bool,
+    pub dbg_info: DebuggerInfo,
 }
 
 impl<I: MemoryInterface> Core<I> {
@@ -130,21 +145,11 @@ impl<I: MemoryInterface> Core<I> {
             next_fetch_access: MemoryAccess::NonSeq,
             cpsr,
             spsr: Default::default(),
-            banks: Box::new(BankedRegisters::default()),
+            banks: BankedRegisters::default(),
             bs_carry_out: false,
 
             #[cfg(feature = "debugger")]
-            last_executed: None,
-            #[cfg(feature = "debugger")]
-            gpr_previous: [0; 15],
-            #[cfg(feature = "debugger")]
-            breakpoints: Vec::new(),
-            #[cfg(feature = "debugger")]
-            verbose: false,
-            #[cfg(feature = "debugger")]
-            trace_opcodes: false,
-            #[cfg(feature = "debugger")]
-            trace_exceptions: false,
+            dbg_info: DebuggerInfo::default(),
         }
     }
 
@@ -168,17 +173,7 @@ impl<I: MemoryInterface> Core<I> {
 
             // savestate does not keep debugger related information, so just reinitialize to default
             #[cfg(feature = "debugger")]
-            last_executed: None,
-            #[cfg(feature = "debugger")]
-            gpr_previous: [0; 15],
-            #[cfg(feature = "debugger")]
-            breakpoints: Vec::new(),
-            #[cfg(feature = "debugger")]
-            verbose: false,
-            #[cfg(feature = "debugger")]
-            trace_opcodes: false,
-            #[cfg(feature = "debugger")]
-            trace_exceptions: false,
+            dbg_info: DebuggerInfo::default(),
         }
     }
 
