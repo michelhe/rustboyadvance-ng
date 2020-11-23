@@ -17,6 +17,7 @@ pub use alu::*;
 pub mod exception;
 pub mod psr;
 pub use psr::*;
+pub mod disass;
 
 pub const REG_PC: usize = 15;
 pub const REG_LR: usize = 14;

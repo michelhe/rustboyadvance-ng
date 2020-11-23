@@ -1,5 +1,5 @@
 #[cfg(feature = "debugger")]
-pub mod display;
+pub mod disass;
 pub mod exec;
 
 use serde::{Deserialize, Serialize};

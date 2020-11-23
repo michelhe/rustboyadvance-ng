@@ -6,7 +6,7 @@ use crate::byteorder::{LittleEndian, ReadBytesExt};
 use crate::num::FromPrimitive;
 
 #[cfg(feature = "debugger")]
-pub mod display;
+pub mod disass;
 pub mod exec;
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]

@@ -1,7 +1,7 @@
 use std::fmt;
 use std::marker::PhantomData;
 
-use super::arm7tdmi::InstructionDecoder;
+use super::InstructionDecoder;
 use super::Addr;
 
 pub struct Disassembler<'a, D>
