@@ -291,10 +291,7 @@ impl SoundController {
                     self.resampler.in_freq = self.sample_rate;
                 }
                 self.cycles_per_sample = 512 >> resolution;
-                info!(
-                    "bias - setting sample frequency to {}hz",
-                    self.sample_rate
-                );
+                info!("bias - setting sample frequency to {}hz", self.sample_rate);
                 // TODO this will not affect the currently scheduled sample event
             }
 

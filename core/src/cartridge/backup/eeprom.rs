@@ -336,7 +336,10 @@ impl EepromController {
             match (src, dst) {
                 // DMA to EEPROM
                 (_, 0x0d000000..=0x0dffffff) => {
-                    debug!("caught eeprom dma transfer src={:#x} dst={:#x} count={}", src, dst, count);
+                    debug!(
+                        "caught eeprom dma transfer src={:#x} dst={:#x} count={}",
+                        src, dst, count
+                    );
                     let eeprom_type = match count {
                         // Read(11) + 6bit address + stop bit
                         9 => Eeprom512,
@@ -346,7 +349,10 @@ impl EepromController {
                         73 => Eeprom512,
                         // Write(11) + 14bit address + 64bit value + stop bit
                         81 => Eeprom8k,
-                        _ => panic!("unexpected bit count ({}) when detecting eeprom size", count)
+                        _ => panic!(
+                            "unexpected bit count ({}) when detecting eeprom size",
+                            count
+                        ),
                     };
                     info!("detected eeprom type: {:?}", eeprom_type);
                     self.chip.borrow_mut().set_type(eeprom_type);
@@ -356,7 +362,7 @@ impl EepromController {
                 (0x0d000000..=0x0dffffff, _) => {
                     panic!("reading from eeprom when real size is not detected yet is not supported by this emulator")
                 }
-                _ => {/* Not a eeprom dma, doing nothing */}
+                _ => { /* Not a eeprom dma, doing nothing */ }
             }
         } else {
             // this might be a eeprom request, so we need to reset the eeprom state machine if its dirty (due to bad behaving games, or tests roms)

@@ -15,15 +15,16 @@ impl<I: MemoryInterface> Core<I> {
         let rs = insn.bit_range(3..6) as usize;
 
         let shift_amount = insn.offset5() as u8 as u32;
+        let mut carry = self.cpsr.C();
         let op2 = self.barrel_shift_op(
             insn.format1_op(),
             self.gpr[rs],
             shift_amount,
-            self.cpsr.C(),
+            &mut carry,
             true,
         );
         self.gpr[rd] = op2;
-        self.alu_update_flags(op2, false, self.bs_carry_out, self.cpsr.V());
+        self.alu_update_flags(op2, false, carry, self.cpsr.V());
 
         CpuAction::AdvancePC(Seq)
     }
@@ -95,9 +96,8 @@ impl<I: MemoryInterface> Core<I> {
 
         macro_rules! shifter_op {
             ($bs_op:expr) => {{
-                let result = self.shift_by_register($bs_op, rd, rs, carry);
+                let result = self.shift_by_register($bs_op, rd, rs, &mut carry);
                 self.idle_cycle();
-                carry = self.bs_carry_out;
                 result
             }};
         }

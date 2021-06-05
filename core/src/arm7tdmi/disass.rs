@@ -1,8 +1,8 @@
 use std::fmt;
 use std::marker::PhantomData;
 
-use super::InstructionDecoder;
 use super::Addr;
+use super::InstructionDecoder;
 
 pub struct Disassembler<'a, D>
 where

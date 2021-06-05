@@ -93,7 +93,10 @@ impl<I: MemoryInterface> Core<I> {
         if insn.bit(25) {
             let immediate = insn & 0xff;
             let rotate = 2 * insn.bit_range(8..12);
-            self.ror(immediate, rotate, self.cpsr.C(), false, true)
+            let mut carry = self.cpsr.C();
+            let v = self.ror(immediate, rotate, &mut carry, false, true);
+            self.cpsr.set_C(carry);
+            v
         } else {
             self.get_reg((insn & 0b1111) as usize)
         }
@@ -175,13 +178,12 @@ impl<I: MemoryInterface> Core<I> {
         let mut s_flag = insn.set_cond_flag();
         let opcode = insn.opcode();
 
+        let mut carry = self.cpsr.C();
         let op2 = if insn.bit(25) {
             let immediate = insn & 0xff;
             let rotate = 2 * insn.bit_range(8..12);
             // TODO refactor out
-            let bs_carry_in = self.cpsr.C();
-            self.bs_carry_out = bs_carry_in;
-            self.ror(immediate, rotate, self.cpsr.C(), false, true)
+            self.ror(immediate, rotate, &mut carry, false, true)
         } else {
             let reg = insn & 0xf;
 
@@ -203,7 +205,7 @@ impl<I: MemoryInterface> Core<I> {
                 shift_by: shift_by,
                 added: None,
             };
-            self.register_shift(&shifted_reg)
+            self.register_shift(&shifted_reg, &mut carry)
         };
 
         if rd == REG_PC && s_flag {
@@ -211,9 +213,7 @@ impl<I: MemoryInterface> Core<I> {
             s_flag = false;
         }
 
-        let carry = self.cpsr.C() as u32;
         let alu_res = if s_flag {
-            let mut carry = self.bs_carry_out;
             let mut overflow = self.cpsr.V();
             let result = match opcode {
                 AND | TST => op1 & op2,
@@ -238,15 +238,16 @@ impl<I: MemoryInterface> Core<I> {
                 Some(result)
             }
         } else {
+            let c = carry as u32;
             Some(match opcode {
                 AND => op1 & op2,
                 EOR => op1 ^ op2,
                 SUB => op1.wrapping_sub(op2),
                 RSB => op2.wrapping_sub(op1),
                 ADD => op1.wrapping_add(op2),
-                ADC => op1.wrapping_add(op2).wrapping_add(carry),
-                SBC => op1.wrapping_sub(op2.wrapping_add(1 - carry)),
-                RSC => op2.wrapping_sub(op1.wrapping_add(1 - carry)),
+                ADC => op1.wrapping_add(op2).wrapping_add(c),
+                SBC => op1.wrapping_sub(op2.wrapping_add(1 - c)),
+                RSC => op2.wrapping_sub(op1.wrapping_add(1 - c)),
                 ORR => op1 | op2,
                 MOV => op2,
                 BIC => op1 & (!op2),
@@ -290,7 +291,9 @@ impl<I: MemoryInterface> Core<I> {
         if base_reg == REG_PC {
             addr = self.pc_arm() + 8; // prefetching
         }
-        let offset = self.get_barrel_shifted_value(&insn.ldr_str_offset()); // TODO: wrong to use in here
+        let mut carry = self.cpsr.C();
+        let offset = self.get_barrel_shifted_value(&insn.ldr_str_offset(), &mut carry); // TODO: wrong to use in here
+        self.cpsr.set_C(carry);
         let effective_addr = (addr as i32).wrapping_add(offset as i32) as Addr;
 
         // TODO - confirm this
@@ -350,15 +353,16 @@ impl<I: MemoryInterface> Core<I> {
     }
 
     pub fn exec_arm_ldr_str_hs_reg(&mut self, insn: u32) -> CpuAction {
-        self.ldr_str_hs(
-            insn,
-            BarrelShifterValue::ShiftedRegister(ShiftedRegister {
-                reg: (insn & 0xf) as usize,
-                shift_by: ShiftRegisterBy::ByAmount(0),
-                bs_op: BarrelShiftOpCode::LSL,
-                added: Some(insn.add_offset_flag()),
-            }),
-        )
+        let offset = {
+            let added = insn.add_offset_flag();
+            let abs = self.get_reg((insn & 0xf) as usize);
+            if added {
+                abs as u32
+            } else {
+                (-(abs as i32)) as u32
+            }
+        };
+        self.ldr_str_hs_common(insn, offset)
     }
 
     pub fn exec_arm_ldr_str_hs_imm(&mut self, insn: u32) -> CpuAction {
@@ -368,11 +372,11 @@ impl<I: MemoryInterface> Core<I> {
         } else {
             (-(offset8 as i32)) as u32
         };
-        self.ldr_str_hs(insn, BarrelShifterValue::ImmediateValue(offset8))
+        self.ldr_str_hs_common(insn, offset8)
     }
 
     #[inline(always)]
-    pub fn ldr_str_hs(&mut self, insn: u32, offset: BarrelShifterValue) -> CpuAction {
+    pub fn ldr_str_hs_common(&mut self, insn: u32, offset: u32) -> CpuAction {
         let mut result = CpuAction::AdvancePC(NonSeq);
 
         let load = insn.load_flag();
@@ -384,8 +388,6 @@ impl<I: MemoryInterface> Core<I> {
         if base_reg == REG_PC {
             addr = self.pc_arm() + 8; // prefetching
         }
-
-        let offset = self.get_barrel_shifted_value(&offset);
 
         // TODO - confirm this
         let old_mode = self.cpsr.mode();

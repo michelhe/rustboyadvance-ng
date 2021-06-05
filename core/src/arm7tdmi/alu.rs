@@ -111,66 +111,59 @@ impl BarrelShifterValue {
 }
 
 impl<I: MemoryInterface> Core<I> {
-    pub fn lsl(&mut self, val: u32, amount: u32, carry_in: bool) -> u32 {
+    pub fn lsl(&mut self, val: u32, amount: u32, carry: &mut bool) -> u32 {
         match amount {
-            0 => {
-                self.bs_carry_out = carry_in;
-                val
-            }
+            0 => val,
             x if x < 32 => {
-                self.bs_carry_out = val.wrapping_shr(32 - x) & 1 == 1;
+                *carry = val.wrapping_shr(32 - x) & 1 == 1;
                 val << x
             }
             32 => {
-                self.bs_carry_out = val & 1 == 1;
+                *carry = val & 1 == 1;
                 0
             }
             _ => {
-                self.bs_carry_out = false;
+                *carry = false;
                 0
             }
         }
     }
 
-    pub fn lsr(&mut self, val: u32, amount: u32, carry_in: bool, immediate: bool) -> u32 {
+    pub fn lsr(&mut self, val: u32, amount: u32, carry: &mut bool, immediate: bool) -> u32 {
         if amount != 0 {
             match amount {
                 x if x < 32 => {
-                    self.bs_carry_out = (val >> (amount - 1) & 1) == 1;
+                    *carry = (val >> (amount - 1) & 1) == 1;
                     val >> amount
                 }
                 32 => {
-                    self.bs_carry_out = val.bit(31);
+                    *carry = val.bit(31);
                     0
                 }
                 _ => {
-                    self.bs_carry_out = false;
+                    *carry = false;
                     0
                 }
             }
         } else if immediate {
-            self.bs_carry_out = val.bit(31);
+            *carry = val.bit(31);
             0
         } else {
-            self.bs_carry_out = carry_in;
             val
         }
     }
 
-    pub fn asr(&mut self, val: u32, amount: u32, carry_in: bool, immediate: bool) -> u32 {
+    pub fn asr(&mut self, val: u32, amount: u32, carry: &mut bool, immediate: bool) -> u32 {
         let amount = if immediate && amount == 0 { 32 } else { amount };
         match amount {
-            0 => {
-                self.bs_carry_out = carry_in;
-                val
-            }
+            0 => val,
             x if x < 32 => {
-                self.bs_carry_out = val.wrapping_shr(amount - 1) & 1 == 1;
+                *carry = val.wrapping_shr(amount - 1) & 1 == 1;
                 (val as i32).wrapping_shr(amount) as u32
             }
             _ => {
                 let bit31 = val.bit(31);
-                self.bs_carry_out = bit31;
+                *carry = bit31;
                 if bit31 {
                     0xffffffff
                 } else {
@@ -180,9 +173,9 @@ impl<I: MemoryInterface> Core<I> {
         }
     }
 
-    pub fn rrx(&mut self, val: u32, carry_in: bool) -> u32 {
-        let old_c = carry_in as i32;
-        self.bs_carry_out = val & 0b1 != 0;
+    pub fn rrx(&mut self, val: u32, carry: &mut bool) -> u32 {
+        let old_c = *carry as i32;
+        *carry = val & 0b1 != 0;
         (((val as u32) >> 1) as i32 | (old_c << 31)) as u32
     }
 
@@ -190,14 +183,14 @@ impl<I: MemoryInterface> Core<I> {
         &mut self,
         val: u32,
         amount: u32,
-        carry_in: bool,
+        carry: &mut bool,
         immediate: bool,
         rrx: bool,
     ) -> u32 {
         match amount {
             0 => {
                 if immediate & rrx {
-                    self.rrx(val, carry_in)
+                    self.rrx(val, carry)
                 } else {
                     val
                 }
@@ -209,7 +202,7 @@ impl<I: MemoryInterface> Core<I> {
                 } else {
                     val
                 };
-                self.bs_carry_out = (val as u32).bit(31);
+                *carry = (val as u32).bit(31);
                 val
             }
         }
@@ -222,12 +215,9 @@ impl<I: MemoryInterface> Core<I> {
         shift: BarrelShiftOpCode,
         val: u32,
         amount: u32,
-        carry_in: bool,
+        carry: &mut bool,
         immediate: bool,
     ) -> u32 {
-        // TODO get rid of Core::bs_carry_out field in favour sending the carry as a &mut reference,
-        // Forcing calling functions to do something with the carry :
-        self.bs_carry_out = carry_in;
         //
         // From GBATEK:
         // Zero Shift Amount (Shift Register by Immediate, with Immediate=0)
@@ -248,10 +238,10 @@ impl<I: MemoryInterface> Core<I> {
         //   in the range 1 to 32 and see above.
         //
         match shift {
-            BarrelShiftOpCode::LSL => self.lsl(val, amount, carry_in),
-            BarrelShiftOpCode::LSR => self.lsr(val, amount, carry_in, immediate),
-            BarrelShiftOpCode::ASR => self.asr(val, amount, carry_in, immediate),
-            BarrelShiftOpCode::ROR => self.ror(val, amount, carry_in, immediate, true),
+            BarrelShiftOpCode::LSL => self.lsl(val, amount, carry),
+            BarrelShiftOpCode::LSR => self.lsr(val, amount, carry, immediate),
+            BarrelShiftOpCode::ASR => self.asr(val, amount, carry, immediate),
+            BarrelShiftOpCode::ROR => self.ror(val, amount, carry, immediate, true),
         }
     }
 
@@ -261,7 +251,7 @@ impl<I: MemoryInterface> Core<I> {
         bs_op: BarrelShiftOpCode,
         reg: usize,
         rs: usize,
-        carry: bool,
+        carry: &mut bool,
     ) -> u32 {
         let mut val = self.get_reg(reg);
         if reg == REG_PC {
@@ -271,8 +261,7 @@ impl<I: MemoryInterface> Core<I> {
         self.barrel_shift_op(bs_op, val, amount, carry, false)
     }
 
-    pub fn register_shift(&mut self, shift: &ShiftedRegister) -> u32 {
-        let carry = self.cpsr.C();
+    pub fn register_shift(&mut self, shift: &ShiftedRegister, carry: &mut bool) -> u32 {
         match shift.shift_by {
             ShiftRegisterBy::ByAmount(amount) => {
                 let result =
@@ -285,13 +274,13 @@ impl<I: MemoryInterface> Core<I> {
         }
     }
 
-    pub fn get_barrel_shifted_value(&mut self, sval: &BarrelShifterValue) -> u32 {
+    pub fn get_barrel_shifted_value(&mut self, sval: &BarrelShifterValue, carry: &mut bool) -> u32 {
         // TODO decide if error handling or panic here
         match sval {
             BarrelShifterValue::ImmediateValue(offset) => *offset as u32,
             BarrelShifterValue::ShiftedRegister(shifted_reg) => {
                 let added = (*shifted_reg).added.unwrap_or(true);
-                let abs = self.register_shift(shifted_reg) as u32;
+                let abs = self.register_shift(shifted_reg, carry) as u32;
                 if added {
                     abs as u32
                 } else {

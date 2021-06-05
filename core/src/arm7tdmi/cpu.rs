@@ -83,8 +83,6 @@ pub struct SavedCpuState {
     pub(super) spsr: RegPSR,
 
     pub(super) banks: BankedRegisters,
-
-    pub(super) bs_carry_out: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -125,9 +123,6 @@ pub struct Core<I: MemoryInterface> {
     pub cpsr: RegPSR,
     pub(super) spsr: RegPSR,
 
-    // Todo - do I still need this?
-    pub(super) bs_carry_out: bool,
-
     pub(super) banks: BankedRegisters,
 
     #[cfg(feature = "debugger")]
@@ -146,7 +141,6 @@ impl<I: MemoryInterface> Core<I> {
             cpsr,
             spsr: Default::default(),
             banks: BankedRegisters::default(),
-            bs_carry_out: false,
 
             #[cfg(feature = "debugger")]
             dbg_info: DebuggerInfo::default(),
@@ -167,7 +161,6 @@ impl<I: MemoryInterface> Core<I> {
             banks: state.banks,
             spsr: state.spsr,
 
-            bs_carry_out: state.bs_carry_out,
             pipeline: state.pipeline,
             next_fetch_access: state.next_fetch_access,
 
@@ -184,7 +177,6 @@ impl<I: MemoryInterface> Core<I> {
             gpr: self.gpr.clone(),
             spsr: self.spsr,
             banks: self.banks.clone(),
-            bs_carry_out: self.bs_carry_out,
             pipeline: self.pipeline.clone(),
             next_fetch_access: self.next_fetch_access,
         }
@@ -196,7 +188,6 @@ impl<I: MemoryInterface> Core<I> {
         self.gpr = state.gpr;
         self.spsr = state.spsr;
         self.banks = state.banks;
-        self.bs_carry_out = state.bs_carry_out;
         self.pipeline = state.pipeline;
         self.next_fetch_access = state.next_fetch_access;
     }

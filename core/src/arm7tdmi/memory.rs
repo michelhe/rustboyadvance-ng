@@ -134,7 +134,10 @@ impl<I: MemoryInterface> Core<I> {
         if addr & 0x3 != 0 {
             let rotation = (addr & 0x3) << 3;
             let value = self.load_32(addr & !0x3, access);
-            self.ror(value, rotation, self.cpsr.C(), false, false)
+            let mut carry = self.cpsr.C();
+            let v = self.ror(value, rotation, &mut carry, false, false);
+            self.cpsr.set_C(carry);
+            v
         } else {
             self.load_32(addr, access)
         }
@@ -146,7 +149,10 @@ impl<I: MemoryInterface> Core<I> {
         if addr & 0x1 != 0 {
             let rotation = (addr & 0x1) << 3;
             let value = self.load_16(addr & !0x1, access);
-            self.ror(value as u32, rotation, self.cpsr.C(), false, false)
+            let mut carry = self.cpsr.C();
+            let v = self.ror(value as u32, rotation, &mut carry, false, false);
+            self.cpsr.set_C(carry);
+            v
         } else {
             self.load_16(addr, access) as u32
         }
