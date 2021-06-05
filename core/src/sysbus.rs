@@ -46,23 +46,24 @@ pub mod consts {
 
 use consts::*;
 
-const CYCLE_LUT_SIZE: usize = 0x10;
+// Only the first 15 entries are actually used, the rest are dummy entries for open-bus
+const CYCLE_LUT_SIZE: usize = 0x100;
 
 #[derive(Serialize, Deserialize, Clone)]
 struct CycleLookupTables {
-    n_cycles32: [usize; CYCLE_LUT_SIZE],
-    s_cycles32: [usize; CYCLE_LUT_SIZE],
-    n_cycles16: [usize; CYCLE_LUT_SIZE],
-    s_cycles16: [usize; CYCLE_LUT_SIZE],
+    n_cycles32: Box<[usize]>,
+    s_cycles32: Box<[usize]>,
+    n_cycles16: Box<[usize]>,
+    s_cycles16: Box<[usize]>,
 }
 
 impl Default for CycleLookupTables {
     fn default() -> CycleLookupTables {
         CycleLookupTables {
-            n_cycles32: [1; CYCLE_LUT_SIZE],
-            s_cycles32: [1; CYCLE_LUT_SIZE],
-            n_cycles16: [1; CYCLE_LUT_SIZE],
-            s_cycles16: [1; CYCLE_LUT_SIZE],
+            n_cycles32: vec![1; CYCLE_LUT_SIZE].into_boxed_slice(),
+            s_cycles32: vec![1; CYCLE_LUT_SIZE].into_boxed_slice(),
+            n_cycles16: vec![1; CYCLE_LUT_SIZE].into_boxed_slice(),
+            s_cycles16: vec![1; CYCLE_LUT_SIZE].into_boxed_slice(),
         }
     }
 }
@@ -242,26 +243,22 @@ impl SysBus {
     pub fn add_cycles(&mut self, addr: Addr, access: MemoryAccess, width: MemoryAccessWidth) {
         use MemoryAccess::*;
         use MemoryAccessWidth::*;
-        let page = (addr >> 24) as usize;
+        let page = ((addr >> 24) & 0xF) as usize;
 
-        // TODO optimize out by making the LUTs have 0x100 entries for each possible page ?
-        let cycles = if page > 0xF {
-            // open bus
-            1
-        } else {
+        let cycles = unsafe {
             match width {
                 MemoryAccess8 | MemoryAccess16 => match access {
-                    NonSeq => self.cycle_luts.n_cycles16[page],
-                    Seq => self.cycle_luts.s_cycles16[page],
+                    NonSeq => self.cycle_luts.n_cycles16.get_unchecked(page),
+                    Seq => self.cycle_luts.s_cycles16.get_unchecked(page),
                 },
                 MemoryAccess32 => match access {
-                    NonSeq => self.cycle_luts.n_cycles32[page],
-                    Seq => self.cycle_luts.s_cycles32[page],
+                    NonSeq => self.cycle_luts.n_cycles32.get_unchecked(page),
+                    Seq => self.cycle_luts.s_cycles32.get_unchecked(page),
                 },
             }
         };
 
-        self.scheduler.update(cycles);
+        self.scheduler.update(*cycles);
     }
 
     /// Helper for "open-bus" accesses
