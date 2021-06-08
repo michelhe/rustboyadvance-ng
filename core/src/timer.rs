@@ -98,6 +98,8 @@ pub struct Timers {
     scheduler: SharedScheduler,
     timers: [Timer; 4],
     running_timers: u8,
+
+    #[cfg(feature = "debugger")]
     pub trace: bool,
 }
 
@@ -139,6 +141,8 @@ impl Timers {
                 Timer::new(3, interrupt_flags.clone()),
             ],
             running_timers: 0,
+
+            #[cfg(feature = "debugger")]
             trace: false,
         }
     }
@@ -199,6 +203,7 @@ impl Timers {
     pub fn write_timer_ctl(&mut self, id: usize, value: u16) {
         let timer = &mut self.timers[id];
         let new_ctl = TimerCtl(value);
+        #[cfg(feature = "debugger")]
         let old_enabled = timer.ctl.enabled();
         let new_enabled = new_ctl.enabled();
         let cascade = new_ctl.cascade();
@@ -212,12 +217,16 @@ impl Timers {
             self.running_timers &= !(1 << id);
             self.cancel_timer_event(id);
         }
-        if old_enabled != new_enabled {
-            trace!(
-                "TMR{} {}",
-                id,
-                if new_enabled { "enabled" } else { "disabled" }
-            );
+
+        #[cfg(feature = "debugger")]
+        {
+            if self.trace && old_enabled != new_enabled {
+                trace!(
+                    "TMR{} {}",
+                    id,
+                    if new_enabled { "enabled" } else { "disabled" }
+                );
+            }
         }
     }
 

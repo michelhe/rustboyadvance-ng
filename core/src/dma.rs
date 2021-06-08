@@ -83,19 +83,24 @@ impl DmaChannel {
         self.wc = value as u32;
     }
 
-    pub fn write_dma_ctrl(&mut self, value: u16) -> bool {
+    pub fn write_dma_ctrl(&mut self, value: u16, #[cfg(feature = "debugger")] trace: bool) -> bool {
         let ctrl = DmaChannelCtrl(value);
         let timing = ctrl.timing();
         let mut start_immediately = false;
         if ctrl.is_enabled() && !self.ctrl.is_enabled() {
-            // trace!(
-            //     "DMA{} enabled! timing={} src={:#x} dst={:#x} cnt={}",
-            //     self.id,
-            //     timing,
-            //     self.src,
-            //     self.dst,
-            //     self.wc
-            // );
+            #[cfg(feature = "debugger")]
+            {
+                if trace {
+                    trace!(
+                        "DMA{} enabled! timing={} src={:#x} dst={:#x} cnt={}",
+                        self.id,
+                        timing,
+                        self.src,
+                        self.dst,
+                        self.wc
+                    );
+                }
+            }
             self.running = true;
             start_immediately = timing == 0;
             self.internal.src_addr = self.src;
@@ -195,6 +200,8 @@ pub struct DmaController {
     #[serde(skip)]
     #[serde(default = "Scheduler::new_shared")]
     scheduler: SharedScheduler,
+    #[cfg(feature = "debugger")]
+    pub trace: bool,
 }
 
 impl InterruptConnect for DmaController {
@@ -222,6 +229,9 @@ impl DmaController {
             ],
             pending_set: 0,
             scheduler: scheduler,
+
+            #[cfg(feature = "debugger")]
+            trace: false,
         }
     }
 
@@ -246,7 +256,11 @@ impl DmaController {
             6 => self.channels[channel_id].write_dst_high(value),
             8 => self.channels[channel_id].write_word_count(value),
             10 => {
-                if self.channels[channel_id].write_dma_ctrl(value) {
+                #[cfg(feature = "debugger")]
+                let start_immediately = self.channels[channel_id].write_dma_ctrl(value, self.trace);
+                #[cfg(not(feature = "debugger"))]
+                let start_immediately = self.channels[channel_id].write_dma_ctrl(value);
+                if start_immediately {
                     // DMA actually starts after 3 cycles
                     self.scheduler
                         .push(EventType::DmaActivateChannel(channel_id), 3);

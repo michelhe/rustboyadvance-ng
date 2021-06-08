@@ -225,15 +225,7 @@ impl Debugger {
             }
             TraceToggle(flags) => {
                 if flags.contains(TraceFlags::TRACE_OPCODE) {
-                    gba.cpu.dbg.trace_opcodes = !gba.cpu.dbg.trace_opcodes;
-                    println!(
-                        "[*] opcode tracing {}",
-                        if gba.cpu.dbg.trace_opcodes {
-                            "on"
-                        } else {
-                            "off"
-                        }
-                    )
+                    println!("[*] opcode tracing not implemented")
                 }
                 if flags.contains(TraceFlags::TRACE_EXCEPTIONS) {
                     gba.cpu.dbg.trace_exceptions = !gba.cpu.dbg.trace_exceptions;
@@ -247,10 +239,26 @@ impl Debugger {
                     )
                 }
                 if flags.contains(TraceFlags::TRACE_DMA) {
-                    println!("[*] dma tracing not implemented");
+                    gba.sysbus.io.dmac.trace = !gba.sysbus.io.dmac.trace;
+                    println!(
+                        "[*] dma tracing {}",
+                        if gba.sysbus.io.dmac.trace {
+                            "on"
+                        } else {
+                            "off"
+                        }
+                    )
                 }
                 if flags.contains(TraceFlags::TRACE_TIMERS) {
                     gba.sysbus.io.timers.trace = !gba.sysbus.io.timers.trace;
+                    println!(
+                        "[*] timer tracing {}",
+                        if gba.sysbus.io.timers.trace {
+                            "on"
+                        } else {
+                            "off"
+                        }
+                    )
                 }
             }
             SaveState(save_path) => {

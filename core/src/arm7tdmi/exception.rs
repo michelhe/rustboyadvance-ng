@@ -29,6 +29,14 @@ impl<I: MemoryInterface> Core<I> {
             Irq => (CpuMode::Irq, true, false),
             Fiq => (CpuMode::Fiq, true, true),
         };
+
+        #[cfg(feature = "debugger")]
+        {
+            if self.dbg.trace_exceptions {
+                trace!("exception {:?} lr={:x} new_mode={:?}", e, lr, new_mode);
+            }
+        }
+
         let new_bank = new_mode.bank_index();
         self.banks.spsr_bank[new_bank] = self.cpsr;
         self.banks.gpr_banked_r14[new_bank] = lr;
