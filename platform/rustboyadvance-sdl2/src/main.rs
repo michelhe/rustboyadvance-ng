@@ -36,7 +36,7 @@ mod audio;
 mod input;
 mod video;
 
-use audio::create_audio_player;
+use audio::{create_audio_player, create_dummy_player};
 use input::create_input;
 use video::{create_video_interface, SCREEN_HEIGHT, SCREEN_WIDTH};
 
@@ -131,6 +131,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let skip_bios = matches.occurrences_of("skip_bios") != 0;
 
     let debug = matches.occurrences_of("debug") != 0;
+    let silent = matches.occurrences_of("silent") != 0;
     let with_gdbserver = matches.occurrences_of("with_gdbserver") != 0;
 
     info!("Initializing SDL2 context");
@@ -183,7 +184,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let video = Rc::new(RefCell::new(create_video_interface(canvas)));
-    let audio = Rc::new(RefCell::new(create_audio_player(&sdl_context)));
+    let audio: Rc<RefCell<dyn AudioInterface>> = if silent {
+        Rc::new(RefCell::new(create_dummy_player()))
+    } else {
+        Rc::new(RefCell::new(create_audio_player(&sdl_context)))
+    };
     let input = Rc::new(RefCell::new(create_input()));
 
     let mut savestate_path = get_savestate_path(&Path::new(&rom_path));

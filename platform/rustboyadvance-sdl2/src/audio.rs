@@ -11,6 +11,10 @@ struct GbaAudioCallback {
     spec: AudioSpec,
 }
 
+pub struct DummyAudioPlayer {}
+
+impl AudioInterface for DummyAudioPlayer {}
+
 pub struct Sdl2AudioPlayer {
     _device: AudioDevice<GbaAudioCallback>,
     producer: Producer<StereoSample<i16>>,
@@ -86,4 +90,9 @@ pub fn create_audio_player(sdl: &sdl2::Sdl) -> Sdl2AudioPlayer {
         freq,
         producer: producer.unwrap(),
     }
+}
+
+pub fn create_dummy_player() -> DummyAudioPlayer {
+    info!("Dummy audio device");
+    DummyAudioPlayer {}
 }

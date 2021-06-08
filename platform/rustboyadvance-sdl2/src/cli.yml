@@ -34,6 +34,9 @@ args:
     - debug:
         long: debug
         help: Use the custom debugger
+    - silent:
+        long: silent
+        help: Do not output sound
     - with_gdbserver:
         long: with-gdbserver
         help: Start with experimental gdbserver
