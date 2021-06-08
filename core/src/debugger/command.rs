@@ -114,10 +114,10 @@ impl Debugger {
             Step(count) => {
                 for _ in 0..count {
                     self.gba.step_debugger();
-                    while self.gba.cpu.last_executed.is_none() {
+                    while self.gba.cpu.dbg.last_executed.is_none() {
                         self.gba.step_debugger();
                     }
-                    if let Some(last_executed) = &self.gba.cpu.last_executed {
+                    if let Some(last_executed) = &self.gba.cpu.dbg.last_executed {
                         let pc = last_executed.get_pc();
                         let symbol =
                             self.symbols
@@ -208,10 +208,10 @@ impl Debugger {
                 None => println!("Breakpint already exists."),
             },
             DelBreakpoint(addr) => self.delete_breakpoint(addr),
-            ClearBreakpoints => self.gba.cpu.breakpoints.clear(),
+            ClearBreakpoints => self.gba.cpu.dbg.breakpoints.clear(),
             ListBreakpoints => {
                 println!("breakpoint list:");
-                for (i, b) in self.gba.cpu.breakpoints.iter().enumerate() {
+                for (i, b) in self.gba.cpu.dbg.breakpoints.iter().enumerate() {
                     println!("[{}] 0x{:08x}", i, b)
                 }
             }
@@ -224,10 +224,10 @@ impl Debugger {
             }
             TraceToggle(flags) => {
                 if flags.contains(TraceFlags::TRACE_OPCODE) {
-                    self.gba.cpu.trace_opcodes = !self.gba.cpu.trace_opcodes;
+                    self.gba.cpu.dbg.trace_opcodes = !self.gba.cpu.dbg.trace_opcodes;
                     println!(
                         "[*] opcode tracing {}",
-                        if self.gba.cpu.trace_opcodes {
+                        if self.gba.cpu.dbg.trace_opcodes {
                             "on"
                         } else {
                             "off"
@@ -235,10 +235,10 @@ impl Debugger {
                     )
                 }
                 if flags.contains(TraceFlags::TRACE_EXCEPTIONS) {
-                    self.gba.cpu.trace_exceptions = !self.gba.cpu.trace_exceptions;
+                    self.gba.cpu.dbg.trace_exceptions = !self.gba.cpu.dbg.trace_exceptions;
                     println!(
                         "[*] exception tracing {}",
-                        if self.gba.cpu.trace_exceptions {
+                        if self.gba.cpu.dbg.trace_exceptions {
                             "on"
                         } else {
                             "off"

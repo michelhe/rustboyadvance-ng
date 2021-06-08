@@ -87,20 +87,20 @@ pub struct SavedCpuState {
 
 #[derive(Clone, Debug)]
 #[cfg(feature = "debugger")]
-struct DebuggerInfo {
-    last_executed: Option<DecodedInstruction>,
+pub struct DebuggerState {
+    pub last_executed: Option<DecodedInstruction>,
     /// store the gpr before executing an instruction to show diff in the Display impl
-    gpr_previous: [u32; 15],
-    breakpoints: Vec<u32>,
-    verbose: bool,
-    trace_opcodes: bool,
-    trace_exceptions: bool,
+    pub gpr_previous: [u32; 15],
+    pub breakpoints: Vec<u32>,
+    pub verbose: bool,
+    pub trace_opcodes: bool,
+    pub trace_exceptions: bool,
 }
 
 #[cfg(feature = "debugger")]
-impl Default for DebuggerInfo {
-    fn default() -> DebuggerInfo {
-        DebuggerInfo {
+impl Default for DebuggerState {
+    fn default() -> DebuggerState {
+        DebuggerState {
             last_executed: None,
             gpr_previous: [0; 15],
             breakpoints: Vec::new(),
@@ -126,7 +126,7 @@ pub struct Core<I: MemoryInterface> {
     pub(super) banks: BankedRegisters,
 
     #[cfg(feature = "debugger")]
-    pub dbg_info: DebuggerInfo,
+    pub dbg: DebuggerState,
 }
 
 impl<I: MemoryInterface> Core<I> {
@@ -143,7 +143,7 @@ impl<I: MemoryInterface> Core<I> {
             banks: BankedRegisters::default(),
 
             #[cfg(feature = "debugger")]
-            dbg_info: DebuggerInfo::default(),
+            dbg: DebuggerState::default(),
         }
     }
 
@@ -166,7 +166,7 @@ impl<I: MemoryInterface> Core<I> {
 
             // savestate does not keep debugger related information, so just reinitialize to default
             #[cfg(feature = "debugger")]
-            dbg_info: DebuggerInfo::default(),
+            dbg: DebuggerState::default(),
         }
     }
 
@@ -198,7 +198,7 @@ impl<I: MemoryInterface> Core<I> {
 
     #[cfg(feature = "debugger")]
     pub fn set_verbose(&mut self, v: bool) {
-        self.verbose = v;
+        self.dbg.verbose = v;
     }
 
     pub fn get_reg(&self, r: usize) -> u32 {
@@ -360,8 +360,8 @@ impl<I: MemoryInterface> Core<I> {
 
     #[cfg(feature = "debugger")]
     fn debugger_record_step(&mut self, d: DecodedInstruction) {
-        self.gpr_previous = self.get_registers();
-        self.last_executed = Some(d);
+        self.dbg.gpr_previous = self.get_registers();
+        self.dbg.last_executed = Some(d);
     }
 
     cfg_if! {
@@ -538,7 +538,7 @@ impl<I: MemoryInterface> fmt::Display for Core<I> {
             let mut reg_name = reg_string(i).to_string();
             reg_name.make_ascii_uppercase();
 
-            let style = if gpr[i] != self.gpr_previous[i] {
+            let style = if gpr[i] != self.dbg.gpr_previous[i] {
                 &reg_dirty_style
             } else {
                 &reg_normal_style

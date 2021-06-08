@@ -55,7 +55,7 @@ impl Debugger {
 
     pub fn check_breakpoint(&self) -> Option<u32> {
         let next_pc = self.gba.cpu.get_next_pc();
-        for bp in &self.gba.cpu.breakpoints {
+        for bp in &self.gba.cpu.dbg.breakpoints {
             if *bp == next_pc {
                 return Some(next_pc);
             }
@@ -65,7 +65,7 @@ impl Debugger {
     }
 
     pub fn delete_breakpoint(&mut self, addr: u32) {
-        self.gba.cpu.breakpoints.retain(|&a| a != addr);
+        self.gba.cpu.dbg.breakpoints.retain(|&a| a != addr);
     }
 
     fn decode_reg(&self, s: &str) -> DebuggerResult<usize> {

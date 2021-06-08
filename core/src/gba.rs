@@ -325,9 +325,10 @@ impl GameBoyAdvance {
 
     #[cfg(feature = "debugger")]
     pub fn add_breakpoint(&mut self, addr: u32) -> Option<usize> {
-        if !self.cpu.breakpoints.contains(&addr) {
-            let new_index = self.cpu.breakpoints.len();
-            self.cpu.breakpoints.push(addr);
+        let breakpoints = &mut self.cpu.dbg.breakpoints;
+        if !breakpoints.contains(&addr) {
+            let new_index = breakpoints.len();
+            breakpoints.push(addr);
             Some(new_index)
         } else {
             None
@@ -337,7 +338,7 @@ impl GameBoyAdvance {
     #[cfg(feature = "debugger")]
     pub fn check_breakpoint(&self) -> Option<u32> {
         let next_pc = self.cpu.get_next_pc();
-        for bp in &self.cpu.breakpoints {
+        for bp in &self.cpu.dbg.breakpoints {
             if (*bp & !1) == next_pc {
                 return Some(*bp);
             }
