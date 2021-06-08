@@ -293,7 +293,7 @@ impl<I: MemoryInterface> Core<I> {
         }
         let mut carry = self.cpsr.C();
         let offset = self.get_barrel_shifted_value(&insn.ldr_str_offset(), &mut carry); // TODO: wrong to use in here
-        self.cpsr.set_C(carry);
+        drop(carry);
         let effective_addr = (addr as i32).wrapping_add(offset as i32) as Addr;
 
         // TODO - confirm this
