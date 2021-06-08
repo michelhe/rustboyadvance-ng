@@ -223,9 +223,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(feature = "debugger")]
         {
             gba.cpu.set_verbose(true);
-            let mut debugger = Debugger::new(gba);
+            let mut debugger = Debugger::new();
             info!("starting debugger...");
-            debugger.repl(matches.value_of("script_file")).unwrap();
+            debugger
+                .repl(&mut gba, matches.value_of("script_file"))
+                .unwrap();
             info!("ending debugger...");
             return Ok(());
         }
@@ -259,10 +261,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } => match scancode {
                     #[cfg(feature = "debugger")]
                     Scancode::F1 => {
-                        let mut debugger = Debugger::new(gba);
+                        let mut debugger = Debugger::new();
                         info!("starting debugger...");
-                        debugger.repl(matches.value_of("script_file")).unwrap();
-                        gba = debugger.gba;
+                        debugger
+                            .repl(&mut gba, matches.value_of("script_file"))
+                            .unwrap();
                         info!("ending debugger...")
                     }
                     #[cfg(feature = "gdb")]

@@ -11,6 +11,7 @@ use crate::util::{read_bin_file, write_bin_file};
 
 // use super::palette_view::create_palette_view;
 // use super::tile_view::create_tile_view;
+use super::GameBoyAdvance;
 use super::{parser::Value, Debugger, DebuggerError, DebuggerResult};
 
 use ansi_term::Colour;
@@ -92,32 +93,32 @@ fn find_nearest_symbol(addr: u32, symbols: &HashMap<String, u32>) -> Option<(Str
 }
 
 impl Debugger {
-    pub fn run_command(&mut self, command: Command) {
+    pub fn run_command(&mut self, gba: &mut GameBoyAdvance, command: Command) {
         use Command::*;
         #[allow(unreachable_patterns)]
         match command {
             Info => {
-                let pc = self.gba.cpu.pc;
+                let pc = gba.cpu.pc;
                 if let Some((sym, addr)) = find_nearest_symbol(pc, &self.symbols) {
                     println!("PC at {}+{:#x} ({:08x})", sym, addr - pc, pc);
                 } else {
                     println!("PC at {:08x}", pc);
                 }
 
-                println!("{}", self.gba.cpu);
-                println!("IME={}", self.gba.io_devs.intc.interrupt_master_enable);
-                println!("IE={:#?}", self.gba.io_devs.intc.interrupt_enable);
-                println!("IF={:#?}", self.gba.io_devs.intc.interrupt_flags);
+                println!("{}", gba.cpu);
+                // println!("IME={}", gba.io_devs.intc.interrupt_master_enable);
+                // println!("IE={:#?}", gba.io_devs.intc.interrupt_enable);
+                // println!("IF={:#?}", gba.io_devs.intc.interrupt_flags);
             }
-            GpuInfo => println!("GPU: {:#?}", self.gba.io_devs.gpu),
-            GpioInfo => println!("GPIO: {:#?}", self.gba.sysbus.cartridge.get_gpio()),
+            GpuInfo => println!("GPU: {:#?}", gba.io_devs.gpu),
+            GpioInfo => println!("GPIO: {:#?}", gba.sysbus.cartridge.get_gpio()),
             Step(count) => {
                 for _ in 0..count {
-                    self.gba.step_debugger();
-                    while self.gba.cpu.dbg.last_executed.is_none() {
-                        self.gba.step_debugger();
+                    gba.step_debugger();
+                    while gba.cpu.dbg.last_executed.is_none() {
+                        gba.step_debugger();
                     }
-                    if let Some(last_executed) = &self.gba.cpu.dbg.last_executed {
+                    if let Some(last_executed) = &gba.cpu.dbg.last_executed {
                         let pc = last_executed.get_pc();
                         let symbol =
                             self.symbols
@@ -138,19 +139,19 @@ impl Debugger {
                             "{}",
                             Colour::Purple.dimmed().italic().paint(format!(
                                 "\t\t/// Next instruction at @0x{:08x}",
-                                self.gba.cpu.get_next_pc()
+                                gba.cpu.get_next_pc()
                             ))
                         );
                     }
                 }
-                println!("cycles: {}", self.gba.scheduler.timestamp());
-                println!("{}\n", self.gba.cpu);
+                println!("cycles: {}", gba.scheduler.timestamp());
+                println!("{}\n", gba.cpu);
             }
             Continue => 'running: loop {
-                self.gba.key_poll();
-                if let Some(breakpoint) = self.gba.step_debugger() {
+                gba.key_poll();
+                if let Some(breakpoint) = gba.step_debugger() {
                     let mut bp_sym = None;
-                    if let Some(symbols) = self.gba.sysbus.cartridge.get_symbols() {
+                    if let Some(symbols) = gba.sysbus.cartridge.get_symbols() {
                         for s in symbols.keys() {
                             if symbols.get(s).unwrap() == &breakpoint {
                                 bp_sym = Some(s.clone());
@@ -168,22 +169,22 @@ impl Debugger {
             Frame(count) => {
                 let start = time::Instant::now();
                 for _ in 0..count {
-                    self.gba.frame();
+                    gba.frame();
                 }
                 let end = time::Instant::now();
                 println!("that took {:?} seconds", end - start);
             }
             HexDump(addr, nbytes) => {
-                let bytes = self.gba.sysbus.debug_get_bytes(addr..addr + nbytes);
+                let bytes = gba.sysbus.debug_get_bytes(addr..addr + nbytes);
                 hexdump::hexdump(&bytes);
             }
             MemWrite(size, addr, val) => match size {
-                MemWriteCommandSize::Byte => self.gba.sysbus.write_8(addr, val as u8),
-                MemWriteCommandSize::Half => self.gba.sysbus.write_16(addr, val as u16),
-                MemWriteCommandSize::Word => self.gba.sysbus.write_32(addr, val as u32),
+                MemWriteCommandSize::Byte => gba.sysbus.write_8(addr, val as u8),
+                MemWriteCommandSize::Half => gba.sysbus.write_16(addr, val as u16),
+                MemWriteCommandSize::Word => gba.sysbus.write_32(addr, val as u32),
             },
             Disass(mode, addr, n) => {
-                let bytes = self.gba.sysbus.debug_get_bytes(addr..addr + n);
+                let bytes = gba.sysbus.debug_get_bytes(addr..addr + n);
                 match mode {
                     DisassMode::ModeArm => {
                         let disass = Disassembler::<ArmInstruction>::new(addr, &bytes);
@@ -203,31 +204,31 @@ impl Debugger {
                 print!("Quitting!");
                 self.stop();
             }
-            AddBreakpoint(addr) => match self.gba.add_breakpoint(addr) {
+            AddBreakpoint(addr) => match gba.add_breakpoint(addr) {
                 Some(index) => println!("Added breakpoint [{}] 0x{:08x}", index, addr),
                 None => println!("Breakpint already exists."),
             },
-            DelBreakpoint(addr) => self.delete_breakpoint(addr),
-            ClearBreakpoints => self.gba.cpu.dbg.breakpoints.clear(),
+            DelBreakpoint(addr) => self.delete_breakpoint(gba, addr),
+            ClearBreakpoints => gba.cpu.dbg.breakpoints.clear(),
             ListBreakpoints => {
                 println!("breakpoint list:");
-                for (i, b) in self.gba.cpu.dbg.breakpoints.iter().enumerate() {
+                for (i, b) in gba.cpu.dbg.breakpoints.iter().enumerate() {
                     println!("[{}] 0x{:08x}", i, b)
                 }
             }
-            // PaletteView => create_palette_view(&self.gba.sysbus.palette_ram.mem),
-            // TileView(bg) => create_tile_view(bg, &self.gba),
+            // PaletteView => create_palette_view(&gba.sysbus.palette_ram.mem),
+            // TileView(bg) => create_tile_view(bg, &gba),
             Reset => {
                 println!("resetting cpu...");
-                self.gba.cpu.reset();
+                gba.cpu.reset();
                 println!("cpu is restarted!")
             }
             TraceToggle(flags) => {
                 if flags.contains(TraceFlags::TRACE_OPCODE) {
-                    self.gba.cpu.dbg.trace_opcodes = !self.gba.cpu.dbg.trace_opcodes;
+                    gba.cpu.dbg.trace_opcodes = !gba.cpu.dbg.trace_opcodes;
                     println!(
                         "[*] opcode tracing {}",
-                        if self.gba.cpu.dbg.trace_opcodes {
+                        if gba.cpu.dbg.trace_opcodes {
                             "on"
                         } else {
                             "off"
@@ -235,10 +236,10 @@ impl Debugger {
                     )
                 }
                 if flags.contains(TraceFlags::TRACE_EXCEPTIONS) {
-                    self.gba.cpu.dbg.trace_exceptions = !self.gba.cpu.dbg.trace_exceptions;
+                    gba.cpu.dbg.trace_exceptions = !gba.cpu.dbg.trace_exceptions;
                     println!(
                         "[*] exception tracing {}",
-                        if self.gba.cpu.dbg.trace_exceptions {
+                        if gba.cpu.dbg.trace_exceptions {
                             "on"
                         } else {
                             "off"
@@ -249,20 +250,18 @@ impl Debugger {
                     println!("[*] dma tracing not implemented");
                 }
                 if flags.contains(TraceFlags::TRACE_TIMERS) {
-                    self.gba.sysbus.io.timers.trace = !self.gba.sysbus.io.timers.trace;
+                    gba.sysbus.io.timers.trace = !gba.sysbus.io.timers.trace;
                 }
             }
             SaveState(save_path) => {
-                let state = self.gba.save_state().expect("failed to serialize");
+                let state = gba.save_state().expect("failed to serialize");
                 write_bin_file(&Path::new(&save_path), &state)
                     .expect("failed to save state to file");
             }
             LoadState(load_path) => {
                 let save = read_bin_file(&Path::new(&load_path))
                     .expect("failed to read save state from file");
-                self.gba
-                    .restore_state(&save)
-                    .expect("failed to deserialize");
+                gba.restore_state(&save).expect("failed to deserialize");
             }
             ListSymbols(Some(pattern)) => {
                 let matcher = SkimMatcherV2::default();
@@ -305,16 +304,20 @@ impl Debugger {
         }
     }
 
-    fn get_disassembler_args(&self, args: Vec<Value>) -> DebuggerResult<(Addr, u32)> {
+    fn get_disassembler_args(
+        &self,
+        gba: &GameBoyAdvance,
+        args: Vec<Value>,
+    ) -> DebuggerResult<(Addr, u32)> {
         match args.len() {
             2 => {
-                let addr = self.val_address(&args[0])?;
+                let addr = self.val_address(gba, &args[0])?;
                 let n = self.val_number(&args[1])?;
 
                 Ok((addr, n))
             }
             1 => {
-                let addr = self.val_address(&args[0])?;
+                let addr = self.val_address(gba, &args[0])?;
 
                 Ok((addr, 10))
             }
@@ -322,7 +325,7 @@ impl Debugger {
                 if let Some(Command::Disass(_mode, addr, n)) = &self.previous_command {
                     Ok((*addr + (4 * (*n as u32)), 10))
                 } else {
-                    Ok((self.gba.cpu.get_next_pc(), 10))
+                    Ok((gba.cpu.get_next_pc(), 10))
                 }
             }
             _ => {
@@ -333,7 +336,12 @@ impl Debugger {
         }
     }
 
-    pub fn eval_command(&self, command: Value, args: Vec<Value>) -> DebuggerResult<Command> {
+    pub fn eval_command(
+        &self,
+        gba: &GameBoyAdvance,
+        command: Value,
+        args: Vec<Value>,
+    ) -> DebuggerResult<Command> {
         let command = match command {
             Value::Identifier(command) => command,
             _ => {
@@ -373,13 +381,13 @@ impl Debugger {
             "x" | "hexdump" => {
                 let (addr, n) = match args.len() {
                     2 => {
-                        let addr = self.val_address(&args[0])?;
+                        let addr = self.val_address(gba, &args[0])?;
                         let n = self.val_number(&args[1])?;
 
                         (addr, n)
                     }
                     1 => {
-                        let addr = self.val_address(&args[0])?;
+                        let addr = self.val_address(gba, &args[0])?;
 
                         (addr, 0x100)
                     }
@@ -387,7 +395,7 @@ impl Debugger {
                         if let Some(Command::HexDump(addr, n)) = self.previous_command {
                             (addr + (4 * n as u32), 0x100)
                         } else {
-                            (self.gba.cpu.get_reg(15), 0x100)
+                            (gba.cpu.get_reg(15), 0x100)
                         }
                     }
                     _ => {
@@ -401,7 +409,7 @@ impl Debugger {
             "mwb" => {
                 let (addr, val) = match args.len() {
                     2 => {
-                        let addr = self.val_address(&args[0])?;
+                        let addr = self.val_address(gba, &args[0])?;
                         let val = self.val_number(&args[1])? as u8;
 
                         (addr, val)
@@ -421,7 +429,7 @@ impl Debugger {
             "mwh" => {
                 let (addr, val) = match args.len() {
                     2 => {
-                        let addr = self.val_address(&args[0])?;
+                        let addr = self.val_address(gba, &args[0])?;
                         let val = self.val_number(&args[1])? as u16;
 
                         (addr, val)
@@ -441,7 +449,7 @@ impl Debugger {
             "mww" => {
                 let (addr, val) = match args.len() {
                     2 => {
-                        let addr = self.val_address(&args[0])?;
+                        let addr = self.val_address(gba, &args[0])?;
                         let val = self.val_number(&args[1])? as u32;
 
                         (addr, val)
@@ -459,21 +467,21 @@ impl Debugger {
                 ))
             }
             "d" | "disass" => {
-                let (addr, n) = self.get_disassembler_args(args)?;
+                let (addr, n) = self.get_disassembler_args(gba, args)?;
 
-                let m = match self.gba.cpu.get_cpu_state() {
+                let m = match gba.cpu.get_cpu_state() {
                     CpuState::ARM => DisassMode::ModeArm,
                     CpuState::THUMB => DisassMode::ModeThumb,
                 };
                 Ok(Command::Disass(m, addr, n))
             }
             "da" | "disass-arm" => {
-                let (addr, n) = self.get_disassembler_args(args)?;
+                let (addr, n) = self.get_disassembler_args(gba, args)?;
 
                 Ok(Command::Disass(DisassMode::ModeArm, addr, n))
             }
             "dt" | "disass-thumb" => {
-                let (addr, n) = self.get_disassembler_args(args)?;
+                let (addr, n) = self.get_disassembler_args(gba, args)?;
 
                 Ok(Command::Disass(DisassMode::ModeThumb, addr, n))
             }
@@ -483,14 +491,14 @@ impl Debugger {
                         "break <addr>".to_string(),
                     ))
                 } else {
-                    let addr = self.val_address(&args[0])?;
+                    let addr = self.val_address(gba, &args[0])?;
                     Ok(Command::AddBreakpoint(addr))
                 }
             }
             "bd" | "breakdel" => match args.len() {
                 0 => Ok(Command::ClearBreakpoints),
                 1 => {
-                    let addr = self.val_address(&args[0])?;
+                    let addr = self.val_address(gba, &args[0])?;
                     Ok(Command::DelBreakpoint(addr))
                 }
                 _ => Err(DebuggerError::InvalidCommandFormat(String::from(
