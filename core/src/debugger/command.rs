@@ -184,15 +184,16 @@ impl Debugger {
                 MemWriteCommandSize::Word => gba.sysbus.write_32(addr, val as u32),
             },
             Disass(mode, addr, n) => {
-                let bytes = gba.sysbus.debug_get_bytes(addr..addr + n);
                 match mode {
                     DisassMode::ModeArm => {
+                        let bytes = gba.sysbus.debug_get_bytes(addr..addr + 4 * n);
                         let disass = Disassembler::<ArmInstruction>::new(addr, &bytes);
                         for (_, line) in disass.take(n as usize) {
                             println!("{}", line)
                         }
                     }
                     DisassMode::ModeThumb => {
+                        let bytes = gba.sysbus.debug_get_bytes(addr..addr + 2 * n);
                         let disass = Disassembler::<ThumbInstruction>::new(addr, &bytes);
                         for (_, line) in disass.take(n as usize) {
                             println!("{}", line)
@@ -331,7 +332,7 @@ impl Debugger {
             }
             0 => {
                 if let Some(Command::Disass(_mode, addr, n)) = &self.previous_command {
-                    Ok((*addr + (4 * (*n as u32)), 10))
+                    Ok((*addr + (*n as u32), 10))
                 } else {
                     Ok((gba.cpu.get_next_pc(), 10))
                 }
