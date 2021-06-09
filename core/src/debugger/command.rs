@@ -47,10 +47,16 @@ bitflags! {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+pub enum InfoCommand {
+    Cpu,
+    Gpu,
+    Gpio,
+    Interrupt,
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Command {
-    Info,
-    GpuInfo,
-    GpioInfo,
+    Info(InfoCommand),
     Step(usize),
     Continue,
     Frame(usize),
@@ -97,7 +103,7 @@ impl Debugger {
         use Command::*;
         #[allow(unreachable_patterns)]
         match command {
-            Info => {
+            Info(InfoCommand::Cpu) => {
                 let pc = gba.cpu.pc;
                 if let Some((sym, addr)) = find_nearest_symbol(pc, &self.symbols) {
                     println!("PC at {}+{:#x} ({:08x})", sym, addr - pc, pc);
@@ -110,8 +116,13 @@ impl Debugger {
                 // println!("IE={:#?}", gba.io_devs.intc.interrupt_enable);
                 // println!("IF={:#?}", gba.io_devs.intc.interrupt_flags);
             }
-            GpuInfo => println!("GPU: {:#?}", gba.io_devs.gpu),
-            GpioInfo => println!("GPIO: {:#?}", gba.sysbus.cartridge.get_gpio()),
+            Info(InfoCommand::Gpu) => println!("{}", gba.io_devs.gpu),
+            Info(InfoCommand::Interrupt) => {
+                println!("IME: {:?}", gba.io_devs.intc.interrupt_master_enable);
+                println!("IE: {:#?}", gba.io_devs.intc.interrupt_enable);
+                println!("IF: {:#?}", gba.io_devs.intc.interrupt_flags.get());
+            }
+            Info(InfoCommand::Gpio) => println!("GPIO: {:#?}", gba.sysbus.cartridge.get_gpio()),
             Step(count) => {
                 for _ in 0..count {
                     gba.step_debugger();
@@ -359,9 +370,28 @@ impl Debugger {
         };
 
         match command.as_ref() {
-            "i" | "info" => Ok(Command::Info),
-            "gpuinfo" => Ok(Command::GpuInfo),
-            "gpio" => Ok(Command::GpioInfo),
+            "i" | "info" => {
+                let usage_err =
+                    DebuggerError::InvalidCommandFormat(String::from("info cpu|gpu|irq|gpio"));
+                match args.len() {
+                    1 => {
+                        if let Value::Identifier(what) = &args[0] {
+                            match what.as_ref() {
+                                "cpu" => Ok(Command::Info(InfoCommand::Cpu)),
+                                "gpu" => Ok(Command::Info(InfoCommand::Gpu)),
+                                "irq" => Ok(Command::Info(InfoCommand::Interrupt)),
+                                "gpio" => Ok(Command::Info(InfoCommand::Gpio)),
+                                _ => Err(DebuggerError::InvalidArgument(String::from(
+                                    "invalid argument",
+                                ))),
+                            }
+                        } else {
+                            Err(usage_err)
+                        }
+                    }
+                    _ => Err(usage_err),
+                }
+            }
             "s" | "step" => {
                 let count = match args.len() {
                     0 => 1,

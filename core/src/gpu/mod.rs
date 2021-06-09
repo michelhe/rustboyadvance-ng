@@ -31,6 +31,9 @@ pub use window::*;
 pub mod regs;
 pub use regs::*;
 
+#[cfg(feature = "debugger")]
+use std::fmt;
+
 #[allow(unused)]
 pub mod consts {
     pub use super::VRAM_ADDR;
@@ -528,6 +531,20 @@ impl DebugRead for Gpu {
             PAGE_OAM => self.oam.read_8(addr & 0x3ff),
             _ => unreachable!(),
         }
+    }
+}
+
+#[cfg(feature = "debugger")]
+impl fmt::Display for Gpu {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use ansi_term::Style;
+        writeln!(f, "{}", Style::new().bold().paint("GPU Status:"))?;
+        writeln!(f, "\tVCOUNT: {}", self.vcount)?;
+        writeln!(f, "\tDISPCNT: {:?}", self.dispcnt)?;
+        writeln!(f, "\tDISPSTAT: {:?}", self.dispstat)?;
+        writeln!(f, "\tWIN0: {:?}", self.win0)?;
+        writeln!(f, "\tWIN1: {:?}", self.win1)?;
+        Ok(())
     }
 }
 
