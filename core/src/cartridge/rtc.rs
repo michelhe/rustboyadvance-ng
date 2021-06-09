@@ -26,11 +26,11 @@ fn num2bcd(mut num: u8) -> u8 {
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
 enum Port {
-    #[doc("Serial Clock")]
+    /// Serial Clock
     Sck = 0,
-    #[doc("Serial IO")]
+    /// Serial IO
     Sio = 1,
-    #[doc("Chip Select")]
+    /// Chip Select
     Cs = 2,
 }
 
