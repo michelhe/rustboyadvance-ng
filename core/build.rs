@@ -98,7 +98,7 @@ impl BitAsInt<u32> for u32 {}
 /// |_Cond__|1_1_1_0|CPopc|L|__CRn__|__Rd___|__CP#__|_CP__|1|__CRm__| CoRegTrans
 /// |_Cond__|1_1_1_1|_____________Ignored_by_Processor______________| SWI
 /// ```
-fn arm_decode(i: u32) -> &'static str {
+fn arm_decode(i: u32) -> String {
     const T: bool = true;
     const F: bool = false;
 
@@ -107,25 +107,25 @@ fn arm_decode(i: u32) -> &'static str {
         0b00 => {
             /* DataProcessing and friends */
 
-            let result: Option<&str> = match (i.bit_range(23..26), i.bit_range(4..8)) {
+            let result: Option<String> = match (i.bit_range(23..26), i.bit_range(4..8)) {
                 (0b000, 0b1001) => {
                     if 0b0 == i.ibit(22) {
-                        Some("Multiply")
+                        Some(String::from("exec_arm_mul_mla"))
                     } else {
                         None
                     }
                 }
-                (0b001, 0b1001) => Some("MultiplyLong"),
+                (0b001, 0b1001) => Some(String::from("exec_arm_mull_mlal")),
                 (0b010, 0b1001) => {
                     if 0b00 == i.bit_range(20..22) {
-                        Some("SingleDataSwap")
+                        Some(String::from("exec_arm_swp"))
                     } else {
                         None
                     }
                 }
                 (0b010, 0b0001) => {
                     if 0b010 == i.bit_range(20..23) {
-                        Some("BranchExchange")
+                        Some(format!("exec_arm_bx"))
                     } else {
                         None
                     }
@@ -135,8 +135,8 @@ fn arm_decode(i: u32) -> &'static str {
 
             result.unwrap_or_else(|| {
                 match (i.ibit(25), i.ibit(22), i.ibit(7), i.ibit(4)) {
-                    (0, 0, 1, 1) => "HalfwordDataTransferRegOffset",
-                    (0, 1, 1, 1) => "HalfwordDataTransferImmediateOffset",
+                    (0, 0, 1, 1) => String::from("exec_arm_ldr_str_hs_reg"),
+                    (0, 1, 1, 1) => String::from("exec_arm_ldr_str_hs_imm"),
                     _ => {
                         let set_cond_flags = i.bit(20);
                         // PSR Transfers are encoded as a subset of Data Processing,
@@ -144,13 +144,17 @@ fn arm_decode(i: u32) -> &'static str {
                         let is_op_not_touching_rd = i.bit_range(21..25) & 0b1100 == 0b1000;
                         if !set_cond_flags && is_op_not_touching_rd {
                             if i.bit(21) {
-                                // Since bit-16 is ignored and we can't know statically if this is a MoveToStatus or MoveToFlags
-                                "MoveToStatus"
+                                // Since bit-16 is ignored and we can't know statically if this is a exec_arm_transfer_to_status or exec_arm_transfer_to_status
+                                String::from("exec_arm_transfer_to_status")
                             } else {
-                                "MoveFromStatus"
+                                String::from("exec_arm_mrs")
                             }
                         } else {
-                            "DataProcessing"
+                            format!("exec_arm_data_processing::<{OP}, {IMM}, {SET_FLAGS}, {SHIFT_BY_REG}>",
+                                OP=i.bit_range(21..25),
+                                IMM=i.bit(25),
+                                SET_FLAGS=i.bit(20),
+                                SHIFT_BY_REG=i.bit(4))
                         }
                     }
                 }
@@ -158,21 +162,21 @@ fn arm_decode(i: u32) -> &'static str {
         }
         0b01 => {
             match (i.bit(25), i.bit(4)) {
-                (_, F) | (F, T) => "SingleDataTransfer",
-                (T, T) => "Undefined", /* Possible ARM11 but we don't implement these */
+                (_, F) | (F, T) => String::from("exec_arm_ldr_str"),
+                (T, T) => String::from("arm_undefined"), /* Possible ARM11 but we don't implement these */
             }
         }
         0b10 => match i.bit(25) {
-            F => "BlockDataTransfer",
-            T => "BranchLink",
+            F => String::from("exec_arm_ldm_stm"),
+            T => format!("exec_arm_b_bl::<{LINK}>", LINK = i.bit(24)),
         },
         0b11 => {
             match (i.ibit(25), i.ibit(24), i.ibit(4)) {
-                (0b0, _, _) => "Undefined", /* CoprocessorDataTransfer not implemented */
-                (0b1, 0b0, 0b0) => "Undefined", /* CoprocessorDataOperation not implemented */
-                (0b1, 0b0, 0b1) => "Undefined", /* CoprocessorRegisterTransfer not implemented */
-                (0b1, 0b1, _) => "SoftwareInterrupt",
-                _ => "Undefined",
+                (0b0, _, _) => String::from("arm_undefined"), /* CoprocessorDataTransfer not implemented */
+                (0b1, 0b0, 0b0) => String::from("arm_undefined"), /* CoprocessorDataOperation not implemented */
+                (0b1, 0b0, 0b1) => String::from("arm_undefined"), /* CoprocessorRegisterTransfer not implemented */
+                (0b1, 0b1, _) => String::from("exec_arm_swi"),
+                _ => String::from("arm_undefined"),
             }
         }
         _ => unreachable!(),
@@ -201,27 +205,6 @@ fn thumb_format_to_handler(thumb_fmt: &str) -> &'static str {
         "Branch" => "exec_thumb_branch",
         "BranchLongWithLink" => "exec_thumb_branch_long_with_link",
         "Undefined" => "thumb_undefined",
-        _ => unreachable!(),
-    }
-}
-
-fn arm_format_to_handler(arm_fmt: &str) -> &'static str {
-    match arm_fmt {
-        "BranchExchange" => "exec_arm_bx",
-        "BranchLink" => "exec_arm_b_bl",
-        "DataProcessing" => "exec_arm_data_processing",
-        "SoftwareInterrupt" => "exec_arm_swi",
-        "SingleDataTransfer" => "exec_arm_ldr_str",
-        "HalfwordDataTransferImmediateOffset" => "exec_arm_ldr_str_hs_imm",
-        "HalfwordDataTransferRegOffset" => "exec_arm_ldr_str_hs_reg",
-        "BlockDataTransfer" => "exec_arm_ldm_stm",
-        "MoveFromStatus" => "exec_arm_mrs",
-        "MoveToStatus" => "exec_arm_transfer_to_status",
-        "MoveToFlags" => "exec_arm_transfer_to_status",
-        "Multiply" => "exec_arm_mul_mla",
-        "MultiplyLong" => "exec_arm_mull_mlal",
-        "SingleDataSwap" => "exec_arm_swp",
-        "Undefined" => "arm_undefined",
         _ => unreachable!(),
     }
 }
@@ -261,17 +244,16 @@ fn generate_arm_lut(file: &mut fs::File) -> Result<(), std::io::Error> {
         "    pub const ARM_LUT: [ArmInstructionInfo<I>; 4096] = ["
     )?;
     for i in 0..4096 {
-        let arm_fmt = arm_decode(((i & 0xff0) << 16) | ((i & 0x00f) << 4));
-        let handler_name = arm_format_to_handler(arm_fmt);
+        let handler_name = arm_decode(((i & 0xff0) << 16) | ((i & 0x00f) << 4));
         writeln!(
             file,
             "       /* {:#x} */
         ArmInstructionInfo {{
             handler_fn: Core::{},
             #[cfg(feature = \"debugger\")]
-            fmt: ArmFormat::{},
+            fmt: ArmFormat::Undefined,
         }} ,",
-            i, handler_name, arm_fmt
+            i, handler_name
         )?;
     }
     writeln!(file, "    ];")?;

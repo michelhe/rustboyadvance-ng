@@ -43,11 +43,10 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Branch and Branch with Link (B, BL)
     /// Execution Time: 2S + 1N
-    pub fn exec_arm_b_bl(&mut self, insn: u32) -> CpuAction {
-        if insn.link_flag() {
+    pub fn exec_arm_b_bl<const LINK: bool>(&mut self, insn: u32) -> CpuAction {
+        if LINK {
             self.set_reg(REG_LR, (self.pc_arm() + (self.word_size() as u32)) & !0b1);
         }
-
         self.pc = (self.pc as i32).wrapping_add(insn.branch_offset()) as u32 & !1;
 
         self.reload_pipeline32(); // Implies 2S + 1N
@@ -165,9 +164,16 @@ impl<I: MemoryInterface> Core<I> {
     ///
     /// Cycles: 1S+x+y (from GBATEK)
     ///         Add x=1I cycles if Op2 shifted-by-register. Add y=1S+1N cycles if Rd=R15.
-    pub fn exec_arm_data_processing(&mut self, insn: u32) -> CpuAction {
+    pub fn exec_arm_data_processing<
+        const OP: u8,
+        const IMM: bool,
+        const SET_FLAGS: bool,
+        const SHIFT_BY_REG: bool,
+    >(
+        &mut self,
+        insn: u32,
+    ) -> CpuAction {
         use AluOpCode::*;
-
         let rn = insn.bit_range(16..20) as usize;
         let rd = insn.bit_range(12..16) as usize;
         let mut op1 = if rn == REG_PC {
@@ -175,11 +181,14 @@ impl<I: MemoryInterface> Core<I> {
         } else {
             self.get_reg(rn)
         };
-        let mut s_flag = insn.set_cond_flag();
-        let opcode = insn.opcode();
+        let mut s_flag = SET_FLAGS;
+        let opcode =
+            AluOpCode::from_u8(OP).unwrap_or_else(|| unsafe { std::hint::unreachable_unchecked() });
+
+        // println!("{:?} {} {} {}, {:?} {} {} {}", insn.opcode(), insn.bit(25), insn.set_cond_flags(), insn.bit(4), opcode, IMM, SET_FLAGS, SHIFT_BY_REG);
 
         let mut carry = self.cpsr.C();
-        let op2 = if insn.bit(25) {
+        let op2 = if IMM {
             let immediate = insn & 0xff;
             let rotate = 2 * insn.bit_range(8..12);
             // TODO refactor out
@@ -187,7 +196,7 @@ impl<I: MemoryInterface> Core<I> {
         } else {
             let reg = insn & 0xf;
 
-            let shift_by = if insn.bit(4) {
+            let shift_by = if SHIFT_BY_REG {
                 if rn == REG_PC {
                     op1 += 4;
                 }
