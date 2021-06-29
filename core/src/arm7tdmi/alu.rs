@@ -3,7 +3,7 @@ use bit::BitIndex;
 use super::memory::MemoryInterface;
 use super::{Core, REG_PC};
 
-#[derive(Debug, Primitive, PartialEq)]
+#[derive(Debug, Primitive, Eq, PartialEq)]
 pub enum AluOpCode {
     AND = 0b0000,
     EOR = 0b0001,
