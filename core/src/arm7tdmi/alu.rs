@@ -261,6 +261,28 @@ impl<I: MemoryInterface> Core<I> {
         self.barrel_shift_op(bs_op, val, amount, carry, false)
     }
 
+    pub fn register_shift_const<const BS_OP: u8, const SHIFT_BY_REG: bool>(
+        &mut self,
+        offset: u32,
+        reg: usize,
+        carry: &mut bool,
+    ) -> u32 {
+        let op = match BS_OP {
+            0 => BarrelShiftOpCode::LSL,
+            1 => BarrelShiftOpCode::LSR,
+            2 => BarrelShiftOpCode::ASR,
+            3 => BarrelShiftOpCode::ROR,
+            _ => unreachable!(),
+        };
+        if SHIFT_BY_REG {
+            let rs = offset.bit_range(8..12) as usize;
+            self.shift_by_register(op, reg, rs, carry)
+        } else {
+            let amount = offset.bit_range(7..12) as u32;
+            self.barrel_shift_op(op, self.get_reg(reg), amount, carry, true)
+        }
+    }
+
     pub fn register_shift(&mut self, shift: &ShiftedRegister, carry: &mut bool) -> u32 {
         match shift.shift_by {
             ShiftRegisterBy::ByAmount(amount) => {
