@@ -162,7 +162,17 @@ fn arm_decode(i: u32) -> String {
         }
         0b01 => {
             match (i.bit(25), i.bit(4)) {
-                (_, F) | (F, T) => String::from("exec_arm_ldr_str"),
+                (_, F) | (F, T) => format!(
+                    "exec_arm_ldr_str::<{LOAD}, {WRITEBACK}, {PRE_INDEX}, {BYTE}, {SHIFT}, {ADD}, {BS_OP}, {SHIFT_BY_REG}>",
+                    LOAD = i.bit(20),
+                    WRITEBACK = i.bit(21),
+                    BYTE = i.bit(22),
+                    ADD = i.bit(23),
+                    PRE_INDEX = i.bit(24),
+                    SHIFT = i.bit(25),
+                    BS_OP = i.bit_range(5..7) as u8,
+                    SHIFT_BY_REG = i.bit(4),
+                ),
                 (T, T) => String::from("arm_undefined"), /* Possible ARM11 but we don't implement these */
             }
         }

@@ -185,8 +185,6 @@ impl<I: MemoryInterface> Core<I> {
         let opcode =
             AluOpCode::from_u8(OP).unwrap_or_else(|| unsafe { std::hint::unreachable_unchecked() });
 
-        // println!("{:?} {} {} {}, {:?} {} {} {}", insn.opcode(), insn.bit(25), insn.set_cond_flags(), insn.bit(4), opcode, IMM, SET_FLAGS, SHIFT_BY_REG);
-
         let mut carry = self.cpsr.C();
         let op2 = if IMM {
             let immediate = insn & 0xff;
@@ -288,37 +286,51 @@ impl<I: MemoryInterface> Core<I> {
     /// STR{cond}{B}{T} Rd,<Address>    | 2N            | ----  |  [Rn+/-<offset>]=Rd
     /// ------------------------------------------------------------------------------
     /// For LDR, add y=1S+1N if Rd=R15.
-    pub fn exec_arm_ldr_str(&mut self, insn: u32) -> CpuAction {
+    pub fn exec_arm_ldr_str<
+        const LOAD: bool,
+        const WRITEBACK: bool,
+        const PRE_INDEX: bool,
+        const BYTE: bool,
+        const SHIFT: bool,
+        const ADD: bool,
+        const BS_OP: u8,
+        const SHIFT_BY_REG: bool,
+    >(
+        &mut self,
+        insn: u32,
+    ) -> CpuAction {
         let mut result = CpuAction::AdvancePC(NonSeq);
 
-        let load = insn.load_flag();
-        let pre_index = insn.pre_index_flag();
-        let writeback = insn.write_back_flag();
         let base_reg = insn.bit_range(16..20) as usize;
         let dest_reg = insn.bit_range(12..16) as usize;
         let mut addr = self.get_reg(base_reg);
         if base_reg == REG_PC {
             addr = self.pc_arm() + 8; // prefetching
         }
-        let mut carry = self.cpsr.C();
-        let offset = self.get_barrel_shifted_value(&insn.ldr_str_offset(), &mut carry); // TODO: wrong to use in here
-        drop(carry);
+        let mut offset = insn.bit_range(0..12);
+        if SHIFT {
+            let mut carry = self.cpsr.C();
+            let rm = offset & 0xf;
+            offset =
+                self.register_shift_const::<BS_OP, SHIFT_BY_REG>(offset, rm as usize, &mut carry);
+        }
+        let offset = if ADD {
+            offset as u32
+        } else {
+            (-(offset as i32)) as u32
+        };
         let effective_addr = (addr as i32).wrapping_add(offset as i32) as Addr;
 
         // TODO - confirm this
         let old_mode = self.cpsr.mode();
-        if !pre_index && writeback {
+        if !PRE_INDEX && WRITEBACK {
             self.change_mode(old_mode, CpuMode::User);
         }
 
-        addr = if insn.pre_index_flag() {
-            effective_addr
-        } else {
-            addr
-        };
+        addr = if PRE_INDEX { effective_addr } else { addr };
 
-        if load {
-            let data = if insn.transfer_size() == 1 {
+        if LOAD {
+            let data = if BYTE {
                 self.load_8(addr, NonSeq) as u32
             } else {
                 self.ldr_word(addr, NonSeq)
@@ -346,15 +358,15 @@ impl<I: MemoryInterface> Core<I> {
             };
         }
 
-        if !load || base_reg != dest_reg {
-            if !pre_index {
+        if !LOAD || base_reg != dest_reg {
+            if !PRE_INDEX {
                 self.set_reg(base_reg, effective_addr);
-            } else if insn.write_back_flag() {
+            } else if WRITEBACK {
                 self.set_reg(base_reg, effective_addr);
             }
         }
 
-        if !pre_index && insn.write_back_flag() {
+        if !PRE_INDEX && WRITEBACK {
             self.change_mode(self.cpsr.mode(), old_mode);
         }
 
