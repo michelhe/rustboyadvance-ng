@@ -7,6 +7,18 @@ use crate::arm7tdmi::*;
 
 use super::ThumbDecodeHelper;
 
+pub(super) mod consts {
+    pub(super) mod flags {
+        pub const FLAG_H1: usize = 7;
+        pub const FLAG_H2: usize = 6;
+        pub const FLAG_R: usize = 8;
+        pub const FLAG_LOW_OFFSET: usize = 11;
+        pub const FLAG_SP: usize = 11;
+        pub const FLAG_SIGN_EXTEND: usize = 10;
+        pub const FLAG_HALFWORD: usize = 11;
+    }
+}
+
 impl ThumbInstruction {
     fn fmt_thumb_move_shifted_reg(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(

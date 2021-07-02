@@ -208,21 +208,6 @@ impl From<OpFormat5> for AluOpCode {
     }
 }
 
-pub(super) mod consts {
-    pub(super) mod flags {
-        #[cfg(feature = "debugger")]
-        pub const FLAG_H1: usize = 7;
-        #[cfg(feature = "debugger")]
-        pub const FLAG_H2: usize = 6;
-        pub const FLAG_R: usize = 8;
-        pub const FLAG_S: usize = 7;
-        pub const FLAG_LOW_OFFSET: usize = 11;
-        pub const FLAG_SP: usize = 11;
-        pub const FLAG_SIGN_EXTEND: usize = 10;
-        pub const FLAG_HALFWORD: usize = 11;
-    }
-}
-
 /// A trait which provides methods to extract thumb instruction fields
 pub trait ThumbDecodeHelper {
     // Consts
@@ -367,7 +352,7 @@ macro_rules! thumb_decode_helper_impl {
             #[inline]
             fn sword7(&self) -> i32 {
                 let imm7 = *self & 0x7f;
-                if self.bit(consts::flags::FLAG_S) {
+                if self.bit(7) {
                     -((imm7 << 2) as i32)
                 } else {
                     (imm7 << 2) as i32

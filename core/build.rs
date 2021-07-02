@@ -8,6 +8,8 @@ use bit::BitIndex;
 
 // copied and slightly adjusted from src/core/arm7tdmi/thumb/mod.rs
 fn thumb_decode(i: u16) -> (&'static str, String) {
+    let offset5 = i.bit_range(6..11) as u8;
+    let load = i.bit(11);
     if i & 0xf800 == 0x1800 {
         (
             "AddSub",
@@ -22,9 +24,9 @@ fn thumb_decode(i: u16) -> (&'static str, String) {
         (
             "MoveShiftedReg",
             format!(
-                "exec_thumb_move_shifted_reg::<{BS_OP}, {OFFSET5}>",
+                "exec_thumb_move_shifted_reg::<{BS_OP}, {IMM}>",
                 BS_OP = i.bit_range(11..13) as u8,
-                OFFSET5 = i.bit_range(6..11) as u8
+                IMM = i.bit_range(6..11) as u8
             ),
         )
     } else if i & 0xe000 == 0x2000 {
@@ -64,16 +66,23 @@ fn thumb_decode(i: u16) -> (&'static str, String) {
             "LdrStrRegOffset",
             format!(
                 "exec_thumb_ldr_str_reg_offset::<{LOAD}, {RO}, {BYTE}>",
-                LOAD = i.bit(11),
+                LOAD = load,
                 RO = i.bit_range(6..9) as usize,
                 BYTE = i.bit(10),
             ),
         )
     } else if i & 0xf200 == 0x5200 {
-        ("LdrStrSHB", String::from("exec_thumb_ldr_str_shb"))
+        (
+            "LdrStrSHB",
+            format!(
+                "exec_thumb_ldr_str_shb::<{RO}, {SIGN_EXTEND}, {HALFWORD}>",
+                RO = i.bit_range(6..9) as usize,
+                SIGN_EXTEND = i.bit(10),
+                HALFWORD = i.bit(11),
+            ),
+        )
     } else if i & 0xe000 == 0x6000 {
         let is_transferring_bytes = i.bit(12);
-        let offset5 = i.bit_range(6..11) as u8;
         let offset = if is_transferring_bytes {
             offset5
         } else {
@@ -83,7 +92,7 @@ fn thumb_decode(i: u16) -> (&'static str, String) {
             "LdrStrImmOffset",
             format!(
                 "exec_thumb_ldr_str_imm_offset::<{LOAD}, {BYTE}, {OFFSET}>",
-                LOAD = i.bit(11),
+                LOAD = load,
                 BYTE = is_transferring_bytes,
                 OFFSET = offset
             ),
@@ -91,31 +100,72 @@ fn thumb_decode(i: u16) -> (&'static str, String) {
     } else if i & 0xf000 == 0x8000 {
         (
             "LdrStrHalfWord",
-            String::from("exec_thumb_ldr_str_halfword"),
+            format!(
+                "exec_thumb_ldr_str_halfword::<{LOAD}, {OFFSET}>",
+                LOAD = load,
+                OFFSET = (offset5 << 1) as i32
+            ),
         )
     } else if i & 0xf000 == 0x9000 {
-        ("LdrStrSp", String::from("exec_thumb_ldr_str_sp"))
+        (
+            "LdrStrSp",
+            format!(
+                "exec_thumb_ldr_str_sp::<{LOAD}, {RD}>",
+                LOAD = load,
+                RD = i.bit_range(8..11)
+            ),
+        )
     } else if i & 0xf000 == 0xa000 {
-        ("LoadAddress", String::from("exec_thumb_load_address"))
+        (
+            "LoadAddress",
+            format!(
+                "exec_thumb_load_address::<{SP}, {RD}>",
+                SP = i.bit(11),
+                RD = i.bit_range(8..11)
+            ),
+        )
     } else if i & 0xff00 == 0xb000 {
-        ("AddSp", String::from("exec_thumb_add_sp"))
+        (
+            "AddSp",
+            format!("exec_thumb_add_sp::<{FLAG_S}>", FLAG_S = i.bit(7)),
+        )
     } else if i & 0xf600 == 0xb400 {
-        ("PushPop", String::from("exec_thumb_push_pop"))
+        (
+            "PushPop",
+            format!(
+                "exec_thumb_push_pop::<{POP}, {FLAG_R}>",
+                POP = load,
+                FLAG_R = i.bit(8)
+            ),
+        )
     } else if i & 0xf000 == 0xc000 {
-        ("LdmStm", String::from("exec_thumb_ldm_stm"))
+        (
+            "LdmStm",
+            format!(
+                "exec_thumb_ldm_stm::<{LOAD}, {RB}>",
+                LOAD = load,
+                RB = i.bit_range(8..11) as usize
+            ),
+        )
     } else if i & 0xff00 == 0xdf00 {
         ("Swi", String::from("exec_thumb_swi"))
     } else if i & 0xf000 == 0xd000 {
         (
             "BranchConditional",
-            String::from("exec_thumb_branch_with_cond"),
+            format!(
+                "exec_thumb_branch_with_cond::<{COND}>",
+                COND = i.bit_range(8..12) as u8
+            ),
         )
     } else if i & 0xf800 == 0xe000 {
         ("Branch", String::from("exec_thumb_branch"))
     } else if i & 0xf000 == 0xf000 {
         (
             "BranchLongWithLink",
-            String::from("exec_thumb_branch_long_with_link"),
+            format!(
+                "exec_thumb_branch_long_with_link::<{FLAG_LOW_OFFSET}>",
+                FLAG_LOW_OFFSET = i.bit(11),
+            ),
         )
     } else {
         ("Undefined", String::from("thumb_undefined"))

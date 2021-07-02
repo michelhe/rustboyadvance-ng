@@ -10,14 +10,14 @@ use MemoryAccess::*;
 impl<I: MemoryInterface> Core<I> {
     /// Format 1
     /// Execution Time: 1S
-    pub(in super::super) fn exec_thumb_move_shifted_reg<const BS_OP: u8, const OFFSET5: u8>(
+    pub(in super::super) fn exec_thumb_move_shifted_reg<const BS_OP: u8, const IMM: u8>(
         &mut self,
         insn: u16,
     ) -> CpuAction {
         let rd = (insn & 0b111) as usize;
         let rs = insn.bit_range(3..6) as usize;
 
-        let shift_amount = OFFSET5 as u32;
+        let shift_amount = IMM as u32;
         let mut carry = self.cpsr.C();
         let bsop = match BS_OP {
             0 => BarrelShiftOpCode::LSL,
@@ -258,15 +258,19 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Format 8 load/store sign-extended byte/halfword
     /// Execution Time: 1S+1N+1I for LDR, or 2N for STR
-    pub(in super::super) fn exec_thumb_ldr_str_shb(&mut self, insn: u16) -> CpuAction {
+    pub(in super::super) fn exec_thumb_ldr_str_shb<
+        const RO: usize,
+        const SIGN_EXTEND: bool,
+        const HALFWORD: bool,
+    >(
+        &mut self,
+        insn: u16,
+    ) -> CpuAction {
         let rb = insn.bit_range(3..6) as usize;
         let rd = (insn & 0b111) as usize;
 
-        let addr = self.gpr[rb].wrapping_add(self.gpr[insn.ro()]);
-        match (
-            insn.bit(consts::flags::FLAG_SIGN_EXTEND),
-            insn.bit(consts::flags::FLAG_HALFWORD),
-        ) {
+        let addr = self.gpr[rb].wrapping_add(self.gpr[RO]);
+        match (SIGN_EXTEND, HALFWORD) {
             (false, false) =>
             /* strh */
             {
@@ -314,12 +318,15 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Format 10
     /// Execution Time: 1S+1N+1I for LDR, or 2N for STR
-    pub(in super::super) fn exec_thumb_ldr_str_halfword(&mut self, insn: u16) -> CpuAction {
+    pub(in super::super) fn exec_thumb_ldr_str_halfword<const LOAD: bool, const OFFSET: i32>(
+        &mut self,
+        insn: u16,
+    ) -> CpuAction {
         let rb = insn.bit_range(3..6) as usize;
         let rd = (insn & 0b111) as usize;
         let base = self.gpr[rb] as i32;
-        let addr = base.wrapping_add((insn.offset5() << 1) as i32) as Addr;
-        if insn.is_load() {
+        let addr = base.wrapping_add(OFFSET) as Addr;
+        if LOAD {
             let data = self.ldr_half(addr, NonSeq);
             self.idle_cycle();
             self.gpr[rd] = data as u32;
@@ -332,26 +339,29 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Format 11 load/store SP-relative
     /// Execution Time: 1S+1N+1I for LDR, or 2N for STR
-    pub(in super::super) fn exec_thumb_ldr_str_sp(&mut self, insn: u16) -> CpuAction {
+    pub(in super::super) fn exec_thumb_ldr_str_sp<const LOAD: bool, const RD: usize>(
+        &mut self,
+        insn: u16,
+    ) -> CpuAction {
         let addr = self.gpr[REG_SP] + (insn.word8() as Addr);
-        let rd = insn.bit_range(8..11) as usize;
-        if insn.is_load() {
+        if LOAD {
             let data = self.ldr_word(addr, NonSeq);
             self.idle_cycle();
-            self.gpr[rd] = data;
+            self.gpr[RD] = data;
             CpuAction::AdvancePC(Seq)
         } else {
-            self.store_aligned_32(addr, self.gpr[rd], NonSeq);
+            self.store_aligned_32(addr, self.gpr[RD], NonSeq);
             CpuAction::AdvancePC(NonSeq)
         }
     }
 
     /// Format 12
     /// Execution Time: 1S
-    pub(in super::super) fn exec_thumb_load_address(&mut self, insn: u16) -> CpuAction {
-        let rd = insn.bit_range(8..11) as usize;
-
-        self.gpr[rd] = if insn.bit(consts::flags::FLAG_SP) {
+    pub(in super::super) fn exec_thumb_load_address<const SP: bool, const RD: usize>(
+        &mut self,
+        insn: u16,
+    ) -> CpuAction {
+        self.gpr[RD] = if SP {
             self.gpr[REG_SP] + (insn.word8() as Addr)
         } else {
             (self.pc_thumb() & !0b10) + 4 + (insn.word8() as Addr)
@@ -362,17 +372,26 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Format 13
     /// Execution Time: 1S
-    pub(in super::super) fn exec_thumb_add_sp(&mut self, insn: u16) -> CpuAction {
+    pub(in super::super) fn exec_thumb_add_sp<const FLAG_S: bool>(
+        &mut self,
+        insn: u16,
+    ) -> CpuAction {
         let op1 = self.gpr[REG_SP] as i32;
-        let op2 = insn.sword7();
-
-        self.gpr[REG_SP] = op1.wrapping_add(op2) as u32;
+        let offset = ((insn & 0x7f) << 2) as i32;
+        self.gpr[REG_SP] = if FLAG_S {
+            op1.wrapping_sub(offset) as u32
+        } else {
+            op1.wrapping_add(offset) as u32
+        };
 
         CpuAction::AdvancePC(Seq)
     }
     /// Format 14
     /// Execution Time: nS+1N+1I (POP), (n+1)S+2N+1I (POP PC), or (n-1)S+2N (PUSH).
-    pub(in super::super) fn exec_thumb_push_pop(&mut self, insn: u16) -> CpuAction {
+    pub(in super::super) fn exec_thumb_push_pop<const POP: bool, const FLAG_R: bool>(
+        &mut self,
+        insn: u16,
+    ) -> CpuAction {
         macro_rules! push {
             ($r:expr, $access:ident) => {
                 self.gpr[REG_SP] -= 4;
@@ -395,17 +414,15 @@ impl<I: MemoryInterface> Core<I> {
             };
         }
         let mut result = CpuAction::AdvancePC(NonSeq);
-        let is_pop = insn.is_load();
-        let pc_lr_flag = insn.bit(consts::flags::FLAG_R);
         let rlist = insn.register_list();
         let mut access = MemoryAccess::NonSeq;
-        if is_pop {
+        if POP {
             for r in 0..8 {
                 if rlist.bit(r) {
                     pop!(r, access);
                 }
             }
-            if pc_lr_flag {
+            if FLAG_R {
                 pop!(REG_PC);
                 self.pc = self.pc & !1;
                 result = CpuAction::PipelineFlushed;
@@ -414,7 +431,7 @@ impl<I: MemoryInterface> Core<I> {
             // Idle 1 cycle
             self.idle_cycle();
         } else {
-            if pc_lr_flag {
+            if FLAG_R {
                 push!(REG_LR, access);
             }
             for r in (0..8).rev() {
@@ -429,19 +446,18 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Format 15
     /// Execution Time: nS+1N+1I for LDM, or (n-1)S+2N for STM.
-    pub(in super::super) fn exec_thumb_ldm_stm(&mut self, insn: u16) -> CpuAction {
+    pub(in super::super) fn exec_thumb_ldm_stm<const LOAD: bool, const RB: usize>(
+        &mut self,
+        insn: u16,
+    ) -> CpuAction {
         let mut result = CpuAction::AdvancePC(NonSeq);
 
-        let rb = insn.bit_range(8..11) as usize;
-        let base_reg = rb;
-        let is_load = insn.is_load();
-
-        let align_preserve = self.gpr[base_reg] & 3;
-        let mut addr = self.gpr[base_reg] & !3;
+        let align_preserve = self.gpr[RB] & 3;
+        let mut addr = self.gpr[RB] & !3;
         let rlist = insn.register_list();
         // let mut first = true;
         if rlist != 0 {
-            if is_load {
+            if LOAD {
                 let mut access = NonSeq;
                 for r in 0..8 {
                     if rlist.bit(r) {
@@ -452,15 +468,15 @@ impl<I: MemoryInterface> Core<I> {
                     }
                 }
                 self.idle_cycle();
-                if !rlist.bit(base_reg) {
-                    self.gpr[base_reg] = addr + align_preserve;
+                if !rlist.bit(RB) {
+                    self.gpr[RB] = addr + align_preserve;
                 }
             } else {
                 let mut first = true;
                 let mut access = NonSeq;
                 for r in 0..8 {
                     if rlist.bit(r) {
-                        let v = if r != base_reg {
+                        let v = if r != RB {
                             self.gpr[r]
                         } else {
                             if first {
@@ -476,12 +492,12 @@ impl<I: MemoryInterface> Core<I> {
                         access = Seq;
                         addr += 4;
                     }
-                    self.gpr[base_reg] = addr + align_preserve;
+                    self.gpr[RB] = addr + align_preserve;
                 }
             }
         } else {
             // From gbatek.htm: Empty Rlist: R15 loaded/stored (ARMv4 only), and Rb=Rb+40h (ARMv4-v5).
-            if is_load {
+            if LOAD {
                 let val = self.load_32(addr, NonSeq);
                 self.pc = val & !1;
                 result = CpuAction::PipelineFlushed;
@@ -490,7 +506,7 @@ impl<I: MemoryInterface> Core<I> {
                 self.store_32(addr, self.pc + 2, NonSeq);
             }
             addr += 0x40;
-            self.gpr[base_reg] = addr + align_preserve;
+            self.gpr[RB] = addr + align_preserve;
         }
 
         result
@@ -500,8 +516,12 @@ impl<I: MemoryInterface> Core<I> {
     /// Execution Time:
     ///     2S+1N   if condition true (jump executed)
     ///     1S      if condition false
-    pub(in super::super) fn exec_thumb_branch_with_cond(&mut self, insn: u16) -> CpuAction {
-        if !self.check_arm_cond(insn.cond()) {
+    pub(in super::super) fn exec_thumb_branch_with_cond<const COND: u8>(
+        &mut self,
+        insn: u16,
+    ) -> CpuAction {
+        let cond = ArmCond::from_u8(COND).expect("bad cond");
+        if !self.check_arm_cond(cond) {
             CpuAction::AdvancePC(Seq)
         } else {
             let offset = insn.bcond_offset();
@@ -529,9 +549,12 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Format 19
     /// Execution Time: 3S+1N (first opcode 1S, second opcode 2S+1N).
-    pub(in super::super) fn exec_thumb_branch_long_with_link(&mut self, insn: u16) -> CpuAction {
+    pub(in super::super) fn exec_thumb_branch_long_with_link<const FLAG_LOW_OFFSET: bool>(
+        &mut self,
+        insn: u16,
+    ) -> CpuAction {
         let mut off = insn.offset11();
-        if insn.bit(consts::flags::FLAG_LOW_OFFSET) {
+        if FLAG_LOW_OFFSET {
             off = off << 1;
             let next_pc = (self.pc - 2) | 1;
             self.pc = ((self.gpr[REG_LR] & !1) as i32).wrapping_add(off) as u32;
