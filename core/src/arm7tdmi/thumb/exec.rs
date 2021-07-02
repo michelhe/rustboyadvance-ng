@@ -212,16 +212,14 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Helper function for various ldr/str handler
     /// Execution Time: 1S+1N+1I for LDR, or 2N for STR
-    fn do_exec_thumb_ldr_str(
+    fn do_exec_thumb_ldr_str<const LOAD: bool, const BYTE: bool>(
         &mut self,
         insn: u16,
-
         addr: Addr,
-        is_transferring_bytes: bool,
     ) -> CpuAction {
         let rd = (insn & 0b111) as usize;
-        if insn.is_load() {
-            let data = if is_transferring_bytes {
+        if LOAD {
+            let data = if BYTE {
                 self.load_8(addr, NonSeq) as u32
             } else {
                 self.ldr_word(addr, NonSeq)
@@ -234,7 +232,7 @@ impl<I: MemoryInterface> Core<I> {
             CpuAction::AdvancePC(Seq)
         } else {
             let value = self.get_reg(rd);
-            if is_transferring_bytes {
+            if BYTE {
                 self.store_8(addr, value as u8, NonSeq);
             } else {
                 self.store_aligned_32(addr, value, NonSeq);
@@ -245,10 +243,17 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Format 7 load/store with register offset
     /// Execution Time: 1S+1N+1I for LDR, or 2N for STR
-    pub(in super::super) fn exec_thumb_ldr_str_reg_offset(&mut self, insn: u16) -> CpuAction {
+    pub(in super::super) fn exec_thumb_ldr_str_reg_offset<
+        const LOAD: bool,
+        const RO: usize,
+        const BYTE: bool,
+    >(
+        &mut self,
+        insn: u16,
+    ) -> CpuAction {
         let rb = insn.bit_range(3..6) as usize;
-        let addr = self.gpr[rb].wrapping_add(self.gpr[insn.ro()]);
-        self.do_exec_thumb_ldr_str(insn, addr, insn.bit(10))
+        let addr = self.gpr[rb].wrapping_add(self.gpr[RO]);
+        self.do_exec_thumb_ldr_str::<LOAD, BYTE>(insn, addr)
     }
 
     /// Format 8 load/store sign-extended byte/halfword
@@ -294,16 +299,17 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Format 9
     /// Execution Time: 1S+1N+1I for LDR, or 2N for STR
-    pub(in super::super) fn exec_thumb_ldr_str_imm_offset(&mut self, insn: u16) -> CpuAction {
+    pub(in super::super) fn exec_thumb_ldr_str_imm_offset<
+        const LOAD: bool,
+        const BYTE: bool,
+        const OFFSET: u8,
+    >(
+        &mut self,
+        insn: u16,
+    ) -> CpuAction {
         let rb = insn.bit_range(3..6) as usize;
-
-        let offset = if insn.bit(12) {
-            insn.offset5()
-        } else {
-            (insn.offset5() << 3) >> 1
-        };
-        let addr = self.gpr[rb].wrapping_add(offset as u32);
-        self.do_exec_thumb_ldr_str(insn, addr, insn.bit(12))
+        let addr = self.gpr[rb].wrapping_add(OFFSET as u32);
+        self.do_exec_thumb_ldr_str::<LOAD, BYTE>(insn, addr)
     }
 
     /// Format 10
