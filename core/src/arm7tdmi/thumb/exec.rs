@@ -62,7 +62,10 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Format 3
     /// Execution Time: 1S
-    pub(in super::super) fn exec_thumb_data_process_imm<const OP: u8, const RD: usize>(&mut self, insn: u16) -> CpuAction {
+    pub(in super::super) fn exec_thumb_data_process_imm<const OP: u8, const RD: usize>(
+        &mut self,
+        insn: u16,
+    ) -> CpuAction {
         use OpFormat3::*;
         let op = OpFormat3::from_u8(OP).unwrap();
         let op1 = self.gpr[RD];
@@ -147,19 +150,19 @@ impl<I: MemoryInterface> Core<I> {
     /// Execution Time:
     ///     1S     for ADD/MOV/CMP
     ///     2S+1N  for ADD/MOV with Rd=R15, and for BX
-    pub(in super::super) fn exec_thumb_hi_reg_op_or_bx(&mut self, insn: u16) -> CpuAction {
-        let op = insn.format5_op();
+    pub(in super::super) fn exec_thumb_hi_reg_op_or_bx<
+        const OP: u8,
+        const FLAG_H1: bool,
+        const FLAG_H2: bool,
+    >(
+        &mut self,
+        insn: u16,
+    ) -> CpuAction {
+        let op = OpFormat5::from_u8(OP).unwrap();
         let rd = (insn & 0b111) as usize;
-        let dst_reg = if insn.bit(consts::flags::FLAG_H1) {
-            rd + 8
-        } else {
-            rd
-        };
-        let src_reg = if insn.bit(consts::flags::FLAG_H2) {
-            insn.rs() + 8
-        } else {
-            insn.rs()
-        };
+        let rs = insn.rs();
+        let dst_reg = if FLAG_H1 { rd + 8 } else { rd };
+        let src_reg = if FLAG_H2 { rs + 8 } else { rs };
         let op1 = self.get_reg(dst_reg);
         let op2 = self.get_reg(src_reg);
 
@@ -195,13 +198,11 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Format 6 load PC-relative (for loading immediates from literal pool)
     /// Execution Time: 1S+1N+1I
-    pub(in super::super) fn exec_thumb_ldr_pc(&mut self, insn: u16) -> CpuAction {
-        let rd = insn.bit_range(8..11) as usize;
-
+    pub(in super::super) fn exec_thumb_ldr_pc<const RD: usize>(&mut self, insn: u16) -> CpuAction {
         let ofs = insn.word8() as Addr;
         let addr = (self.pc & !3) + ofs;
 
-        self.gpr[rd] = self.load_32(addr, NonSeq);
+        self.gpr[RD] = self.load_32(addr, NonSeq);
 
         // +1I
         self.idle_cycle();
