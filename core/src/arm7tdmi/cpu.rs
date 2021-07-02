@@ -113,11 +113,11 @@ impl Default for DebuggerState {
 
 #[derive(Clone, Debug)]
 pub struct Core<I: MemoryInterface> {
+    pub pc: u32,
     pub(super) bus: Shared<I>,
 
     next_fetch_access: MemoryAccess,
     pipeline: [u32; 2],
-    pub pc: u32,
     pub gpr: [u32; 15],
 
     pub cpsr: RegPSR,

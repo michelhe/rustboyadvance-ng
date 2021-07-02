@@ -30,10 +30,17 @@ fn thumb_decode(i: u16) -> (&'static str, String) {
     } else if i & 0xe000 == 0x2000 {
         (
             "DataProcessImm",
-            String::from("exec_thumb_data_process_imm"),
+            format!(
+                "exec_thumb_data_process_imm::<{OP}, {RD}>",
+                OP = i.bit_range(11..13) as u8,
+                RD = i.bit_range(8..11)
+            ),
         )
     } else if i & 0xfc00 == 0x4000 {
-        ("AluOps", String::from("exec_thumb_alu_ops"))
+        (
+            "AluOps",
+            format!("exec_thumb_alu_ops::<{OP}>", OP = i.bit_range(6..10) as u16),
+        )
     } else if i & 0xfc00 == 0x4400 {
         (
             "HiRegOpOrBranchExchange",

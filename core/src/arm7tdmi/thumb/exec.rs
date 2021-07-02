@@ -62,11 +62,10 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Format 3
     /// Execution Time: 1S
-    pub(in super::super) fn exec_thumb_data_process_imm(&mut self, insn: u16) -> CpuAction {
+    pub(in super::super) fn exec_thumb_data_process_imm<const OP: u8, const RD: usize>(&mut self, insn: u16) -> CpuAction {
         use OpFormat3::*;
-        let op = insn.format3_op();
-        let rd = insn.bit_range(8..11) as usize;
-        let op1 = self.gpr[rd];
+        let op = OpFormat3::from_u8(OP).unwrap();
+        let op1 = self.gpr[RD];
         let op2_imm = (insn & 0xff) as u32;
         let mut carry = self.cpsr.C();
         let mut overflow = self.cpsr.V();
@@ -78,7 +77,7 @@ impl<I: MemoryInterface> Core<I> {
         let arithmetic = op == ADD || op == SUB;
         self.alu_update_flags(result, arithmetic, carry, overflow);
         if op != CMP {
-            self.gpr[rd] = result as u32;
+            self.gpr[RD] = result as u32;
         }
 
         CpuAction::AdvancePC(Seq)
@@ -89,7 +88,7 @@ impl<I: MemoryInterface> Core<I> {
     ///     1S      for  AND,EOR,ADC,SBC,TST,NEG,CMP,CMN,ORR,BIC,MVN
     ///     1S+1I   for  LSL,LSR,ASR,ROR
     ///     1S+mI   for  MUL on ARMv4 (m=1..4; depending on MSBs of incoming Rd value)
-    pub(in super::super) fn exec_thumb_alu_ops(&mut self, insn: u16) -> CpuAction {
+    pub(in super::super) fn exec_thumb_alu_ops<const OP: u16>(&mut self, insn: u16) -> CpuAction {
         let rd = (insn & 0b111) as usize;
         let rs = insn.rs();
         let dst = self.get_reg(rd);
@@ -99,7 +98,7 @@ impl<I: MemoryInterface> Core<I> {
         let mut overflow = self.cpsr.V();
 
         use ThumbAluOps::*;
-        let op = insn.format4_alu_op();
+        let op = ThumbAluOps::from_u16(OP).unwrap();
 
         macro_rules! shifter_op {
             ($bs_op:expr) => {{
