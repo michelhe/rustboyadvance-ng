@@ -62,14 +62,31 @@ fn thumb_decode(i: u16) -> (&'static str, String) {
     } else if i & 0xf200 == 0x5000 {
         (
             "LdrStrRegOffset",
-            String::from("exec_thumb_ldr_str_reg_offset"),
+            format!(
+                "exec_thumb_ldr_str_reg_offset::<{LOAD}, {RO}, {BYTE}>",
+                LOAD = i.bit(11),
+                RO = i.bit_range(6..9) as usize,
+                BYTE = i.bit(10),
+            ),
         )
     } else if i & 0xf200 == 0x5200 {
         ("LdrStrSHB", String::from("exec_thumb_ldr_str_shb"))
     } else if i & 0xe000 == 0x6000 {
+        let is_transferring_bytes = i.bit(12);
+        let offset5 = i.bit_range(6..11) as u8;
+        let offset = if is_transferring_bytes {
+            offset5
+        } else {
+            (offset5 << 3) >> 1
+        };
         (
             "LdrStrImmOffset",
-            String::from("exec_thumb_ldr_str_imm_offset"),
+            format!(
+                "exec_thumb_ldr_str_imm_offset::<{LOAD}, {BYTE}, {OFFSET}>",
+                LOAD = i.bit(11),
+                BYTE = is_transferring_bytes,
+                OFFSET = offset
+            ),
         )
     } else if i & 0xf000 == 0x8000 {
         (
