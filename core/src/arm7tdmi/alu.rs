@@ -272,7 +272,7 @@ impl<I: MemoryInterface> Core<I> {
             1 => BarrelShiftOpCode::LSR,
             2 => BarrelShiftOpCode::ASR,
             3 => BarrelShiftOpCode::ROR,
-            _ => unreachable!(),
+            _ => unsafe { std::hint::unreachable_unchecked() },
         };
         if SHIFT_BY_REG {
             let rs = offset.bit_range(8..12) as usize;

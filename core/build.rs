@@ -7,47 +7,83 @@ extern crate bit;
 use bit::BitIndex;
 
 // copied and slightly adjusted from src/core/arm7tdmi/thumb/mod.rs
-fn thumb_decode(i: u16) -> &'static str {
+fn thumb_decode(i: u16) -> (&'static str, String) {
     if i & 0xf800 == 0x1800 {
-        "AddSub"
+        (
+            "AddSub",
+            format!(
+                "exec_thumb_add_sub::<{SUB}, {IMM}, {RN}>",
+                SUB = i.bit(9),
+                IMM = i.bit(10),
+                RN = i.bit_range(6..9) as usize
+            ),
+        )
     } else if i & 0xe000 == 0x0000 {
-        "MoveShiftedReg"
+        (
+            "MoveShiftedReg",
+            format!(
+                "exec_thumb_move_shifted_reg::<{BS_OP}, {OFFSET5}>",
+                BS_OP = i.bit_range(11..13) as u8,
+                OFFSET5 = i.bit_range(6..11) as u8
+            ),
+        )
     } else if i & 0xe000 == 0x2000 {
-        "DataProcessImm"
+        (
+            "DataProcessImm",
+            String::from("exec_thumb_data_process_imm"),
+        )
     } else if i & 0xfc00 == 0x4000 {
-        "AluOps"
+        ("AluOps", String::from("exec_thumb_alu_ops"))
     } else if i & 0xfc00 == 0x4400 {
-        "HiRegOpOrBranchExchange"
+        (
+            "HiRegOpOrBranchExchange",
+            String::from("exec_thumb_hi_reg_op_or_bx"),
+        )
     } else if i & 0xf800 == 0x4800 {
-        "LdrPc"
+        ("LdrPc", String::from("exec_thumb_ldr_pc"))
     } else if i & 0xf200 == 0x5000 {
-        "LdrStrRegOffset"
+        (
+            "LdrStrRegOffset",
+            String::from("exec_thumb_ldr_str_reg_offset"),
+        )
     } else if i & 0xf200 == 0x5200 {
-        "LdrStrSHB"
+        ("LdrStrSHB", String::from("exec_thumb_ldr_str_shb"))
     } else if i & 0xe000 == 0x6000 {
-        "LdrStrImmOffset"
+        (
+            "LdrStrImmOffset",
+            String::from("exec_thumb_ldr_str_imm_offset"),
+        )
     } else if i & 0xf000 == 0x8000 {
-        "LdrStrHalfWord"
+        (
+            "LdrStrHalfWord",
+            String::from("exec_thumb_ldr_str_halfword"),
+        )
     } else if i & 0xf000 == 0x9000 {
-        "LdrStrSp"
+        ("LdrStrSp", String::from("exec_thumb_ldr_str_sp"))
     } else if i & 0xf000 == 0xa000 {
-        "LoadAddress"
+        ("LoadAddress", String::from("exec_thumb_load_address"))
     } else if i & 0xff00 == 0xb000 {
-        "AddSp"
+        ("AddSp", String::from("exec_thumb_add_sp"))
     } else if i & 0xf600 == 0xb400 {
-        "PushPop"
+        ("PushPop", String::from("exec_thumb_push_pop"))
     } else if i & 0xf000 == 0xc000 {
-        "LdmStm"
+        ("LdmStm", String::from("exec_thumb_ldm_stm"))
     } else if i & 0xff00 == 0xdf00 {
-        "Swi"
+        ("Swi", String::from("exec_thumb_swi"))
     } else if i & 0xf000 == 0xd000 {
-        "BranchConditional"
+        (
+            "BranchConditional",
+            String::from("exec_thumb_branch_with_cond"),
+        )
     } else if i & 0xf800 == 0xe000 {
-        "Branch"
+        ("Branch", String::from("exec_thumb_branch"))
     } else if i & 0xf000 == 0xf000 {
-        "BranchLongWithLink"
+        (
+            "BranchLongWithLink",
+            String::from("exec_thumb_branch_long_with_link"),
+        )
     } else {
-        "Undefined"
+        ("Undefined", String::from("thumb_undefined"))
     }
 }
 
@@ -98,7 +134,7 @@ impl BitAsInt<u32> for u32 {}
 /// |_Cond__|1_1_1_0|CPopc|L|__CRn__|__Rd___|__CP#__|_CP__|1|__CRm__| CoRegTrans
 /// |_Cond__|1_1_1_1|_____________Ignored_by_Processor______________| SWI
 /// ```
-fn arm_decode(i: u32) -> String {
+fn arm_decode(i: u32) -> (&'static str, String) {
     const T: bool = true;
     const F: bool = false;
 
@@ -107,25 +143,25 @@ fn arm_decode(i: u32) -> String {
         0b00 => {
             /* DataProcessing and friends */
 
-            let result: Option<String> = match (i.bit_range(23..26), i.bit_range(4..8)) {
+            let result = match (i.bit_range(23..26), i.bit_range(4..8)) {
                 (0b000, 0b1001) => {
                     if 0b0 == i.ibit(22) {
-                        Some(String::from("exec_arm_mul_mla"))
+                        Some(("Multiply", String::from("exec_arm_mul_mla")))
                     } else {
                         None
                     }
                 }
-                (0b001, 0b1001) => Some(String::from("exec_arm_mull_mlal")),
+                (0b001, 0b1001) => Some(("MultiplyLong", String::from("exec_arm_mull_mlal"))),
                 (0b010, 0b1001) => {
                     if 0b00 == i.bit_range(20..22) {
-                        Some(String::from("exec_arm_swp"))
+                        Some(("SingleDataSwap", String::from("exec_arm_swp")))
                     } else {
                         None
                     }
                 }
                 (0b010, 0b0001) => {
                     if 0b010 == i.bit_range(20..23) {
-                        Some(format!("exec_arm_bx"))
+                        Some(("BranchExchange", format!("exec_arm_bx")))
                     } else {
                         None
                     }
@@ -135,8 +171,8 @@ fn arm_decode(i: u32) -> String {
 
             result.unwrap_or_else(|| {
                 match (i.ibit(25), i.ibit(22), i.ibit(7), i.ibit(4)) {
-                    (0, 0, 1, 1) => String::from("exec_arm_ldr_str_hs_reg"),
-                    (0, 1, 1, 1) => String::from("exec_arm_ldr_str_hs_imm"),
+                    (0, 0, 1, 1) => ("HalfwordDataTransferRegOffset", String::from("exec_arm_ldr_str_hs_reg")),
+                    (0, 1, 1, 1) => ("HalfwordDataTransferImmediateOffset", String::from("exec_arm_ldr_str_hs_imm")),
                     _ => {
                         let set_cond_flags = i.bit(20);
                         // PSR Transfers are encoded as a subset of Data Processing,
@@ -145,16 +181,16 @@ fn arm_decode(i: u32) -> String {
                         if !set_cond_flags && is_op_not_touching_rd {
                             if i.bit(21) {
                                 // Since bit-16 is ignored and we can't know statically if this is a exec_arm_transfer_to_status or exec_arm_transfer_to_status
-                                String::from("exec_arm_transfer_to_status")
+                                ("MoveToStatus", String::from("exec_arm_transfer_to_status"))
                             } else {
-                                String::from("exec_arm_mrs")
+                                ("MoveFromStatus", String::from("exec_arm_mrs"))
                             }
                         } else {
-                            format!("exec_arm_data_processing::<{OP}, {IMM}, {SET_FLAGS}, {SHIFT_BY_REG}>",
+                            ("DataProcessing", format!("exec_arm_data_processing::<{OP}, {IMM}, {SET_FLAGS}, {SHIFT_BY_REG}>",
                                 OP=i.bit_range(21..25),
                                 IMM=i.bit(25),
                                 SET_FLAGS=i.bit(20),
-                                SHIFT_BY_REG=i.bit(4))
+                                SHIFT_BY_REG=i.bit(4)))
                         }
                     }
                 }
@@ -162,7 +198,7 @@ fn arm_decode(i: u32) -> String {
         }
         0b01 => {
             match (i.bit(25), i.bit(4)) {
-                (_, F) | (F, T) => format!(
+                (_, F) | (F, T) => ("SingleDataTransfer", format!(
                     "exec_arm_ldr_str::<{LOAD}, {WRITEBACK}, {PRE_INDEX}, {BYTE}, {SHIFT}, {ADD}, {BS_OP}, {SHIFT_BY_REG}>",
                     LOAD = i.bit(20),
                     WRITEBACK = i.bit(21),
@@ -172,49 +208,26 @@ fn arm_decode(i: u32) -> String {
                     SHIFT = i.bit(25),
                     BS_OP = i.bit_range(5..7) as u8,
                     SHIFT_BY_REG = i.bit(4),
-                ),
-                (T, T) => String::from("arm_undefined"), /* Possible ARM11 but we don't implement these */
+                )),
+                (T, T) => ("Undefined", String::from("arm_undefined")), /* Possible ARM11 but we don't implement these */
             }
         }
         0b10 => match i.bit(25) {
-            F => String::from("exec_arm_ldm_stm"),
-            T => format!("exec_arm_b_bl::<{LINK}>", LINK = i.bit(24)),
+            F => ("BlockDataTransfer", String::from("exec_arm_ldm_stm")),
+            T => (
+                "BranchLink",
+                format!("exec_arm_b_bl::<{LINK}>", LINK = i.bit(24)),
+            ),
         },
         0b11 => {
             match (i.ibit(25), i.ibit(24), i.ibit(4)) {
-                (0b0, _, _) => String::from("arm_undefined"), /* CoprocessorDataTransfer not implemented */
-                (0b1, 0b0, 0b0) => String::from("arm_undefined"), /* CoprocessorDataOperation not implemented */
-                (0b1, 0b0, 0b1) => String::from("arm_undefined"), /* CoprocessorRegisterTransfer not implemented */
-                (0b1, 0b1, _) => String::from("exec_arm_swi"),
-                _ => String::from("arm_undefined"),
+                (0b0, _, _) => ("Undefined", String::from("arm_undefined")), /* CoprocessorDataTransfer not implemented */
+                (0b1, 0b0, 0b0) => ("Undefined", String::from("arm_undefined")), /* CoprocessorDataOperation not implemented */
+                (0b1, 0b0, 0b1) => ("Undefined", String::from("arm_undefined")), /* CoprocessorRegisterTransfer not implemented */
+                (0b1, 0b1, _) => ("SoftwareInterrupt", String::from("exec_arm_swi")),
+                _ => ("Undefined", String::from("arm_undefined")),
             }
         }
-        _ => unreachable!(),
-    }
-}
-
-fn thumb_format_to_handler(thumb_fmt: &str) -> &'static str {
-    match thumb_fmt {
-        "MoveShiftedReg" => "exec_thumb_move_shifted_reg",
-        "AddSub" => "exec_thumb_add_sub",
-        "DataProcessImm" => "exec_thumb_data_process_imm",
-        "AluOps" => "exec_thumb_alu_ops",
-        "HiRegOpOrBranchExchange" => "exec_thumb_hi_reg_op_or_bx",
-        "LdrPc" => "exec_thumb_ldr_pc",
-        "LdrStrRegOffset" => "exec_thumb_ldr_str_reg_offset",
-        "LdrStrSHB" => "exec_thumb_ldr_str_shb",
-        "LdrStrImmOffset" => "exec_thumb_ldr_str_imm_offset",
-        "LdrStrHalfWord" => "exec_thumb_ldr_str_halfword",
-        "LdrStrSp" => "exec_thumb_ldr_str_sp",
-        "LoadAddress" => "exec_thumb_load_address",
-        "AddSp" => "exec_thumb_add_sp",
-        "PushPop" => "exec_thumb_push_pop",
-        "LdmStm" => "exec_thumb_ldm_stm",
-        "BranchConditional" => "exec_thumb_branch_with_cond",
-        "Swi" => "exec_thumb_swi",
-        "Branch" => "exec_thumb_branch",
-        "BranchLongWithLink" => "exec_thumb_branch_long_with_link",
-        "Undefined" => "thumb_undefined",
         _ => unreachable!(),
     }
 }
@@ -227,8 +240,7 @@ fn generate_thumb_lut(file: &mut fs::File) -> Result<(), std::io::Error> {
     )?;
 
     for i in 0..1024 {
-        let thumb_fmt = thumb_decode(i << 6);
-        let handler_name = thumb_format_to_handler(thumb_fmt);
+        let (thumb_fmt, handler_name) = thumb_decode(i << 6);
         writeln!(
             file,
             "       /* {:#x} */
@@ -254,16 +266,16 @@ fn generate_arm_lut(file: &mut fs::File) -> Result<(), std::io::Error> {
         "    pub const ARM_LUT: [ArmInstructionInfo<I>; 4096] = ["
     )?;
     for i in 0..4096 {
-        let handler_name = arm_decode(((i & 0xff0) << 16) | ((i & 0x00f) << 4));
+        let (arm_fmt, handler_name) = arm_decode(((i & 0xff0) << 16) | ((i & 0x00f) << 4));
         writeln!(
             file,
             "       /* {:#x} */
         ArmInstructionInfo {{
             handler_fn: Core::{},
             #[cfg(feature = \"debugger\")]
-            fmt: ArmFormat::Undefined,
+            fmt: ArmFormat::{},
         }} ,",
-            i, handler_name
+            i, handler_name, arm_fmt
         )?;
     }
     writeln!(file, "    ];")?;

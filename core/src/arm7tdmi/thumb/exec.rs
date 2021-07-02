@@ -10,19 +10,23 @@ use MemoryAccess::*;
 impl<I: MemoryInterface> Core<I> {
     /// Format 1
     /// Execution Time: 1S
-    pub(in super::super) fn exec_thumb_move_shifted_reg(&mut self, insn: u16) -> CpuAction {
+    pub(in super::super) fn exec_thumb_move_shifted_reg<const BS_OP: u8, const OFFSET5: u8>(
+        &mut self,
+        insn: u16,
+    ) -> CpuAction {
         let rd = (insn & 0b111) as usize;
         let rs = insn.bit_range(3..6) as usize;
 
-        let shift_amount = insn.offset5() as u8 as u32;
+        let shift_amount = OFFSET5 as u32;
         let mut carry = self.cpsr.C();
-        let op2 = self.barrel_shift_op(
-            insn.format1_op(),
-            self.gpr[rs],
-            shift_amount,
-            &mut carry,
-            true,
-        );
+        let bsop = match BS_OP {
+            0 => BarrelShiftOpCode::LSL,
+            1 => BarrelShiftOpCode::LSR,
+            2 => BarrelShiftOpCode::ASR,
+            3 => BarrelShiftOpCode::ROR,
+            _ => unsafe { std::hint::unreachable_unchecked() },
+        };
+        let op2 = self.barrel_shift_op(bsop, self.gpr[rs], shift_amount, &mut carry, true);
         self.gpr[rd] = op2;
         self.alu_update_flags(op2, false, carry, self.cpsr.V());
 
@@ -31,18 +35,21 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Format 2
     /// Execution Time: 1S
-    pub(in super::super) fn exec_thumb_add_sub(&mut self, insn: u16) -> CpuAction {
+    pub(in super::super) fn exec_thumb_add_sub<
+        const SUB: bool,
+        const IMM: bool,
+        const RN: usize,
+    >(
+        &mut self,
+        insn: u16,
+    ) -> CpuAction {
         let rd = (insn & 0b111) as usize;
         let op1 = self.get_reg(insn.rs());
-        let op2 = if insn.is_immediate_operand() {
-            insn.rn() as u32
-        } else {
-            self.get_reg(insn.rn())
-        };
+        let op2 = if IMM { RN as u32 } else { self.get_reg(RN) };
 
         let mut carry = self.cpsr.C();
         let mut overflow = self.cpsr.V();
-        let result = if insn.is_subtract() {
+        let result = if SUB {
             self.alu_sub_flags(op1, op2, &mut carry, &mut overflow)
         } else {
             self.alu_add_flags(op1, op2, &mut carry, &mut overflow)
