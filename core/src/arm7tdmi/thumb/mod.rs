@@ -210,7 +210,9 @@ impl From<OpFormat5> for AluOpCode {
 
 pub(super) mod consts {
     pub(super) mod flags {
+        #[cfg(feature = "debugger")]
         pub const FLAG_H1: usize = 7;
+        #[cfg(feature = "debugger")]
         pub const FLAG_H2: usize = 6;
         pub const FLAG_R: usize = 8;
         pub const FLAG_S: usize = 7;

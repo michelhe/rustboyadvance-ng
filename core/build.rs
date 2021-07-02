@@ -44,10 +44,21 @@ fn thumb_decode(i: u16) -> (&'static str, String) {
     } else if i & 0xfc00 == 0x4400 {
         (
             "HiRegOpOrBranchExchange",
-            String::from("exec_thumb_hi_reg_op_or_bx"),
+            format!(
+                "exec_thumb_hi_reg_op_or_bx::<{OP}, {FLAG_H1}, {FLAG_H2}>",
+                OP = i.bit_range(8..10) as u8,
+                FLAG_H1 = i.bit(7),
+                FLAG_H2 = i.bit(6),
+            ),
         )
     } else if i & 0xf800 == 0x4800 {
-        ("LdrPc", String::from("exec_thumb_ldr_pc"))
+        (
+            "LdrPc",
+            format!(
+                "exec_thumb_ldr_pc::<{RD}>",
+                RD = i.bit_range(8..11) as usize
+            ),
+        )
     } else if i & 0xf200 == 0x5000 {
         (
             "LdrStrRegOffset",
