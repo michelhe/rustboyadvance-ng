@@ -75,9 +75,9 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Move from status register
     /// 1S
-    pub fn exec_arm_mrs(&mut self, insn: u32) -> CpuAction {
+    pub fn exec_arm_mrs<const SPSR_FLAG: bool>(&mut self, insn: u32) -> CpuAction {
         let rd = insn.bit_range(12..16) as usize;
-        let result = if insn.spsr_flag() {
+        let result = if SPSR_FLAG {
             self.spsr.get()
         } else {
             self.cpsr.get()
@@ -87,9 +87,13 @@ impl<I: MemoryInterface> Core<I> {
         CpuAction::AdvancePC(Seq)
     }
 
-    #[inline(always)]
-    fn decode_msr_param(&mut self, insn: u32) -> u32 {
-        if insn.bit(25) {
+    /// Move to status register
+    /// 1S
+    pub fn exec_arm_transfer_to_status<const IMM: bool, const SPSR_FLAG: bool>(
+        &mut self,
+        insn: u32,
+    ) -> CpuAction {
+        let value = if IMM {
             let immediate = insn & 0xff;
             let rotate = 2 * insn.bit_range(8..12);
             let mut carry = self.cpsr.C();
@@ -98,13 +102,7 @@ impl<I: MemoryInterface> Core<I> {
             v
         } else {
             self.get_reg((insn & 0b1111) as usize)
-        }
-    }
-
-    /// Move to status register
-    /// 1S
-    pub fn exec_arm_transfer_to_status(&mut self, insn: u32) -> CpuAction {
-        let value = self.decode_msr_param(insn);
+        };
 
         let f = insn.bit(19);
         let s = insn.bit(18);
@@ -125,17 +123,15 @@ impl<I: MemoryInterface> Core<I> {
             mask |= 0xff << 0;
         }
 
-        let is_spsr = insn.spsr_flag();
-
         match self.cpsr.mode() {
             CpuMode::User => {
-                if is_spsr {
+                if SPSR_FLAG {
                     panic!("User mode can't access SPSR")
                 }
                 self.cpsr.set_flag_bits(value);
             }
             _ => {
-                if is_spsr {
+                if SPSR_FLAG {
                     self.spsr.set(value);
                 } else {
                     let old_mode = self.cpsr.mode();

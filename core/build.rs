@@ -305,10 +305,10 @@ fn arm_decode(i: u32) -> (&'static str, String) {
                         let is_op_not_touching_rd = i.bit_range(21..25) & 0b1100 == 0b1000;
                         if !set_cond_flags && is_op_not_touching_rd {
                             if i.bit(21) {
-                                // Since bit-16 is ignored and we can't know statically if this is a exec_arm_transfer_to_status or exec_arm_transfer_to_status
-                                ("MoveToStatus", String::from("exec_arm_transfer_to_status"))
+                                ("MoveToStatus", format!("exec_arm_transfer_to_status::<{IMM}, {SPSR_FLAG}>",
+                                    IMM = i.bit(25), SPSR_FLAG = i.bit(22)))
                             } else {
-                                ("MoveFromStatus", String::from("exec_arm_mrs"))
+                                ("MoveFromStatus", format!("exec_arm_mrs::<{SPSR_FLAG}>", SPSR_FLAG = i.bit(22)))
                             }
                         } else {
                             ("DataProcessing", format!("exec_arm_data_processing::<{OP}, {IMM}, {SET_FLAGS}, {SHIFT_BY_REG}>",
