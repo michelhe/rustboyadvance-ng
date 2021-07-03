@@ -480,20 +480,27 @@ impl<I: MemoryInterface> Core<I> {
         result
     }
 
-    pub fn exec_arm_ldm_stm(&mut self, insn: u32) -> CpuAction {
+    pub fn exec_arm_ldm_stm<
+        const LOAD: bool,
+        const WRITEBACK: bool,
+        const FLAG_S: bool,
+        const ADD: bool,
+        const PRE_INDEX: bool,
+    >(
+        &mut self,
+        insn: u32,
+    ) -> CpuAction {
         let mut result = CpuAction::AdvancePC(NonSeq);
 
-        let mut full = insn.pre_index_flag();
-        let ascending = insn.add_offset_flag();
-        let s_flag = insn.bit(22);
-        let is_load = insn.load_flag();
-        let mut writeback = insn.write_back_flag();
+        let mut full = PRE_INDEX;
+        let ascending = ADD;
+        let mut writeback = WRITEBACK;
         let base_reg = insn.bit_range(16..20) as usize;
         let mut base_addr = self.get_reg(base_reg);
 
         let rlist = insn.register_list();
 
-        if s_flag {
+        if FLAG_S {
             match self.cpsr.mode() {
                 CpuMode::User | CpuMode::System => {
                     panic!("LDM/STM with S bit in unprivileged mode")
@@ -502,8 +509,8 @@ impl<I: MemoryInterface> Core<I> {
             };
         }
 
-        let user_bank_transfer = if s_flag {
-            if is_load {
+        let user_bank_transfer = if FLAG_S {
+            if LOAD {
                 !rlist.bit(REG_PC)
             } else {
                 true
@@ -517,7 +524,7 @@ impl<I: MemoryInterface> Core<I> {
             self.change_mode(old_mode, CpuMode::User);
         }
 
-        let psr_transfer = s_flag & is_load & rlist.bit(REG_PC);
+        let psr_transfer = FLAG_S & LOAD & rlist.bit(REG_PC);
 
         let rlist_count = rlist.count_ones();
 
@@ -535,7 +542,7 @@ impl<I: MemoryInterface> Core<I> {
         let mut addr = base_addr;
 
         if rlist != 0 {
-            if is_load {
+            if LOAD {
                 let mut access = NonSeq;
                 for r in 0..16 {
                     if rlist.bit(r) {
@@ -600,7 +607,7 @@ impl<I: MemoryInterface> Core<I> {
                 }
             }
         } else {
-            if is_load {
+            if LOAD {
                 let val = self.ldr_word(addr, NonSeq);
                 self.set_reg(REG_PC, val & !3);
                 self.reload_pipeline32();
