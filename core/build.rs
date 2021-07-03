@@ -231,15 +231,33 @@ fn arm_decode(i: u32) -> (&'static str, String) {
             let result = match (i.bit_range(23..26), i.bit_range(4..8)) {
                 (0b000, 0b1001) => {
                     if 0b0 == i.ibit(22) {
-                        Some(("Multiply", String::from("exec_arm_mul_mla")))
+                        Some((
+                            "Multiply",
+                            format!(
+                                "exec_arm_mul_mla::<{UPDATE_FLAGS}, {ACCUMULATE}>",
+                                UPDATE_FLAGS = i.bit(20),
+                                ACCUMULATE = i.bit(21),
+                            ),
+                        ))
                     } else {
                         None
                     }
                 }
-                (0b001, 0b1001) => Some(("MultiplyLong", String::from("exec_arm_mull_mlal"))),
+                (0b001, 0b1001) => Some((
+                    "MultiplyLong",
+                    format!(
+                        "exec_arm_mull_mlal::<{UPDATE_FLAGS}, {ACCUMULATE}, {U_FLAG}>",
+                        UPDATE_FLAGS = i.bit(20),
+                        ACCUMULATE = i.bit(21),
+                        U_FLAG = i.bit(22),
+                    ),
+                )),
                 (0b010, 0b1001) => {
                     if 0b00 == i.bit_range(20..22) {
-                        Some(("SingleDataSwap", String::from("exec_arm_swp")))
+                        Some((
+                            "SingleDataSwap",
+                            format!("exec_arm_swp::<{BYTE}>", BYTE = i.bit(22)),
+                        ))
                     } else {
                         None
                     }
