@@ -620,11 +620,14 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Multiply and Multiply-Accumulate (MUL, MLA)
     /// Execution Time: 1S+mI for MUL, and 1S+(m+1)I for MLA.
-    pub fn exec_arm_mul_mla(&mut self, insn: u32) -> CpuAction {
+    pub fn exec_arm_mul_mla<const UPDATE_FLAGS: bool, const ACCUMULATE: bool>(
+        &mut self,
+        insn: u32,
+    ) -> CpuAction {
         let rd = insn.bit_range(16..20) as usize;
         let rn = insn.bit_range(12..16) as usize;
-        let rs = insn.rs();
-        let rm = insn.rm();
+        let rs = insn.bit_range(8..12) as usize;
+        let rm = insn.bit_range(0..4) as usize;
 
         // // check validity
         // assert!(!(REG_PC == rd || REG_PC == rn || REG_PC == rs || REG_PC == rm));
@@ -634,7 +637,7 @@ impl<I: MemoryInterface> Core<I> {
         let op2 = self.get_reg(rs);
         let mut result = op1.wrapping_mul(op2);
 
-        if insn.accumulate_flag() {
+        if ACCUMULATE {
             result = result.wrapping_add(self.get_reg(rn));
             self.idle_cycle();
         }
@@ -646,7 +649,7 @@ impl<I: MemoryInterface> Core<I> {
             self.idle_cycle();
         }
 
-        if insn.set_cond_flag() {
+        if UPDATE_FLAGS {
             self.cpsr.set_N((result as i32) < 0);
             self.cpsr.set_Z(result == 0);
             self.cpsr.set_C(false);
@@ -658,7 +661,14 @@ impl<I: MemoryInterface> Core<I> {
 
     /// Multiply Long and Multiply-Accumulate Long (MULL, MLAL)
     /// Execution Time: 1S+(m+1)I for MULL, and 1S+(m+2)I for MLAL
-    pub fn exec_arm_mull_mlal(&mut self, insn: u32) -> CpuAction {
+    pub fn exec_arm_mull_mlal<
+        const UPDATE_FLAGS: bool,
+        const ACCUMULATE: bool,
+        const U_FLAG: bool,
+    >(
+        &mut self,
+        insn: u32,
+    ) -> CpuAction {
         let rd_hi = insn.rd_hi();
         let rd_lo = insn.rd_lo();
         let rs = insn.rs();
@@ -666,13 +676,13 @@ impl<I: MemoryInterface> Core<I> {
 
         let op1 = self.get_reg(rm);
         let op2 = self.get_reg(rs);
-        let mut result: u64 = if insn.u_flag() {
+        let mut result: u64 = if U_FLAG {
             // signed
             (op1 as i32 as i64).wrapping_mul(op2 as i32 as i64) as u64
         } else {
             (op1 as u64).wrapping_mul(op2 as u64)
         };
-        if insn.accumulate_flag() {
+        if ACCUMULATE {
             let hi = self.get_reg(rd_hi) as u64;
             let lo = self.get_reg(rd_lo) as u64;
             result = result.wrapping_add(hi << 32 | lo);
@@ -686,7 +696,7 @@ impl<I: MemoryInterface> Core<I> {
             self.idle_cycle();
         }
 
-        if insn.set_cond_flag() {
+        if UPDATE_FLAGS {
             self.cpsr.set_N(result.bit(63));
             self.cpsr.set_Z(result == 0);
             self.cpsr.set_C(false);
@@ -698,10 +708,10 @@ impl<I: MemoryInterface> Core<I> {
 
     /// ARM Opcodes: Memory: Single Data Swap (SWP)
     /// Execution Time: 1S+2N+1I. That is, 2N data cycles, 1S code cycle, plus 1I.
-    pub fn exec_arm_swp(&mut self, insn: u32) -> CpuAction {
+    pub fn exec_arm_swp<const BYTE: bool>(&mut self, insn: u32) -> CpuAction {
         let base_addr = self.get_reg(insn.bit_range(16..20) as usize);
         let rd = insn.bit_range(12..16) as usize;
-        if insn.transfer_size() == 1 {
+        if BYTE {
             let t = self.load_8(base_addr, NonSeq);
             self.store_8(base_addr, self.get_reg(insn.rm()) as u8, Seq);
             self.set_reg(rd, t as u32);
