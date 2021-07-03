@@ -12,27 +12,6 @@ use super::ArmDecodeHelper;
 use super::*;
 
 impl<I: MemoryInterface> Core<I> {
-    #[cfg(not(feature = "arm7tdmi_dispatch_table"))]
-    pub fn exec_arm(&mut self, insn: u32, fmt: ArmFormat) -> CpuAction {
-        match fmt {
-            ArmFormat::BranchExchange => self.exec_arm_bx(insn),
-            ArmFormat::BranchLink => self.exec_arm_b_bl(insn),
-            ArmFormat::DataProcessing => self.exec_arm_data_processing(insn),
-            ArmFormat::SoftwareInterrupt => self.exec_arm_swi(insn),
-            ArmFormat::SingleDataTransfer => self.exec_arm_ldr_str(insn),
-            ArmFormat::HalfwordDataTransferImmediateOffset => self.exec_arm_ldr_str_hs_imm(insn),
-            ArmFormat::HalfwordDataTransferRegOffset => self.exec_arm_ldr_str_hs_reg(insn),
-            ArmFormat::BlockDataTransfer => self.exec_arm_ldm_stm(insn),
-            ArmFormat::MoveFromStatus => self.exec_arm_mrs(insn),
-            ArmFormat::MoveToStatus => self.exec_arm_transfer_to_status(insn),
-            ArmFormat::MoveToFlags => self.exec_arm_transfer_to_status(insn),
-            ArmFormat::Multiply => self.exec_arm_mul_mla(insn),
-            ArmFormat::MultiplyLong => self.exec_arm_mull_mlal(insn),
-            ArmFormat::SingleDataSwap => self.exec_arm_swp(insn),
-            ArmFormat::Undefined => self.arm_undefined(insn),
-        }
-    }
-
     pub fn arm_undefined(&mut self, insn: u32) -> CpuAction {
         panic!(
             "executing undefined arm instruction {:08x} at @{:08x}",
