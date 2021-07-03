@@ -326,7 +326,7 @@ impl<I: MemoryInterface> Core<I> {
             } else {
                 self.get_reg(dest_reg)
             };
-            if insn.transfer_size() == 1 {
+            if BYTE {
                 self.store_8(addr, value as u8, NonSeq);
             } else {
                 self.store_aligned_32(addr & !0x3, value, NonSeq);
