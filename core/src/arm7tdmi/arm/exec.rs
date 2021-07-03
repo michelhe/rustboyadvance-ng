@@ -373,36 +373,53 @@ impl<I: MemoryInterface> Core<I> {
         result
     }
 
-    pub fn exec_arm_ldr_str_hs_reg(&mut self, insn: u32) -> CpuAction {
-        let offset = {
-            let added = insn.add_offset_flag();
-            let abs = self.get_reg((insn & 0xf) as usize);
-            if added {
-                abs as u32
-            } else {
-                (-(abs as i32)) as u32
-            }
-        };
-        self.ldr_str_hs_common(insn, offset)
+    pub fn exec_arm_ldr_str_hs_reg<
+        const HS: u8,
+        const LOAD: bool,
+        const WRITEBACK: bool,
+        const PRE_INDEX: bool,
+        const ADD: bool,
+    >(
+        &mut self,
+        insn: u32,
+    ) -> CpuAction {
+        let offset = self.get_reg((insn & 0xf) as usize);
+        self.ldr_str_hs_common::<HS, LOAD, WRITEBACK, PRE_INDEX, ADD>(insn, offset)
     }
 
-    pub fn exec_arm_ldr_str_hs_imm(&mut self, insn: u32) -> CpuAction {
+    pub fn exec_arm_ldr_str_hs_imm<
+        const HS: u8,
+        const LOAD: bool,
+        const WRITEBACK: bool,
+        const PRE_INDEX: bool,
+        const ADD: bool,
+    >(
+        &mut self,
+        insn: u32,
+    ) -> CpuAction {
         let offset8 = (insn.bit_range(8..12) << 4) + insn.bit_range(0..4);
-        let offset8 = if insn.add_offset_flag() {
-            offset8
-        } else {
-            (-(offset8 as i32)) as u32
-        };
-        self.ldr_str_hs_common(insn, offset8)
+        self.ldr_str_hs_common::<HS, LOAD, WRITEBACK, PRE_INDEX, ADD>(insn, offset8)
     }
 
     #[inline(always)]
-    pub fn ldr_str_hs_common(&mut self, insn: u32, offset: u32) -> CpuAction {
+    pub fn ldr_str_hs_common<
+        const HS: u8,
+        const LOAD: bool,
+        const WRITEBACK: bool,
+        const PRE_INDEX: bool,
+        const ADD: bool,
+    >(
+        &mut self,
+        insn: u32,
+        offset: u32,
+    ) -> CpuAction {
         let mut result = CpuAction::AdvancePC(NonSeq);
 
-        let load = insn.load_flag();
-        let pre_index = insn.pre_index_flag();
-        let writeback = insn.write_back_flag();
+        let offset = if ADD {
+            offset
+        } else {
+            (-(offset as i32)) as u32
+        };
         let base_reg = insn.bit_range(16..20) as usize;
         let dest_reg = insn.bit_range(12..16) as usize;
         let mut addr = self.get_reg(base_reg);
@@ -412,19 +429,17 @@ impl<I: MemoryInterface> Core<I> {
 
         // TODO - confirm this
         let old_mode = self.cpsr.mode();
-        if !pre_index && writeback {
+        if !PRE_INDEX && WRITEBACK {
             self.change_mode(old_mode, CpuMode::User);
         }
 
         let effective_addr = (addr as i32).wrapping_add(offset as i32) as Addr;
-        addr = if insn.pre_index_flag() {
-            effective_addr
-        } else {
-            addr
-        };
+        addr = if PRE_INDEX { effective_addr } else { addr };
 
-        if load {
-            let data = match insn.halfword_data_transfer_type() {
+        let transfer_type = ArmHalfwordTransferType::from_u8(HS).unwrap();
+
+        if LOAD {
+            let data = match transfer_type {
                 ArmHalfwordTransferType::SignedByte => self.load_8(addr, NonSeq) as u8 as i8 as u32,
                 ArmHalfwordTransferType::SignedHalfwords => self.ldr_sign_half(addr, NonSeq),
                 ArmHalfwordTransferType::UnsignedHalfwords => self.ldr_half(addr, NonSeq),
@@ -446,7 +461,7 @@ impl<I: MemoryInterface> Core<I> {
                 self.get_reg(dest_reg)
             };
 
-            match insn.halfword_data_transfer_type() {
+            match transfer_type {
                 ArmHalfwordTransferType::UnsignedHalfwords => {
                     self.store_aligned_16(addr, value as u16, NonSeq);
                 }
@@ -454,10 +469,10 @@ impl<I: MemoryInterface> Core<I> {
             };
         }
 
-        if !load || base_reg != dest_reg {
-            if !pre_index {
+        if !LOAD || base_reg != dest_reg {
+            if !PRE_INDEX {
                 self.set_reg(base_reg, effective_addr);
-            } else if insn.write_back_flag() {
+            } else if WRITEBACK {
                 self.set_reg(base_reg, effective_addr);
             }
         }

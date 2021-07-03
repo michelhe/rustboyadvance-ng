@@ -272,10 +272,32 @@ fn arm_decode(i: u32) -> (&'static str, String) {
                 _ => None,
             };
 
-            result.unwrap_or_else(|| {
+            if let Some(result) = result {
+                result
+            } else {
                 match (i.ibit(25), i.ibit(22), i.ibit(7), i.ibit(4)) {
-                    (0, 0, 1, 1) => ("HalfwordDataTransferRegOffset", String::from("exec_arm_ldr_str_hs_reg")),
-                    (0, 1, 1, 1) => ("HalfwordDataTransferImmediateOffset", String::from("exec_arm_ldr_str_hs_imm")),
+                    (0, 0, 1, 1) => (
+                        "HalfwordDataTransferRegOffset",
+                        format!(
+                            "exec_arm_ldr_str_hs_reg::<{HS}, {LOAD}, {WRITEBACK}, {PRE_INDEX}, {ADD}>",
+                            HS = (i & 0b1100000) >> 5,
+                            LOAD = i.bit(20),
+                            WRITEBACK = i.bit(21),
+                            ADD = i.bit(23),
+                            PRE_INDEX = i.bit(24),
+                        ),
+                    ),
+                    (0, 1, 1, 1) => (
+                        "HalfwordDataTransferImmediateOffset",
+                        format!(
+                            "exec_arm_ldr_str_hs_imm::<{HS}, {LOAD}, {WRITEBACK}, {PRE_INDEX}, {ADD}>",
+                            HS = (i & 0b1100000) >> 5,
+                            LOAD = i.bit(20),
+                            WRITEBACK = i.bit(21),
+                            ADD = i.bit(23),
+                            PRE_INDEX = i.bit(24)
+                        ),
+                    ),
                     _ => {
                         let set_cond_flags = i.bit(20);
                         // PSR Transfers are encoded as a subset of Data Processing,
@@ -297,7 +319,7 @@ fn arm_decode(i: u32) -> (&'static str, String) {
                         }
                     }
                 }
-            })
+            }
         }
         0b01 => {
             match (i.bit(25), i.bit(4)) {
