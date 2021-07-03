@@ -367,7 +367,7 @@ impl<I: MemoryInterface> Core<I> {
     cfg_if! {
         if #[cfg(feature = "arm7tdmi_dispatch_table")] {
             fn step_arm_exec(&mut self, insn: u32) -> CpuAction {
-                let hash = (((insn >> 16) & 0xff0) | ((insn >> 4) & 0x00f)) as usize;
+                let hash = (((insn >> 16) & 0xff0) | ((insn >> 4) & 0xf)) as usize;
                 let arm_info = &Self::ARM_LUT[hash];
                 #[cfg(feature = "debugger")]
                 self.debugger_record_step(DecodedInstruction::Arm(ArmInstruction::new(
