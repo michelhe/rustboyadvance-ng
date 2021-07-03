@@ -338,7 +338,17 @@ fn arm_decode(i: u32) -> (&'static str, String) {
             }
         }
         0b10 => match i.bit(25) {
-            F => ("BlockDataTransfer", String::from("exec_arm_ldm_stm")),
+            F => (
+                "BlockDataTransfer",
+                format!(
+                    "exec_arm_ldm_stm::<{LOAD}, {WRITEBACK}, {FLAG_S}, {ADD}, {PRE_INDEX}>",
+                    LOAD = i.bit(20),
+                    WRITEBACK = i.bit(21),
+                    FLAG_S = i.bit(22),
+                    ADD = i.bit(23),
+                    PRE_INDEX = i.bit(24),
+                ),
+            ),
             T => (
                 "BranchLink",
                 format!("exec_arm_b_bl::<{LINK}>", LINK = i.bit(24)),
