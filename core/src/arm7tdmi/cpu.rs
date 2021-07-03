@@ -11,32 +11,24 @@ use MemoryAccess::*;
 
 use cfg_if::cfg_if;
 
-cfg_if! {
-    if #[cfg(feature = "arm7tdmi_dispatch_table")] {
+#[cfg(feature = "debugger")]
+use super::thumb::ThumbFormat;
 
-        #[cfg(feature = "debugger")]
-        use super::thumb::ThumbFormat;
+#[cfg(feature = "debugger")]
+use super::arm::ArmFormat;
 
-        #[cfg(feature = "debugger")]
-        use super::arm::ArmFormat;
+#[cfg_attr(not(feature = "debugger"), repr(transparent))]
+pub struct ThumbInstructionInfo<I: MemoryInterface> {
+    pub handler_fn: fn(&mut Core<I>, insn: u16) -> CpuAction,
+    #[cfg(feature = "debugger")]
+    pub fmt: ThumbFormat,
+}
 
-        #[cfg_attr(not(feature = "debugger"), repr(transparent))]
-        pub struct ThumbInstructionInfo<I: MemoryInterface> {
-            pub handler_fn: fn(&mut Core<I>, insn: u16) -> CpuAction,
-            #[cfg(feature = "debugger")]
-            pub fmt: ThumbFormat,
-        }
-
-        #[cfg_attr(not(feature = "debugger"), repr(transparent))]
-        pub struct ArmInstructionInfo<I: MemoryInterface> {
-            pub handler_fn: fn(&mut Core<I>, insn: u32) -> CpuAction,
-            #[cfg(feature = "debugger")]
-            pub fmt: ArmFormat,
-        }
-    } else {
-        use super::arm::ArmFormat;
-        use super::thumb::ThumbFormat;
-    }
+#[cfg_attr(not(feature = "debugger"), repr(transparent))]
+pub struct ArmInstructionInfo<I: MemoryInterface> {
+    pub handler_fn: fn(&mut Core<I>, insn: u32) -> CpuAction,
+    #[cfg(feature = "debugger")]
+    pub fmt: ArmFormat,
 }
 
 cfg_if! {
@@ -364,53 +356,27 @@ impl<I: MemoryInterface> Core<I> {
         self.dbg.last_executed = Some(d);
     }
 
-    cfg_if! {
-        if #[cfg(feature = "arm7tdmi_dispatch_table")] {
-            fn step_arm_exec(&mut self, insn: u32) -> CpuAction {
-                let hash = (((insn >> 16) & 0xff0) | ((insn >> 4) & 0xf)) as usize;
-                let arm_info = &Self::ARM_LUT[hash];
-                #[cfg(feature = "debugger")]
-                self.debugger_record_step(DecodedInstruction::Arm(ArmInstruction::new(
-                    insn,
-                    self.pc.wrapping_sub(8),
-                    arm_info.fmt,
-                )));
-                (arm_info.handler_fn)(self, insn)
-            }
+    fn step_arm_exec(&mut self, insn: u32) -> CpuAction {
+        let hash = (((insn >> 16) & 0xff0) | ((insn >> 4) & 0xf)) as usize;
+        let arm_info = &Self::ARM_LUT[hash];
+        #[cfg(feature = "debugger")]
+        self.debugger_record_step(DecodedInstruction::Arm(ArmInstruction::new(
+            insn,
+            self.pc.wrapping_sub(8),
+            arm_info.fmt,
+        )));
+        (arm_info.handler_fn)(self, insn)
+    }
 
-            fn step_thumb_exec(&mut self, insn: u16) -> CpuAction {
-                let thumb_info = &Self::THUMB_LUT[(insn >> 6) as usize];
-                #[cfg(feature = "debugger")]
-                self.debugger_record_step(DecodedInstruction::Thumb(ThumbInstruction::new(
-                    insn,
-                    self.pc.wrapping_sub(4),
-                    thumb_info.fmt,
-                )));
-                (thumb_info.handler_fn)(self, insn)
-            }
-        } else {
-
-            fn step_arm_exec(&mut self, insn: u32) -> CpuAction {
-                let arm_fmt = ArmFormat::from(insn);
-                #[cfg(feature = "debugger")]
-                self.debugger_record_step(DecodedInstruction::Arm(ArmInstruction::new(
-                    insn,
-                    self.pc.wrapping_sub(8),
-                    arm_fmt,
-                )));
-                self.exec_arm(insn, arm_fmt)
-            }
-            fn step_thumb_exec(&mut self, insn: u16) -> CpuAction {
-                let thumb_fmt = ThumbFormat::from(insn);
-                #[cfg(feature = "debugger")]
-                self.debugger_record_step(DecodedInstruction::Thumb(ThumbInstruction::new(
-                    insn,
-                    self.pc.wrapping_sub(4),
-                    thumb_fmt,
-                )));
-                self.exec_thumb(insn, thumb_fmt)
-            }
-        }
+    fn step_thumb_exec(&mut self, insn: u16) -> CpuAction {
+        let thumb_info = &Self::THUMB_LUT[(insn >> 6) as usize];
+        #[cfg(feature = "debugger")]
+        self.debugger_record_step(DecodedInstruction::Thumb(ThumbInstruction::new(
+            insn,
+            self.pc.wrapping_sub(4),
+            thumb_info.fmt,
+        )));
+        (thumb_info.handler_fn)(self, insn)
     }
 
     /// 2S + 1N
@@ -558,7 +524,5 @@ impl<I: MemoryInterface> fmt::Display for Core<I> {
     }
 }
 
-#[cfg(feature = "arm7tdmi_dispatch_table")]
 include!(concat!(env!("OUT_DIR"), "/arm_lut.rs"));
-#[cfg(feature = "arm7tdmi_dispatch_table")]
 include!(concat!(env!("OUT_DIR"), "/thumb_lut.rs"));

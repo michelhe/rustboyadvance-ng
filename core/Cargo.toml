@@ -57,12 +57,9 @@ name = "performance"
 harness = false
 
 [features]
-default = ["arm7tdmi_dispatch_table"]
+default = []
 elf_support = ["goblin"]
 debugger = ["nom", "rustyline", "fuzzy-matcher", "elf_support"]
 gdb = ["gdbstub"]
-# Uses lookup tables when executing instructions instead of `match` statements.
-# Faster, but consumes more memory.
-arm7tdmi_dispatch_table = []
 # For use for ports where VideoInterface is not needed like wasm & jni
 no_video_interface = []

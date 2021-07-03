@@ -420,20 +420,15 @@ fn generate_arm_lut(file: &mut fs::File) -> Result<(), std::io::Error> {
 }
 
 fn main() {
-    let arm7tdmi_dispatch_table_enabled =
-        env::var_os("CARGO_FEATURE_ARM7TDMI_DISPATCH_TABLE").is_some();
+    // TODO - don't do this in the build script and use `const fn` instead when it becomes stable
+    let out_dir = env::var_os("OUT_DIR").unwrap();
+    let thumb_lut_path = Path::new(&out_dir).join("thumb_lut.rs");
+    let mut thumb_lut_file = fs::File::create(&thumb_lut_path).expect("failed to create file");
+    generate_thumb_lut(&mut thumb_lut_file).expect("failed to generate thumb table");
 
-    if arm7tdmi_dispatch_table_enabled {
-        // TODO - don't do this in the build script and use `const fn` instead when it becomes stable
-        let out_dir = env::var_os("OUT_DIR").unwrap();
-        let thumb_lut_path = Path::new(&out_dir).join("thumb_lut.rs");
-        let mut thumb_lut_file = fs::File::create(&thumb_lut_path).expect("failed to create file");
-        generate_thumb_lut(&mut thumb_lut_file).expect("failed to generate thumb table");
+    let arm_lut_path = Path::new(&out_dir).join("arm_lut.rs");
+    let mut arm_lut_file = fs::File::create(&arm_lut_path).expect("failed to create file");
+    generate_arm_lut(&mut arm_lut_file).expect("failed to generate arm table");
 
-        let arm_lut_path = Path::new(&out_dir).join("arm_lut.rs");
-        let mut arm_lut_file = fs::File::create(&arm_lut_path).expect("failed to create file");
-        generate_arm_lut(&mut arm_lut_file).expect("failed to generate arm table");
-
-        println!("cargo:rerun-if-changed=build.rs");
-    }
+    println!("cargo:rerun-if-changed=build.rs");
 }

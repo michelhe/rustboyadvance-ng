@@ -575,30 +575,4 @@ impl<I: MemoryInterface> Core<I> {
             self.pc_thumb()
         )
     }
-
-    #[cfg(not(feature = "arm7tdmi_dispatch_table"))]
-    pub fn exec_thumb(&mut self, insn: u16, fmt: ThumbFormat) -> CpuAction {
-        match fmt {
-            ThumbFormat::MoveShiftedReg => self.exec_thumb_move_shifted_reg(insn),
-            ThumbFormat::AddSub => self.exec_thumb_add_sub(insn),
-            ThumbFormat::DataProcessImm => self.exec_thumb_data_process_imm(insn),
-            ThumbFormat::AluOps => self.exec_thumb_alu_ops(insn),
-            ThumbFormat::HiRegOpOrBranchExchange => self.exec_thumb_hi_reg_op_or_bx(insn),
-            ThumbFormat::LdrPc => self.exec_thumb_ldr_pc(insn),
-            ThumbFormat::LdrStrRegOffset => self.exec_thumb_ldr_str_reg_offset(insn),
-            ThumbFormat::LdrStrSHB => self.exec_thumb_ldr_str_shb(insn),
-            ThumbFormat::LdrStrImmOffset => self.exec_thumb_ldr_str_imm_offset(insn),
-            ThumbFormat::LdrStrHalfWord => self.exec_thumb_ldr_str_halfword(insn),
-            ThumbFormat::LdrStrSp => self.exec_thumb_ldr_str_sp(insn),
-            ThumbFormat::LoadAddress => self.exec_thumb_load_address(insn),
-            ThumbFormat::AddSp => self.exec_thumb_add_sp(insn),
-            ThumbFormat::PushPop => self.exec_thumb_push_pop(insn),
-            ThumbFormat::LdmStm => self.exec_thumb_ldm_stm(insn),
-            ThumbFormat::BranchConditional => self.exec_thumb_branch_with_cond(insn),
-            ThumbFormat::Swi => self.exec_thumb_swi(insn),
-            ThumbFormat::Branch => self.exec_thumb_branch(insn),
-            ThumbFormat::BranchLongWithLink => self.exec_thumb_branch_long_with_link(insn),
-            ThumbFormat::Undefined => self.thumb_undefined(insn),
-        }
-    }
 }
