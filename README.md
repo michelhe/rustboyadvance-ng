@@ -29,7 +29,7 @@ WebAssembly Demo: https://michelhe.github.io/rustboyadvance-ng/ ![Deploy](https:
 
 # Build and usage (Desktop Application)
 
-To get started, you need to get a [stable rust toolchain](https://rustup.rs).
+To get started, you need to get a [stable rust toolchain](https://rustup.rs) of version Rust 1.51 or later,
 
 ## Linux build dependencies
 Install SDL2 dependencies
