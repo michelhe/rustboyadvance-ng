@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::bus::*;
 use super::dma::{DmaNotifer, TIMING_HBLANK, TIMING_VBLANK};
 use super::interrupt::{self, Interrupt, InterruptConnect, SharedInterruptFlags};
-use super::sched::*;
+use super::sched::{EventType, FutureEvent, GpuEvent, Scheduler};
 pub use super::sysbus::consts::*;
 #[cfg(not(feature = "no_video_interface"))]
 use super::VideoInterface;
@@ -113,11 +113,6 @@ type VideoDeviceRcRefCell = Rc<RefCell<dyn VideoInterface>>;
 pub struct Gpu {
     interrupt_flags: SharedInterruptFlags,
 
-    /// When deserializing this struct using serde, make sure to call connect_scheduler
-    #[serde(skip)]
-    #[serde(default = "Scheduler::new_shared")]
-    scheduler: SharedScheduler,
-
     /// how many cycles left until next gpu state ?
     cycles_left_for_current_state: usize,
 
@@ -153,15 +148,11 @@ impl InterruptConnect for Gpu {
     }
 }
 
-impl SchedulerConnect for Gpu {
-    fn connect_scheduler(&mut self, scheduler: SharedScheduler) {
-        self.scheduler = scheduler;
-    }
-}
+type FutureGpuEvent = (GpuEvent, usize);
 
 impl Gpu {
-    pub fn new(mut scheduler: SharedScheduler, interrupt_flags: SharedInterruptFlags) -> Gpu {
-        scheduler.push_gpu_event(GpuEvent::HDraw, CYCLES_HDRAW);
+    pub fn new(sched: &mut Scheduler, interrupt_flags: SharedInterruptFlags) -> Gpu {
+        sched.schedule((EventType::Gpu(GpuEvent::HDraw), CYCLES_HDRAW));
 
         fn alloc_scanline_buffer() -> Box<[Rgb15]> {
             vec![Rgb15::TRANSPARENT; DISPLAY_WIDTH].into_boxed_slice()
@@ -169,7 +160,6 @@ impl Gpu {
 
         Gpu {
             interrupt_flags,
-            scheduler,
             dispcnt: DisplayControl::from(0x80),
             dispstat: Default::default(),
             bgcnt: Default::default(),
@@ -367,7 +357,7 @@ impl Gpu {
     }
 
     #[inline]
-    fn handle_hdraw_end<D: DmaNotifer>(&mut self, dma_notifier: &mut D) -> (GpuEvent, usize) {
+    fn handle_hdraw_end<D: DmaNotifer>(&mut self, dma_notifier: &mut D) -> FutureGpuEvent {
         self.dispstat.hblank_flag = true;
         if self.dispstat.hblank_irq_enable {
             interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_HBlank);
@@ -382,7 +372,7 @@ impl Gpu {
         &mut self,
         dma_notifier: &mut D,
         #[cfg(not(feature = "no_video_interface"))] video_device: &VideoDeviceRcRefCell,
-    ) -> (GpuEvent, usize) {
+    ) -> FutureGpuEvent {
         self.update_vcount(self.vcount + 1);
 
         if self.vcount < DISPLAY_HEIGHT {
@@ -419,7 +409,7 @@ impl Gpu {
         }
     }
 
-    fn handle_vblank_hdraw_end(&mut self) -> (GpuEvent, usize) {
+    fn handle_vblank_hdraw_end(&mut self) -> FutureGpuEvent {
         self.dispstat.hblank_flag = true;
         if self.dispstat.hblank_irq_enable {
             interrupt::signal_irq(&self.interrupt_flags, Interrupt::LCD_HBlank);
@@ -427,7 +417,7 @@ impl Gpu {
         (GpuEvent::VBlankHBlank, CYCLES_HBLANK)
     }
 
-    fn handle_vblank_hblank_end(&mut self) -> (GpuEvent, usize) {
+    fn handle_vblank_hblank_end(&mut self) -> FutureGpuEvent {
         if self.vcount < DISPLAY_HEIGHT + VBLANK_LINES - 1 {
             self.update_vcount(self.vcount + 1);
             self.dispstat.hblank_flag = false;
@@ -444,13 +434,13 @@ impl Gpu {
     pub fn on_event<D>(
         &mut self,
         event: GpuEvent,
-        extra_cycles: usize,
         dma_notifier: &mut D,
         #[cfg(not(feature = "no_video_interface"))] video_device: &VideoDeviceRcRefCell,
-    ) where
+    ) -> FutureEvent
+    where
         D: DmaNotifer,
     {
-        let (next_event, cycles) = match event {
+        let (event, when) = match event {
             GpuEvent::HDraw => self.handle_hdraw_end(dma_notifier),
             GpuEvent::HBlank => self.handle_hblank_end(
                 dma_notifier,
@@ -460,8 +450,7 @@ impl Gpu {
             GpuEvent::VBlankHDraw => self.handle_vblank_hdraw_end(),
             GpuEvent::VBlankHBlank => self.handle_vblank_hblank_end(),
         };
-        self.scheduler
-            .push(EventType::Gpu(next_event), cycles - extra_cycles);
+        (EventType::Gpu(event), when)
     }
 }
 
@@ -573,8 +562,8 @@ mod tests {
 
     #[test]
     fn test_gpu_state_machine() {
-        let mut sched = Scheduler::new_shared();
-        let mut gpu = Gpu::new(sched.clone(), Rc::new(Cell::new(Default::default())));
+        let mut sched = Scheduler::new();
+        let mut gpu = Gpu::new(&mut sched, Rc::new(Cell::new(Default::default())));
         #[cfg(not(feature = "no_video_interface"))]
         let video = Rc::new(RefCell::new(TestVideoInterface::default()));
         #[cfg(not(feature = "no_video_interface"))]

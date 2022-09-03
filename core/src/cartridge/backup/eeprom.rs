@@ -254,7 +254,7 @@ impl EepromChip {
         result
     }
 
-    pub(in crate) fn is_transmitting(&self) -> bool {
+    pub(crate) fn is_transmitting(&self) -> bool {
         use SpiState::*;
         match self.state {
             TxData | TxDummy => true,
@@ -262,7 +262,7 @@ impl EepromChip {
         }
     }
 
-    pub(in crate) fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.state = SpiState::RxInstruction;
         self.reset_rx_buffer();
         self.reset_tx_buffer();
@@ -280,7 +280,7 @@ impl EepromChip {
 /// Eeprom controller can programmed with DMA accesses in 16bit mode
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct EepromController {
-    pub(in crate) chip: RefCell<EepromChip>,
+    pub(crate) chip: RefCell<EepromChip>,
     detect: bool,
 }
 

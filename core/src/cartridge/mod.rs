@@ -44,7 +44,7 @@ pub struct Cartridge {
     size: usize,
     gpio: Option<Gpio>,
     symbols: Option<SymbolTable>, // TODO move it somewhere else
-    pub(in crate) backup: BackupMedia,
+    pub(crate) backup: BackupMedia,
 }
 
 impl Cartridge {

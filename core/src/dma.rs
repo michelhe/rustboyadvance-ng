@@ -2,7 +2,7 @@ use super::arm7tdmi::memory::{MemoryAccess, MemoryInterface};
 use super::cartridge::BackupMedia;
 use super::interrupt::{self, Interrupt, InterruptConnect, SharedInterruptFlags};
 use super::iodev::consts::{REG_FIFO_A, REG_FIFO_B};
-use super::sched::{EventType, Scheduler, SchedulerConnect, SharedScheduler};
+use super::sched::{EventType, Scheduler};
 use super::sysbus::SysBus;
 
 use num::FromPrimitive;
@@ -118,7 +118,7 @@ impl DmaChannel {
         return start_immediately;
     }
 
-    fn xfer(&mut self, sb: &mut SysBus) {
+    fn transfer(&mut self, sb: &mut SysBus) {
         let word_size = if self.ctrl.is_32bit() { 4 } else { 2 };
         let count = match self.internal.count {
             0 => match self.id {
@@ -197,9 +197,6 @@ impl DmaChannel {
 pub struct DmaController {
     pub channels: [DmaChannel; 4],
     pending_set: u8,
-    #[serde(skip)]
-    #[serde(default = "Scheduler::new_shared")]
-    scheduler: SharedScheduler,
     #[cfg(feature = "debugger")]
     pub trace: bool,
 }
@@ -212,14 +209,8 @@ impl InterruptConnect for DmaController {
     }
 }
 
-impl SchedulerConnect for DmaController {
-    fn connect_scheduler(&mut self, scheduler: SharedScheduler) {
-        self.scheduler = scheduler;
-    }
-}
-
 impl DmaController {
-    pub fn new(interrupt_flags: SharedInterruptFlags, scheduler: SharedScheduler) -> DmaController {
+    pub fn new(interrupt_flags: SharedInterruptFlags) -> DmaController {
         DmaController {
             channels: [
                 DmaChannel::new(0, interrupt_flags.clone()),
@@ -228,8 +219,6 @@ impl DmaController {
                 DmaChannel::new(3, interrupt_flags.clone()),
             ],
             pending_set: 0,
-            scheduler: scheduler,
-
             #[cfg(feature = "debugger")]
             trace: false,
         }
@@ -242,13 +231,13 @@ impl DmaController {
     pub fn perform_work(&mut self, sb: &mut SysBus) {
         for id in 0..4 {
             if self.pending_set & (1 << id) != 0 {
-                self.channels[id].xfer(sb);
+                self.channels[id].transfer(sb);
             }
         }
         self.pending_set = 0;
     }
 
-    pub fn write_16(&mut self, channel_id: usize, ofs: u32, value: u16) {
+    pub fn write_16(&mut self, channel_id: usize, ofs: u32, value: u16, sched: &mut Scheduler) {
         match ofs {
             0 => self.channels[channel_id].write_src_low(value),
             2 => self.channels[channel_id].write_src_high(value),
@@ -262,8 +251,7 @@ impl DmaController {
                 let start_immediately = self.channels[channel_id].write_dma_ctrl(value);
                 if start_immediately {
                     // DMA actually starts after 3 cycles
-                    self.scheduler
-                        .push(EventType::DmaActivateChannel(channel_id), 3);
+                    sched.schedule((EventType::DmaActivateChannel(channel_id), 3));
                 } else {
                     self.deactivate_channel(channel_id);
                 }

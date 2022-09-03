@@ -1,7 +1,7 @@
 use super::dma::DmaController;
 use super::interrupt::{self, Interrupt, InterruptConnect, SharedInterruptFlags};
 use super::iodev::consts::*;
-use super::sched::{EventType, Scheduler, SchedulerConnect, SharedScheduler};
+use super::sched::{EventType, FutureEvent, Scheduler};
 use super::sound::SoundController;
 
 use num::FromPrimitive;
@@ -93,9 +93,6 @@ impl Timer {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Timers {
-    #[serde(skip)]
-    #[serde(default = "Scheduler::new_shared")]
-    scheduler: SharedScheduler,
     timers: [Timer; 4],
     running_timers: u8,
 
@@ -108,12 +105,6 @@ impl InterruptConnect for Timers {
         for timer in &mut self.timers {
             timer.interrupt_flags = interrupt_flags.clone();
         }
-    }
-}
-
-impl SchedulerConnect for Timers {
-    fn connect_scheduler(&mut self, scheduler: SharedScheduler) {
-        self.scheduler = scheduler;
     }
 }
 
@@ -131,9 +122,8 @@ impl std::ops::IndexMut<usize> for Timers {
 }
 
 impl Timers {
-    pub fn new(interrupt_flags: SharedInterruptFlags, scheduler: SharedScheduler) -> Timers {
+    pub fn new(interrupt_flags: SharedInterruptFlags) -> Timers {
         Timers {
-            scheduler,
             timers: [
                 Timer::new(0, interrupt_flags.clone()),
                 Timer::new(1, interrupt_flags.clone()),
@@ -147,16 +137,16 @@ impl Timers {
         }
     }
 
-    fn add_timer_event(&mut self, id: usize) {
+    fn prepare_next_overflow_event(&mut self, id: usize, start_time: usize) -> FutureEvent {
         let timer = &mut self.timers[id];
         timer.is_scheduled = true;
-        timer.start_time = self.scheduler.timestamp();
+        timer.start_time = start_time;
         let cycles = (timer.ticks_to_overflow() as usize) << timer.prescalar_shift;
-        self.scheduler.push(EventType::TimerOverflow(id), cycles);
+        (EventType::TimerOverflow(id), cycles)
     }
 
-    fn cancel_timer_event(&mut self, id: usize) {
-        self.scheduler.cancel(EventType::TimerOverflow(id));
+    fn cancel_timer_event(&mut self, id: usize, sched: &mut Scheduler) {
+        sched.cancel_pending(EventType::TimerOverflow(id));
         self[id].is_scheduled = false;
     }
 
@@ -185,22 +175,15 @@ impl Timers {
     pub fn handle_overflow_event(
         &mut self,
         id: usize,
-        extra_cycles: usize,
+        overflow_time: usize,
         apu: &mut SoundController,
         dmac: &mut DmaController,
-    ) {
+    ) -> FutureEvent {
         self.handle_timer_overflow(id, apu, dmac);
-
-        // TODO: re-use add_timer_event function
-        let timer = &mut self.timers[id];
-        timer.is_scheduled = true;
-        timer.start_time = self.scheduler.timestamp() - extra_cycles;
-        let cycles = (timer.ticks_to_overflow() as usize) << timer.prescalar_shift;
-        self.scheduler
-            .push(EventType::TimerOverflow(id), cycles - extra_cycles);
+        self.prepare_next_overflow_event(id, overflow_time)
     }
 
-    pub fn write_timer_ctl(&mut self, id: usize, value: u16) {
+    pub fn write_timer_ctl(&mut self, id: usize, value: u16, sched: &mut Scheduler) {
         let timer = &mut self.timers[id];
         let new_ctl = TimerCtl(value);
         #[cfg(feature = "debugger")]
@@ -211,11 +194,11 @@ impl Timers {
         timer.ctl = new_ctl;
         if new_enabled && !cascade {
             self.running_timers |= 1 << id;
-            self.cancel_timer_event(id);
-            self.add_timer_event(id);
+            self.cancel_timer_event(id, sched);
+            sched.schedule(self.prepare_next_overflow_event(id, sched.timestamp()));
         } else {
             self.running_timers &= !(1 << id);
-            self.cancel_timer_event(id);
+            self.cancel_timer_event(id, sched);
         }
 
         #[cfg(feature = "debugger")]
@@ -231,56 +214,56 @@ impl Timers {
     }
 
     #[inline]
-    fn read_timer_data(&mut self, id: usize) -> u16 {
+    fn read_timer_data(&mut self, id: usize, sched: &Scheduler) -> u16 {
         let timer = &mut self.timers[id];
         if timer.is_scheduled {
-            // this timer is controlled by the scheduler so we need to manually calculate
+            // this timer is controlled by the sched so we need to manually calculate
             // the current value of the counter
-            timer.sync_timer_data(self.scheduler.timestamp());
+            timer.sync_timer_data(sched.timestamp());
         }
 
         timer.data
     }
 
-    pub fn handle_read(&mut self, io_addr: u32) -> u16 {
+    pub fn handle_read(&mut self, io_addr: u32, sched: &Scheduler) -> u16 {
         match io_addr {
             REG_TM0CNT_H => self.timers[0].ctl.0,
             REG_TM1CNT_H => self.timers[1].ctl.0,
             REG_TM2CNT_H => self.timers[2].ctl.0,
             REG_TM3CNT_H => self.timers[3].ctl.0,
-            REG_TM0CNT_L => self.read_timer_data(0),
-            REG_TM1CNT_L => self.read_timer_data(1),
-            REG_TM2CNT_L => self.read_timer_data(2),
-            REG_TM3CNT_L => self.read_timer_data(3),
+            REG_TM0CNT_L => self.read_timer_data(0, sched),
+            REG_TM1CNT_L => self.read_timer_data(1, sched),
+            REG_TM2CNT_L => self.read_timer_data(2, sched),
+            REG_TM3CNT_L => self.read_timer_data(3, sched),
             _ => unreachable!(),
         }
     }
 
-    pub fn handle_write(&mut self, io_addr: u32, value: u16) {
+    pub fn handle_write(&mut self, io_addr: u32, value: u16, sched: &mut Scheduler) {
         match io_addr {
             REG_TM0CNT_L => {
                 self.timers[0].data = value;
                 self.timers[0].initial_data = value;
             }
-            REG_TM0CNT_H => self.write_timer_ctl(0, value),
+            REG_TM0CNT_H => self.write_timer_ctl(0, value, sched),
 
             REG_TM1CNT_L => {
                 self.timers[1].data = value;
                 self.timers[1].initial_data = value;
             }
-            REG_TM1CNT_H => self.write_timer_ctl(1, value),
+            REG_TM1CNT_H => self.write_timer_ctl(1, value, sched),
 
             REG_TM2CNT_L => {
                 self.timers[2].data = value;
                 self.timers[2].initial_data = value;
             }
-            REG_TM2CNT_H => self.write_timer_ctl(2, value),
+            REG_TM2CNT_H => self.write_timer_ctl(2, value, sched),
 
             REG_TM3CNT_L => {
                 self.timers[3].data = value;
                 self.timers[3].initial_data = value;
             }
-            REG_TM3CNT_H => self.write_timer_ctl(3, value),
+            REG_TM3CNT_H => self.write_timer_ctl(3, value, sched),
             _ => unreachable!(),
         }
     }

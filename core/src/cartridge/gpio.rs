@@ -27,7 +27,7 @@ pub trait GpioDevice: Sized {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Gpio {
-    pub(in crate) rtc: Option<Rtc>,
+    pub(crate) rtc: Option<Rtc>,
     direction: GpioState,
     control: GpioPortControl,
 }

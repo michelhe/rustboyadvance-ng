@@ -161,7 +161,8 @@ pub type SysBusPtr = WeakPointer<SysBus>;
 
 impl SchedulerConnect for SysBus {
     fn connect_scheduler(&mut self, scheduler: SharedScheduler) {
-        self.scheduler = scheduler;
+        self.scheduler = scheduler.clone();
+        self.io.connect_scheduler(scheduler.clone());
     }
 }
 

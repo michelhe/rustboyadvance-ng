@@ -63,10 +63,6 @@ type AudioDeviceRcRefCell = Rc<RefCell<dyn AudioInterface>>;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SoundController {
-    #[serde(skip)]
-    #[serde(default = "Scheduler::new_shared")]
-    scheduler: SharedScheduler,
-
     cycles: usize, // cycles count when we last provided a new sample.
 
     mse: bool,
@@ -105,19 +101,12 @@ pub struct SoundController {
     output_buffer: Vec<StereoSample<f32>>,
 }
 
-impl SchedulerConnect for SoundController {
-    fn connect_scheduler(&mut self, scheduler: SharedScheduler) {
-        self.scheduler = scheduler;
-    }
-}
-
 impl SoundController {
-    pub fn new(mut scheduler: SharedScheduler, audio_device_sample_rate: f32) -> SoundController {
+    pub fn new(sched: &mut Scheduler, audio_device_sample_rate: f32) -> SoundController {
         let resampler = CosineResampler::new(32768_f32, audio_device_sample_rate);
         let cycles_per_sample = 512;
-        scheduler.push(EventType::Apu(ApuEvent::Sample), cycles_per_sample);
+        sched.schedule((EventType::Apu(ApuEvent::Sample), cycles_per_sample));
         SoundController {
-            scheduler,
             cycles_per_sample,
             cycles: 0,
             mse: false,
@@ -334,7 +323,7 @@ impl SoundController {
     }
 
     #[inline]
-    fn on_sample(&mut self, extra_cycles: usize, audio_device: &AudioDeviceRcRefCell) {
+    fn on_sample(&mut self, audio_device: &AudioDeviceRcRefCell) -> FutureEvent {
         let mut sample = [0f32; 2];
 
         for channel in 0..=1 {
@@ -360,20 +349,17 @@ impl SoundController {
                 (right.round() as i16) * (std::i16::MAX / 512),
             ]);
         });
-
-        self.scheduler
-            .push_apu_event(ApuEvent::Sample, self.cycles_per_sample - extra_cycles);
+        (EventType::Apu(ApuEvent::Sample), self.cycles_per_sample)
     }
 
     pub fn on_event(
         &mut self,
         event: ApuEvent,
-        extra_cycles: usize,
         audio_device: &AudioDeviceRcRefCell,
-    ) {
+    ) -> FutureEvent {
         match event {
-            ApuEvent::Sample => self.on_sample(extra_cycles, audio_device),
-            _ => debug!("got {:?} event", event),
+            ApuEvent::Sample => self.on_sample(audio_device),
+            _ => unimplemented!("got {:?} event", event),
         }
     }
 }

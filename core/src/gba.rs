@@ -78,17 +78,24 @@ impl GameBoyAdvance {
         };
 
         let interrupt_flags = Rc::new(Cell::new(IrqBitmask(0)));
-        let scheduler = Scheduler::new_shared();
+        let mut scheduler = Scheduler::new_shared();
 
         let intc = InterruptController::new(interrupt_flags.clone());
-        let gpu = Box::new(Gpu::new(scheduler.clone(), interrupt_flags.clone()));
-        let dmac = DmaController::new(interrupt_flags.clone(), scheduler.clone());
-        let timers = Timers::new(interrupt_flags.clone(), scheduler.clone());
+        let gpu = Box::new(Gpu::new(&mut scheduler, interrupt_flags.clone()));
+        let dmac = DmaController::new(interrupt_flags.clone());
+        let timers = Timers::new(interrupt_flags.clone());
         let sound_controller = Box::new(SoundController::new(
-            scheduler.clone(),
+            &mut scheduler,
             audio_device.borrow().get_sample_rate() as f32,
         ));
-        let io_devs = Shared::new(IoDevices::new(intc, gpu, dmac, timers, sound_controller));
+        let io_devs = Shared::new(IoDevices::new(
+            intc,
+            gpu,
+            dmac,
+            timers,
+            sound_controller,
+            scheduler.clone(),
+        ));
         let sysbus = Shared::new(SysBus::new(
             scheduler.clone(),
             io_devs.clone(),
@@ -193,7 +200,6 @@ impl GameBoyAdvance {
         self.sysbus.set_ewram(decoded.ewram);
         // Redistribute shared pointers
         self.io_devs.connect_irq(self.interrupt_flags.clone());
-        self.io_devs.connect_scheduler(self.scheduler.clone());
         self.sysbus.connect_scheduler(self.scheduler.clone());
         self.sysbus.set_io_devices(self.io_devs.clone());
         self.sysbus.cartridge.update_from(decoded.cartridge);
@@ -254,7 +260,7 @@ impl GameBoyAdvance {
 
         // Register an event to mark the end of this run
         self.scheduler
-            .push(EventType::RunLimitReached, cycles_to_run);
+            .schedule_at(EventType::RunLimitReached, run_start_time + cycles_to_run);
 
         let mut running = true;
         while running {
@@ -274,47 +280,52 @@ impl GameBoyAdvance {
                             self.io_devs.haltcnt = HaltState::Running;
                         } else {
                             self.scheduler.fast_forward_to_next();
-                            let (event, cycles_late) = self
-                                .scheduler
-                                .pop_pending_event()
-                                .unwrap_or_else(|| unreachable!());
-                            self.handle_event(event, cycles_late, &mut running);
+                            self.handle_events(&mut running)
                         }
                     }
                 }
             }
 
-            while let Some((event, cycles_late)) = self.scheduler.pop_pending_event() {
-                self.handle_event(event, cycles_late, &mut running);
-            }
+            self.handle_events(&mut running);
         }
 
         let total_cycles_ran = self.scheduler.timestamp() - run_start_time;
         total_cycles_ran - cycles_to_run
     }
 
-    #[inline]
-    fn handle_event(&mut self, event: EventType, cycles_late: usize, running: &mut bool) {
+    fn handle_events(&mut self, run_limit_flag: &mut bool) {
         let io = &mut (*self.io_devs);
-        match event {
-            EventType::RunLimitReached => {
-                *running = false;
+        while let Some((event, event_time)) = self.scheduler.pop_pending_event() {
+            // Since we only examine the scheduler queue every so often, most events will be handled late by a few cycles.
+            // We sacrifice accuricy in favor of performance, otherwise we would have to check the event queue
+            // every cpu cycle, where in 99% of cases it will always be empty.
+            let new_event = match event {
+                EventType::RunLimitReached => {
+                    *run_limit_flag = false;
+                    None
+                }
+                EventType::DmaActivateChannel(channel_id) => {
+                    io.dmac.activate_channel(channel_id);
+                    None
+                }
+                EventType::TimerOverflow(channel_id) => {
+                    let timers = &mut io.timers;
+                    let dmac = &mut io.dmac;
+                    let apu = &mut io.sound;
+                    Some(timers.handle_overflow_event(channel_id, event_time, apu, dmac))
+                }
+                EventType::Gpu(gpu_event) => Some(io.gpu.on_event(
+                    gpu_event,
+                    &mut *self.sysbus,
+                    #[cfg(not(feature = "no_video_interface"))]
+                    &self.video_device,
+                )),
+                EventType::Apu(event) => Some(io.sound.on_event(event, &self.audio_device)),
+            };
+            if let Some((new_event, when)) = new_event {
+                // We schedule events added by event handlers relative to the handled event time
+                self.scheduler.schedule_at(new_event, event_time + when)
             }
-            EventType::DmaActivateChannel(channel_id) => io.dmac.activate_channel(channel_id),
-            EventType::TimerOverflow(channel_id) => {
-                let timers = &mut io.timers;
-                let dmac = &mut io.dmac;
-                let apu = &mut io.sound;
-                timers.handle_overflow_event(channel_id, cycles_late, apu, dmac);
-            }
-            EventType::Gpu(event) => io.gpu.on_event(
-                event,
-                cycles_late,
-                &mut *self.sysbus,
-                #[cfg(not(feature = "no_video_interface"))]
-                &self.video_device,
-            ),
-            EventType::Apu(event) => io.sound.on_event(event, cycles_late, &self.audio_device),
         }
     }
 

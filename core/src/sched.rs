@@ -1,4 +1,3 @@
-use std::cell::Cell;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
@@ -42,27 +41,21 @@ pub struct Event {
     typ: EventType,
     /// Timestamp in cycles
     time: usize,
-    cancel: Cell<bool>,
 }
 
 impl Event {
-    fn new(typ: EventType, time: usize) -> Event {
-        Event {
-            typ,
-            time,
-            cancel: Cell::new(false),
-        }
+    pub fn new(typ: EventType, time: usize) -> Event {
+        Event { typ, time }
     }
 
     #[inline]
     fn get_type(&self) -> EventType {
         self.typ
     }
-
-    fn is_canceled(&self) -> bool {
-        self.cancel.get()
-    }
 }
+
+/// Future event is an event to be scheduled in x cycles from now
+pub type FutureEvent = (EventType, usize);
 
 impl Ord for Event {
     fn cmp(&self, other: &Self) -> Ordering {
@@ -140,27 +133,27 @@ impl Scheduler {
         self.events.peek().map(|e| e.typ)
     }
 
-    /// Schedule an event to be executed in `cycles` cycles from now
-    pub fn push(&mut self, typ: EventType, cycles: usize) {
-        let event = Event::new(typ, self.timestamp + cycles);
+    /// Schedule an event to be executed in `when` cycles from now
+    pub fn schedule(&mut self, event: FutureEvent) {
+        let (typ, when) = event;
+        let event = Event::new(typ, self.timestamp + when);
         self.events.push(event);
     }
 
+    /// Schedule an event to be executed at an exact timestamp, can be used to schedule "past" events.
+    pub fn schedule_at(&mut self, event_typ: EventType, timestamp: usize) {
+        self.events.push(Event::new(event_typ, timestamp));
+    }
+
     /// Cancel all events with type `typ`
-    /// This method is rather expansive to call
-    pub fn cancel(&mut self, typ: EventType) {
+    /// This method is rather expansive to call since we are reallocating the entire event tree
+    pub fn cancel_pending(&mut self, typ: EventType) {
+        let mut new_events = BinaryHeap::with_capacity(NUM_EVENTS);
         self.events
             .iter()
-            .filter(|e| e.typ == typ)
-            .for_each(|e| e.cancel.set(true));
-    }
-
-    pub fn push_gpu_event(&mut self, e: GpuEvent, cycles: usize) {
-        self.push(EventType::Gpu(e), cycles);
-    }
-
-    pub fn push_apu_event(&mut self, e: ApuEvent, cycles: usize) {
-        self.push(EventType::Apu(e), cycles);
+            .filter(|e| e.typ != typ)
+            .for_each(|e| new_events.push(e.clone()));
+        self.events = new_events;
     }
 
     /// Updates the scheduler timestamp
@@ -174,11 +167,7 @@ impl Scheduler {
             if self.timestamp >= event.time {
                 // remove the event
                 let event = self.events.pop().unwrap_or_else(|| unreachable!());
-                if !event.is_canceled() {
-                    Some((event.get_type(), self.timestamp - event.time))
-                } else {
-                    None
-                }
+                Some((event.get_type(), event.time))
             } else {
                 None
             }

@@ -8,7 +8,7 @@ use super::gpu::*;
 use super::interrupt::{InterruptConnect, InterruptController, SharedInterruptFlags};
 use super::keypad;
 use super::mgba_debug::DebugPort;
-use super::sched::{SchedulerConnect, SharedScheduler};
+use super::sched::{Scheduler, SchedulerConnect, SharedScheduler};
 use super::sound::SoundController;
 use super::sysbus::SysBusPtr;
 use super::timer::Timers;
@@ -40,6 +40,9 @@ pub struct IoDevices {
     // HACK
     // my ownership design sucks
     #[serde(skip)]
+    #[serde(default = "Scheduler::new_shared")]
+    scheduler: SharedScheduler,
+    #[serde(skip)]
     #[serde(default = "SysBusPtr::default")]
     sysbus_ptr: SysBusPtr,
 }
@@ -51,6 +54,7 @@ impl IoDevices {
         dmac: DmaController,
         timers: Timers,
         sound_controller: Box<SoundController>,
+        scheduler: SharedScheduler,
     ) -> IoDevices {
         IoDevices {
             intc,
@@ -63,7 +67,7 @@ impl IoDevices {
             keyinput: keypad::KEYINPUT_ALL_RELEASED,
             waitcnt: WaitControl(0),
             debug: DebugPort::new(),
-
+            scheduler: scheduler,
             sysbus_ptr: Default::default(),
         }
     }
@@ -84,10 +88,7 @@ impl InterruptConnect for IoDevices {
 
 impl SchedulerConnect for IoDevices {
     fn connect_scheduler(&mut self, scheduler: SharedScheduler) {
-        self.gpu.connect_scheduler(scheduler.clone());
-        self.sound.connect_scheduler(scheduler.clone());
-        self.dmac.connect_scheduler(scheduler.clone());
-        self.timers.connect_scheduler(scheduler.clone());
+        self.scheduler = scheduler.clone();
     }
 }
 
@@ -124,7 +125,7 @@ impl Bus for IoDevices {
             REG_IE => io.intc.interrupt_enable.0 as u16,
             REG_IF => io.intc.interrupt_flags.get().value() as u16,
 
-            REG_TM0CNT_L..=REG_TM3CNT_H => io.timers.handle_read(io_addr),
+            REG_TM0CNT_L..=REG_TM3CNT_H => io.timers.handle_read(io_addr, &io.scheduler),
 
             SOUND_BASE..=SOUND_END => io.sound.handle_read(io_addr),
             REG_DMA0CNT_H => io.dmac.channels[0].ctrl.0,
@@ -263,7 +264,9 @@ impl Bus for IoDevices {
             REG_IE => io.intc.interrupt_enable.0 = value,
             REG_IF => io.intc.clear(value),
 
-            REG_TM0CNT_L..=REG_TM3CNT_H => io.timers.handle_write(io_addr, value),
+            REG_TM0CNT_L..=REG_TM3CNT_H => {
+                io.timers.handle_write(io_addr, value, &mut io.scheduler)
+            }
 
             SOUND_BASE..=SOUND_END => {
                 io.sound.handle_write(io_addr, value);
@@ -272,7 +275,8 @@ impl Bus for IoDevices {
             DMA_BASE..=REG_DMA3CNT_H => {
                 let ofs = io_addr - DMA_BASE;
                 let channel_id = (ofs / 12) as usize;
-                io.dmac.write_16(channel_id, ofs % 12, value)
+                io.dmac
+                    .write_16(channel_id, ofs % 12, value, &mut io.scheduler)
             }
 
             REG_WAITCNT => {
