@@ -64,7 +64,7 @@ impl<'de> Deserialize<'de> for BackupFile {
             }
         }
 
-        const FIELDS: &'static [&'static str] = &["size", "path"];
+        const FIELDS: &[&str] = &["size", "path"];
         deserializer.deserialize_struct("BackupFile", FIELDS, BackupFileVisitor)
     }
 }
@@ -75,7 +75,7 @@ impl BackupFile {
         let mut file: Option<File> = None;
         let buffer = if let Some(path) = &path {
             if !path.is_file() {
-                write_bin_file(&path, &vec![0xff; size]).unwrap();
+                write_bin_file(path, &vec![0xff; size]).unwrap();
             }
 
             let mut _file = OpenOptions::new()
@@ -98,8 +98,8 @@ impl BackupFile {
         BackupFile {
             size,
             path,
-            file: file,
-            buffer: buffer,
+            file,
+            buffer,
         }
     }
 

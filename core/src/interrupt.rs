@@ -8,7 +8,7 @@ pub trait InterruptConnect {
     fn connect_irq(&mut self, interrupt_flags: SharedInterruptFlags);
 }
 
-#[derive(Serialize, Deserialize, Debug, Primitive, Copy, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Primitive, Copy, Clone, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub enum Interrupt {
     LCD_VBlank = 0,
@@ -77,7 +77,7 @@ impl IrqBitmask {
 }
 
 bitfield! {
-    #[derive(Serialize, Deserialize, Default, Copy, Clone, PartialEq)]
+    #[derive(Serialize, Deserialize, Default, Copy, Clone, PartialEq, Eq)]
     pub struct IrqBitmask(u16);
     impl Debug;
     u16;

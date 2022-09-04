@@ -109,7 +109,7 @@ impl GamepakBuilder {
                 LoadRom::Raw(data) => Ok((data, None)),
             }
         } else if let Some(path) = &self.path {
-            match load_from_file(&path)? {
+            match load_from_file(path)? {
                 #[cfg(feature = "elf_support")]
                 LoadRom::Elf { data, symbols } => Ok((data, Some(symbols))),
                 LoadRom::Raw(data) => Ok((data, None)),
@@ -187,17 +187,17 @@ impl GamepakBuilder {
 
         let size = bytes.len();
         Ok(Cartridge {
-            header: header,
-            gpio: gpio,
+            header,
+            gpio,
             bytes: bytes.into_boxed_slice(),
-            size: size,
-            backup: backup,
-            symbols: symbols,
+            size,
+            backup,
+            symbols,
         })
     }
 }
 
-const BACKUP_FILE_EXT: &'static str = "sav";
+const BACKUP_FILE_EXT: &str = "sav";
 fn create_backup(backup_type: BackupType, rom_path: Option<PathBuf>) -> BackupMedia {
     let backup_path = if let Some(rom_path) = rom_path {
         Some(rom_path.with_extension(BACKUP_FILE_EXT))
@@ -216,7 +216,7 @@ fn create_backup(backup_type: BackupType, rom_path: Option<PathBuf>) -> BackupMe
 }
 
 fn detect_backup_type(bytes: &[u8]) -> Option<BackupType> {
-    const ID_STRINGS: &'static [&'static str] =
+    const ID_STRINGS: &[&str] =
         &["EEPROM", "SRAM", "FLASH_", "FLASH512_", "FLASH1M_"];
 
     for i in 0..5 {

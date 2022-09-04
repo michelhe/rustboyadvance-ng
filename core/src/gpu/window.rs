@@ -57,7 +57,7 @@ impl Window {
     }
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum WindowType {
     Win0,
     Win1,

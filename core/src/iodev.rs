@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use self::consts::*;
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HaltState {
     Running,
     Halt, // In Halt mode, the CPU is paused as long as (IE AND IF)=0,
@@ -67,7 +67,7 @@ impl IoDevices {
             keyinput: keypad::KEYINPUT_ALL_RELEASED,
             waitcnt: WaitControl(0),
             debug: DebugPort::new(),
-            scheduler: scheduler,
+            scheduler,
             sysbus_ptr: Default::default(),
         }
     }
@@ -82,13 +82,13 @@ impl InterruptConnect for IoDevices {
         self.intc.connect_irq(interrupt_flags.clone());
         self.gpu.connect_irq(interrupt_flags.clone());
         self.dmac.connect_irq(interrupt_flags.clone());
-        self.timers.connect_irq(interrupt_flags.clone());
+        self.timers.connect_irq(interrupt_flags);
     }
 }
 
 impl SchedulerConnect for IoDevices {
     fn connect_scheduler(&mut self, scheduler: SharedScheduler) {
-        self.scheduler = scheduler.clone();
+        self.scheduler = scheduler;
     }
 }
 
@@ -336,7 +336,7 @@ impl DebugRead for IoDevices {
 }
 
 bitfield! {
-    #[derive(Serialize, Deserialize, Default, Copy, Clone, PartialEq)]
+    #[derive(Serialize, Deserialize, Default, Copy, Clone, PartialEq, Eq)]
     pub struct WaitControl(u16);
     impl Debug;
     u16;

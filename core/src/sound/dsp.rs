@@ -29,7 +29,7 @@ impl Resampler for CosineResampler {
             output.push((left, right));
             self.phase += self.in_freq / self.out_freq;
         }
-        self.phase = self.phase - 1.0;
+        self.phase -= 1.0;
         self.last_in_sample = s;
     }
 }
@@ -39,8 +39,8 @@ impl CosineResampler {
         CosineResampler {
             last_in_sample: Default::default(),
             phase: 0.0,
-            in_freq: in_freq,
-            out_freq: out_freq,
+            in_freq,
+            out_freq,
         }
     }
 }

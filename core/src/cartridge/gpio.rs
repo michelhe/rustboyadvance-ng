@@ -4,7 +4,7 @@ use super::{GPIO_PORT_CONTROL, GPIO_PORT_DATA, GPIO_PORT_DIRECTION};
 use bit::BitIndex;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq)]
 pub enum GpioDirection {
     /// GPIO to GBA
     In = 0,

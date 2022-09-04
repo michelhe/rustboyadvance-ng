@@ -6,7 +6,7 @@ pub use backup_file::BackupFile;
 pub mod eeprom;
 pub mod flash;
 
-#[derive(Debug, Primitive, Serialize, Deserialize, Copy, Clone, PartialEq)]
+#[derive(Debug, Primitive, Serialize, Deserialize, Copy, Clone, PartialEq, Eq)]
 pub enum BackupType {
     Eeprom = 0,
     Sram = 1,

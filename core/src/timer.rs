@@ -31,7 +31,7 @@ impl Timer {
             panic!("invalid timer id {}", timer_id);
         }
         Timer {
-            timer_id: timer_id,
+            timer_id,
             irq: Interrupt::from_usize(timer_id + 3).unwrap(),
             interrupt_flags,
             data: 0,
@@ -78,7 +78,7 @@ impl Timer {
 
             let ticks_remaining = self.ticks_to_overflow();
             num_overflows += ticks / ticks_remaining;
-            ticks = ticks % ticks_remaining;
+            ticks %= ticks_remaining;
 
             if self.ctl.irq_enabled() {
                 interrupt::signal_irq(&self.interrupt_flags, self.irq);
@@ -160,11 +160,8 @@ impl Timers {
         if id != 3 {
             let next_timer_id = id + 1;
             let next_timer = &mut self.timers[next_timer_id];
-            if next_timer.ctl.cascade() {
-                if next_timer.update(1) > 0 {
-                    drop(next_timer);
-                    self.handle_timer_overflow(next_timer_id, apu, dmac);
-                }
+            if next_timer.ctl.cascade() && next_timer.update(1) > 0 {
+                self.handle_timer_overflow(next_timer_id, apu, dmac);
             }
         }
         if id == 0 || id == 1 {

@@ -80,7 +80,7 @@ impl Gpu {
                     }
                     se_row = 0;
                     if bg_width == 512 {
-                        sbb = sbb ^ 1;
+                        sbb ^= 1;
                     }
                 }
             };

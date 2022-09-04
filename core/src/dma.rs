@@ -39,7 +39,7 @@ impl DmaChannel {
             panic!("invalid dma id {}", id);
         }
         DmaChannel {
-            id: id,
+            id,
             irq: Interrupt::from_usize(id + 8).unwrap(),
             running: false,
             src: 0,
@@ -115,7 +115,7 @@ impl DmaChannel {
             self.running = false;
         }
         self.ctrl = ctrl;
-        return start_immediately;
+        start_immediately
     }
 
     fn transfer(&mut self, sb: &mut SysBus) {

@@ -76,12 +76,12 @@ impl Flash {
         let memory = BackupFile::new(size, flash_path);
 
         Flash {
-            chip_id: chip_id,
+            chip_id,
             wrseq: FlashWriteSequence::Initial,
             mode: FlashMode::Initial,
-            size: size,
+            size,
             bank: 0,
-            memory: memory,
+            memory,
         }
     }
 
@@ -144,12 +144,14 @@ impl Flash {
     #[inline]
     fn flash_offset(&self, offset: usize) -> usize {
         let offset = (offset & 0xffff) as usize;
-        return self.bank * BANK_SIZE + offset;
+        self.bank * BANK_SIZE + offset
     }
 
     pub fn read(&self, addr: u32) -> u8 {
         let offset = (addr & 0xffff) as usize;
-        let result = if self.mode == FlashMode::ChipId {
+        
+
+        if self.mode == FlashMode::ChipId {
             match offset {
                 0 => (self.chip_id & 0xff) as u8,
                 1 => (self.chip_id >> 8) as u8,
@@ -157,9 +159,7 @@ impl Flash {
             }
         } else {
             self.memory.read(self.flash_offset(offset))
-        };
-
-        result
+        }
     }
 
     pub fn write(&mut self, addr: u32, value: u8) {

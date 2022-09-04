@@ -133,7 +133,7 @@ impl SoundController {
             sample_rate: 32_768f32,
             dma_sound: [Default::default(), Default::default()],
 
-            resampler: resampler,
+            resampler,
             output_buffer: Vec::with_capacity(1024),
         }
     }
@@ -196,11 +196,9 @@ impl SoundController {
                     info!("MSE enabled!");
                     self.mse = true;
                 }
-            } else {
-                if self.mse {
-                    info!("MSE disabled!");
-                    self.mse = false;
-                }
+            } else if self.mse {
+                info!("MSE disabled!");
+                self.mse = false;
             }
 
             // other fields of this register are read-only anyway, ignore them.

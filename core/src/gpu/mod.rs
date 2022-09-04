@@ -39,8 +39,8 @@ use std::fmt;
 pub mod consts {
     pub use super::VRAM_ADDR;
     pub const VIDEO_RAM_SIZE: usize = 128 * 1024;
-    pub const PALETTE_RAM_SIZE: usize = 1 * 1024;
-    pub const OAM_SIZE: usize = 1 * 1024;
+    pub const PALETTE_RAM_SIZE: usize = 1024;
+    pub const OAM_SIZE: usize = 1024;
 
     pub const DISPLAY_WIDTH: usize = 240;
     pub const DISPLAY_HEIGHT: usize = 160;

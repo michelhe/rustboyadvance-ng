@@ -18,7 +18,7 @@ fn num2bcd(mut num: u8) -> u8 {
     while num > 0 {
         let x = num % 10;
         bcd += x * digit;
-        digit = digit << 4;
+        digit <<= 4;
         num /= 10;
     }
     bcd
@@ -168,7 +168,7 @@ impl SerialBuffer {
             } else {
                 (1 << self.counter) - 1
             };
-            Some(self.byte & u8::from(mask))
+            Some(self.byte & mask)
         }
     }
 
@@ -236,7 +236,7 @@ impl Rtc {
             RegisterKind::DateTime => {
                 let local: DateTime<Local> = Local::now();
                 let year = local.year();
-                assert!(year >= 2000 && year <= 2099); // Wonder if I will live to see this one fail
+                assert!((2000..=2099).contains(&year)); // Wonder if I will live to see this one fail
 
                 let hour = if self.status.mode_24h() {
                     local.hour()
@@ -498,16 +498,16 @@ mod tests {
     use super::*;
 
     fn transmit(rtc: &mut Rtc, gpio_state: &GpioState, bit: u8) {
-        rtc.write(&gpio_state, 0b0100_u16 | (u16::from(bit) << 1));
-        rtc.write(&gpio_state, 0b0101_u16);
+        rtc.write(gpio_state, 0b0100_u16 | (u16::from(bit) << 1));
+        rtc.write(gpio_state, 0b0101_u16);
     }
 
     fn receive_bytes(rtc: &mut Rtc, gpio_state: &GpioState, bytes: &mut [u8]) {
         for byte in bytes.iter_mut() {
             for i in 0..8 {
-                rtc.write(&gpio_state, 0b0100_u16);
-                let data = rtc.read(&gpio_state);
-                rtc.write(&gpio_state, 0b0101_u16);
+                rtc.write(gpio_state, 0b0100_u16);
+                let data = rtc.read(gpio_state);
+                rtc.write(gpio_state, 0b0101_u16);
                 byte.set_bit(i, data.bit(Port::Sio.index()));
             }
         }
@@ -523,11 +523,11 @@ mod tests {
         assert_eq!(rtc.state, RtcState::Idle);
 
         // set CS low,
-        rtc.write(&gpio_state, 0b0001);
+        rtc.write(gpio_state, 0b0001);
         assert_eq!(rtc.state, RtcState::WaitForChipSelectHigh);
 
         // set CS high, SCK rising edge
-        rtc.write(&gpio_state, 0b0101);
+        rtc.write(gpio_state, 0b0101);
         assert_eq!(rtc.state, RtcState::GetCommandByte);
     }
 

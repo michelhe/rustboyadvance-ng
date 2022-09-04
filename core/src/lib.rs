@@ -9,7 +9,7 @@ extern crate debug_stub_derive;
 
 #[macro_use]
 extern crate enum_primitive_derive;
-use num_traits;
+
 
 #[macro_use]
 extern crate bitfield;
@@ -27,7 +27,7 @@ extern crate smart_default;
 
 extern crate cfg_if;
 
-use zip;
+
 
 use std::error::Error;
 use std::fmt;

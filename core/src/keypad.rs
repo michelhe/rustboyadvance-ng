@@ -1,4 +1,4 @@
-#[derive(Debug, Primitive, PartialEq)]
+#[derive(Debug, Primitive, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Keys {
     ButtonA = 0,
@@ -16,7 +16,7 @@ pub enum Keys {
 pub const NUM_KEYS: usize = 10;
 pub const KEYINPUT_ALL_RELEASED: u16 = 0b1111111111;
 
-#[derive(Debug, Primitive, PartialEq)]
+#[derive(Debug, Primitive, PartialEq, Eq)]
 #[repr(u8)]
 pub enum KeyState {
     Pressed = 0,

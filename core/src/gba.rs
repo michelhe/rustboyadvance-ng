@@ -112,13 +112,13 @@ impl GameBoyAdvance {
             io_devs,
 
             #[cfg(not(feature = "no_video_interface"))]
-            video_device: video_device,
-            audio_device: audio_device,
-            input_device: input_device,
+            video_device,
+            audio_device,
+            input_device,
 
-            scheduler: scheduler,
+            scheduler,
 
-            interrupt_flags: interrupt_flags,
+            interrupt_flags,
         };
 
         gba.sysbus.init(gba.cpu.weak_ptr());
@@ -160,15 +160,15 @@ impl GameBoyAdvance {
 
         Ok(GameBoyAdvance {
             cpu: arm7tdmi,
-            sysbus: sysbus,
+            sysbus,
             io_devs,
 
             interrupt_flags: interrupts,
 
             #[cfg(not(feature = "no_video_interface"))]
-            video_device: video_device,
-            audio_device: audio_device,
-            input_device: input_device,
+            video_device,
+            audio_device,
+            input_device,
 
             scheduler,
         })

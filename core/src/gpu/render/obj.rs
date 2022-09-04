@@ -72,7 +72,7 @@ impl Gpu {
 
     fn read_obj_attrs(&mut self, obj: usize) -> ObjAttrs {
         let addr = ATTRS_SIZE * (obj as u32);
-        let attr0 = Attribute0(self.oam.read_16(addr + 0));
+        let attr0 = Attribute0(self.oam.read_16(addr));
         let attr1 = Attribute1(self.oam.read_16(addr + 2));
         let attr2 = Attribute2(self.oam.read_16(addr + 4));
         ObjAttrs(attr0, attr1, attr2)
@@ -305,7 +305,7 @@ impl Gpu {
     }
 }
 
-#[derive(Debug, Primitive, Copy, Clone, PartialEq)]
+#[derive(Debug, Primitive, Copy, Clone, PartialEq, Eq)]
 pub enum ObjMode {
     Normal = 0b00,
     Sfx = 0b01,

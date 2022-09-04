@@ -227,10 +227,10 @@ impl SysBus {
     /// must be called whenever this object is instanciated
     pub fn init(&mut self, arm_core: WeakPointer<Arm7tdmiCore<SysBus>>) {
         self.arm_core = arm_core.clone();
-        self.bios.connect_arm_core(arm_core.clone());
+        self.bios.connect_arm_core(arm_core);
         let ptr = SysBusPtr::new(self as *mut SysBus);
         // HACK
-        self.io.set_sysbus_ptr(ptr.clone());
+        self.io.set_sysbus_ptr(ptr);
     }
 
     pub fn on_waitcnt_written(&mut self, waitcnt: WaitControl) {
@@ -281,7 +281,7 @@ impl SysBus {
                 match (r15 >> 24) as usize {
                     PAGE_BIOS | PAGE_OAM => {
                         // TODO this is probably wrong, according to GBATEK, we should be using $+6 here but it isn't prefetched yet.
-                        value = value << 16;
+                        value <<= 16;
                         value |= decoded;
                     }
                     PAGE_IWRAM => {
@@ -291,7 +291,7 @@ impl SysBus {
                             value |= decoded << 16;
                         } else {
                             // LSW = OldLO, MSW = [$+4]   ;for opcodes at non-4-byte aligned locations
-                            value = value << 16;
+                            value <<= 16;
                             value |= decoded;
                         }
                     }

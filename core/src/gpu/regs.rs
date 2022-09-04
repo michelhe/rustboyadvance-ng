@@ -10,7 +10,7 @@ pub trait GpuMemoryMappedIO {
     fn write(&mut self, value: u16);
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ObjMapping {
     TwoDimension,
     OneDimension,
@@ -112,7 +112,7 @@ impl GpuMemoryMappedIO for DisplayStatus {
     }
     #[inline]
     fn read(&self) -> u16 {
-        u16::from(self.vblank_flag) << 0
+        u16::from(self.vblank_flag)
             | u16::from(self.hblank_flag) << 1
             | u16::from(self.vcount_flag) << 2
             | u16::from(self.vblank_irq_enable) << 3
@@ -136,7 +136,7 @@ pub struct BgControl {
 impl GpuMemoryMappedIO for BgControl {
     #[inline]
     fn write(&mut self, value: u16) {
-        self.priority = (value >> 0) & 0b11;
+        self.priority = value & 0b11;
         self.character_base_block = (value >> 2) & 0b11;
         self.mosaic = (value >> 6) & 1 != 0;
         self.palette256 = (value >> 7) & 1 != 0;
@@ -231,7 +231,7 @@ impl BlendFlags {
     }
 }
 
-#[derive(SmartDefault, Debug, Serialize, Deserialize, Primitive, PartialEq, Clone, Copy)]
+#[derive(SmartDefault, Debug, Serialize, Deserialize, Primitive, PartialEq, Eq, Clone, Copy)]
 pub enum BlendMode {
     #[default]
     BldNone = 0b00,
@@ -250,14 +250,14 @@ pub struct BlendControl {
 impl GpuMemoryMappedIO for BlendControl {
     #[inline]
     fn write(&mut self, value: u16) {
-        self.target1 = BlendFlags::from_bits_truncate((value >> 0) & 0x3f);
+        self.target1 = BlendFlags::from_bits_truncate(value & 0x3f);
         self.target2 = BlendFlags::from_bits_truncate((value >> 8) & 0x3f);
         self.mode = BlendMode::from_u16((value >> 6) & 0b11).unwrap_or_else(|| unreachable!());
     }
 
     #[inline]
     fn read(&self) -> u16 {
-        (self.target1.bits() << 0) | (self.mode as u16) << 6 | (self.target2.bits() << 8)
+        self.target1.bits() | (self.mode as u16) << 6 | (self.target2.bits() << 8)
     }
 }
 

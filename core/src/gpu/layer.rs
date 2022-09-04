@@ -25,7 +25,7 @@ impl RenderLayerKind {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct RenderLayer {
     pub kind: RenderLayerKind,
     pub priority: u16,
@@ -36,23 +36,23 @@ impl RenderLayer {
     pub fn background(bg: usize, pixel: Rgb15, priority: u16) -> RenderLayer {
         RenderLayer {
             kind: RenderLayerKind::from_usize(1 << bg).unwrap(),
-            pixel: pixel,
-            priority: priority,
+            pixel,
+            priority,
         }
     }
 
     pub fn objects(pixel: Rgb15, priority: u16) -> RenderLayer {
         RenderLayer {
             kind: RenderLayerKind::Objects,
-            pixel: pixel,
-            priority: priority,
+            pixel,
+            priority,
         }
     }
 
     pub fn backdrop(pixel: Rgb15) -> RenderLayer {
         RenderLayer {
             kind: RenderLayerKind::Backdrop,
-            pixel: pixel,
+            pixel,
             priority: 4,
         }
     }

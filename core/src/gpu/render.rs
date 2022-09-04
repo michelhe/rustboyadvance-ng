@@ -15,8 +15,8 @@ impl ViewPort {
     pub fn new(w: i32, h: i32) -> ViewPort {
         ViewPort {
             origin: (0, 0),
-            w: w,
-            h: h,
+            w,
+            h,
         }
     }
 

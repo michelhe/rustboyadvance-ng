@@ -83,7 +83,7 @@ pub fn parse(bytes: &[u8]) -> GBAResult<CartridgeHeader> {
         game_code: String::from(game_code),
         maker_code: String::from(maker_code),
         software_version: bytes[0xbc],
-        checksum: checksum,
+        checksum,
         // ram_entry_point: ram_entry_point,
         // joybus_entry_point: joybus_entry_point,
     })
