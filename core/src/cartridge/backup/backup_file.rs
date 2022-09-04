@@ -8,7 +8,7 @@ use serde::de::{self, Deserialize, Deserializer, SeqAccess, Visitor};
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 
 use super::BackupMemoryInterface;
-use crate::util::write_bin_file;
+use rustboyadvance_utils::write_bin_file;
 
 #[derive(Debug)]
 pub struct BackupFile {

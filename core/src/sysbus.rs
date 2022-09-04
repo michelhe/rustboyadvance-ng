@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use super::arm7tdmi;
 use super::arm7tdmi::memory::*;
 use super::bios::Bios;
 use super::bus::*;
@@ -8,7 +7,8 @@ use super::cartridge::Cartridge;
 use super::dma::DmaNotifer;
 use super::iodev::{IoDevices, WaitControl};
 use super::sched::*;
-use super::util::{Shared, WeakPointer};
+use arm7tdmi::{self, Arm7tdmiCore};
+use rustboyadvance_utils::{Shared, WeakPointer};
 
 pub mod consts {
     pub const WORK_RAM_SIZE: usize = 256 * 1024;
@@ -145,7 +145,7 @@ impl CycleLookupTables {
 pub struct SysBus {
     pub io: Shared<IoDevices>,
     scheduler: Shared<Scheduler>,
-    arm_core: WeakPointer<arm7tdmi::Core<SysBus>>,
+    arm_core: WeakPointer<Arm7tdmiCore<SysBus>>,
 
     bios: Bios,
     ewram: Box<[u8]>,
@@ -225,7 +225,7 @@ impl SysBus {
     }
 
     /// must be called whenever this object is instanciated
-    pub fn init(&mut self, arm_core: WeakPointer<arm7tdmi::Core<SysBus>>) {
+    pub fn init(&mut self, arm_core: WeakPointer<Arm7tdmiCore<SysBus>>) {
         self.arm_core = arm_core.clone();
         self.bios.connect_arm_core(arm_core.clone());
         let ptr = SysBusPtr::new(self as *mut SysBus);
@@ -268,10 +268,9 @@ impl SysBus {
     /// `addr` is considered to be an address of
     fn read_invalid(&mut self, addr: Addr) -> u32 {
         warn!("invalid read @{:08x}", addr);
-        use super::arm7tdmi::CpuState;
         let value = match self.arm_core.cpsr.state() {
-            CpuState::ARM => self.arm_core.get_prefetched_opcode(),
-            CpuState::THUMB => {
+            arm7tdmi::CpuState::ARM => self.arm_core.get_prefetched_opcode(),
+            arm7tdmi::CpuState::THUMB => {
                 // For THUMB code the result consists of two 16bit fragments and depends on the address area
                 // and alignment where the opcode was stored.
 

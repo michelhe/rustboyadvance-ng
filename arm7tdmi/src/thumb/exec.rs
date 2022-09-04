@@ -1,13 +1,17 @@
-use crate::arm7tdmi::*;
+use crate::{
+    exception::Exception,
+    memory::{MemoryAccess, MemoryInterface},
+    registers_consts::*,
+    Arm7tdmiCore, CpuAction,
+};
 
-use crate::bit::BitIndex;
+use bit::BitIndex;
 
-use super::super::memory::{MemoryAccess, MemoryInterface};
 use super::ThumbDecodeHelper;
 use super::*;
 use MemoryAccess::*;
 
-impl<I: MemoryInterface> Core<I> {
+impl<I: MemoryInterface> Arm7tdmiCore<I> {
     /// Format 1
     /// Execution Time: 1S
     pub(in super::super) fn exec_thumb_move_shifted_reg<const BS_OP: u8, const IMM: u8>(

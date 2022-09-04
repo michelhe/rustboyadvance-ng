@@ -3,7 +3,10 @@ use std::cell::RefCell;
 #[cfg(not(feature = "no_video_interface"))]
 use std::rc::Rc;
 
+use num::FromPrimitive;
 use serde::{Deserialize, Serialize};
+
+use rustboyadvance_utils::index2d;
 
 use super::bus::*;
 use super::dma::{DmaNotifer, TIMING_HBLANK, TIMING_VBLANK};
@@ -12,8 +15,6 @@ use super::sched::{EventType, FutureEvent, GpuEvent, Scheduler};
 pub use super::sysbus::consts::*;
 #[cfg(not(feature = "no_video_interface"))]
 use super::VideoInterface;
-
-use crate::num::FromPrimitive;
 
 mod render;
 

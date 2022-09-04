@@ -1,6 +1,7 @@
-use super::cpu::Core;
-use super::Addr;
+use super::Arm7tdmiCore;
 use std::fmt;
+
+pub type Addr = u32;
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
 pub enum MemoryAccess {
@@ -35,7 +36,7 @@ pub enum MemoryAccessWidth {
     MemoryAccess32,
 }
 
-/// A trait meant to abstract memory accesses and report the access type back to the user of the arm7tdmi::Core
+/// A trait meant to abstract memory accesses and report the access type back to the user of the arm7tdmi::Arm7tdmiCore
 ///
 /// struct Memory {
 ///     data: [u8; 0x4000]
@@ -60,7 +61,7 @@ pub enum MemoryAccessWidth {
 /// }
 ///
 /// let mem = Shared::new(Memory { ... });
-/// let cpu = arm7tdmi::Core::new(mem.clone())
+/// let cpu = arm7tdmi::Arm7tdmiCore::new(mem.clone())
 ///
 pub trait MemoryInterface {
     /// Read a byte
@@ -80,7 +81,7 @@ pub trait MemoryInterface {
     fn idle_cycle(&mut self);
 }
 
-impl<I: MemoryInterface> MemoryInterface for Core<I> {
+impl<I: MemoryInterface> MemoryInterface for Arm7tdmiCore<I> {
     #[inline]
     fn load_8(&mut self, addr: u32, access: MemoryAccess) -> u8 {
         self.bus.load_8(addr, access)
@@ -117,7 +118,7 @@ impl<I: MemoryInterface> MemoryInterface for Core<I> {
 }
 
 /// Implementation of memory access helpers
-impl<I: MemoryInterface> Core<I> {
+impl<I: MemoryInterface> Arm7tdmiCore<I> {
     #[inline]
     pub(super) fn store_aligned_32(&mut self, addr: Addr, value: u32, access: MemoryAccess) {
         self.store_32(addr & !0x3, value, access);

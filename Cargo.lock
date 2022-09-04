@@ -70,6 +70,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "arm7tdmi"
+version = "0.1.0"
+dependencies = [
+ "ansi_term 0.12.1",
+ "bit",
+ "byteorder",
+ "cfg-if 1.0.0",
+ "colored",
+ "enum-primitive-derive",
+ "num 0.2.1",
+ "num-traits 0.2.12",
+ "rustboyadvance-utils",
+ "serde",
+]
+
+[[package]]
 name = "arrayref"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1351,6 +1367,7 @@ name = "rustboyadvance-core"
 version = "0.1.0"
 dependencies = [
  "ansi_term 0.12.1",
+ "arm7tdmi",
  "arrayvec 0.5.2",
  "bincode",
  "bit",
@@ -1371,14 +1388,13 @@ dependencies = [
  "goblin",
  "hex-literal",
  "hexdump",
- "instant",
  "lazy_static 1.4.0",
  "log 0.4.11",
  "memmem",
  "nom",
  "num 0.2.1",
  "num-traits 0.2.12",
- "ringbuf",
+ "rustboyadvance-utils",
  "rustyline",
  "serde",
  "sha2",
@@ -1433,9 +1449,18 @@ dependencies = [
  "log 0.4.11",
  "ringbuf",
  "rustboyadvance-core",
+ "rustboyadvance-utils",
  "sdl2 0.33.0",
  "spin_sleep",
  "winres",
+]
+
+[[package]]
+name = "rustboyadvance-utils"
+version = "0.1.0"
+dependencies = [
+ "instant",
+ "ringbuf",
 ]
 
 [[package]]

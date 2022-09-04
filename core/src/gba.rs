@@ -5,7 +5,6 @@ use std::rc::Rc;
 use bincode;
 use serde::{Deserialize, Serialize};
 
-use super::arm7tdmi;
 use super::cartridge::Cartridge;
 use super::dma::DmaController;
 use super::gpu::*;
@@ -15,14 +14,16 @@ use super::sched::{EventType, Scheduler, SchedulerConnect, SharedScheduler};
 use super::sound::SoundController;
 use super::sysbus::SysBus;
 use super::timer::Timers;
-use super::util::Shared;
 
 #[cfg(not(feature = "no_video_interface"))]
 use super::VideoInterface;
 use super::{AudioInterface, InputInterface};
 
+use arm7tdmi::{self, Arm7tdmiCore};
+use rustboyadvance_utils::Shared;
+
 pub struct GameBoyAdvance {
-    pub cpu: Box<arm7tdmi::Core<SysBus>>,
+    pub cpu: Box<Arm7tdmiCore<SysBus>>,
     pub sysbus: Shared<SysBus>,
     pub io_devs: Shared<IoDevices>,
     pub scheduler: SharedScheduler,
@@ -103,7 +104,7 @@ impl GameBoyAdvance {
             gamepak,
         ));
 
-        let cpu = Box::new(arm7tdmi::Core::new(sysbus.clone()));
+        let cpu = Box::new(Arm7tdmiCore::new(sysbus.clone()));
 
         let mut gba = GameBoyAdvance {
             cpu,
@@ -150,7 +151,7 @@ impl GameBoyAdvance {
             decoded.ewram,
             decoded.iwram,
         ));
-        let mut arm7tdmi = Box::new(arm7tdmi::Core::from_saved_state(
+        let mut arm7tdmi = Box::new(Arm7tdmiCore::from_saved_state(
             sysbus.clone(),
             decoded.cpu_state,
         ));

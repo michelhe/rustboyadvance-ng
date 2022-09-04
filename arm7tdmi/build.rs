@@ -1,3 +1,4 @@
+/// This build script creates ARM_LUT and THUMB_LUT opcode lookup table used cpu.rs
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -6,7 +7,7 @@ use std::path::Path;
 extern crate bit;
 use bit::BitIndex;
 
-// copied and slightly adjusted from src/core/arm7tdmi/thumb/mod.rs
+// copied and slightly adjusted from arm7tdmi/thumb/mod.rs
 fn thumb_decode(i: u16) -> (&'static str, String) {
     let offset5 = i.bit_range(6..11) as u8;
     let load = i.bit(11);
@@ -180,7 +181,7 @@ trait BitAsInt<T: From<bool>>: BitIndex {
 
 impl BitAsInt<u32> for u32 {}
 
-/// Returns a string representation of rustboyadvance_ng::core::arm7tdmi::arm::ArmFormat enum member
+/// Returns a string representation of arm7tdmi::arm::ArmFormat enum member
 /// # Arguments
 /// * `i` - A 32bit ARM instruction
 ///
@@ -368,7 +369,7 @@ fn arm_decode(i: u32) -> (&'static str, String) {
 }
 
 fn generate_thumb_lut(file: &mut fs::File) -> Result<(), std::io::Error> {
-    writeln!(file, "impl<I: MemoryInterface> Core<I> {{")?;
+    writeln!(file, "impl<I: MemoryInterface> Arm7tdmiCore<I> {{")?;
     writeln!(
         file,
         "   pub const THUMB_LUT: [ThumbInstructionInfo<I>; 1024] = ["
@@ -380,7 +381,7 @@ fn generate_thumb_lut(file: &mut fs::File) -> Result<(), std::io::Error> {
             file,
             "       /* {:#x} */
         ThumbInstructionInfo {{
-            handler_fn: Core::{},
+            handler_fn: Arm7tdmiCore::{},
             #[cfg(feature = \"debugger\")]
             fmt: ThumbFormat::{},
         }},",
@@ -395,7 +396,7 @@ fn generate_thumb_lut(file: &mut fs::File) -> Result<(), std::io::Error> {
 }
 
 fn generate_arm_lut(file: &mut fs::File) -> Result<(), std::io::Error> {
-    writeln!(file, "impl<I: MemoryInterface> Core<I> {{")?;
+    writeln!(file, "impl<I: MemoryInterface> Arm7tdmiCore<I> {{")?;
     writeln!(
         file,
         "    pub const ARM_LUT: [ArmInstructionInfo<I>; 4096] = ["
@@ -406,7 +407,7 @@ fn generate_arm_lut(file: &mut fs::File) -> Result<(), std::io::Error> {
             file,
             "       /* {:#x} */
         ArmInstructionInfo {{
-            handler_fn: Core::{},
+            handler_fn: Arm7tdmiCore::{},
             #[cfg(feature = \"debugger\")]
             fmt: ArmFormat::{},
         }} ,",

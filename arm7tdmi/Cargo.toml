@@ -1,0 +1,21 @@
+[package]
+name = "arm7tdmi"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rustboyadvance-utils = {"path" = "../utils" }
+bit = "^0.1"
+cfg-if = "1.0.0"
+serde = { version = "1.0.104", features = ["derive", "rc"] }
+ansi_term = "0.12.1"
+colored = "1.9"
+byteorder = "1"
+num = "0.2.1"
+num-traits = "0.2"
+enum-primitive-derive = "^0.1"
+
+[build-dependencies]
+bit = "^0.1"

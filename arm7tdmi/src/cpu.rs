@@ -4,7 +4,7 @@ pub use super::exception::Exception;
 
 use super::{arm::ArmCond, psr::RegPSR, Addr, CpuMode, CpuState};
 
-use crate::util::{Shared, WeakPointer};
+use rustboyadvance_utils::{Shared, WeakPointer};
 
 use super::memory::{MemoryAccess, MemoryInterface};
 use MemoryAccess::*;
@@ -19,14 +19,14 @@ use super::arm::ArmFormat;
 
 #[cfg_attr(not(feature = "debugger"), repr(transparent))]
 pub struct ThumbInstructionInfo<I: MemoryInterface> {
-    pub handler_fn: fn(&mut Core<I>, insn: u16) -> CpuAction,
+    pub handler_fn: fn(&mut Arm7tdmiCore<I>, insn: u16) -> CpuAction,
     #[cfg(feature = "debugger")]
     pub fmt: ThumbFormat,
 }
 
 #[cfg_attr(not(feature = "debugger"), repr(transparent))]
 pub struct ArmInstructionInfo<I: MemoryInterface> {
-    pub handler_fn: fn(&mut Core<I>, insn: u32) -> CpuAction,
+    pub handler_fn: fn(&mut Arm7tdmiCore<I>, insn: u32) -> CpuAction,
     #[cfg(feature = "debugger")]
     pub fmt: ArmFormat,
 }
@@ -104,7 +104,7 @@ impl Default for DebuggerState {
 }
 
 #[derive(Clone, Debug)]
-pub struct Core<I: MemoryInterface> {
+pub struct Arm7tdmiCore<I: MemoryInterface> {
     pub pc: u32,
     pub(super) bus: Shared<I>,
 
@@ -121,10 +121,10 @@ pub struct Core<I: MemoryInterface> {
     pub dbg: DebuggerState,
 }
 
-impl<I: MemoryInterface> Core<I> {
-    pub fn new(bus: Shared<I>) -> Core<I> {
+impl<I: MemoryInterface> Arm7tdmiCore<I> {
+    pub fn new(bus: Shared<I>) -> Arm7tdmiCore<I> {
         let cpsr = RegPSR::new(0x0000_00D3);
-        Core {
+        Arm7tdmiCore {
             bus,
             pc: 0,
             gpr: [0; 15],
@@ -139,12 +139,12 @@ impl<I: MemoryInterface> Core<I> {
         }
     }
 
-    pub fn weak_ptr(&mut self) -> WeakPointer<Core<I>> {
-        WeakPointer::new(self as *mut Core<I>)
+    pub fn weak_ptr(&mut self) -> WeakPointer<Arm7tdmiCore<I>> {
+        WeakPointer::new(self as *mut Arm7tdmiCore<I>)
     }
 
-    pub fn from_saved_state(bus: Shared<I>, state: SavedCpuState) -> Core<I> {
-        Core {
+    pub fn from_saved_state(bus: Shared<I>, state: SavedCpuState) -> Arm7tdmiCore<I> {
+        Arm7tdmiCore {
             bus,
 
             pc: state.pc,

@@ -7,6 +7,8 @@ use super::{utils, ViewPort};
 
 use crate::Bus;
 
+use rustboyadvance_utils::index2d;
+
 impl Gpu {
     pub(in super::super) fn render_reg_bg(&mut self, bg: usize) {
         let (h_ofs, v_ofs) = (self.bg_hofs[bg] as u32, self.bg_vofs[bg] as u32);

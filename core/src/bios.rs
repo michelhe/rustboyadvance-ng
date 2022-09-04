@@ -1,7 +1,8 @@
-use super::arm7tdmi;
-use super::bus::{Addr, Bus, DebugRead};
-use super::util::WeakPointer;
+use super::bus::{Bus, DebugRead};
 use super::SysBus;
+use arm7tdmi::{memory::Addr, Arm7tdmiCore};
+
+use rustboyadvance_utils::WeakPointer;
 
 /// Struct representing the sytem ROM
 #[derive(Clone)]
@@ -11,7 +12,7 @@ pub struct Bios {
     /// Last read value
     last_opcode: u32,
     /// Arm pointer - used only to read the PC register
-    arm_core: WeakPointer<arm7tdmi::Core<SysBus>>,
+    arm_core: WeakPointer<Arm7tdmiCore<SysBus>>,
 }
 
 impl Bios {
@@ -23,7 +24,7 @@ impl Bios {
         }
     }
 
-    pub(super) fn connect_arm_core(&mut self, arm_ptr: WeakPointer<arm7tdmi::Core<SysBus>>) {
+    pub(super) fn connect_arm_core(&mut self, arm_ptr: WeakPointer<Arm7tdmiCore<SysBus>>) {
         self.arm_core = arm_ptr;
     }
 

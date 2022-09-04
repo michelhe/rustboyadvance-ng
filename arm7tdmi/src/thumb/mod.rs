@@ -1,9 +1,10 @@
 use super::alu::*;
 use super::arm::*;
-use super::{Addr, InstructionDecoder};
-use crate::bit::BitIndex;
-use crate::byteorder::{LittleEndian, ReadBytesExt};
-use crate::num::FromPrimitive;
+use super::memory::Addr;
+use super::InstructionDecoder;
+use bit::BitIndex;
+use byteorder::{LittleEndian, ReadBytesExt};
+use num::FromPrimitive;
 
 #[cfg(feature = "debugger")]
 pub mod disass;

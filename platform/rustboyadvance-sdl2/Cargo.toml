@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 rustboyadvance-core = { path = "../../core/", features = ["elf_support"] }
+rustboyadvance-utils = { path = "../../utils/" }
 sdl2 = { version = "0.33.0", features = ["image"] }
 ringbuf = "0.2.2"
 bytesize = "1.0.0"

@@ -6,7 +6,7 @@ use std::io::prelude::*;
 use std::io::Cursor;
 use std::path::Path;
 
-use crate::util::read_bin_file;
+use rustboyadvance_utils::read_bin_file;
 use zip::ZipArchive;
 
 #[cfg(feature = "elf_support")]

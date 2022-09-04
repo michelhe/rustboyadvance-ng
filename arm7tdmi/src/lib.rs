@@ -1,3 +1,12 @@
+#[macro_use]
+extern crate serde;
+
+#[macro_use]
+extern crate enum_primitive_derive;
+use bit;
+use num;
+use num_traits;
+
 use std::fmt;
 
 use num::Num;
@@ -14,16 +23,17 @@ pub use cpu::*;
 pub mod alu;
 pub mod memory;
 pub use alu::*;
+use memory::Addr;
 pub mod exception;
 pub mod psr;
 pub use psr::*;
 pub mod disass;
 
-pub const REG_PC: usize = 15;
-pub const REG_LR: usize = 14;
-pub const REG_SP: usize = 13;
-
-pub(self) use crate::Addr;
+pub mod registers_consts {
+    pub const REG_PC: usize = 15;
+    pub const REG_LR: usize = 14;
+    pub const REG_SP: usize = 13;
+}
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum DecodedInstruction {

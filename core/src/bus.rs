@@ -1,4 +1,4 @@
-pub type Addr = u32;
+pub use arm7tdmi::memory::Addr; // re-export
 
 pub trait Bus {
     fn read_32(&mut self, addr: Addr) -> u32 {

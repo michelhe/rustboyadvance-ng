@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
-use super::util::Shared;
+use rustboyadvance_utils::Shared;
 
 use serde::{Deserialize, Serialize};
 
@@ -271,17 +271,19 @@ mod test {
         let mut sched = holder.sched.clone();
         holder
             .sched
-            .push(EventType::Gpu(GpuEvent::VBlankHDraw), 240);
+            .schedule((EventType::Gpu(GpuEvent::VBlankHDraw), 240));
         holder
             .sched
-            .push(EventType::Apu(ApuEvent::Psg1Generate), 60);
-        holder.sched.push(EventType::Apu(ApuEvent::Sample), 512);
+            .schedule((EventType::Apu(ApuEvent::Psg1Generate), 60));
         holder
             .sched
-            .push(EventType::Apu(ApuEvent::Psg2Generate), 13);
+            .schedule((EventType::Apu(ApuEvent::Sample), 512));
         holder
             .sched
-            .push(EventType::Apu(ApuEvent::Psg4Generate), 72);
+            .schedule((EventType::Apu(ApuEvent::Psg2Generate), 13));
+        holder
+            .sched
+            .schedule((EventType::Apu(ApuEvent::Psg4Generate), 72));
 
         assert_eq!(
             sched.events.pop(),
@@ -300,17 +302,19 @@ mod test {
         let mut sched = holder.sched.clone();
         holder
             .sched
-            .push(EventType::Gpu(GpuEvent::VBlankHDraw), 240);
+            .schedule((EventType::Gpu(GpuEvent::VBlankHDraw), 240));
         holder
             .sched
-            .push(EventType::Apu(ApuEvent::Psg1Generate), 60);
-        holder.sched.push(EventType::Apu(ApuEvent::Sample), 512);
+            .schedule((EventType::Apu(ApuEvent::Psg1Generate), 60));
         holder
             .sched
-            .push(EventType::Apu(ApuEvent::Psg2Generate), 13);
+            .schedule((EventType::Apu(ApuEvent::Sample), 512));
         holder
             .sched
-            .push(EventType::Apu(ApuEvent::Psg4Generate), 72);
+            .schedule((EventType::Apu(ApuEvent::Psg2Generate), 13));
+        holder
+            .sched
+            .schedule((EventType::Apu(ApuEvent::Psg4Generate), 72));
 
         println!("all events");
         for e in sched.events.iter() {

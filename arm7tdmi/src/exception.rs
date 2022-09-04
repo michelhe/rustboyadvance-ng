@@ -1,5 +1,5 @@
-use super::cpu::Core;
 use super::memory::MemoryInterface;
+use super::Arm7tdmiCore;
 use super::{CpuMode, CpuState};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -16,7 +16,7 @@ pub enum Exception {
     Fiq = 0x1c,
 }
 
-impl<I: MemoryInterface> Core<I> {
+impl<I: MemoryInterface> Arm7tdmiCore<I> {
     pub fn exception(&mut self, e: Exception, lr: u32) {
         use Exception::*;
         let (new_mode, irq_disable, fiq_disable) = match e {

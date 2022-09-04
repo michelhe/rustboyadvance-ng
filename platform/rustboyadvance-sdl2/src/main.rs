@@ -41,9 +41,11 @@ use input::create_input;
 use video::{create_video_interface, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 use rustboyadvance_core::cartridge::BackupType;
+#[cfg(feature = "gdb")]
+use rustboyadvance_core::gdb::spawn_and_run_gdb_server;
 use rustboyadvance_core::prelude::*;
-use rustboyadvance_core::util::spawn_and_run_gdb_server;
-use rustboyadvance_core::util::FpsCounter;
+
+use rustboyadvance_utils::FpsCounter;
 
 const LOG_DIR: &str = ".logs";
 const DEFAULT_GDB_SERVER_ADDR: &'static str = "localhost:1337";
@@ -237,6 +239,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    #[cfg(feature = "gdb")]
     if with_gdbserver {
         spawn_and_run_gdb_server(&mut gba, DEFAULT_GDB_SERVER_ADDR)?;
     }

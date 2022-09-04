@@ -1,17 +1,19 @@
 use crate::bit::BitIndex;
 
-use super::super::alu::*;
-use crate::arm7tdmi::psr::RegPSR;
-use crate::arm7tdmi::CpuAction;
-use crate::arm7tdmi::{Addr, Core, CpuMode, CpuState, REG_LR, REG_PC};
+use crate::{
+    alu::*,
+    memory::{MemoryAccess, MemoryInterface},
+    psr::RegPSR,
+    registers_consts::{REG_LR, REG_PC},
+    Arm7tdmiCore, CpuAction, CpuMode, CpuState,
+};
 
-use super::super::memory::{MemoryAccess, MemoryInterface};
 use MemoryAccess::*;
 
 use super::ArmDecodeHelper;
 use super::*;
 
-impl<I: MemoryInterface> Core<I> {
+impl<I: MemoryInterface> Arm7tdmiCore<I> {
     pub fn arm_undefined(&mut self, insn: u32) -> CpuAction {
         panic!(
             "executing undefined arm instruction {:08x} at @{:08x}",

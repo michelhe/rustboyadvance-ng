@@ -1,7 +1,6 @@
 use bit::BitIndex;
 
-use super::memory::MemoryInterface;
-use super::{Core, REG_PC};
+use crate::{memory::MemoryInterface, registers_consts::REG_PC, Arm7tdmiCore};
 
 #[derive(Debug, Primitive, Eq, PartialEq)]
 pub enum AluOpCode {
@@ -110,7 +109,7 @@ impl BarrelShifterValue {
     }
 }
 
-impl<I: MemoryInterface> Core<I> {
+impl<I: MemoryInterface> Arm7tdmiCore<I> {
     pub fn lsl(&mut self, val: u32, amount: u32, carry: &mut bool) -> u32 {
         match amount {
             0 => val,

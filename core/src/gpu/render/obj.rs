@@ -1,6 +1,8 @@
 use super::super::regs::*;
 use super::super::*;
 
+use rustboyadvance_utils::index2d;
+
 const OVRAM: u32 = 0x0601_0000;
 const PALRAM_OFS_FG: u32 = 0x200;
 const ATTRS_SIZE: u32 = 2 * 3 + 2;

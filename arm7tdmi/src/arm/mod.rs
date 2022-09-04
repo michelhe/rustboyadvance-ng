@@ -5,11 +5,12 @@ pub mod exec;
 use serde::{Deserialize, Serialize};
 
 use super::alu::*;
-use crate::arm7tdmi::{Addr, InstructionDecoder};
+use super::memory::Addr;
+use super::InstructionDecoder;
 
-use crate::bit::BitIndex;
-use crate::byteorder::{LittleEndian, ReadBytesExt};
-use crate::num::FromPrimitive;
+use bit::BitIndex;
+use byteorder::{LittleEndian, ReadBytesExt};
+use num::FromPrimitive;
 
 use std::io;
 

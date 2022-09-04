@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "core",
+    "arm7tdmi",
+    "utils",
     "platform/rustboyadvance-sdl2",
     "platform/rustboyadvance-libretro",
     "platform/rustboyadvance-minifb",

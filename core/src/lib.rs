@@ -9,16 +9,12 @@ extern crate debug_stub_derive;
 
 #[macro_use]
 extern crate enum_primitive_derive;
-use num;
 use num_traits;
 
-use bit;
 #[macro_use]
 extern crate bitfield;
 #[macro_use]
 extern crate bitflags;
-
-use byteorder;
 
 #[macro_use]
 extern crate log;
@@ -36,9 +32,7 @@ use zip;
 use std::error::Error;
 use std::fmt;
 
-#[macro_use]
-pub mod util;
-pub mod arm7tdmi;
+pub use arm7tdmi;
 pub use arm7tdmi::disass;
 mod bios;
 pub mod cartridge;
@@ -140,10 +134,10 @@ pub mod prelude {
     #[cfg(feature = "debugger")]
     pub use super::debugger::Debugger;
     pub use super::gpu::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
-    pub use super::util::{read_bin_file, write_bin_file};
     pub use super::Bus;
     #[cfg(not(feature = "no_video_interface"))]
     pub use super::VideoInterface;
     pub use super::{AudioInterface, InputInterface, StereoSample};
     pub use super::{GBAError, GBAResult, GameBoyAdvance};
+    pub use rustboyadvance_utils::{read_bin_file, write_bin_file};
 }
