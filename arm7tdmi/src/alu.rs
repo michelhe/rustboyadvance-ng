@@ -25,29 +25,20 @@ pub enum AluOpCode {
 impl AluOpCode {
     pub fn is_setting_flags(&self) -> bool {
         use AluOpCode::*;
-        match self {
-            TST | TEQ | CMP | CMN => true,
-            _ => false,
-        }
+        matches!(self, TST | TEQ | CMP | CMN)
     }
 
     pub fn is_logical(&self) -> bool {
         use AluOpCode::*;
-        match self {
-            MOV | MVN | ORR | EOR | AND | BIC | TST | TEQ => true,
-            _ => false,
-        }
+        matches!(self, MOV | MVN | ORR | EOR | AND | BIC | TST | TEQ)
     }
     pub fn is_arithmetic(&self) -> bool {
         use AluOpCode::*;
-        match self {
-            ADD | ADC | SUB | SBC | RSB | RSC | CMP | CMN => true,
-            _ => false,
-        }
+        matches!(self, ADD | ADC | SUB | SBC | RSB | RSC | CMP | CMN)
     }
 }
 
-#[derive(Debug, PartialEq, Primitive, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Primitive, Copy, Clone)]
 pub enum BarrelShiftOpCode {
     LSL = 0,
     LSR = 1,
@@ -55,13 +46,13 @@ pub enum BarrelShiftOpCode {
     ROR = 3,
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum ShiftRegisterBy {
     ByAmount(u32),
     ByRegister(usize),
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct ShiftedRegister {
     pub reg: usize,
     pub shift_by: ShiftRegisterBy,
@@ -71,14 +62,11 @@ pub struct ShiftedRegister {
 
 impl ShiftedRegister {
     pub fn is_shifted_by_reg(&self) -> bool {
-        match self.shift_by {
-            ShiftRegisterBy::ByRegister(_) => true,
-            _ => false,
-        }
+        matches!(self.shift_by, ShiftRegisterBy::ByRegister(_))
     }
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum BarrelShifterValue {
     ImmediateValue(u32),
     RotatedImmediate(u32, u32),
@@ -285,9 +273,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
     pub fn register_shift(&mut self, shift: &ShiftedRegister, carry: &mut bool) -> u32 {
         match shift.shift_by {
             ShiftRegisterBy::ByAmount(amount) => {
-                let result =
-                    self.barrel_shift_op(shift.bs_op, self.get_reg(shift.reg), amount, carry, true);
-                result
+                self.barrel_shift_op(shift.bs_op, self.get_reg(shift.reg), amount, carry, true)
             }
             ShiftRegisterBy::ByRegister(rs) => {
                 self.shift_by_register(shift.bs_op, shift.reg, rs, carry)

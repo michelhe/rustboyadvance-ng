@@ -428,7 +428,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
             }
             if FLAG_R {
                 pop!(REG_PC);
-                self.pc = self.pc & !1;
+                self.pc &= !1;
                 result = CpuAction::PipelineFlushed;
                 self.reload_pipeline16();
             }
@@ -482,16 +482,12 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
                     if rlist.bit(r) {
                         let v = if r != RB {
                             self.gpr[r]
-                        } else {
-                            if first {
-                                addr
-                            } else {
-                                addr + (rlist.count_ones() - 1) * 4
-                            }
-                        };
-                        if first {
+                        } else if first {
                             first = false;
-                        }
+                            addr
+                        } else {
+                            addr + (rlist.count_ones() - 1) * 4
+                        };
                         self.store_32(addr, v, access);
                         access = Seq;
                         addr += 4;
@@ -559,7 +555,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
     ) -> CpuAction {
         let mut off = insn.offset11();
         if FLAG_LOW_OFFSET {
-            off = off << 1;
+            off <<= 1;
             let next_pc = (self.pc - 2) | 1;
             self.pc = ((self.gpr[REG_LR] & !1) as i32).wrapping_add(off) as u32;
             self.gpr[REG_LR] = next_pc;

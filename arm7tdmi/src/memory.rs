@@ -28,7 +28,7 @@ impl fmt::Display for MemoryAccess {
     }
 }
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[repr(u8)]
 pub enum MemoryAccessWidth {
     MemoryAccess8 = 0,

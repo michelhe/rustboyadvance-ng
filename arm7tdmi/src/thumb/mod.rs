@@ -10,7 +10,7 @@ use num::FromPrimitive;
 pub mod disass;
 pub mod exec;
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ThumbFormat {
     /// Format 1
     MoveShiftedReg,
@@ -102,7 +102,7 @@ impl From<u16> for ThumbFormat {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ThumbInstruction {
     pub fmt: ThumbFormat,
     pub raw: u16,
@@ -134,7 +134,7 @@ impl InstructionDecoder for ThumbInstruction {
     }
 }
 
-#[derive(Debug, Primitive, PartialEq)]
+#[derive(Debug, Primitive, PartialEq, Eq)]
 pub enum OpFormat3 {
     MOV = 0,
     CMP = 1,
@@ -153,7 +153,7 @@ impl From<OpFormat3> for AluOpCode {
     }
 }
 
-#[derive(Debug, Primitive, PartialEq)]
+#[derive(Debug, Primitive, PartialEq, Eq)]
 pub enum OpFormat5 {
     ADD = 0,
     CMP = 1,
@@ -161,7 +161,7 @@ pub enum OpFormat5 {
     BX = 3,
 }
 
-#[derive(Debug, Primitive, PartialEq)]
+#[derive(Debug, Primitive, PartialEq, Eq)]
 pub enum ThumbAluOps {
     AND = 0b0000,
     EOR = 0b0001,
@@ -184,17 +184,11 @@ pub enum ThumbAluOps {
 impl ThumbAluOps {
     pub fn is_setting_flags(&self) -> bool {
         use ThumbAluOps::*;
-        match self {
-            TST | CMP | CMN => true,
-            _ => false,
-        }
+        matches!(self, TST | CMP | CMN)
     }
     pub fn is_arithmetic(&self) -> bool {
         use ThumbAluOps::*;
-        match self {
-            ADC | SBC | NEG | CMP | CMN => true,
-            _ => false,
-        }
+        matches!(self, ADC | SBC | NEG | CMP | CMN)
     }
 }
 

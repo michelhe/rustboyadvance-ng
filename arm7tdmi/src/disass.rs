@@ -1,4 +1,5 @@
 use std::fmt;
+use std::fmt::Write;
 use std::marker::PhantomData;
 
 use super::Addr;
@@ -23,7 +24,7 @@ where
         Disassembler {
             base: base as Addr,
             pos: 0,
-            bytes: bytes,
+            bytes,
             word_size: std::mem::size_of::<D::IntType>(),
             instruction_decoder: PhantomData,
         }
@@ -42,14 +43,9 @@ where
 
         let addr = self.base + self.pos as Addr;
         let decoded: D = D::decode_from_bytes(&self.bytes[(self.pos as usize)..], addr);
+        let decoded_raw = decoded.get_raw();
         self.pos += self.word_size;
-        line.push_str(&format!(
-            "{:8x}:\t{:08x} \t{}",
-            addr,
-            decoded.get_raw(),
-            decoded
-        ));
-
+        write!(&mut line, "{addr:8x}:\t{decoded_raw:08x} \t{decoded}").unwrap();
         Some((self.pos as Addr, line))
     }
 }

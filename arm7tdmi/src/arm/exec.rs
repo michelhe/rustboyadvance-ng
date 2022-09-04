@@ -1,4 +1,4 @@
-use crate::bit::BitIndex;
+use bit::BitIndex;
 
 use crate::{
     alu::*,
@@ -36,12 +36,12 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
 
     pub fn branch_exchange(&mut self, mut addr: Addr) -> CpuAction {
         if addr.bit(0) {
-            addr = addr & !0x1;
+            addr &= !0x1;
             self.cpsr.set_state(CpuState::THUMB);
             self.pc = addr;
             self.reload_pipeline16();
         } else {
-            addr = addr & !0x3;
+            addr &= !0x3;
             self.cpsr.set_state(CpuState::ARM);
             self.pc = addr;
             self.reload_pipeline32();
@@ -101,7 +101,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
             mask |= 0xff << 8;
         }
         if c {
-            mask |= 0xff << 0;
+            mask |= 0xff;
         }
 
         match self.cpsr.mode() {
@@ -186,7 +186,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
             let shifted_reg = ShiftedRegister {
                 reg: reg as usize,
                 bs_op: insn.get_bs_op(),
-                shift_by: shift_by,
+                shift_by,
                 added: None,
             };
             self.register_shift(&shifted_reg, &mut carry)
@@ -335,10 +335,8 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
             };
         }
 
-        if !LOAD || base_reg != dest_reg {
-            if !PRE_INDEX || WRITEBACK{
-                self.set_reg(base_reg, effective_addr);
-            }
+        if (!LOAD || base_reg != dest_reg) && (!PRE_INDEX || WRITEBACK) {
+            self.set_reg(base_reg, effective_addr);
         }
 
         if !PRE_INDEX && WRITEBACK {
@@ -444,12 +442,8 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
             };
         }
 
-        if !LOAD || base_reg != dest_reg {
-            if !PRE_INDEX {
-                self.set_reg(base_reg, effective_addr);
-            } else if WRITEBACK {
-                self.set_reg(base_reg, effective_addr);
-            }
+        if (!LOAD || base_reg != dest_reg) && (!PRE_INDEX || WRITEBACK) {
+            self.set_reg(base_reg, effective_addr);
         }
 
         result
@@ -554,16 +548,14 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
                             } else {
                                 self.get_reg(r)
                             }
+                        } else if first {
+                            old_base
                         } else {
-                            if first {
-                                old_base
+                            let x = rlist_count * 4;
+                            if ascending {
+                                old_base + x
                             } else {
-                                let x = rlist_count * 4;
-                                if ascending {
-                                    old_base + x
-                                } else {
-                                    old_base - x
-                                }
+                                old_base - x
                             }
                         };
 

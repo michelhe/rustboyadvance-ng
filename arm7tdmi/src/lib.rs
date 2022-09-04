@@ -3,9 +3,6 @@ extern crate serde;
 
 #[macro_use]
 extern crate enum_primitive_derive;
-use bit;
-use num;
-use num_traits;
 
 use std::fmt;
 
@@ -35,7 +32,7 @@ pub mod registers_consts {
     pub const REG_SP: usize = 13;
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum DecodedInstruction {
     Arm(ArmInstruction),
     Thumb(ThumbInstruction),
@@ -77,7 +74,7 @@ pub fn reg_string<T: Into<usize>>(reg: T) -> &'static str {
     reg_names[reg.into()]
 }
 
-#[derive(Debug, PartialEq, Primitive, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Primitive, Copy, Clone)]
 #[repr(u8)]
 pub enum CpuState {
     ARM = 0,
@@ -94,7 +91,7 @@ impl fmt::Display for CpuState {
     }
 }
 
-#[derive(Debug, Primitive, Copy, Clone, PartialEq)]
+#[derive(Debug, Primitive, Copy, Clone, PartialEq, Eq)]
 pub enum CpuMode {
     User = 0b10000,
     Fiq = 0b10001,

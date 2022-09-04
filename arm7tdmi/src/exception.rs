@@ -2,7 +2,7 @@ use super::memory::MemoryInterface;
 use super::Arm7tdmiCore;
 use super::{CpuMode, CpuState};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 /// Models a CPU exception, and maps to the relavnt entry in the exception vector
 pub enum Exception {

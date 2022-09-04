@@ -14,7 +14,7 @@ use num::FromPrimitive;
 
 use std::io;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ArmDecodeErrorKind {
     UnknownInstructionFormat,
     DecodedPartDoesNotBelongToInstruction,
@@ -24,7 +24,7 @@ pub enum ArmDecodeErrorKind {
     IoError(io::ErrorKind),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ArmDecodeError {
     pub kind: ArmDecodeErrorKind,
     pub insn: u32,
@@ -34,15 +34,11 @@ pub struct ArmDecodeError {
 #[allow(dead_code)]
 impl ArmDecodeError {
     fn new(kind: ArmDecodeErrorKind, insn: u32, addr: Addr) -> ArmDecodeError {
-        ArmDecodeError {
-            kind: kind,
-            insn: insn,
-            addr: addr,
-        }
+        ArmDecodeError { kind, insn, addr }
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Primitive)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq, Primitive)]
 pub enum ArmCond {
     EQ = 0b0000,
     NE = 0b0001,
@@ -62,7 +58,7 @@ pub enum ArmCond {
     Invalid = 0b1111,
 }
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ArmFormat {
     BranchExchange = 0,
     BranchLink,
@@ -90,33 +86,33 @@ impl From<u32> for ArmFormat {
         use ArmFormat::*;
         if (0x0fff_fff0 & raw) == 0x012f_ff10 {
             BranchExchange
-        } else if (0x0e00_0000 & raw) == 0x0a00_0000 {
+        } else if (0x0E00_0000 & raw) == 0x0A00_0000 {
             BranchLink
-        } else if (0xe000_0010 & raw) == 0x0600_0000 {
+        } else if (0x0E00_0010 & raw) == 0x0600_0000 {
             Undefined
-        } else if (0x0fb0_0ff0 & raw) == 0x0100_0090 {
+        } else if (0x0FB0_0FF0 & raw) == 0x0100_0090 {
             SingleDataSwap
-        } else if (0x0fc0_00f0 & raw) == 0x0000_0090 {
+        } else if (0x0FC0_00F0 & raw) == 0x0000_0090 {
             Multiply
-        } else if (0x0f80_00f0 & raw) == 0x0080_0090 {
+        } else if (0x0F80_00F0 & raw) == 0x0080_0090 {
             MultiplyLong
-        } else if (0x0fbf_0fff & raw) == 0x010f_0000 {
+        } else if (0x0FBF_0FFF & raw) == 0x010F_0000 {
             MoveFromStatus
-        } else if (0x0fbf_fff0 & raw) == 0x0129_f000 {
+        } else if (0x0FBF_FFF0 & raw) == 0x0129_F000 {
             MoveToStatus
-        } else if (0x0dbf_f000 & raw) == 0x0128_f000 {
+        } else if (0x0DBF_F000 & raw) == 0x0128_F000 {
             MoveToFlags
-        } else if (0x0c00_0000 & raw) == 0x0400_0000 {
+        } else if (0x0C00_0000 & raw) == 0x0400_0000 {
             SingleDataTransfer
-        } else if (0x0e40_0F90 & raw) == 0x0000_0090 {
+        } else if (0x0E40_0F90 & raw) == 0x0000_0090 {
             HalfwordDataTransferRegOffset
-        } else if (0x0e40_0090 & raw) == 0x0040_0090 {
+        } else if (0x0E40_0090 & raw) == 0x0040_0090 {
             HalfwordDataTransferImmediateOffset
-        } else if (0x0e00_0000 & raw) == 0x0800_0000 {
+        } else if (0x0E00_0000 & raw) == 0x0800_0000 {
             BlockDataTransfer
-        } else if (0x0f00_0000 & raw) == 0x0f00_0000 {
+        } else if (0x0F00_0000 & raw) == 0x0F00_0000 {
             SoftwareInterrupt
-        } else if (0x0c00_0000 & raw) == 0x0000_0000 {
+        } else if (0x0C00_0000 & raw) == 0x0000_0000 {
             DataProcessing
         } else {
             Undefined
@@ -124,14 +120,14 @@ impl From<u32> for ArmFormat {
     }
 }
 
-#[derive(Debug, PartialEq, Primitive)]
+#[derive(Debug, PartialEq, Eq, Primitive)]
 pub enum ArmHalfwordTransferType {
     UnsignedHalfwords = 0b01,
     SignedByte = 0b10,
     SignedHalfwords = 0b11,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct ArmInstruction {
     pub fmt: ArmFormat,
     pub raw: u32,
@@ -150,11 +146,7 @@ impl InstructionDecoder for ArmInstruction {
     fn decode(raw: u32, addr: Addr) -> Self {
         let fmt = ArmFormat::from(raw);
 
-        ArmInstruction {
-            fmt: fmt,
-            raw: raw,
-            pc: addr,
-        }
+        ArmInstruction {fmt, raw, pc: addr }
     }
 
     fn decode_from_bytes(bytes: &[u8], addr: Addr) -> Self {

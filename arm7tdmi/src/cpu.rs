@@ -166,10 +166,10 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
         SavedCpuState {
             cpsr: self.cpsr,
             pc: self.pc,
-            gpr: self.gpr.clone(),
+            gpr: self.gpr,
             spsr: self.spsr,
             banks: self.banks.clone(),
-            pipeline: self.pipeline.clone(),
+            pipeline: self.pipeline,
             next_fetch_access: self.next_fetch_access,
         }
     }
@@ -264,8 +264,8 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
         }
     }
 
-    pub fn get_registers(&self) -> [u32; 15] {
-        self.gpr.clone()
+    pub fn copy_registers(&self) -> [u32; 15] {
+        self.gpr
     }
 
     pub(super) fn change_mode(&mut self, old_mode: CpuMode, new_mode: CpuMode) {
@@ -352,7 +352,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
 
     #[cfg(feature = "debugger")]
     fn debugger_record_step(&mut self, d: DecodedInstruction) {
-        self.dbg.gpr_previous = self.get_registers();
+        self.dbg.gpr_previous = self.copy_registers();
         self.dbg.last_executed = Some(d);
     }
 
@@ -433,12 +433,10 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
                 self.pipeline[1] = fetched_now;
                 let cond = ArmCond::from_u8(insn.bit_range(28..32) as u8)
                     .unwrap_or_else(|| unsafe { std::hint::unreachable_unchecked() });
-                if cond != ArmCond::AL {
-                    if !self.check_arm_cond(cond) {
-                        self.advance_arm();
-                        self.next_fetch_access = MemoryAccess::NonSeq;
-                        return;
-                    }
+                if cond != ArmCond::AL && !self.check_arm_cond(cond) {
+                    self.advance_arm();
+                    self.next_fetch_access = MemoryAccess::NonSeq;
+                    return;
                 }
                 match self.step_arm_exec(insn) {
                     CpuAction::AdvancePC(access) => {
@@ -499,7 +497,7 @@ impl<I: MemoryInterface> fmt::Display for Core<I> {
         writeln!(f, "\tGeneral Purpose Registers:")?;
         let reg_normal_style = Style::new().bold();
         let reg_dirty_style = Colour::Black.bold().on(Colour::Yellow);
-        let gpr = self.get_registers();
+        let gpr = self.copy_registers();
         for i in 0..15 {
             let mut reg_name = reg_string(i).to_string();
             reg_name.make_ascii_uppercase();

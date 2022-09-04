@@ -3,8 +3,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::bit::BitIndex;
-use crate::num::FromPrimitive;
+use bit::BitIndex;
+use num::FromPrimitive;
 
 use super::{CpuMode, CpuState};
 
