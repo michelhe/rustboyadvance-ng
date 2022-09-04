@@ -10,8 +10,18 @@ members = [
 ]
 
 [profile.dev]
-opt-level = 0
+opt-level = 2
 debug = true
 
 [profile.release]
+debug = false
+
+[profile.release-dev]
+inherits = "release"
+opt-level = 3
 debug = true
+debug-assertions = false
+
+[profile.release-lto]
+inherits = "release"
+lto = true
