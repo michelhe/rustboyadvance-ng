@@ -109,6 +109,7 @@ pub(super) fn load_from_file(path: &Path) -> LoadRomResult {
             Some("zip") => try_load_zip(&bytes),
             #[cfg(feature = "elf_support")]
             Some("elf") => try_load_elf(&bytes),
+            Some("gba") => Ok(LoadRom::Raw(bytes)),
             _ => {
                 warn!("unknown file extension, loading as raw binary file");
                 Ok(LoadRom::Raw(bytes))
