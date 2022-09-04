@@ -9,6 +9,9 @@ members = [
     "fps_bench"
 ]
 
+default-members = ["platform/rustboyadvance-sdl2"]
+
+
 [profile.dev]
 opt-level = 2
 debug = true
