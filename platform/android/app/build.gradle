@@ -25,7 +25,7 @@ cargo {
     prebuiltToolchains = true
     verbose = true
     profile = 'release'
-    module = "../../../bindings/rustboyadvance-jni"
+    module = "../../../platform/rustboyadvance-jni"
     targetDirectory = '../../../target'
     libname = "rustboyadvance_jni"
     targets = ['x86', 'arm64']

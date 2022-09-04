@@ -12,12 +12,13 @@ Nintendo GameBoy Advance ™ emulator and debugger, written in rust.
 WebAssembly Demo: https://michelhe.github.io/rustboyadvance-ng/ ![Deploy](https://github.com/michelhe/rustboyadvance-ng/workflows/Deploy/badge.svg?branch=master)
 
 # Project Structure
-* `core/` - Main emulator crate
-* `bindings/` - Bindings to other languages. Currently only java binidings through JNI.
+* `core/` - Main emulator crate that ties everything together 
+* `arm7tdmi/` - Emulation of the Arm7tdmi processor.
 * `platform/` - Constains executables & application built with `rustboyadvance-core`
     * `platform/rustbodyadvance-wasm` - Web emulator powered by WebAssembly
     * `platform/rustbodyadvance-sdl2` - Desktop application built with sdl2
     * `platform/rustbodyadvance-minifb` - Desktop application built with minifb, *not maintained*.
+    * `platform/rustbodyadvance-jni` - Java JNI binidngs for the emulator.
     * `platform/android` - A PoC Android application.
 
 # Progress

@@ -7,7 +7,7 @@ members = [
     "platform/rustboyadvance-libretro",
     "platform/rustboyadvance-minifb",
     "platform/rustboyadvance-wasm",
-    "bindings/rustboyadvance-jni",
+    "platform/rustboyadvance-jni",
     "fps_bench"
 ]
 
