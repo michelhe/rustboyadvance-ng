@@ -29,7 +29,7 @@ pub fn read_bin_file(filename: &Path) -> io::Result<Vec<u8>> {
     Ok(buf)
 }
 
-pub fn write_bin_file(filename: &Path, data: &Vec<u8>) -> io::Result<()> {
+pub fn write_bin_file(filename: &Path, data: &[u8]) -> io::Result<()> {
     let mut f = File::create(filename)?;
     f.write_all(data)?;
 
@@ -94,11 +94,13 @@ pub mod audio {
         cons: Consumer<i16>,
     }
 
-    impl AudioRingBuffer {
-        pub fn new() -> AudioRingBuffer {
+    impl Default for AudioRingBuffer {
+        fn default() -> AudioRingBuffer {
             AudioRingBuffer::new_with_capacity(2 * 4096)
         }
+    }
 
+    impl AudioRingBuffer {
         pub fn new_with_capacity(capacity: usize) -> AudioRingBuffer {
             let rb = RingBuffer::new(capacity);
             let (prod, cons) = rb.split();
@@ -191,10 +193,6 @@ impl<T> Clone for Shared<T> {
 impl<T> Shared<T> {
     pub fn new(t: T) -> Shared<T> {
         Shared(Rc::new(UnsafeCell::new(t)))
-    }
-
-    pub unsafe fn inner_unsafe(&self) -> &mut T {
-        &mut (*self.0.get())
     }
 }
 

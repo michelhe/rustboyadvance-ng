@@ -1,5 +1,5 @@
 use rustboyadvance_core::prelude::*;
-use rustboyadvance_core::util::audio::{AudioRingBuffer, Producer};
+use rustboyadvance_utils::audio::{AudioRingBuffer, Producer};
 // use rustboyadvance_core::util::FpsCounter;
 
 use std::cell::RefCell;

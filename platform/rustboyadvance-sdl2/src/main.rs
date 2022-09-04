@@ -48,6 +48,7 @@ use rustboyadvance_core::prelude::*;
 use rustboyadvance_utils::FpsCounter;
 
 const LOG_DIR: &str = ".logs";
+#[cfg(feature = "gdb")]
 const DEFAULT_GDB_SERVER_ADDR: &'static str = "localhost:1337";
 
 const CANVAS_WIDTH: u32 = SCREEN_WIDTH;
@@ -242,6 +243,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "gdb")]
     if with_gdbserver {
         spawn_and_run_gdb_server(&mut gba, DEFAULT_GDB_SERVER_ADDR)?;
+    }
+    #[cfg(not(feature = "gdb"))]
+    if with_gdbserver {
+        panic!("Please compile me with 'gdb' feature")
     }
 
     let mut fps_counter = FpsCounter::default();

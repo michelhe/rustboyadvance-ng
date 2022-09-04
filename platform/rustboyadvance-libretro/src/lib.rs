@@ -13,7 +13,7 @@ use unsafe_unwrap::UnsafeUnwrap;
 
 use rustboyadvance_core::keypad::Keys as GbaButton;
 use rustboyadvance_core::prelude::*;
-use rustboyadvance_core::util::audio::AudioRingBuffer;
+use rustboyadvance_utils::audio::AudioRingBuffer;
 
 use std::path::Path;
 
@@ -115,7 +115,7 @@ impl libretro_backend::Core for RustBoyAdvanceCore {
 
                 let hwif = Rc::new(RefCell::new(HwInterface {
                     key_state: rustboyadvance_core::keypad::KEYINPUT_ALL_RELEASED,
-                    audio_ring_buffer: AudioRingBuffer::new(),
+                    audio_ring_buffer: Default::default(),
                 }));
                 let gba = GameBoyAdvance::new(
                     bios.into_boxed_slice(),

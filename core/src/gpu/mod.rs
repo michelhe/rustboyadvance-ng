@@ -577,18 +577,18 @@ mod tests {
         macro_rules! update {
             ($cycles:expr) => {
                 sched.update($cycles);
-                let (event, cycles_late) = sched.pop_pending_event().unwrap();
-                assert_eq!(cycles_late, 0);
-                match event {
+                let (event, event_time) = sched.pop_pending_event().unwrap();
+                assert_eq!(event_time, sched.timestamp());
+                let next_event = match event {
                     EventType::Gpu(event) => gpu.on_event(
                         event,
-                        cycles_late,
                         &mut dma_notifier,
                         #[cfg(not(feature = "no_video_interface"))]
                         &video_clone,
                     ),
                     _ => panic!("Found unexpected event in queue!"),
-                }
+                };
+                sched.schedule(next_event);
             };
         }
 

@@ -4,7 +4,7 @@ use std::sync::mpsc::{channel, Sender};
 use std::thread;
 use std::thread::JoinHandle;
 
-use rustboyadvance_core::util::audio::Consumer;
+use rustboyadvance_utils::audio::Consumer;
 
 use jni::JavaVM;
 

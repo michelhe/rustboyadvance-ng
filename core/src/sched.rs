@@ -109,12 +109,15 @@ pub struct Scheduler {
 pub type SharedScheduler = Shared<Scheduler>;
 
 impl Scheduler {
-    pub fn new_shared() -> SharedScheduler {
-        let sched = Scheduler {
+    pub fn new() -> Scheduler {
+        Scheduler {
             timestamp: 0,
             events: BinaryHeap::with_capacity(NUM_EVENTS),
-        };
-        SharedScheduler::new(sched)
+        }
+    }
+
+    pub fn new_shared() -> SharedScheduler {
+        Scheduler::new().make_shared()
     }
 
     pub fn make_shared(self) -> SharedScheduler {

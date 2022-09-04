@@ -14,6 +14,7 @@ default = ["console_error_panic_hook"]
 js-sys = "0.3.37"
 wasm-bindgen = "0.2"
 rustboyadvance-core = { path = "../../core" }
+rustboyadvance-utils = { path = "../../utils" }
 
 # The `console_error_panic_hook` crate provides better debugging of panics by
 # logging them with `console.error`. This is great for development, but requires

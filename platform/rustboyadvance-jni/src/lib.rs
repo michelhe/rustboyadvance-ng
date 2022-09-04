@@ -289,7 +289,7 @@ pub mod bindings {
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_log(
         _env: JNIEnv,
         _obj: JClass,
-        ctx: jlong,
+        _ctx: jlong,
     ) {
         info!("unimplemented")
     }

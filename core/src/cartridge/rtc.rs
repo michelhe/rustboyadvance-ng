@@ -496,8 +496,6 @@ mod registers {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::Cell;
-    use std::rc::Rc;
 
     fn transmit(rtc: &mut Rtc, gpio_state: &GpioState, bit: u8) {
         rtc.write(&gpio_state, 0b0100_u16 | (u16::from(bit) << 1));
@@ -617,7 +615,7 @@ mod tests {
         let mut bytes = [0];
         receive_bytes(&mut rtc, &gpio_state, &mut bytes);
 
-        let mut read_status = registers::StatusRegister(bytes[0]);
+        let read_status = registers::StatusRegister(bytes[0]);
         assert_eq!(read_status.mode_24h(), true);
     }
 

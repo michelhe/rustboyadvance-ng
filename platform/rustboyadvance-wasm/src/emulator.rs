@@ -11,7 +11,7 @@ use web_sys::CanvasRenderingContext2d;
 
 use rustboyadvance_core::keypad as gba_keypad;
 use rustboyadvance_core::prelude::*;
-use rustboyadvance_core::util::audio::AudioRingBuffer;
+use rustboyadvance_utils::audio::AudioRingBuffer;
 
 use bit::BitIndex;
 
@@ -42,7 +42,7 @@ impl Interface {
             keyinput: gba_keypad::KEYINPUT_ALL_RELEASED,
             sample_rate: audio_ctx.sample_rate() as i32,
             audio_ctx: audio_ctx,
-            audio_ring_buffer: AudioRingBuffer::new(),
+            audio_ring_buffer: Default::default(),
         })
     }
 }
@@ -61,7 +61,7 @@ impl VideoInterface for Interface {
 }
 
 fn convert_sample(s: i16) -> f32 {
-    ((s as f32) / 32767_f32)
+    (s as f32) / 32767_f32
 }
 
 impl AudioInterface for Interface {
@@ -156,7 +156,7 @@ impl Emulator {
     }
 
     pub fn test_fps(&mut self) {
-        use rustboyadvance_core::util::FpsCounter;
+        use rustboyadvance_utils::FpsCounter;
 
         let mut fps_counter = FpsCounter::default();
 

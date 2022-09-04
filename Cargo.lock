@@ -1413,6 +1413,7 @@ dependencies = [
  "jni",
  "log 0.4.11",
  "rustboyadvance-core",
+ "rustboyadvance-utils",
 ]
 
 [[package]]
@@ -1425,6 +1426,7 @@ dependencies = [
  "libretro-sys",
  "log 0.4.11",
  "rustboyadvance-core",
+ "rustboyadvance-utils",
  "unsafe_unwrap",
 ]
 
@@ -1472,6 +1474,7 @@ dependencies = [
  "js-sys",
  "log 0.4.11",
  "rustboyadvance-core",
+ "rustboyadvance-utils",
  "wasm-bindgen",
  "wasm-bindgen-console-logger",
  "wasm-bindgen-test",

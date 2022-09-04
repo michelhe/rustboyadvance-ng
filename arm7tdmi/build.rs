@@ -265,7 +265,7 @@ fn arm_decode(i: u32) -> (&'static str, String) {
                 }
                 (0b010, 0b0001) => {
                     if 0b010 == i.bit_range(20..23) {
-                        Some(("BranchExchange", format!("exec_arm_bx")))
+                        Some(("BranchExchange", "exec_arm_bx".to_string()))
                     } else {
                         None
                     }

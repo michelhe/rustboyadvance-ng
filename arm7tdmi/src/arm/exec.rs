@@ -336,9 +336,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
         }
 
         if !LOAD || base_reg != dest_reg {
-            if !PRE_INDEX {
-                self.set_reg(base_reg, effective_addr);
-            } else if WRITEBACK {
+            if !PRE_INDEX || WRITEBACK{
                 self.set_reg(base_reg, effective_addr);
             }
         }
