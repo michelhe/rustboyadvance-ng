@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use super::arm7tdmi::memory::*;
+use super::arm7tdmi::memory::{
+    Addr, BusIO, DebugRead, MemoryAccess, MemoryAccessWidth, MemoryInterface,
+};
 use super::bios::Bios;
-use super::bus::*;
 use super::cartridge::Cartridge;
 use super::dma::DmaNotifer;
 use super::iodev::{IoDevices, WaitControl};
@@ -305,7 +306,7 @@ impl SysBus {
 }
 
 /// Todo - implement bound checks for EWRAM/IWRAM
-impl Bus for SysBus {
+impl BusIO for SysBus {
     #[inline]
     fn read_32(&mut self, addr: Addr) -> u32 {
         match addr & 0xff000000 {

@@ -30,6 +30,7 @@ impl From<bool> for CpuState {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Default)]
+#[repr(transparent)]
 pub struct RegPSR {
     raw: u32,
 }

@@ -216,8 +216,7 @@ fn create_backup(backup_type: BackupType, rom_path: Option<PathBuf>) -> BackupMe
 }
 
 fn detect_backup_type(bytes: &[u8]) -> Option<BackupType> {
-    const ID_STRINGS: &[&str] =
-        &["EEPROM", "SRAM", "FLASH_", "FLASH512_", "FLASH1M_"];
+    const ID_STRINGS: &[&str] = &["EEPROM", "SRAM", "FLASH_", "FLASH512_", "FLASH1M_"];
 
     for i in 0..5 {
         let search = TwoWaySearcher::new(ID_STRINGS[i].as_bytes());

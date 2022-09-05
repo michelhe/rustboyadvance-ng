@@ -6,9 +6,9 @@ use std::rc::Rc;
 use num::FromPrimitive;
 use serde::{Deserialize, Serialize};
 
+use arm7tdmi::memory::{Addr, BusIO, DebugRead};
 use rustboyadvance_utils::index2d;
 
-use super::bus::*;
 use super::dma::{DmaNotifer, TIMING_HBLANK, TIMING_VBLANK};
 use super::interrupt::{self, Interrupt, InterruptConnect, SharedInterruptFlags};
 use super::sched::{EventType, FutureEvent, GpuEvent, Scheduler};
@@ -455,7 +455,7 @@ impl Gpu {
     }
 }
 
-impl Bus for Gpu {
+impl BusIO for Gpu {
     fn read_8(&mut self, addr: Addr) -> u8 {
         let page = (addr >> 24) as usize;
         match page {

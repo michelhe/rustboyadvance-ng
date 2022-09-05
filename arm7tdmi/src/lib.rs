@@ -21,10 +21,9 @@ pub mod alu;
 pub mod memory;
 pub use alu::*;
 use memory::Addr;
+pub mod disass;
 pub mod exception;
 pub mod psr;
-pub use psr::*;
-pub mod disass;
 
 pub mod registers_consts {
     pub const REG_PC: usize = 15;

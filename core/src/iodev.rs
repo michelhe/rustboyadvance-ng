@@ -1,6 +1,7 @@
 use std::cmp;
 
-use super::bus::*;
+use arm7tdmi::memory::{Addr, BusIO, DebugRead};
+
 use super::dma::DmaController;
 use super::gpu::regs::GpuMemoryMappedIO;
 use super::gpu::regs::WindowFlags;
@@ -92,7 +93,7 @@ impl SchedulerConnect for IoDevices {
     }
 }
 
-impl Bus for IoDevices {
+impl BusIO for IoDevices {
     fn read_16(&mut self, addr: Addr) -> u16 {
         let io = self;
         let io_addr = addr + IO_BASE;

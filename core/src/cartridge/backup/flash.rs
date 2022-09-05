@@ -149,7 +149,6 @@ impl Flash {
 
     pub fn read(&self, addr: u32) -> u8 {
         let offset = (addr & 0xffff) as usize;
-        
 
         if self.mode == FlashMode::ChipId {
             match offset {

@@ -397,8 +397,8 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use super::super::bus::Bus;
-    use super::super::cartridge::GamepakBuilder;
+    use crate::cartridge::GamepakBuilder;
+    use arm7tdmi::memory::BusIO;
 
     struct DummyInterface {}
 

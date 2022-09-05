@@ -1,6 +1,8 @@
-use super::bus::{Bus, DebugRead};
 use super::SysBus;
-use arm7tdmi::{memory::Addr, Arm7tdmiCore};
+use arm7tdmi::{
+    memory::{Addr, BusIO, DebugRead},
+    Arm7tdmiCore,
+};
 
 use rustboyadvance_utils::WeakPointer;
 
@@ -35,7 +37,7 @@ impl Bios {
 }
 
 /// Impl of Bus trait for Bios
-impl Bus for Bios {
+impl BusIO for Bios {
     #[inline]
     fn read_32(&mut self, addr: Addr) -> u32 {
         if self.read_allowed() {

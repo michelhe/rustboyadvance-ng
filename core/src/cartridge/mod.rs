@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::bus::*;
+use arm7tdmi::memory::{Addr, BusIO, DebugRead};
 
 pub mod header;
 use header::CartridgeHeader;
@@ -109,7 +109,7 @@ fn is_gpio_access(addr: u32) -> bool {
     }
 }
 
-impl Bus for Cartridge {
+impl BusIO for Cartridge {
     fn read_8(&mut self, addr: Addr) -> u8 {
         let offset = (addr & 0x01ff_ffff) as usize;
         match addr & 0xff000000 {

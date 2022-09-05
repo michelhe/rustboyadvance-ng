@@ -146,7 +146,7 @@ impl InstructionDecoder for ArmInstruction {
     fn decode(raw: u32, addr: Addr) -> Self {
         let fmt = ArmFormat::from(raw);
 
-        ArmInstruction {fmt, raw, pc: addr }
+        ArmInstruction { fmt, raw, pc: addr }
     }
 
     fn decode_from_bytes(bytes: &[u8], addr: Addr) -> Self {

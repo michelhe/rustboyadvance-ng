@@ -152,8 +152,9 @@ impl EepromChip {
             RxInstruction => {
                 // If instruction was recvd, proceed to recv the address
                 if self.rx_count >= 2 {
-                    let insn = SpiInstruction::from_u64(self.rx_buffer).unwrap_or_else(|| panic!("invalid spi command {:#010b}",
-                        self.rx_buffer as u8));
+                    let insn = SpiInstruction::from_u64(self.rx_buffer).unwrap_or_else(|| {
+                        panic!("invalid spi command {:#010b}", self.rx_buffer as u8)
+                    });
                     next_state = Some(RxAddress(insn));
                     self.reset_rx_buffer();
                 }
