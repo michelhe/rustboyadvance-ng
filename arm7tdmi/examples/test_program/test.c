@@ -1,4 +1,4 @@
-int breakpoint_count = 0;
+volatile int breakpoint_count = 0;
 volatile int breakpoint_on_me() {
     breakpoint_count++;
 }
