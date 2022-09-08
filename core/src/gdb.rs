@@ -1,5 +1,5 @@
 use super::arm7tdmi::CpuState;
-use super::core::GameBoyAdvance;
+use super::GameBoyAdvance;
 use super::interrupt::*;
 use super::iodev::IoDevices;
 use super::sysbus::SysBus;

@@ -54,14 +54,14 @@ pub enum CpuAction {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub(super) struct BankedRegisters {
+pub struct BankedRegisters {
     // r13 and r14 are banked for all modes. System&User mode share them
-    pub(super) gpr_banked_r13: [u32; 6],
-    pub(super) gpr_banked_r14: [u32; 6],
+    pub gpr_banked_r13: [u32; 6],
+    pub gpr_banked_r14: [u32; 6],
     // r8-r12 are banked for fiq mode
-    pub(super) gpr_banked_old_r8_12: [u32; 5],
-    pub(super) gpr_banked_fiq_r8_12: [u32; 5],
-    pub(super) spsr_bank: [RegPSR; 6],
+    pub gpr_banked_old_r8_12: [u32; 5],
+    pub gpr_banked_fiq_r8_12: [u32; 5],
+    pub spsr_bank: [RegPSR; 6],
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -106,17 +106,21 @@ impl Default for DebuggerState {
 #[derive(Clone, Debug)]
 pub struct Arm7tdmiCore<I: MemoryInterface> {
     pub pc: u32,
-    pub(super) bus: Shared<I>,
+    pub bus: Shared<I>,
 
     next_fetch_access: MemoryAccess,
     pipeline: [u32; 2],
     pub gpr: [u32; 15],
 
     pub cpsr: RegPSR,
-    pub(super) spsr: RegPSR,
+    pub spsr: RegPSR,
 
-    pub(super) banks: BankedRegisters,
+    pub banks: BankedRegisters,
 
+    /// Hardware breakpoints for use by gdb
+    pub breakpoints: Vec<Addr>,
+
+    /// Deprecated in-house debugger state
     #[cfg(feature = "debugger")]
     pub dbg: DebuggerState,
 }
@@ -133,6 +137,8 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
             cpsr,
             spsr: Default::default(),
             banks: BankedRegisters::default(),
+
+            breakpoints: Vec::new(),
 
             #[cfg(feature = "debugger")]
             dbg: DebuggerState::default(),
@@ -155,6 +161,8 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
 
             pipeline: state.pipeline,
             next_fetch_access: state.next_fetch_access,
+
+            breakpoints: Vec::new(), // TODO include breakpoints in saved state
 
             // savestate does not keep debugger related information, so just reinitialize to default
             #[cfg(feature = "debugger")]
@@ -472,20 +480,6 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
 
     pub fn get_cpu_state(&self) -> CpuState {
         self.cpsr.state()
-    }
-
-    pub fn skip_bios(&mut self) {
-        self.banks.gpr_banked_r13[0] = 0x0300_7f00; // USR/SYS
-        self.banks.gpr_banked_r13[1] = 0x0300_7f00; // FIQ
-        self.banks.gpr_banked_r13[2] = 0x0300_7fa0; // IRQ
-        self.banks.gpr_banked_r13[3] = 0x0300_7fe0; // SVC
-        self.banks.gpr_banked_r13[4] = 0x0300_7f00; // ABT
-        self.banks.gpr_banked_r13[5] = 0x0300_7f00; // UND
-
-        self.gpr[13] = 0x0300_7f00;
-        self.pc = 0x0800_0000;
-
-        self.cpsr.set(0x5f);
     }
 }
 

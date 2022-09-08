@@ -225,12 +225,19 @@ pub trait DebugRead: BusIO {
 
     fn debug_read_8(&mut self, addr: Addr) -> u8;
 
-    fn debug_get_bytes(&mut self, range: std::ops::Range<u32>) -> Vec<u8> {
+    fn debug_get_bytes(&mut self, range: std::ops::Range<Addr>) -> Vec<u8> {
         let mut bytes = Vec::new();
         for b in range {
             bytes.push(self.debug_read_8(b));
         }
         bytes
+    }
+
+    fn debug_get_into_bytes(&mut self, start_addr: Addr, bytes: &mut [u8]) {
+        bytes
+            .iter_mut()
+            .enumerate()
+            .for_each(|(idx, byte)| *byte = self.debug_read_8(start_addr + (idx as Addr)));
     }
 }
 

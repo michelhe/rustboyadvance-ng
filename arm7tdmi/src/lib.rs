@@ -23,7 +23,10 @@ pub use alu::*;
 use memory::Addr;
 pub mod disass;
 pub mod exception;
+pub mod gdb;
 pub mod psr;
+mod simple_memory;
+pub use simple_memory::SimpleMemory;
 
 pub mod registers_consts {
     pub const REG_PC: usize = 15;

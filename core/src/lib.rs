@@ -52,9 +52,6 @@ pub use bus::*;
 mod mgba_debug;
 pub(crate) mod overrides;
 
-#[cfg(feature = "gdb")]
-pub mod gdb;
-
 #[cfg(feature = "debugger")]
 pub mod debugger;
 

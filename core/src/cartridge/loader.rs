@@ -6,11 +6,11 @@ use std::io::prelude::*;
 use std::io::Cursor;
 use std::path::Path;
 
+#[cfg(feature = "elf_support")]
+use rustboyadvance_utils::elf::{load_elf, GoblinError};
 use rustboyadvance_utils::read_bin_file;
 use zip::ZipArchive;
 
-#[cfg(feature = "elf_support")]
-use goblin;
 
 pub enum LoadRom {
     #[cfg(feature = "elf_support")]
@@ -23,10 +23,20 @@ pub enum LoadRom {
 type LoadRomResult = GBAResult<LoadRom>;
 
 #[cfg(feature = "elf_support")]
-impl From<goblin::error::Error> for GBAError {
-    fn from(err: goblin::error::Error) -> GBAError {
+impl From<GoblinError> for GBAError {
+    fn from(err: GoblinError) -> GBAError {
         GBAError::CartridgeLoadError(format!("elf parsing error: {}", err))
     }
+}
+
+#[cfg(feature = "elf_support")]
+pub(super) fn try_load_elf(elf_bytes: &[u8]) -> LoadRomResult {
+    const CART_BASE: usize = 0x0800_0000;
+    let elf = load_elf(elf_bytes, CART_BASE)?;
+    Ok(LoadRom::Elf {
+        data: elf.data,
+        symbols: elf.symbols,
+    })
 }
 
 fn try_load_zip(data: &[u8]) -> LoadRomResult {
@@ -43,62 +53,6 @@ fn try_load_zip(data: &[u8]) -> LoadRomResult {
     Err(GBAError::CartridgeLoadError(
         "no .gba files found within the zip archive".to_owned(),
     ))
-}
-
-#[cfg(feature = "elf_support")]
-fn try_load_elf(elf_bytes: &[u8]) -> LoadRomResult {
-    const CART_BASE: usize = 0x0800_0000;
-
-    let elf = goblin::elf::Elf::parse(&elf_bytes)?;
-
-    let entry = elf.entry;
-    if entry != (CART_BASE as u64) {
-        return Err(GBAError::CartridgeLoadError(
-            "bad elf entry point, maybe multiboot rom ?".to_owned(),
-        ));
-    }
-
-    let mut rom = vec![0; 0x200_0000];
-    for phdr in &elf.program_headers {
-        if phdr.p_type == goblin::elf::program_header::PT_LOAD {
-            let file_range = phdr.file_range();
-            let phys_range =
-                (phdr.p_paddr as usize)..(phdr.p_paddr as usize + phdr.p_memsz as usize);
-            let phys_range_adjusted = (phdr.p_paddr as usize - CART_BASE)
-                ..(phdr.p_paddr as usize + phdr.p_memsz as usize - CART_BASE);
-
-            if phys_range_adjusted.start + (phdr.p_filesz as usize) >= rom.len() {
-                warn!("ELF: skipping program header {:?}", phdr);
-                continue;
-            }
-
-            info!(
-                "ELF: loading segment phdr: {:?} range {:#x?} vec range {:#x?}",
-                phdr, file_range, phys_range,
-            );
-
-            let src = &elf_bytes[file_range];
-            let dst = &mut rom[phys_range_adjusted];
-            dst.copy_from_slice(src);
-        }
-    }
-
-    let mut symbols = HashMap::new();
-
-    let strtab = elf.strtab;
-    for sym in elf.syms.iter() {
-        if let Some(Ok(name)) = strtab.get(sym.st_name) {
-            // TODO do I also want to save the symbol size ?
-            symbols.insert(name.to_owned(), sym.st_value as u32);
-        } else {
-            warn!("failed to parse symbol name sym {:?}", sym);
-        }
-    }
-
-    Ok(LoadRom::Elf {
-        data: rom,
-        symbols: symbols,
-    })
 }
 
 pub(super) fn load_from_file(path: &Path) -> LoadRomResult {

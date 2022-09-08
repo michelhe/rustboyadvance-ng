@@ -1,0 +1,162 @@
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+RAM              0x0000000000000000 0x0000000000004000
+*default*        0x0000000000000000 0xffffffffffffffff
+
+Linker script and memory map
+
+LOAD /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crti.o
+LOAD /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+                0x0000000000000000                . = ORIGIN (RAM)
+
+.init           0x0000000000000000       0x88
+ *(.init.vector)
+ .init.vector   0x0000000000000000       0x20 reset.o
+                0x0000000000000000                _interrupt_vector
+ *(.init*)
+ .init          0x0000000000000020        0xc /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crti.o
+                0x0000000000000020                _init
+ .init_array    0x000000000000002c        0x4 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+ .init          0x0000000000000030        0x0 reset.o
+ .init.text     0x0000000000000030       0x4c reset.o
+                0x0000000000000030                _reset
+ .init          0x000000000000007c        0xc /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtn.o
+
+.text           0x0000000000000088       0xbc
+ *(.text)
+ .text          0x0000000000000088        0x0 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crti.o
+ .text          0x0000000000000088        0x0 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+ .text          0x0000000000000088       0x4c test.o
+                0x0000000000000088                breakpoint_on_me
+                0x00000000000000a8                main
+ .text          0x00000000000000d4        0x0 reset.o
+ .text          0x00000000000000d4        0x0 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtend.o
+ .text          0x00000000000000d4        0x0 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtn.o
+ *(.text.*)
+ .text.__do_global_dtors_aux
+                0x00000000000000d4       0x40 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+ .text.frame_dummy
+                0x0000000000000114       0x30 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+
+.glue_7         0x0000000000000144        0x0
+ .glue_7        0x0000000000000144        0x0 linker stubs
+
+.glue_7t        0x0000000000000144        0x0
+ .glue_7t       0x0000000000000144        0x0 linker stubs
+
+.vfp11_veneer   0x0000000000000144        0x0
+ .vfp11_veneer  0x0000000000000144        0x0 linker stubs
+
+.v4_bx          0x0000000000000144        0x0
+ .v4_bx         0x0000000000000144        0x0 linker stubs
+
+.fini           0x0000000000000144       0x18
+ .fini          0x0000000000000144        0xc /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crti.o
+                0x0000000000000144                _fini
+ .fini          0x0000000000000150        0xc /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtn.o
+
+.iplt           0x000000000000015c        0x0
+ .iplt          0x000000000000015c        0x0 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+
+.eh_frame       0x000000000000015c        0x4
+ .eh_frame      0x000000000000015c        0x0 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+ .eh_frame      0x000000000000015c        0x4 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtend.o
+
+.rel.dyn        0x0000000000000160        0x0
+ .rel.iplt      0x0000000000000160        0x0 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+
+.data           0x0000000000000160       0x4c
+ *(.rodata*)
+ .rodata.all_implied_fbits
+                0x0000000000000160       0x24 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+ .rodata.all_implied_fbits
+                0x0000000000000184       0x24 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtend.o
+ *(.data*)
+ .data          0x00000000000001a8        0x0 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crti.o
+ .data          0x00000000000001a8        0x0 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+ .data.__dso_handle
+                0x00000000000001a8        0x4 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+                0x00000000000001a8                __dso_handle
+ .data          0x00000000000001ac        0x0 test.o
+ .data          0x00000000000001ac        0x0 reset.o
+ .data          0x00000000000001ac        0x0 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtend.o
+ .data          0x00000000000001ac        0x0 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtn.o
+
+.fini_array     0x00000000000001ac        0x4
+ .fini_array    0x00000000000001ac        0x4 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+
+.igot.plt       0x00000000000001b0        0x0
+ .igot.plt      0x00000000000001b0        0x0 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+
+.bss            0x00000000000001b0       0x20
+ *(.bss*)
+ .bss           0x00000000000001b0        0x0 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crti.o
+ .bss           0x00000000000001b0        0x0 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+ .bss.completed.1
+                0x00000000000001b0        0x1 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+ *fill*         0x00000000000001b1        0x3 
+ .bss.object.0  0x00000000000001b4       0x18 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+ .bss           0x00000000000001cc        0x4 test.o
+                0x00000000000001cc                breakpoint_count
+ .bss           0x00000000000001d0        0x0 reset.o
+ .bss           0x00000000000001d0        0x0 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtend.o
+ .bss           0x00000000000001d0        0x0 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtn.o
+
+.stack          0x00000000000001d0      0xfe0 load address 0x0000000000003000
+                0x00000000000001d0                _stack_bottom = .
+                0x00000000000011b0                . = (. + 0xfe0)
+ *fill*         0x00000000000001d0      0xfe0 
+                0x00000000000011b0                _stack_top = .
+LOAD test.o
+LOAD reset.o
+START GROUP
+LOAD /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/libgcc.a
+LOAD /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/../../../../arm-none-eabi/lib/libc.a
+LOAD /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/../../../../arm-none-eabi/lib/libsysbase.a
+END GROUP
+LOAD /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtend.o
+LOAD /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtn.o
+OUTPUT(test.elf elf32-littlearm)
+LOAD linker stubs
+
+.ARM.attributes
+                0x0000000000000000       0x26
+ .ARM.attributes
+                0x0000000000000000       0x1c /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crti.o
+ .ARM.attributes
+                0x000000000000001c       0x2a /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+ .ARM.attributes
+                0x0000000000000046       0x2a test.o
+ .ARM.attributes
+                0x0000000000000070       0x1a reset.o
+ .ARM.attributes
+                0x000000000000008a       0x2a /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtend.o
+ .ARM.attributes
+                0x00000000000000b4       0x1c /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtn.o
+
+.comment        0x0000000000000000       0x23
+ .comment       0x0000000000000000       0x23 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtbegin.o
+                                         0x24 (size before relaxing)
+ .comment       0x0000000000000023       0x24 test.o
+ .comment       0x0000000000000023       0x24 /opt/devkitpro/devkitARM/bin/../lib/gcc/arm-none-eabi/12.1.0/crtend.o
+
+.debug_info     0x0000000000000000       0x7e
+ .debug_info    0x0000000000000000       0x7e test.o
+
+.debug_abbrev   0x0000000000000000       0x77
+ .debug_abbrev  0x0000000000000000       0x77 test.o
+
+.debug_aranges  0x0000000000000000       0x20
+ .debug_aranges
+                0x0000000000000000       0x20 test.o
+
+.debug_line     0x0000000000000000       0x51
+ .debug_line    0x0000000000000000       0x51 test.o
+
+.debug_str      0x0000000000000000       0x69
+ .debug_str     0x0000000000000000       0x69 test.o
+
+.debug_frame    0x0000000000000000       0x4c
+ .debug_frame   0x0000000000000000       0x4c test.o

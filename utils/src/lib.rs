@@ -6,6 +6,8 @@ use std::path::Path;
 use std::ptr;
 use std::time;
 
+pub mod elf;
+
 #[cfg(not(target_arch = "wasm32"))]
 type Instant = time::Instant;
 #[cfg(not(target_arch = "wasm32"))]

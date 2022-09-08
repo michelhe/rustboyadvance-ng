@@ -41,14 +41,11 @@ use input::create_input;
 use video::{create_video_interface, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 use rustboyadvance_core::cartridge::BackupType;
-#[cfg(feature = "gdb")]
-use rustboyadvance_core::gdb::spawn_and_run_gdb_server;
 use rustboyadvance_core::prelude::*;
 
 use rustboyadvance_utils::FpsCounter;
 
 const LOG_DIR: &str = ".logs";
-#[cfg(feature = "gdb")]
 const DEFAULT_GDB_SERVER_ADDR: &'static str = "localhost:1337";
 
 const CANVAS_WIDTH: u32 = SCREEN_WIDTH;
@@ -240,13 +237,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    #[cfg(feature = "gdb")]
     if with_gdbserver {
-        spawn_and_run_gdb_server(&mut gba, DEFAULT_GDB_SERVER_ADDR)?;
-    }
-    #[cfg(not(feature = "gdb"))]
-    if with_gdbserver {
-        panic!("Please compile me with 'gdb' feature")
+        todo!("gdb")
     }
 
     let mut fps_counter = FpsCounter::default();
@@ -277,7 +269,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         info!("ending debugger...")
                     }
                     #[cfg(feature = "gdb")]
-                    Scancode::F2 => spawn_and_run_gdb_server(&mut gba, DEFAULT_GDB_SERVER_ADDR)?,
+                    Scancode::F2 => todo!("gdb"),
                     Scancode::F5 => {
                         info!("Saving state ...");
                         let save = gba.save_state()?;

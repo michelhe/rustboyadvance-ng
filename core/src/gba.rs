@@ -331,7 +331,15 @@ impl GameBoyAdvance {
     }
 
     pub fn skip_bios(&mut self) {
-        self.cpu.skip_bios();
+        self.cpu.banks.gpr_banked_r13[0] = 0x0300_7f00; // USR/SYS
+        self.cpu.banks.gpr_banked_r13[1] = 0x0300_7f00; // FIQ
+        self.cpu.banks.gpr_banked_r13[2] = 0x0300_7fa0; // IRQ
+        self.cpu.banks.gpr_banked_r13[3] = 0x0300_7fe0; // SVC
+        self.cpu.banks.gpr_banked_r13[4] = 0x0300_7f00; // ABT
+        self.cpu.banks.gpr_banked_r13[5] = 0x0300_7f00; // UND
+        self.cpu.gpr[13] = 0x0300_7f00;
+        self.cpu.pc = 0x0800_0000;
+        self.cpu.cpsr.set(0x5f);
         self.sysbus.io.gpu.skip_bios();
     }
 
