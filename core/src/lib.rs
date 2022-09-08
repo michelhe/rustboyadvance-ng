@@ -64,7 +64,7 @@ pub trait VideoInterface {
     fn render(&mut self, buffer: &[u32]) {}
 }
 
-pub type StereoSample<T> = (T, T);
+pub type StereoSample<T> = [T; 2];
 
 pub trait AudioInterface {
     fn get_sample_rate(&self) -> i32 {

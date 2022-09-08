@@ -35,9 +35,9 @@ impl EepromType {
     }
 }
 
-impl Into<usize> for EepromAddressBits {
-    fn into(self) -> usize {
-        match self {
+impl From<EepromAddressBits> for usize {
+    fn from(bits: EepromAddressBits) -> usize {
+        match bits {
             EepromAddressBits::Eeprom6bit => 6,
             EepromAddressBits::Eeprom14bit => 14,
         }

@@ -28,7 +28,7 @@ impl AudioCallback for GbaAudioCallback {
         let sample_count = out_samples.len() / 2;
 
         for i in 0..sample_count {
-            if let Some((left, right)) = self.consumer.pop() {
+            if let Some([left, right]) = self.consumer.pop() {
                 out_samples[2 * i] = left;
                 out_samples[2 * i + 1] = right;
             } else {
@@ -46,7 +46,7 @@ impl AudioInterface for Sdl2AudioPlayer {
 
     fn push_sample(&mut self, sample: &[i16]) {
         #![allow(unused_must_use)]
-        self.producer.push((sample[0], sample[1]));
+        self.producer.push([sample[0], sample[1]]);
     }
 }
 

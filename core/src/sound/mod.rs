@@ -307,14 +307,14 @@ impl SoundController {
             return;
         }
 
-        const FIFO_INDEX_TO_REG: [u32; 2] = [REG_FIFO_A, REG_FIFO_B];
-        for fifo in 0..2 {
+        static FIFO_INDEX_TO_REG: [u32; 2] = [REG_FIFO_A, REG_FIFO_B];
+        for (fifo, reg) in FIFO_INDEX_TO_REG.iter().enumerate() {
             let dma = &mut self.dma_sound[fifo];
 
             if timer_id == dma.timer_select {
                 dma.value = dma.fifo.read();
                 if dma.fifo.count() <= 16 {
-                    dmac.notify_sound_fifo(FIFO_INDEX_TO_REG[fifo]);
+                    dmac.notify_sound_fifo(*reg);
                 }
             }
         }
@@ -322,9 +322,9 @@ impl SoundController {
 
     #[inline]
     fn on_sample(&mut self, audio_device: &AudioDeviceRcRefCell) -> FutureEvent {
-        let mut sample = [0f32; 2];
+        let mut sample = [0f32, 0f32];
 
-        for channel in 0..=1 {
+        for (channel, out_sample) in sample.iter_mut().enumerate() {
             let mut dma_sample = 0;
             for dma in &mut self.dma_sound {
                 if dma.is_stereo_channel_enabled(channel) {
@@ -334,14 +334,13 @@ impl SoundController {
             }
 
             apply_bias(&mut dma_sample, self.sound_bias.bit_range(0..10) as i16);
-            sample[channel] = dma_sample as i32 as f32;
+            *out_sample = dma_sample as i32 as f32;
         }
 
-        let stereo_sample = (sample[0], sample[1]);
-        self.resampler.feed(stereo_sample, &mut self.output_buffer);
+        self.resampler.feed(&sample, &mut self.output_buffer);
 
         let mut audio = audio_device.borrow_mut();
-        self.output_buffer.drain(..).for_each(|(left, right)| {
+        self.output_buffer.drain(..).for_each(|[left, right]| {
             audio.push_sample(&[
                 (left.round() as i16) * (std::i16::MAX / 512),
                 (right.round() as i16) * (std::i16::MAX / 512),
