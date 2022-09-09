@@ -20,6 +20,5 @@ spin_sleep = "0.3.7"
 winres = "0.1"
 
 [features]
-default = ["gdb"]
+default = []
 debugger = ["rustboyadvance-core/debugger"]
-gdb = ["rustboyadvance-core/gdb"]

@@ -42,11 +42,12 @@ use video::{create_video_interface, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 use rustboyadvance_core::cartridge::BackupType;
 use rustboyadvance_core::prelude::*;
+use rustboyadvance_core::gdb_support::start_gdb;
 
 use rustboyadvance_utils::FpsCounter;
 
 const LOG_DIR: &str = ".logs";
-const DEFAULT_GDB_SERVER_ADDR: &'static str = "localhost:1337";
+const DEFAULT_GDB_PORT: u16 = 1337;
 
 const CANVAS_WIDTH: u32 = SCREEN_WIDTH;
 const CANVAS_HEIGHT: u32 = SCREEN_HEIGHT;
@@ -103,6 +104,17 @@ fn ask_download_bios() {
         "https://github.com/Nebuleon/ReGBA/raw/master/bios/gba_bios.bin";
     println!("Missing BIOS file. If you don't have the original GBA BIOS, you can download an open-source bios from {}", OPEN_SOURCE_BIOS_URL);
 }
+
+fn start_gdb_server(gba: &mut GameBoyAdvance, port: u16){
+    eprintln!("Starting gdbserver on localhost:{}", port);
+    let result = start_gdb(gba, port);
+    if let Ok(disconnect_reason) = result {
+        eprintln!("gdbserver session ended due to {:?}", disconnect_reason);
+    } else if let Err(error) = result {
+        eprintln!("error in gdb session {}", error);
+    }
+}
+
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(LOG_DIR).expect(&format!("could not create log directory ({})", LOG_DIR));
@@ -238,7 +250,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if with_gdbserver {
-        todo!("gdb")
+        start_gdb_server(&mut gba, DEFAULT_GDB_PORT)
     }
 
     let mut fps_counter = FpsCounter::default();
@@ -268,8 +280,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .unwrap();
                         info!("ending debugger...")
                     }
-                    #[cfg(feature = "gdb")]
-                    Scancode::F2 => todo!("gdb"),
+                    Scancode::F2 => start_gdb_server(&mut gba, DEFAULT_GDB_PORT),
                     Scancode::F5 => {
                         info!("Saving state ...");
                         let save = gba.save_state()?;

@@ -75,9 +75,7 @@ impl MemoryGdbInterface for SimpleMemory {
                 "http://sourceware.org/gdb/gdb-memory-map.dtd">
     <memory-map>
         <memory type="ram" start="0x0" length="{}"/>
-    </memory-map>"#, self.data.len())
-            .trim()
-            .as_bytes();
-        copy_range_to_buf(memory_map, offset, length, buf)
+    </memory-map>"#, self.data.len());
+        copy_range_to_buf(memory_map.trim().as_bytes(), offset, length, buf)
     }
 }

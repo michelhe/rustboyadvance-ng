@@ -6,9 +6,13 @@ use log::info;
 mod breakpoints;
 pub mod target;
 
+// Re-export the gdbstub crate
+pub extern crate gdbstub;
+pub extern crate gdbstub_arch;
+
 /// Wait for tcp connection on port
 pub fn wait_for_connection(port: u16) -> io::Result<TcpStream> {
-    let bind_addr = format!("localhost:{port}");
+    let bind_addr = format!("0.0.0.0:{port}");
     let sock = TcpListener::bind(bind_addr)?;
 
     info!("waiting for connection");

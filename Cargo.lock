@@ -1465,6 +1465,7 @@ dependencies = [
  "sha2",
  "smart-default",
  "time 0.2.22",
+ "xml-builder",
  "yaml-rust 0.4.4",
  "zip",
 ]
@@ -2296,6 +2297,12 @@ dependencies = [
  "libc",
  "pkg-config",
 ]
+
+[[package]]
+name = "xml-builder"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6aff3eebeb8c12d38dd6dcbd07082929a55764d13ad695632c35132ff7cf61ec"
 
 [[package]]
 name = "yaml-rust"

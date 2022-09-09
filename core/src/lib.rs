@@ -49,6 +49,7 @@ pub mod dma;
 pub mod keypad;
 pub mod timer;
 pub use bus::*;
+pub mod gdb_support;
 mod mgba_debug;
 pub(crate) mod overrides;
 
@@ -81,10 +82,13 @@ pub trait InputInterface {
     }
 }
 
+use arm7tdmi::gdb::gdbstub::stub::GdbStubError;
+
 #[derive(Debug)]
 pub enum GBAError {
     IO(::std::io::Error),
     CartridgeLoadError(String),
+    GdbStubError(String),
     #[cfg(feature = "debugger")]
     DebuggerError(debugger::DebuggerError),
 }
@@ -106,6 +110,12 @@ pub type GBAResult<T> = Result<T, GBAError>;
 impl From<::std::io::Error> for GBAError {
     fn from(err: ::std::io::Error) -> GBAError {
         GBAError::IO(err)
+    }
+}
+
+impl From<GdbStubError<(), std::io::Error>> for GBAError {
+    fn from(err: GdbStubError<(), std::io::Error>) -> Self {
+        GBAError::GdbStubError(err.to_string())
     }
 }
 

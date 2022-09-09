@@ -1,5 +1,6 @@
 /// Struct containing everything
 use std::cell::{Cell, RefCell};
+use std::fmt;
 use std::rc::Rc;
 
 use bincode;
@@ -226,7 +227,15 @@ impl GameBoyAdvance {
         self.key_poll();
         static mut OVERSHOOT: usize = 0;
         unsafe {
-            OVERSHOOT = self.run(CYCLES_FULL_REFRESH - OVERSHOOT);
+            OVERSHOOT = self.run::<false>(CYCLES_FULL_REFRESH - OVERSHOOT);
+        }
+    }
+
+    pub fn frame_and_check_breakpoints(&mut self) {
+        self.key_poll();
+        static mut OVERSHOOT: usize = 0;
+        unsafe {
+            OVERSHOOT = self.run::<true>(CYCLES_FULL_REFRESH - OVERSHOOT);
         }
     }
 
@@ -256,7 +265,7 @@ impl GameBoyAdvance {
     /// Runs the emulation for a given amount of cycles
     /// @return number of extra cycle ran in this iteration
     #[inline]
-    fn run(&mut self, cycles_to_run: usize) -> usize {
+    pub(crate) fn run<const CHECK_BREAKPOINTS: bool>(&mut self, cycles_to_run: usize) -> usize {
         let run_start_time = self.scheduler.timestamp();
 
         // Register an event to mark the end of this run
@@ -264,7 +273,7 @@ impl GameBoyAdvance {
             .schedule_at(EventType::RunLimitReached, run_start_time + cycles_to_run);
 
         let mut running = true;
-        while running {
+        'running: while running {
             // The tricky part is to avoid unnecessary calls for Scheduler::process_pending,
             // performance-wise it would be best to run as many cycles as fast as possible while we know there are no pending events.
             // Fast forward emulation until an event occurs
@@ -283,6 +292,14 @@ impl GameBoyAdvance {
                             self.scheduler.fast_forward_to_next();
                             self.handle_events(&mut running)
                         }
+                    }
+                }
+                if CHECK_BREAKPOINTS {
+                    // bail-out if cpu have reached a breakpoint
+                    if self.cpu.check_breakpoint().is_some() {
+                        running = false;
+                        self.handle_events(&mut running);
+                        break 'running;
                     }
                 }
             }
@@ -396,6 +413,12 @@ impl GameBoyAdvance {
     /// Reset the emulator
     pub fn soft_reset(&mut self) {
         self.cpu.reset();
+    }
+}
+
+impl fmt::Debug for GameBoyAdvance {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "GameBodyAdvance")
     }
 }
 
