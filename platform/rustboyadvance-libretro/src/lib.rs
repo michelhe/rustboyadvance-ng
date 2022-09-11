@@ -18,33 +18,15 @@ use rustboyadvance_utils::audio::AudioRingBuffer;
 use std::path::Path;
 
 use std::cell::RefCell;
+use std::default::Default;
 use std::rc::Rc;
 
-struct HwInterface {
-    key_state: u16,
+#[derive(Default)]
+struct AudioDevice {
     audio_ring_buffer: AudioRingBuffer,
 }
 
-impl HwInterface {
-    fn set_button_state(&mut self, button: JoypadButton, is_pressed: bool) {
-        let mapped_button = match button {
-            JoypadButton::A => GbaButton::ButtonA,
-            JoypadButton::B => GbaButton::ButtonB,
-            JoypadButton::Start => GbaButton::Start,
-            JoypadButton::Select => GbaButton::Select,
-            JoypadButton::Left => GbaButton::Left,
-            JoypadButton::Up => GbaButton::Up,
-            JoypadButton::Right => GbaButton::Right,
-            JoypadButton::Down => GbaButton::Down,
-            JoypadButton::L1 => GbaButton::ButtonL,
-            JoypadButton::R1 => GbaButton::ButtonR,
-            _ => unreachable!(),
-        };
-        self.key_state.set_bit(mapped_button as usize, !is_pressed);
-    }
-}
-
-impl AudioInterface for HwInterface {
+impl AudioInterface for AudioDevice {
     fn push_sample(&mut self, samples: &[i16]) {
         let prod = self.audio_ring_buffer.producer();
         for s in samples.iter() {
@@ -53,17 +35,28 @@ impl AudioInterface for HwInterface {
     }
 }
 
-impl InputInterface for HwInterface {
-    fn poll(&mut self) -> u16 {
-        self.key_state
-    }
-}
-
 #[derive(Default)]
 struct RustBoyAdvanceCore {
     gba: Option<GameBoyAdvance>,
     game_data: Option<GameData>,
-    hwif: Option<Rc<RefCell<HwInterface>>>,
+    audio: Option<Rc<RefCell<AudioDevice>>>,
+}
+
+fn set_button_state(key_state: &mut u16, button: JoypadButton, is_pressed: bool) {
+    let mapped_button = match button {
+        JoypadButton::A => GbaButton::ButtonA,
+        JoypadButton::B => GbaButton::ButtonB,
+        JoypadButton::Start => GbaButton::Start,
+        JoypadButton::Select => GbaButton::Select,
+        JoypadButton::Left => GbaButton::Left,
+        JoypadButton::Up => GbaButton::Up,
+        JoypadButton::Right => GbaButton::Right,
+        JoypadButton::Down => GbaButton::Down,
+        JoypadButton::L1 => GbaButton::ButtonL,
+        JoypadButton::R1 => GbaButton::ButtonR,
+        _ => unreachable!(),
+    };
+    key_state.set_bit(mapped_button as usize, !is_pressed);
 }
 
 impl libretro_backend::Core for RustBoyAdvanceCore {
@@ -113,18 +106,10 @@ impl libretro_backend::Core for RustBoyAdvanceCore {
                     .video(240, 160, 60.0, PixelFormat::ARGB8888)
                     .audio(44100.0);
 
-                let hwif = Rc::new(RefCell::new(HwInterface {
-                    key_state: rustboyadvance_core::keypad::KEYINPUT_ALL_RELEASED,
-                    audio_ring_buffer: Default::default(),
-                }));
-                let gba = GameBoyAdvance::new(
-                    bios.into_boxed_slice(),
-                    gamepak,
-                    hwif.clone(),
-                    hwif.clone(),
-                );
+                let audio = Rc::new(RefCell::new(AudioDevice::default()));
+                let gba = GameBoyAdvance::new(bios.into_boxed_slice(), gamepak, audio.clone());
 
-                self.hwif = Some(hwif);
+                self.audio = Some(audio);
                 self.gba = Some(gba);
                 self.game_data = Some(game_data);
                 LoadGameResult::Success(av_info)
@@ -136,17 +121,19 @@ impl libretro_backend::Core for RustBoyAdvanceCore {
     fn on_run(&mut self, handle: &mut RuntimeHandle) {
         let joypad_port = 0;
 
-        // gba and hwif are `Some` after the game is loaded, so avoiding overhead of unwrap
+        // gba and audio are `Some` after the game is loaded, so avoiding overhead of unwrap
         let gba = unsafe { self.gba.as_mut().unsafe_unwrap() };
-        let hwif = unsafe { self.hwif.as_mut().unsafe_unwrap() };
+        let audio = unsafe { self.audio.as_mut().unsafe_unwrap() };
 
+        let key_state = gba.borrow_mut().get_key_state_mut();
         macro_rules! update_controllers {
             ( $( $button:ident ),+ ) => (
                 $(
-                    hwif.borrow_mut().set_button_state( JoypadButton::$button, handle.is_joypad_button_pressed( joypad_port, JoypadButton::$button ) );
+                    set_button_state(key_state, JoypadButton::$button, handle.is_joypad_button_pressed( joypad_port, JoypadButton::$button ) );
                 )+
             )
         }
+        drop(key_state);
 
         update_controllers!(A, B, Start, Select, Left, Up, Right, Down, L1, R1);
 
@@ -166,8 +153,8 @@ impl libretro_backend::Core for RustBoyAdvanceCore {
         // upload sound samples
         {
             let mut audio_samples = [0; 4096 * 2];
-            let mut hwif = hwif.borrow_mut();
-            let consumer = hwif.audio_ring_buffer.consumer();
+            let mut audio = audio.borrow_mut();
+            let consumer = audio.audio_ring_buffer.consumer();
             let count = consumer.pop_slice(&mut audio_samples);
 
             handle.upload_audio_frame(&audio_samples[..count]);

@@ -38,12 +38,6 @@ impl AudioInterface for Hardware {
     }
 }
 
-impl InputInterface for Hardware {
-    fn poll(&mut self) -> u16 {
-        self.key_state
-    }
-}
-
 struct Renderer {
     renderer_ref: GlobalRef,
     frame_buffer_ref: GlobalRef,
@@ -325,7 +319,7 @@ impl EmulatorContext {
 
             let start_time = Instant::now();
             // check key state
-            self.hwif.borrow_mut().key_state = self.keypad.get_key_state(env);
+            *self.gba.get_key_state_mut() = self.keypad.get_key_state(env);
 
             // run frame
             self.gba.frame();

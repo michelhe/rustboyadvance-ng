@@ -76,6 +76,10 @@ impl IoDevices {
     pub fn set_sysbus_ptr(&mut self, ptr: SysBusPtr) {
         self.sysbus_ptr = ptr;
     }
+
+    pub(crate) fn set_key_state(&mut self, state: u16) {
+        self.keyinput = state;
+    }
 }
 
 impl InterruptConnect for IoDevices {

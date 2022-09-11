@@ -16,7 +16,6 @@ impl BenchmarkHardware {
 
 impl VideoInterface for BenchmarkHardware {}
 impl AudioInterface for BenchmarkHardware {}
-impl InputInterface for BenchmarkHardware {}
 
 fn main() {
     if env::args().count() < 3 {
@@ -42,7 +41,6 @@ fn main() {
     let mut gba = GameBoyAdvance::new(
         bios.into_boxed_slice(),
         gamepak,
-        dummy.clone(),
         dummy.clone(),
         dummy.clone(),
     );

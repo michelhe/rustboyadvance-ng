@@ -37,7 +37,7 @@ mod input;
 mod video;
 
 use audio::{create_audio_player, create_dummy_player};
-use input::create_input;
+use input;
 use video::{create_video_interface, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 use rustboyadvance_core::cartridge::BackupType;
@@ -253,7 +253,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ..
                 } => match scancode {
                     Scancode::Space => frame_limiter = false,
-                    k => input.borrow_mut().on_keyboard_key_down(k),
+                    k => input::on_keyboard_key_down(&mut gba, k),
                 },
                 Event::KeyUp {
                     scancode: Some(scancode),
@@ -291,17 +291,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     Scancode::Space => frame_limiter = true,
-                    k => input.borrow_mut().on_keyboard_key_up(k),
+                    k => input::on_keyboard_key_up(&mut gba, k),
                 },
                 Event::ControllerButtonDown { button, .. } => match button {
                     Button::RightStick => frame_limiter = !frame_limiter,
-                    b => input.borrow_mut().on_controller_button_down(b),
+                    b => input::on_controller_button_down(&mut gba, b),
                 },
                 Event::ControllerButtonUp { button, .. } => {
-                    input.borrow_mut().on_controller_button_up(button);
+                    input::on_controller_button_up(&mut gba, button);
                 }
                 Event::ControllerAxisMotion { axis, value, .. } => {
-                    input.borrow_mut().on_axis_motion(axis, value);
+                    input::on_axis_motion(&mut gba, axis, value);
                 }
                 Event::ControllerDeviceRemoved { which, .. } => {
                     let removed = if let Some(active_controller) = &active_controller {
@@ -339,7 +339,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         gamepak,
                         video.clone(),
                         audio.clone(),
-                        input.clone(),
                     );
                     gba.skip_bios();
                 }

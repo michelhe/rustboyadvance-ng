@@ -23,7 +23,6 @@ pub struct Emulator {
 
 struct Interface {
     frame: Vec<u8>,
-    keyinput: u16,
     sample_rate: i32,
     audio_ctx: AudioContext,
     audio_ring_buffer: AudioRingBuffer,
@@ -39,7 +38,6 @@ impl Interface {
     fn new(audio_ctx: AudioContext) -> Result<Interface, JsValue> {
         Ok(Interface {
             frame: vec![0; 240 * 160 * 4],
-            keyinput: gba_keypad::KEYINPUT_ALL_RELEASED,
             sample_rate: audio_ctx.sample_rate() as i32,
             audio_ctx: audio_ctx,
             audio_ring_buffer: Default::default(),
@@ -74,12 +72,6 @@ impl AudioInterface for Interface {
         for s in samples.iter() {
             let _ = prod.push(*s);
         }
-    }
-}
-
-impl InputInterface for Interface {
-    fn poll(&mut self) -> u16 {
-        self.keyinput
     }
 }
 
@@ -141,17 +133,15 @@ impl Emulator {
 
     pub fn key_down(&mut self, event_key: &str) {
         debug!("Key down: {}", event_key);
-        let mut interface = self.interface.borrow_mut();
         if let Some(key) = Emulator::map_key(event_key) {
-            interface.keyinput.set_bit(key as usize, false);
+            self.gba.get_key_state().set_bit(key as usize, false);
         }
     }
 
     pub fn key_up(&mut self, event_key: &str) {
         debug!("Key up: {}", event_key);
-        let mut interface = self.interface.borrow_mut();
         if let Some(key) = Emulator::map_key(event_key) {
-            interface.keyinput.set_bit(key as usize, true);
+            self.gba.get_key_state().set_bit(key as usize, true);
         }
     }
 

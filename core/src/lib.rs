@@ -131,7 +131,7 @@ pub mod prelude {
     pub use super::Bus;
     #[cfg(not(feature = "no_video_interface"))]
     pub use super::VideoInterface;
-    pub use super::{AudioInterface, InputInterface, StereoSample};
+    pub use super::{AudioInterface, StereoSample};
     pub use super::{GBAError, GBAResult, GameBoyAdvance};
     pub use rustboyadvance_utils::{read_bin_file, write_bin_file};
 }

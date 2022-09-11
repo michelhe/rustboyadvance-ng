@@ -15,9 +15,9 @@ use super::sound::SoundController;
 use super::sysbus::SysBus;
 use super::timer::Timers;
 
+use super::AudioInterface;
 #[cfg(not(feature = "no_video_interface"))]
 use super::VideoInterface;
-use super::{AudioInterface, InputInterface};
 
 use arm7tdmi::{self, Arm7tdmiCore};
 use rustboyadvance_utils::Shared;
@@ -31,7 +31,6 @@ pub struct GameBoyAdvance {
     #[cfg(not(feature = "no_video_interface"))]
     pub video_device: Rc<RefCell<dyn VideoInterface>>,
     pub audio_device: Rc<RefCell<dyn AudioInterface>>,
-    pub input_device: Rc<RefCell<dyn InputInterface>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -70,7 +69,6 @@ impl GameBoyAdvance {
         gamepak: Cartridge,
         #[cfg(not(feature = "no_video_interface"))] video_device: Rc<RefCell<dyn VideoInterface>>,
         audio_device: Rc<RefCell<dyn AudioInterface>>,
-        input_device: Rc<RefCell<dyn InputInterface>>,
     ) -> GameBoyAdvance {
         // Warn the user if the bios is not the real one
         match check_real_bios(&bios_rom) {
@@ -110,14 +108,10 @@ impl GameBoyAdvance {
             cpu,
             sysbus,
             io_devs,
-
             #[cfg(not(feature = "no_video_interface"))]
             video_device,
             audio_device,
-            input_device,
-
             scheduler,
-
             interrupt_flags,
         };
 
@@ -132,7 +126,6 @@ impl GameBoyAdvance {
         rom: Box<[u8]>,
         #[cfg(not(feature = "no_video_interface"))] video_device: Rc<RefCell<dyn VideoInterface>>,
         audio_device: Rc<RefCell<dyn AudioInterface>>,
-        input_device: Rc<RefCell<dyn InputInterface>>,
     ) -> bincode::Result<GameBoyAdvance> {
         let decoded: Box<SaveState> = bincode::deserialize_from(savestate)?;
 
@@ -162,14 +155,10 @@ impl GameBoyAdvance {
             cpu: arm7tdmi,
             sysbus,
             io_devs,
-
             interrupt_flags: interrupts,
-
             #[cfg(not(feature = "no_video_interface"))]
             video_device,
             audio_device,
-            input_device,
-
             scheduler,
         })
     }
@@ -218,12 +207,16 @@ impl GameBoyAdvance {
     }
 
     #[inline]
-    pub fn key_poll(&mut self) {
-        self.sysbus.io.keyinput = self.input_device.borrow_mut().poll();
+    pub fn get_key_state(&mut self) -> &u16 {
+        &self.sysbus.io.keyinput
+    }
+
+    #[inline]
+    pub fn get_key_state_mut(&mut self) -> &mut u16 {
+        &mut self.sysbus.io.keyinput
     }
 
     pub fn frame(&mut self) {
-        self.key_poll();
         static mut OVERSHOOT: usize = 0;
         unsafe {
             OVERSHOOT = self.run(CYCLES_FULL_REFRESH - OVERSHOOT);
@@ -419,7 +412,6 @@ mod tests {
     #[cfg(not(feature = "no_video_interface"))]
     impl VideoInterface for DummyInterface {}
     impl AudioInterface for DummyInterface {}
-    impl InputInterface for DummyInterface {}
 
     fn make_mock_gba(rom: &[u8]) -> GameBoyAdvance {
         let bios = vec![0; 0x4000].into_boxed_slice();
@@ -434,7 +426,6 @@ mod tests {
             bios,
             cartridge,
             #[cfg(not(feature = "no_video_interface"))]
-            dummy.clone(),
             dummy.clone(),
             dummy.clone(),
         );

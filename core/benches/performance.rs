@@ -9,7 +9,6 @@ use rustboyadvance_core::prelude::*;
 
 struct BenchmarkHardware {}
 impl AudioInterface for BenchmarkHardware {}
-impl InputInterface for BenchmarkHardware {}
 
 fn create_gba() -> GameBoyAdvance {
     // TODO: do I really want this file in my repository ?
