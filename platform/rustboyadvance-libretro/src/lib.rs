@@ -11,10 +11,11 @@ use libretro_backend::{
 use bit::BitIndex;
 use unsafe_unwrap::UnsafeUnwrap;
 
-use rustboyadvance_core::keypad::Keys as GbaButton;
+use rustboyadvance_core::keypad::Keys as _GbaButton;
 use rustboyadvance_core::prelude::*;
 use rustboyadvance_utils::audio::AudioRingBuffer;
 
+use std::ops::Deref;
 use std::path::Path;
 
 use std::cell::RefCell;
@@ -42,21 +43,33 @@ struct RustBoyAdvanceCore {
     audio: Option<Rc<RefCell<AudioDevice>>>,
 }
 
-fn set_button_state(key_state: &mut u16, button: JoypadButton, is_pressed: bool) {
-    let mapped_button = match button {
-        JoypadButton::A => GbaButton::ButtonA,
-        JoypadButton::B => GbaButton::ButtonB,
-        JoypadButton::Start => GbaButton::Start,
-        JoypadButton::Select => GbaButton::Select,
-        JoypadButton::Left => GbaButton::Left,
-        JoypadButton::Up => GbaButton::Up,
-        JoypadButton::Right => GbaButton::Right,
-        JoypadButton::Down => GbaButton::Down,
-        JoypadButton::L1 => GbaButton::ButtonL,
-        JoypadButton::R1 => GbaButton::ButtonR,
-        _ => unreachable!(),
-    };
-    key_state.set_bit(mapped_button as usize, !is_pressed);
+#[repr(transparent)]
+struct GbaButton(_GbaButton);
+
+impl Deref for GbaButton {
+    type Target = _GbaButton;
+    fn deref(&self) -> &Self::Target {
+        return &self.0
+    }
+}
+
+impl From<JoypadButton> for GbaButton {
+    fn from(button: JoypadButton) -> Self {
+        let mapped = match button {
+            JoypadButton::A => _GbaButton::ButtonA,
+            JoypadButton::B => _GbaButton::ButtonB,
+            JoypadButton::Start => _GbaButton::Start,
+            JoypadButton::Select => _GbaButton::Select,
+            JoypadButton::Left => _GbaButton::Left,
+            JoypadButton::Up => _GbaButton::Up,
+            JoypadButton::Right => _GbaButton::Right,
+            JoypadButton::Down => _GbaButton::Down,
+            JoypadButton::L1 => _GbaButton::ButtonL,
+            JoypadButton::R1 => _GbaButton::ButtonR,
+            _ => panic!("unimplemented button {:?}", button),
+        };
+        GbaButton(mapped)
+    }
 }
 
 impl libretro_backend::Core for RustBoyAdvanceCore {
@@ -125,17 +138,17 @@ impl libretro_backend::Core for RustBoyAdvanceCore {
         let gba = unsafe { self.gba.as_mut().unsafe_unwrap() };
         let audio = unsafe { self.audio.as_mut().unsafe_unwrap() };
 
-        let key_state = gba.borrow_mut().get_key_state_mut();
+        let key_state = gba.get_key_state_mut();
         macro_rules! update_controllers {
             ( $( $button:ident ),+ ) => (
                 $(
-                    set_button_state(key_state, JoypadButton::$button, handle.is_joypad_button_pressed( joypad_port, JoypadButton::$button ) );
+                    key_state.set_bit(*GbaButton::from(JoypadButton::$button) as usize, !handle.is_joypad_button_pressed( joypad_port, JoypadButton::$button ));
                 )+
             )
         }
-        drop(key_state);
 
         update_controllers!(A, B, Start, Select, Left, Up, Right, Down, L1, R1);
+        drop(key_state);
 
         gba.frame();
 

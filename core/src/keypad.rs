@@ -1,4 +1,4 @@
-#[derive(Debug, Primitive, PartialEq, Eq)]
+#[derive(Debug, Primitive, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 pub enum Keys {
     ButtonA = 0,

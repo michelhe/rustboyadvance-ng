@@ -18,7 +18,6 @@ use crate::audio::{self, connector::AudioJNIConnector, thread::AudioThreadComman
 struct Hardware {
     sample_rate: i32,
     audio_producer: Option<Producer<i16>>,
-    key_state: u16,
 }
 
 impl AudioInterface for Hardware {
@@ -192,9 +191,8 @@ impl EmulatorContext {
         let hw = Rc::new(RefCell::new(Hardware {
             sample_rate: audio::util::get_sample_rate(env, audio_player),
             audio_producer: None,
-            key_state: 0xffff,
         }));
-        let mut gba = GameBoyAdvance::new(bios, gamepak, hw.clone(), hw.clone());
+        let mut gba = GameBoyAdvance::new(bios, gamepak, hw.clone());
         if skip_bios != 0 {
             info!("skipping bios");
             gba.skip_bios();
@@ -242,9 +240,8 @@ impl EmulatorContext {
         let hw = Rc::new(RefCell::new(Hardware {
             sample_rate: audio::util::get_sample_rate(env, audio_player),
             audio_producer: None,
-            key_state: 0xffff,
         }));
-        let gba = GameBoyAdvance::from_saved_state(&savestate, bios, rom, hw.clone(), hw.clone())
+        let gba = GameBoyAdvance::from_saved_state(&savestate, bios, rom, hw.clone())
             .map_err(|e| {
             format!(
                 "failed to create GameBoyAdvance from saved savestate, error {:?}",

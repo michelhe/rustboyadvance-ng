@@ -37,7 +37,6 @@ mod input;
 mod video;
 
 use audio::{create_audio_player, create_dummy_player};
-use input;
 use video::{create_video_interface, SCREEN_HEIGHT, SCREEN_WIDTH};
 
 use rustboyadvance_core::cartridge::BackupType;
@@ -189,7 +188,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         Rc::new(RefCell::new(create_audio_player(&sdl_context)))
     };
-    let input = Rc::new(RefCell::new(create_input()));
 
     let mut savestate_path = get_savestate_path(&Path::new(&rom_path));
 
@@ -212,7 +210,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         gamepak,
         video.clone(),
         audio.clone(),
-        input.clone(),
     );
 
     if skip_bios {
