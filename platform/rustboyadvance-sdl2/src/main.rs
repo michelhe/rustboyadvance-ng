@@ -1,4 +1,3 @@
-use sdl2;
 use sdl2::controller::Button;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::image::{InitFlag, LoadSurface, LoadTexture};
@@ -7,6 +6,7 @@ use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::WindowCanvas;
 use sdl2::surface::Surface;
+use sdl2::{self};
 
 use sdl2::EventPump;
 
@@ -37,7 +37,7 @@ mod input;
 mod video;
 
 use audio::{create_audio_player, create_dummy_player};
-use video::{create_video_interface, SCREEN_HEIGHT, SCREEN_WIDTH};
+use video::{SCREEN_HEIGHT, SCREEN_WIDTH};
 
 use rustboyadvance_core::cartridge::BackupType;
 use rustboyadvance_core::prelude::*;
@@ -182,7 +182,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let video = Rc::new(RefCell::new(create_video_interface(canvas)));
+    let mut renderer = video::Renderer::from_canvas(canvas);
     let audio: Rc<RefCell<dyn AudioInterface>> = if silent {
         Rc::new(RefCell::new(create_dummy_player()))
     } else {
@@ -205,12 +205,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let gamepak = builder.build()?;
 
-    let mut gba = GameBoyAdvance::new(
-        bios_bin.clone(),
-        gamepak,
-        video.clone(),
-        audio.clone(),
-    );
+    let mut gba = GameBoyAdvance::new(bios_bin.clone(), gamepak, audio.clone());
 
     if skip_bios {
         gba.skip_bios();
@@ -331,12 +326,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let bios_bin = read_bin_file(bios_path).unwrap();
 
                     // create a new emulator - TODO, export to a function
-                    gba = GameBoyAdvance::new(
-                        bios_bin.into_boxed_slice(),
-                        gamepak,
-                        video.clone(),
-                        audio.clone(),
-                    );
+                    gba = GameBoyAdvance::new(bios_bin.into_boxed_slice(), gamepak, audio.clone());
                     gba.skip_bios();
                 }
                 _ => {}
@@ -344,10 +334,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         gba.frame();
+        renderer.render(gba.get_frame_buffer());
 
         if let Some(fps) = fps_counter.tick() {
             let title = format!("{} ({} fps)", rom_name, fps);
-            video.borrow_mut().set_window_title(&title);
+            renderer.set_window_title(&title);
         }
 
         if frame_limiter {

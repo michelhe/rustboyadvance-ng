@@ -11,7 +11,6 @@ use rustboyadvance_utils::elf::{load_elf, GoblinError};
 use rustboyadvance_utils::read_bin_file;
 use zip::ZipArchive;
 
-
 pub enum LoadRom {
     #[cfg(feature = "elf_support")]
     Elf {

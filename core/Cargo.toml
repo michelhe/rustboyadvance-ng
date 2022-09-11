@@ -55,5 +55,3 @@ default = []
 elf_support = []
 debugger = ["nom", "rustyline", "fuzzy-matcher", "elf_support"]
 gdb = ["gdbstub"]
-# For use for ports where VideoInterface is not needed like wasm & jni
-no_video_interface = []

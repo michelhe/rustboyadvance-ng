@@ -69,13 +69,16 @@ impl DebugRead for SimpleMemory {
 
 impl MemoryGdbInterface for SimpleMemory {
     fn memory_map_xml(&self, offset: u64, length: usize, buf: &mut [u8]) -> usize {
-        let memory_map = format!(r#"<?xml version="1.0"?>
+        let memory_map = format!(
+            r#"<?xml version="1.0"?>
     <!DOCTYPE memory-map
         PUBLIC "+//IDN gnu.org//DTD GDB Memory Map V1.0//EN"
                 "http://sourceware.org/gdb/gdb-memory-map.dtd">
     <memory-map>
         <memory type="ram" start="0x0" length="{}"/>
-    </memory-map>"#, self.data.len());
+    </memory-map>"#,
+            self.data.len()
+        );
         copy_range_to_buf(memory_map.trim().as_bytes(), offset, length, buf)
     }
 }

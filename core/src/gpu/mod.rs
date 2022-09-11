@@ -1,8 +1,3 @@
-#[cfg(not(feature = "no_video_interface"))]
-use std::cell::RefCell;
-#[cfg(not(feature = "no_video_interface"))]
-use std::rc::Rc;
-
 use num::FromPrimitive;
 use serde::{Deserialize, Serialize};
 
@@ -13,8 +8,6 @@ use super::dma::{DmaNotifer, TIMING_HBLANK, TIMING_VBLANK};
 use super::interrupt::{self, Interrupt, InterruptConnect, SharedInterruptFlags};
 use super::sched::{EventType, FutureEvent, GpuEvent, Scheduler};
 pub use super::sysbus::consts::*;
-#[cfg(not(feature = "no_video_interface"))]
-use super::VideoInterface;
 
 mod render;
 
@@ -106,9 +99,6 @@ impl Default for ObjBufferEntry {
         }
     }
 }
-
-#[cfg(not(feature = "no_video_interface"))]
-type VideoDeviceRcRefCell = Rc<RefCell<dyn VideoInterface>>;
 
 #[derive(Serialize, Deserialize, Clone, DebugStub)]
 pub struct Gpu {
@@ -369,11 +359,7 @@ impl Gpu {
         (GpuEvent::HBlank, CYCLES_HBLANK)
     }
 
-    fn handle_hblank_end<D: DmaNotifer>(
-        &mut self,
-        dma_notifier: &mut D,
-        #[cfg(not(feature = "no_video_interface"))] video_device: &VideoDeviceRcRefCell,
-    ) -> FutureGpuEvent {
+    fn handle_hblank_end<D: DmaNotifer>(&mut self, dma_notifier: &mut D) -> FutureGpuEvent {
         self.update_vcount(self.vcount + 1);
 
         if self.vcount < DISPLAY_HEIGHT {
@@ -400,9 +386,6 @@ impl Gpu {
             };
 
             dma_notifier.notify(TIMING_VBLANK);
-
-            #[cfg(not(feature = "no_video_interface"))]
-            video_device.borrow_mut().render(&self.frame_buffer);
 
             self.obj_buffer_reset();
 
@@ -432,22 +415,13 @@ impl Gpu {
         }
     }
 
-    pub fn on_event<D>(
-        &mut self,
-        event: GpuEvent,
-        dma_notifier: &mut D,
-        #[cfg(not(feature = "no_video_interface"))] video_device: &VideoDeviceRcRefCell,
-    ) -> FutureEvent
+    pub fn on_event<D>(&mut self, event: GpuEvent, dma_notifier: &mut D) -> FutureEvent
     where
         D: DmaNotifer,
     {
         let (event, when) = match event {
             GpuEvent::HDraw => self.handle_hdraw_end(dma_notifier),
-            GpuEvent::HBlank => self.handle_hblank_end(
-                dma_notifier,
-                #[cfg(not(feature = "no_video_interface"))]
-                video_device,
-            ),
+            GpuEvent::HBlank => self.handle_hblank_end(dma_notifier),
             GpuEvent::VBlankHDraw => self.handle_vblank_hdraw_end(),
             GpuEvent::VBlankHBlank => self.handle_vblank_hblank_end(),
         };
@@ -549,26 +523,10 @@ mod tests {
         fn notify(&mut self, _timing: u16) {}
     }
 
-    #[derive(Default)]
-    struct TestVideoInterface {
-        frame_counter: usize,
-    }
-
-    #[cfg(not(feature = "no_video_interface"))]
-    impl VideoInterface for TestVideoInterface {
-        fn render(&mut self, _buffer: &[u32]) {
-            self.frame_counter += 1;
-        }
-    }
-
     #[test]
     fn test_gpu_state_machine() {
         let mut sched = Scheduler::new();
         let mut gpu = Gpu::new(&mut sched, Rc::new(Cell::new(Default::default())));
-        #[cfg(not(feature = "no_video_interface"))]
-        let video = Rc::new(RefCell::new(TestVideoInterface::default()));
-        #[cfg(not(feature = "no_video_interface"))]
-        let video_clone: VideoDeviceRcRefCell = video.clone();
         let mut dma_notifier = NopDmaNotifer;
 
         gpu.dispstat.vcount_setting = 0;
@@ -580,12 +538,7 @@ mod tests {
                 let (event, event_time) = sched.pop_pending_event().unwrap();
                 assert_eq!(event_time, sched.timestamp());
                 let next_event = match event {
-                    EventType::Gpu(event) => gpu.on_event(
-                        event,
-                        &mut dma_notifier,
-                        #[cfg(not(feature = "no_video_interface"))]
-                        &video_clone,
-                    ),
+                    EventType::Gpu(event) => gpu.on_event(event, &mut dma_notifier),
                     _ => panic!("Found unexpected event in queue!"),
                 };
                 sched.schedule(next_event);
@@ -594,8 +547,6 @@ mod tests {
 
         for line in 0..160 {
             println!("line = {}", line);
-            #[cfg(not(feature = "no_video_interface"))]
-            assert_eq!(video.borrow().frame_counter, 0);
             assert_eq!(gpu.vcount, line);
             assert_eq!(sched.peek_next(), Some(EventType::Gpu(GpuEvent::HDraw)));
             assert_eq!(gpu.dispstat.hblank_flag, false);
@@ -612,9 +563,6 @@ mod tests {
 
             assert_eq!(gpu.interrupt_flags.get().LCD_VCounterMatch(), false);
         }
-
-        #[cfg(not(feature = "no_video_interface"))]
-        assert_eq!(video.borrow().frame_counter, 1);
 
         for line in 0..68 {
             println!("line = {}", 160 + line);
@@ -638,8 +586,6 @@ mod tests {
             update!(CYCLES_HBLANK);
         }
 
-        #[cfg(not(feature = "no_video_interface"))]
-        assert_eq!(video.borrow().frame_counter, 1);
         assert_eq!(sched.timestamp(), CYCLES_FULL_REFRESH);
 
         assert_eq!(gpu.interrupt_flags.get().LCD_VCounterMatch(), true);

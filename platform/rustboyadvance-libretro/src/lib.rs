@@ -49,7 +49,7 @@ struct GbaButton(_GbaButton);
 impl Deref for GbaButton {
     type Target = _GbaButton;
     fn deref(&self) -> &Self::Target {
-        return &self.0
+        return &self.0;
     }
 }
 

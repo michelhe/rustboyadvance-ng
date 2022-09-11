@@ -15,12 +15,12 @@ use jni::JNIEnv;
 
 use crate::audio::{self, connector::AudioJNIConnector, thread::AudioThreadCommand};
 
-struct Hardware {
+struct AudioDevice {
     sample_rate: i32,
     audio_producer: Option<Producer<i16>>,
 }
 
-impl AudioInterface for Hardware {
+impl AudioInterface for AudioDevice {
     fn push_sample(&mut self, samples: &[i16]) {
         if let Some(prod) = &mut self.audio_producer {
             for s in samples.iter() {
@@ -146,7 +146,7 @@ impl Default for EmulationState {
 }
 
 pub struct EmulatorContext {
-    hwif: Rc<RefCell<Hardware>>,
+    audio_device: Rc<RefCell<AudioDevice>>,
     renderer: Renderer,
     audio_player_ref: GlobalRef,
     keypad: Keypad,
@@ -188,11 +188,11 @@ impl EmulatorContext {
         let renderer = Renderer::new(env, renderer_obj)?;
 
         info!("Creating GBA Instance");
-        let hw = Rc::new(RefCell::new(Hardware {
+        let audio = Rc::new(RefCell::new(AudioDevice {
             sample_rate: audio::util::get_sample_rate(env, audio_player),
             audio_producer: None,
         }));
-        let mut gba = GameBoyAdvance::new(bios, gamepak, hw.clone());
+        let mut gba = GameBoyAdvance::new(bios, gamepak, audio.clone());
         if skip_bios != 0 {
             info!("skipping bios");
             gba.skip_bios();
@@ -209,7 +209,7 @@ impl EmulatorContext {
             renderer,
             audio_player_ref,
             emustate: Mutex::new(EmulationState::default()),
-            hwif: hw.clone(),
+            audio_device: audio.clone(),
         };
         Ok(context)
     }
@@ -237,17 +237,18 @@ impl EmulatorContext {
 
         let renderer = Renderer::new(env, renderer_obj)?;
 
-        let hw = Rc::new(RefCell::new(Hardware {
+        let audio = Rc::new(RefCell::new(AudioDevice {
             sample_rate: audio::util::get_sample_rate(env, audio_player),
             audio_producer: None,
         }));
-        let gba = GameBoyAdvance::from_saved_state(&savestate, bios, rom, hw.clone())
-            .map_err(|e| {
-            format!(
-                "failed to create GameBoyAdvance from saved savestate, error {:?}",
-                e
-            )
-        })?;
+        let gba = GameBoyAdvance::from_saved_state(&savestate, bios, rom, audio.clone()).map_err(
+            |e| {
+                format!(
+                    "failed to create GameBoyAdvance from saved savestate, error {:?}",
+                    e
+                )
+            },
+        )?;
 
         let keypad = Keypad::new(env, keypad_obj);
 
@@ -258,7 +259,7 @@ impl EmulatorContext {
             renderer,
             audio_player_ref,
             emustate: Mutex::new(EmulationState::default()),
-            hwif: hw.clone(),
+            audio_device: audio.clone(),
         })
     }
 
@@ -288,7 +289,7 @@ impl EmulatorContext {
         let (prod, cons) = AudioRingBuffer::new_with_capacity(audio_connector.sample_count).split();
 
         // Store the ringbuffer producer in the emulator
-        self.hwif.borrow_mut().audio_producer = Some(prod);
+        self.audio_device.borrow_mut().audio_producer = Some(prod);
 
         // Spawn the audio worker thread, give it the audio connector, jvm and ringbuffer consumer
         let (audio_thread_handle, audio_thread_tx) =
@@ -354,7 +355,7 @@ impl EmulatorContext {
 
         audio_connector.pause(env);
 
-        self.hwif.borrow_mut().audio_producer = None;
+        self.audio_device.borrow_mut().audio_producer = None;
 
         *self.emustate.lock().unwrap() = EmulationState::Stopped;
 

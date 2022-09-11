@@ -10,8 +10,8 @@ publish = false
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-rustboyadvance-core = {path = "../../core/", features = ["no_video_interface"]}
-rustboyadvance-utils = {path = "../../utils/" }
+rustboyadvance-core = { path = "../../core/" }
+rustboyadvance-utils = { path = "../../utils/" }
 jni = "0.17.0"
 log = {version = "0.4.8", features = ["release_max_level_info", "max_level_debug"]}
 

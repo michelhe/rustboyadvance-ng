@@ -55,12 +55,6 @@ pub(crate) mod overrides;
 #[cfg(feature = "debugger")]
 pub mod debugger;
 
-#[cfg(not(feature = "no_video_interface"))]
-pub trait VideoInterface {
-    #[allow(unused_variables)]
-    fn render(&mut self, buffer: &[u32]) {}
-}
-
 pub type StereoSample<T> = [T; 2];
 
 pub trait AudioInterface {
@@ -129,8 +123,6 @@ pub mod prelude {
     pub use super::debugger::Debugger;
     pub use super::gpu::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
     pub use super::Bus;
-    #[cfg(not(feature = "no_video_interface"))]
-    pub use super::VideoInterface;
     pub use super::{AudioInterface, StereoSample};
     pub use super::{GBAError, GBAResult, GameBoyAdvance};
     pub use rustboyadvance_utils::{read_bin_file, write_bin_file};

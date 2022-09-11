@@ -19,10 +19,21 @@ use bit::BitIndex;
 pub struct Emulator {
     gba: GameBoyAdvance,
     interface: Rc<RefCell<Interface>>,
+    frame: Option<Box<[u8]>>,
+}
+
+fn translate_frame_to_u8(input_fb: &[u32], out_fb: &mut [u8]) {
+    // TODO optimize
+    for i in 0..input_fb.len() {
+        let color = input_fb[i];
+        out_fb[4 * i + 0] = ((color >> 16) & 0xff) as u8;
+        out_fb[4 * i + 1] = ((color >> 8) & 0xff) as u8;
+        out_fb[4 * i + 2] = (color & 0xff) as u8;
+        out_fb[4 * i + 3] = 255;
+    }
 }
 
 struct Interface {
-    frame: Vec<u8>,
     sample_rate: i32,
     audio_ctx: AudioContext,
     audio_ring_buffer: AudioRingBuffer,
@@ -37,24 +48,10 @@ impl Drop for Interface {
 impl Interface {
     fn new(audio_ctx: AudioContext) -> Result<Interface, JsValue> {
         Ok(Interface {
-            frame: vec![0; 240 * 160 * 4],
             sample_rate: audio_ctx.sample_rate() as i32,
             audio_ctx: audio_ctx,
             audio_ring_buffer: Default::default(),
         })
-    }
-}
-
-impl VideoInterface for Interface {
-    fn render(&mut self, buffer: &[u32]) {
-        // TODO optimize
-        for i in 0..buffer.len() {
-            let color = buffer[i];
-            self.frame[4 * i + 0] = ((color >> 16) & 0xff) as u8;
-            self.frame[4 * i + 1] = ((color >> 8) & 0xff) as u8;
-            self.frame[4 * i + 2] = (color & 0xff) as u8;
-            self.frame[4 * i + 3] = 255;
-        }
     }
 }
 
@@ -88,15 +85,13 @@ impl Emulator {
             .build()
             .unwrap();
 
-        let gba = GameBoyAdvance::new(
-            bios.to_vec().into_boxed_slice(),
-            gamepak,
-            interface.clone(),
-            interface.clone(),
-            interface.clone(),
-        );
+        let gba = GameBoyAdvance::new(bios.to_vec().into_boxed_slice(), gamepak, interface.clone());
 
-        Ok(Emulator { gba, interface })
+        Ok(Emulator {
+            gba,
+            interface,
+            frame: Some(vec![0; 240 * 160 * 4].into_boxed_slice()),
+        })
     }
 
     pub fn skip_bios(&mut self) {
@@ -105,13 +100,11 @@ impl Emulator {
 
     pub fn run_frame(&mut self, ctx: &CanvasRenderingContext2d) -> Result<(), JsValue> {
         self.gba.frame();
-        let mut frame_buffer = &mut self.interface.borrow_mut().frame;
-        let data = web_sys::ImageData::new_with_u8_clamped_array_and_sh(
-            Clamped(&mut frame_buffer),
-            240,
-            160,
-        )
-        .unwrap();
+        let mut frame = self.frame.take().unwrap();
+        translate_frame_to_u8(self.gba.get_frame_buffer(), &mut frame);
+        let data =
+            web_sys::ImageData::new_with_u8_clamped_array_and_sh(Clamped(&mut frame), 240, 160)?;
+        self.frame.replace(frame);
         ctx.put_image_data(&data, 0.0, 0.0)
     }
 
@@ -134,14 +127,14 @@ impl Emulator {
     pub fn key_down(&mut self, event_key: &str) {
         debug!("Key down: {}", event_key);
         if let Some(key) = Emulator::map_key(event_key) {
-            self.gba.get_key_state().set_bit(key as usize, false);
+            self.gba.get_key_state_mut().set_bit(key as usize, false);
         }
     }
 
     pub fn key_up(&mut self, event_key: &str) {
         debug!("Key up: {}", event_key);
         if let Some(key) = Emulator::map_key(event_key) {
-            self.gba.get_key_state().set_bit(key as usize, true);
+            self.gba.get_key_state_mut().set_bit(key as usize, true);
         }
     }
 

@@ -16,8 +16,6 @@ use super::sysbus::SysBus;
 use super::timer::Timers;
 
 use super::AudioInterface;
-#[cfg(not(feature = "no_video_interface"))]
-use super::VideoInterface;
 
 use arm7tdmi::{self, Arm7tdmiCore};
 use rustboyadvance_utils::Shared;
@@ -28,8 +26,6 @@ pub struct GameBoyAdvance {
     pub io_devs: Shared<IoDevices>,
     pub scheduler: SharedScheduler,
     interrupt_flags: SharedInterruptFlags,
-    #[cfg(not(feature = "no_video_interface"))]
-    pub video_device: Rc<RefCell<dyn VideoInterface>>,
     pub audio_device: Rc<RefCell<dyn AudioInterface>>,
 }
 
@@ -67,7 +63,6 @@ impl GameBoyAdvance {
     pub fn new(
         bios_rom: Box<[u8]>,
         gamepak: Cartridge,
-        #[cfg(not(feature = "no_video_interface"))] video_device: Rc<RefCell<dyn VideoInterface>>,
         audio_device: Rc<RefCell<dyn AudioInterface>>,
     ) -> GameBoyAdvance {
         // Warn the user if the bios is not the real one
@@ -108,8 +103,6 @@ impl GameBoyAdvance {
             cpu,
             sysbus,
             io_devs,
-            #[cfg(not(feature = "no_video_interface"))]
-            video_device,
             audio_device,
             scheduler,
             interrupt_flags,
@@ -124,7 +117,6 @@ impl GameBoyAdvance {
         savestate: &[u8],
         bios: Box<[u8]>,
         rom: Box<[u8]>,
-        #[cfg(not(feature = "no_video_interface"))] video_device: Rc<RefCell<dyn VideoInterface>>,
         audio_device: Rc<RefCell<dyn AudioInterface>>,
     ) -> bincode::Result<GameBoyAdvance> {
         let decoded: Box<SaveState> = bincode::deserialize_from(savestate)?;
@@ -156,8 +148,6 @@ impl GameBoyAdvance {
             sysbus,
             io_devs,
             interrupt_flags: interrupts,
-            #[cfg(not(feature = "no_video_interface"))]
-            video_device,
             audio_device,
             scheduler,
         })
@@ -308,12 +298,7 @@ impl GameBoyAdvance {
                     let apu = &mut io.sound;
                     Some(timers.handle_overflow_event(channel_id, event_time, apu, dmac))
                 }
-                EventType::Gpu(gpu_event) => Some(io.gpu.on_event(
-                    gpu_event,
-                    &mut *self.sysbus,
-                    #[cfg(not(feature = "no_video_interface"))]
-                    &self.video_device,
-                )),
+                EventType::Gpu(gpu_event) => Some(io.gpu.on_event(gpu_event, &mut *self.sysbus)),
                 EventType::Apu(event) => Some(io.sound.on_event(event, &self.audio_device)),
             };
             if let Some((new_event, when)) = new_event {
@@ -380,8 +365,6 @@ impl GameBoyAdvance {
         breakpoint
     }
 
-    /// Query the emulator for the recently drawn framebuffer.
-    /// for use with implementations where the VideoInterface is not a viable option.
     pub fn get_frame_buffer(&self) -> &[u32] {
         self.sysbus.io.gpu.get_frame_buffer()
     }
@@ -401,17 +384,15 @@ mod tests {
     use crate::cartridge::GamepakBuilder;
     use arm7tdmi::memory::BusIO;
 
-    struct DummyInterface {}
+    struct DummyAudio {}
 
-    impl DummyInterface {
-        fn new() -> DummyInterface {
-            DummyInterface {}
+    impl DummyAudio {
+        fn new() -> DummyAudio {
+            DummyAudio {}
         }
     }
 
-    #[cfg(not(feature = "no_video_interface"))]
-    impl VideoInterface for DummyInterface {}
-    impl AudioInterface for DummyInterface {}
+    impl AudioInterface for DummyAudio {}
 
     fn make_mock_gba(rom: &[u8]) -> GameBoyAdvance {
         let bios = vec![0; 0x4000].into_boxed_slice();
@@ -421,14 +402,8 @@ mod tests {
             .without_backup_to_file()
             .build()
             .unwrap();
-        let dummy = Rc::new(RefCell::new(DummyInterface::new()));
-        let mut gba = GameBoyAdvance::new(
-            bios,
-            cartridge,
-            #[cfg(not(feature = "no_video_interface"))]
-            dummy.clone(),
-            dummy.clone(),
-        );
+        let dummy = Rc::new(RefCell::new(DummyAudio::new()));
+        let mut gba = GameBoyAdvance::new(bios, cartridge, dummy.clone());
         gba.skip_bios();
 
         gba
