@@ -5,7 +5,7 @@ members = [
     "utils",
     "platform/rustboyadvance-sdl2",
     "platform/rustboyadvance-libretro",
-    "platform/rustboyadvance-minifb",
+    # "platform/rustboyadvance-minifb", - DEPRECATED
     "platform/rustboyadvance-wasm",
     "platform/rustboyadvance-jni",
     "fps_bench"
