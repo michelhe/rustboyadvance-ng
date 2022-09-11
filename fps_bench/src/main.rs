@@ -4,7 +4,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 use rustboyadvance_core::prelude::*;
-use rustboyadvance_core::util::FpsCounter;
+use rustboyadvance_utils::FpsCounter;
 
 struct DummyAudio {}
 

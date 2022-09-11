@@ -6,3 +6,4 @@ edition = "2018"
 
 [dependencies]
 rustboyadvance-core = {path = "../core/"}
+rustboyadvance-utils = {path = "../utils/"}
