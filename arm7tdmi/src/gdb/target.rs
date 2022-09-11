@@ -18,7 +18,7 @@ pub trait MemoryGdbInterface: MemoryInterface + DebugRead {
 
 impl<I: MemoryGdbInterface> Target for Arm7tdmiCore<I> {
     type Error = ();
-    type Arch = gdbstub_arch::arm::Armv4t; // as an example
+    type Arch = gdbstub_arch::arm::Armv4t;
 
     #[inline(always)]
     fn base_ops(&mut self) -> BaseOps<Self::Arch, Self::Error> {
