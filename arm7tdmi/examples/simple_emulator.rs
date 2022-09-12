@@ -83,7 +83,7 @@ impl run_blocking::BlockingEventLoop for SimpleEmulator {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     SimpleLogger::new().env().init().unwrap();
 
-    let mut emulator = SimpleEmulator::new(include_bytes!("test_program/example.bin"));
+    let mut emulator = SimpleEmulator::new(include_bytes!("test_program/test.bin"));
 
     let conn: Box<dyn ConnectionExt<Error = std::io::Error>> = Box::new(wait_for_connection(1337)?);
     let gdb = GdbStub::new(conn);
@@ -102,8 +102,8 @@ mod test {
 
     #[test]
     fn test_breakpoint() -> Result<(), Box<dyn std::error::Error>> {
-        let mut emulator = SimpleEmulator::new(include_bytes!("test_program/example.bin"));
-        let symbol_map = read_symbols(include_bytes!("test_program/example.elf"))?;
+        let mut emulator = SimpleEmulator::new(include_bytes!("test_program/test.bin"));
+        let symbol_map = read_symbols(include_bytes!("test_program/test.elf"))?;
         let breakpoint_addr = *symbol_map.get("breakpoint_on_me").unwrap();
         println!("breakpoint_addr = {:08x}", breakpoint_addr);
         let breakpoint_counter_addr = *symbol_map.get("breakpoint_count").unwrap();
