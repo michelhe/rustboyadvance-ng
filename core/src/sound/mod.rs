@@ -1,6 +1,3 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use bit::BitIndex;
 use serde::{Deserialize, Serialize};
 
@@ -8,10 +5,10 @@ use super::dma::DmaController;
 use super::iodev::consts::*;
 use super::sched::*;
 
-use crate::{AudioInterface, StereoSample};
-
 mod fifo;
 use fifo::SoundFifo;
+pub mod interface;
+pub use interface::{AudioInterface, DynAudioInterface, StereoSample};
 
 mod dsp;
 use dsp::{CosineResampler, Resampler};
@@ -58,8 +55,6 @@ const REG_FIFO_A_H: u32 = REG_FIFO_A + 2;
 
 const REG_FIFO_B_L: u32 = REG_FIFO_B;
 const REG_FIFO_B_H: u32 = REG_FIFO_B + 2;
-
-type AudioDeviceRcRefCell = Rc<RefCell<dyn AudioInterface>>;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct SoundController {
@@ -321,7 +316,7 @@ impl SoundController {
     }
 
     #[inline]
-    fn on_sample(&mut self, audio_device: &AudioDeviceRcRefCell) -> FutureEvent {
+    fn on_sample(&mut self, audio_device: &mut DynAudioInterface) -> FutureEvent {
         let mut sample = [0f32, 0f32];
 
         for (channel, out_sample) in sample.iter_mut().enumerate() {
@@ -339,9 +334,8 @@ impl SoundController {
 
         self.resampler.feed(&sample, &mut self.output_buffer);
 
-        let mut audio = audio_device.borrow_mut();
         self.output_buffer.drain(..).for_each(|[left, right]| {
-            audio.push_sample(&[
+            audio_device.push_sample(&[
                 (left.round() as i16) * (std::i16::MAX / 512),
                 (right.round() as i16) * (std::i16::MAX / 512),
             ]);
@@ -352,7 +346,7 @@ impl SoundController {
     pub fn on_event(
         &mut self,
         event: ApuEvent,
-        audio_device: &AudioDeviceRcRefCell,
+        audio_device: &mut DynAudioInterface,
     ) -> FutureEvent {
         match event {
             ApuEvent::Sample => self.on_sample(audio_device),

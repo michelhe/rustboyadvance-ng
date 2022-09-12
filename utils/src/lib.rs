@@ -90,10 +90,12 @@ macro_rules! host_breakpoint {
 
 pub mod audio {
     pub use ringbuf::{Consumer, Producer, RingBuffer};
+    pub type SampleProducer = Producer<i16>;
+    pub type SampleConsumer = Consumer<i16>;
 
     pub struct AudioRingBuffer {
-        prod: Producer<i16>,
-        cons: Consumer<i16>,
+        prod: SampleProducer,
+        cons: SampleConsumer,
     }
 
     impl Default for AudioRingBuffer {
@@ -110,15 +112,15 @@ pub mod audio {
             AudioRingBuffer { prod, cons }
         }
 
-        pub fn producer(&mut self) -> &mut Producer<i16> {
+        pub fn producer(&mut self) -> &mut SampleProducer {
             &mut self.prod
         }
 
-        pub fn consumer(&mut self) -> &mut Consumer<i16> {
+        pub fn consumer(&mut self) -> &mut SampleConsumer {
             &mut self.cons
         }
 
-        pub fn split(self) -> (Producer<i16>, Consumer<i16>) {
+        pub fn split(self) -> (SampleProducer, SampleConsumer) {
             (self.prod, self.cons)
         }
     }

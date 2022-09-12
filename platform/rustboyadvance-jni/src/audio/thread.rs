@@ -4,7 +4,7 @@ use std::sync::mpsc::{channel, Sender};
 use std::thread;
 use std::thread::JoinHandle;
 
-use rustboyadvance_utils::audio::Consumer;
+use rustboyadvance_utils::audio::SampleConsumer;
 
 use jni::JavaVM;
 
@@ -20,8 +20,11 @@ pub enum AudioThreadCommand {
 pub(crate) fn spawn_audio_worker_thread(
     audio_connector: AudioJNIConnector,
     jvm: JavaVM,
-    mut consumer: Consumer<i16>,
-) -> (JoinHandle<AudioJNIConnector>, Sender<AudioThreadCommand>) {
+    mut consumer: SampleConsumer,
+) -> (
+    JoinHandle<(AudioJNIConnector, SampleConsumer)>,
+    Sender<AudioThreadCommand>,
+) {
     let (tx, rx) = channel();
 
     let handle = thread::spawn(move || {
@@ -58,8 +61,8 @@ pub(crate) fn spawn_audio_worker_thread(
 
         info!("[AudioWorker] terminating");
 
-        // return the audio connector back
-        audio_connector
+        // return the audio stuff back to main thread
+        (audio_connector, consumer)
     });
 
     (handle, tx)

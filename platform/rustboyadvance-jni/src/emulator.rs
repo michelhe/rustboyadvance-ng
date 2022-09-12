@@ -1,10 +1,8 @@
 use rustboyadvance_core::prelude::*;
-use rustboyadvance_utils::audio::{AudioRingBuffer, Producer};
+use rustboyadvance_utils::audio::SampleConsumer;
 // use rustboyadvance_core::util::FpsCounter;
 
-use std::cell::RefCell;
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -14,28 +12,6 @@ use jni::sys::{jboolean, jbyteArray, jintArray, jmethodID};
 use jni::JNIEnv;
 
 use crate::audio::{self, connector::AudioJNIConnector, thread::AudioThreadCommand};
-
-struct AudioDevice {
-    sample_rate: i32,
-    audio_producer: Option<Producer<i16>>,
-}
-
-impl AudioInterface for AudioDevice {
-    fn push_sample(&mut self, samples: &[i16]) {
-        if let Some(prod) = &mut self.audio_producer {
-            for s in samples.iter() {
-                let _ = prod.push(*s);
-            }
-        } else {
-            // The gba is never ran before audio_producer is initialized
-            unreachable!()
-        }
-    }
-
-    fn get_sample_rate(&self) -> i32 {
-        self.sample_rate
-    }
-}
 
 struct Renderer {
     renderer_ref: GlobalRef,
@@ -145,8 +121,20 @@ impl Default for EmulationState {
     }
 }
 
+fn create_audio(
+    env: &JNIEnv,
+    audio_player_obj: JObject,
+) -> Result<(Box<SimpleAudioInterface>, SampleConsumer), String> {
+    let sample_rate = audio::util::get_sample_rate(env, audio_player_obj)?;
+    let sample_count = audio::util::get_sample_count(env, audio_player_obj)? as usize;
+    Ok(SimpleAudioInterface::create_channel(
+        sample_rate,
+        Some(sample_count * 2),
+    ))
+}
+
 pub struct EmulatorContext {
-    audio_device: Rc<RefCell<AudioDevice>>,
+    audio_consumer: Option<SampleConsumer>,
     renderer: Renderer,
     audio_player_ref: GlobalRef,
     keypad: Keypad,
@@ -188,11 +176,9 @@ impl EmulatorContext {
         let renderer = Renderer::new(env, renderer_obj)?;
 
         info!("Creating GBA Instance");
-        let audio = Rc::new(RefCell::new(AudioDevice {
-            sample_rate: audio::util::get_sample_rate(env, audio_player),
-            audio_producer: None,
-        }));
-        let mut gba = GameBoyAdvance::new(bios, gamepak, audio.clone());
+        let audio_player_ref = env.new_global_ref(audio_player).unwrap();
+        let (audio_device, audio_consumer) = create_audio(env, audio_player_ref.as_obj())?;
+        let mut gba = GameBoyAdvance::new(bios, gamepak, audio_device);
         if skip_bios != 0 {
             info!("skipping bios");
             gba.skip_bios();
@@ -202,14 +188,13 @@ impl EmulatorContext {
         let keypad = Keypad::new(env, keypad_obj);
 
         info!("creating context");
-        let audio_player_ref = env.new_global_ref(audio_player).unwrap();
         let context = EmulatorContext {
             gba,
             keypad,
             renderer,
             audio_player_ref,
             emustate: Mutex::new(EmulationState::default()),
-            audio_device: audio.clone(),
+            audio_consumer: Some(audio_consumer),
         };
         Ok(context)
     }
@@ -236,30 +221,25 @@ impl EmulatorContext {
             .map_err(|e| format!("could not get savestate buffer, error {}", e))?;
 
         let renderer = Renderer::new(env, renderer_obj)?;
-
-        let audio = Rc::new(RefCell::new(AudioDevice {
-            sample_rate: audio::util::get_sample_rate(env, audio_player),
-            audio_producer: None,
-        }));
-        let gba = GameBoyAdvance::from_saved_state(&savestate, bios, rom, audio.clone()).map_err(
-            |e| {
+        let audio_player_ref = env.new_global_ref(audio_player).unwrap();
+        let (audio_device, audio_consumer) = create_audio(env, audio_player_ref.as_obj())?;
+        let gba =
+            GameBoyAdvance::from_saved_state(&savestate, bios, rom, audio_device).map_err(|e| {
                 format!(
                     "failed to create GameBoyAdvance from saved savestate, error {:?}",
                     e
                 )
-            },
-        )?;
+            })?;
 
         let keypad = Keypad::new(env, keypad_obj);
 
-        let audio_player_ref = env.new_global_ref(audio_player).unwrap();
         Ok(EmulatorContext {
             gba,
             keypad,
             renderer,
             audio_player_ref,
             emustate: Mutex::new(EmulationState::default()),
-            audio_device: audio.clone(),
+            audio_consumer: Some(audio_consumer),
         })
     }
 
@@ -285,15 +265,13 @@ impl EmulatorContext {
         // Instanciate an audio player connector
         let audio_connector = AudioJNIConnector::new(env, self.audio_player_ref.as_obj());
 
-        // Create a ringbuffer between the emulator and the audio thread
-        let (prod, cons) = AudioRingBuffer::new_with_capacity(audio_connector.sample_count).split();
-
-        // Store the ringbuffer producer in the emulator
-        self.audio_device.borrow_mut().audio_producer = Some(prod);
-
         // Spawn the audio worker thread, give it the audio connector, jvm and ringbuffer consumer
-        let (audio_thread_handle, audio_thread_tx) =
-            audio::thread::spawn_audio_worker_thread(audio_connector, jvm, cons);
+        // Note - after this operation `self` no longer has `audio_consumer`
+        let (audio_thread_handle, audio_thread_tx) = audio::thread::spawn_audio_worker_thread(
+            audio_connector,
+            jvm,
+            self.audio_consumer.take().unwrap(),
+        );
 
         info!("starting main emulation loop");
 
@@ -302,7 +280,7 @@ impl EmulatorContext {
         'running: loop {
             let emustate = *self.emustate.lock().unwrap();
 
-            let limiter = match emustate {
+            let vsync = match emustate {
                 EmulationState::Initial => unsafe { std::hint::unreachable_unchecked() },
                 EmulationState::Stopped => unsafe { std::hint::unreachable_unchecked() },
                 EmulationState::Pausing => {
@@ -334,7 +312,7 @@ impl EmulatorContext {
             //     info!("FPS {}", fps);
             // }
 
-            if limiter {
+            if vsync {
                 let time_passed = start_time.elapsed();
                 let delay = FRAME_TIME.checked_sub(time_passed);
                 match delay {
@@ -350,12 +328,11 @@ impl EmulatorContext {
         audio_thread_tx.send(AudioThreadCommand::Terminate).unwrap(); // we surely have an endpoint, so it will work
         info!("waiting for audio worker to complete");
 
-        let audio_connector = audio_thread_handle.join().unwrap();
+        let (audio_connector, audio_consumer) = audio_thread_handle.join().unwrap();
+        self.audio_consumer.replace(audio_consumer);
         info!("audio worker terminated");
 
         audio_connector.pause(env);
-
-        self.audio_device.borrow_mut().audio_producer = None;
 
         *self.emustate.lock().unwrap() = EmulationState::Stopped;
 

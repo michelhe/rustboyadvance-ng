@@ -1,5 +1,5 @@
 /// Struct containing everything
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::rc::Rc;
 
 use bincode;
@@ -15,7 +15,7 @@ use super::sound::SoundController;
 use super::sysbus::SysBus;
 use super::timer::Timers;
 
-use super::AudioInterface;
+use super::sound::interface::DynAudioInterface;
 
 use arm7tdmi::{self, Arm7tdmiCore};
 use rustboyadvance_utils::Shared;
@@ -26,7 +26,7 @@ pub struct GameBoyAdvance {
     pub io_devs: Shared<IoDevices>,
     pub scheduler: SharedScheduler,
     interrupt_flags: SharedInterruptFlags,
-    pub audio_device: Rc<RefCell<dyn AudioInterface>>,
+    pub audio_interface: DynAudioInterface,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -63,7 +63,7 @@ impl GameBoyAdvance {
     pub fn new(
         bios_rom: Box<[u8]>,
         gamepak: Cartridge,
-        audio_device: Rc<RefCell<dyn AudioInterface>>,
+        audio_interface: DynAudioInterface,
     ) -> GameBoyAdvance {
         // Warn the user if the bios is not the real one
         match check_real_bios(&bios_rom) {
@@ -80,7 +80,7 @@ impl GameBoyAdvance {
         let timers = Timers::new(interrupt_flags.clone());
         let sound_controller = Box::new(SoundController::new(
             &mut scheduler,
-            audio_device.borrow().get_sample_rate() as f32,
+            audio_interface.get_sample_rate() as f32,
         ));
         let io_devs = Shared::new(IoDevices::new(
             intc,
@@ -103,7 +103,7 @@ impl GameBoyAdvance {
             cpu,
             sysbus,
             io_devs,
-            audio_device,
+            audio_interface,
             scheduler,
             interrupt_flags,
         };
@@ -117,7 +117,7 @@ impl GameBoyAdvance {
         savestate: &[u8],
         bios: Box<[u8]>,
         rom: Box<[u8]>,
-        audio_device: Rc<RefCell<dyn AudioInterface>>,
+        audio_interface: DynAudioInterface,
     ) -> bincode::Result<GameBoyAdvance> {
         let decoded: Box<SaveState> = bincode::deserialize_from(savestate)?;
 
@@ -148,7 +148,7 @@ impl GameBoyAdvance {
             sysbus,
             io_devs,
             interrupt_flags: interrupts,
-            audio_device,
+            audio_interface,
             scheduler,
         })
     }
@@ -299,7 +299,7 @@ impl GameBoyAdvance {
                     Some(timers.handle_overflow_event(channel_id, event_time, apu, dmac))
                 }
                 EventType::Gpu(gpu_event) => Some(io.gpu.on_event(gpu_event, &mut *self.sysbus)),
-                EventType::Apu(event) => Some(io.sound.on_event(event, &self.audio_device)),
+                EventType::Apu(event) => Some(io.sound.on_event(event, &mut self.audio_interface)),
             };
             if let Some((new_event, when)) = new_event {
                 // We schedule events added by event handlers relative to the handled event time
@@ -378,21 +378,8 @@ impl GameBoyAdvance {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
-    use std::rc::Rc;
 
-    use crate::cartridge::GamepakBuilder;
-    use arm7tdmi::memory::BusIO;
-
-    struct DummyAudio {}
-
-    impl DummyAudio {
-        fn new() -> DummyAudio {
-            DummyAudio {}
-        }
-    }
-
-    impl AudioInterface for DummyAudio {}
+    use crate::prelude::*;
 
     fn make_mock_gba(rom: &[u8]) -> GameBoyAdvance {
         let bios = vec![0; 0x4000].into_boxed_slice();
@@ -402,8 +389,7 @@ mod tests {
             .without_backup_to_file()
             .build()
             .unwrap();
-        let dummy = Rc::new(RefCell::new(DummyAudio::new()));
-        let mut gba = GameBoyAdvance::new(bios, cartridge, dummy.clone());
+        let mut gba = GameBoyAdvance::new(bios, cartridge, NullAudio::new());
         gba.skip_bios();
 
         gba

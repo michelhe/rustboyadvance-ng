@@ -1,98 +1,63 @@
 use sdl2;
-use sdl2::audio::{AudioCallback, AudioDevice, AudioSpec, AudioSpecDesired};
+use sdl2::audio::{AudioCallback, AudioDevice, AudioFormat, AudioSpec, AudioSpecDesired};
 
-use rustboyadvance_core::{AudioInterface, StereoSample};
+use rustboyadvance_core::prelude::SimpleAudioInterface;
+use rustboyadvance_utils::audio::SampleConsumer;
 
-use ringbuf;
-use ringbuf::{Consumer, Producer, RingBuffer};
-
-struct GbaAudioCallback {
-    consumer: Consumer<StereoSample<i16>>,
+pub struct GbaAudioCallback {
+    consumer: SampleConsumer,
+    #[allow(unused)]
     spec: AudioSpec,
-}
-
-pub struct DummyAudioPlayer {}
-
-impl AudioInterface for DummyAudioPlayer {}
-
-pub struct Sdl2AudioPlayer {
-    _device: AudioDevice<GbaAudioCallback>,
-    producer: Producer<StereoSample<i16>>,
-    freq: i32,
 }
 
 impl AudioCallback for GbaAudioCallback {
     type Channel = i16;
 
     fn callback(&mut self, out_samples: &mut [i16]) {
-        let sample_count = out_samples.len() / 2;
-
-        for i in 0..sample_count {
-            if let Some([left, right]) = self.consumer.pop() {
-                out_samples[2 * i] = left;
-                out_samples[2 * i + 1] = right;
-            } else {
-                out_samples[2 * i] = self.spec.silence as i16;
-                out_samples[2 * i + 1] = self.spec.silence as i16;
-            }
+        let written = self.consumer.pop_slice(out_samples);
+        for s in out_samples.iter_mut().skip(written) {
+            *s = self.spec.silence as i16;
         }
     }
 }
 
-impl AudioInterface for Sdl2AudioPlayer {
-    fn get_sample_rate(&self) -> i32 {
-        self.freq
-    }
-
-    fn push_sample(&mut self, sample: &[i16]) {
-        #![allow(unused_must_use)]
-        self.producer.push([sample[0], sample[1]]);
-    }
-}
-
-pub fn create_audio_player(sdl: &sdl2::Sdl) -> Sdl2AudioPlayer {
+pub fn create_audio_player(
+    sdl: &sdl2::Sdl,
+) -> Result<(Box<SimpleAudioInterface>, AudioDevice<GbaAudioCallback>), String> {
     let desired_spec = AudioSpecDesired {
         freq: Some(44_100),
         channels: Some(2), // stereo
         samples: None,
     };
 
-    let audio_subsystem = sdl.audio().unwrap();
+    let audio_subsystem = sdl.audio()?;
 
     let mut freq = 0;
 
-    let mut producer: Option<Producer<StereoSample<i16>>> = None;
+    let mut gba_audio = None;
 
-    let device = audio_subsystem
-        .open_playback(None, &desired_spec, |spec| {
-            info!("Found audio device: {:?}", spec);
-            freq = spec.freq;
+    let device = audio_subsystem.open_playback(None, &desired_spec, |spec| {
+        info!("Found audio device: {:?}", spec);
+        freq = spec.freq;
 
-            // Create a thread-safe SPSC fifo
-            let ringbuf_size = (spec.samples as usize) * 2;
-            let rb = RingBuffer::<StereoSample<i16>>::new(ringbuf_size);
-            let (prod, cons) = rb.split();
+        if spec.format != AudioFormat::S16LSB {
+            panic!("Unsupported audio format {:?}", spec.format);
+        }
 
-            // move producer to the outer scope
-            producer = Some(prod);
+        // Create a thread-safe SPSC fifo
+        let ringbuf_samples_per_channel = (spec.samples as usize) * 2; // we want the ringbuf to hold 2 frames worth of samples
+        let ringbuf_size = (spec.channels as usize) * ringbuf_samples_per_channel;
+        info!("ringbuffer size = {}", ringbuf_size);
 
-            GbaAudioCallback {
-                consumer: cons,
-                spec,
-            }
-        })
-        .unwrap();
+        let (audio_device, consumer) =
+            SimpleAudioInterface::create_channel(freq, Some(ringbuf_size));
+        // Move the audio to outer scope
+        gba_audio = Some(audio_device);
+
+        GbaAudioCallback { consumer, spec }
+    })?;
 
     device.resume();
 
-    Sdl2AudioPlayer {
-        _device: device,
-        freq,
-        producer: producer.unwrap(),
-    }
-}
-
-pub fn create_dummy_player() -> DummyAudioPlayer {
-    info!("Dummy audio device");
-    DummyAudioPlayer {}
+    Ok((gba_audio.take().unwrap(), device))
 }

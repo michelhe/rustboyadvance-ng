@@ -1,4 +1,4 @@
-use crate::StereoSample;
+use super::StereoSample;
 
 use serde::{Deserialize, Serialize};
 

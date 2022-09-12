@@ -1,24 +1,20 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
+use rustboyadvance_utils::audio::SampleConsumer;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::Clamped;
 
 use js_sys::Float32Array;
 
-use web_sys::AudioContext;
 use web_sys::CanvasRenderingContext2d;
 
 use rustboyadvance_core::keypad as gba_keypad;
 use rustboyadvance_core::prelude::*;
-use rustboyadvance_utils::audio::AudioRingBuffer;
 
 use bit::BitIndex;
 
 #[wasm_bindgen]
 pub struct Emulator {
     gba: GameBoyAdvance,
-    interface: Rc<RefCell<Interface>>,
+    audio_consumer: SampleConsumer,
     frame: Option<Box<[u8]>>,
 }
 
@@ -33,43 +29,8 @@ fn translate_frame_to_u8(input_fb: &[u32], out_fb: &mut [u8]) {
     }
 }
 
-struct Interface {
-    sample_rate: i32,
-    audio_ctx: AudioContext,
-    audio_ring_buffer: AudioRingBuffer,
-}
-
-impl Drop for Interface {
-    fn drop(&mut self) {
-        let _ = self.audio_ctx.clone();
-    }
-}
-
-impl Interface {
-    fn new(audio_ctx: AudioContext) -> Result<Interface, JsValue> {
-        Ok(Interface {
-            sample_rate: audio_ctx.sample_rate() as i32,
-            audio_ctx: audio_ctx,
-            audio_ring_buffer: Default::default(),
-        })
-    }
-}
-
 fn convert_sample(s: i16) -> f32 {
     (s as f32) / 32767_f32
-}
-
-impl AudioInterface for Interface {
-    fn get_sample_rate(&self) -> i32 {
-        self.sample_rate
-    }
-
-    fn push_sample(&mut self, samples: &[i16]) {
-        let prod = self.audio_ring_buffer.producer();
-        for s in samples.iter() {
-            let _ = prod.push(*s);
-        }
-    }
 }
 
 #[wasm_bindgen]
@@ -77,7 +38,8 @@ impl Emulator {
     #[wasm_bindgen(constructor)]
     pub fn new(bios: &[u8], rom: &[u8]) -> Result<Emulator, JsValue> {
         let audio_ctx = web_sys::AudioContext::new()?;
-        let interface = Rc::new(RefCell::new(Interface::new(audio_ctx)?));
+        let (audio_device, audio_consumer) =
+            SimpleAudioInterface::create_channel(audio_ctx.sample_rate() as i32, None);
 
         let gamepak = GamepakBuilder::new()
             .take_buffer(rom.to_vec().into_boxed_slice())
@@ -85,11 +47,11 @@ impl Emulator {
             .build()
             .unwrap();
 
-        let gba = GameBoyAdvance::new(bios.to_vec().into_boxed_slice(), gamepak, interface.clone());
+        let gba = GameBoyAdvance::new(bios.to_vec().into_boxed_slice(), gamepak, audio_device);
 
         Ok(Emulator {
             gba,
-            interface,
+            audio_consumer,
             frame: Some(vec![0; 240 * 160 * 4].into_boxed_slice()),
         })
     }
@@ -152,12 +114,9 @@ impl Emulator {
         }
     }
 
-    pub fn collect_audio_samples(&self) -> Result<Float32Array, JsValue> {
-        let mut interface = self.interface.borrow_mut();
-
-        let consumer = interface.audio_ring_buffer.consumer();
-        let mut samples = Vec::with_capacity(consumer.len());
-        while let Some(sample) = consumer.pop() {
+    pub fn collect_audio_samples(&mut self) -> Result<Float32Array, JsValue> {
+        let mut samples = Vec::with_capacity(self.audio_consumer.len());
+        while let Some(sample) = self.audio_consumer.pop() {
             samples.push(convert_sample(sample));
         }
 

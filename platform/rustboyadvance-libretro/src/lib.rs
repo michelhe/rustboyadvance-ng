@@ -13,34 +13,18 @@ use unsafe_unwrap::UnsafeUnwrap;
 
 use rustboyadvance_core::keypad::Keys as _GbaButton;
 use rustboyadvance_core::prelude::*;
-use rustboyadvance_utils::audio::AudioRingBuffer;
+use rustboyadvance_utils::audio::SampleConsumer;
 
 use std::ops::Deref;
 use std::path::Path;
 
-use std::cell::RefCell;
 use std::default::Default;
-use std::rc::Rc;
-
-#[derive(Default)]
-struct AudioDevice {
-    audio_ring_buffer: AudioRingBuffer,
-}
-
-impl AudioInterface for AudioDevice {
-    fn push_sample(&mut self, samples: &[i16]) {
-        let prod = self.audio_ring_buffer.producer();
-        for s in samples.iter() {
-            let _ = prod.push(*s);
-        }
-    }
-}
 
 #[derive(Default)]
 struct RustBoyAdvanceCore {
     gba: Option<GameBoyAdvance>,
     game_data: Option<GameData>,
-    audio: Option<Rc<RefCell<AudioDevice>>>,
+    audio_consumer: Option<SampleConsumer>,
 }
 
 #[repr(transparent)]
@@ -119,10 +103,12 @@ impl libretro_backend::Core for RustBoyAdvanceCore {
                     .video(240, 160, 60.0, PixelFormat::ARGB8888)
                     .audio(44100.0);
 
-                let audio = Rc::new(RefCell::new(AudioDevice::default()));
-                let gba = GameBoyAdvance::new(bios.into_boxed_slice(), gamepak, audio.clone());
+                let (audio_device, audio_consumer) =
+                    SimpleAudioInterface::create_channel(44100, None);
 
-                self.audio = Some(audio);
+                let gba = GameBoyAdvance::new(bios.into_boxed_slice(), gamepak, audio_device);
+
+                self.audio_consumer = Some(audio_consumer);
                 self.gba = Some(gba);
                 self.game_data = Some(game_data);
                 LoadGameResult::Success(av_info)
@@ -136,7 +122,6 @@ impl libretro_backend::Core for RustBoyAdvanceCore {
 
         // gba and audio are `Some` after the game is loaded, so avoiding overhead of unwrap
         let gba = unsafe { self.gba.as_mut().unsafe_unwrap() };
-        let audio = unsafe { self.audio.as_mut().unsafe_unwrap() };
 
         let key_state = gba.get_key_state_mut();
         macro_rules! update_controllers {
@@ -165,12 +150,11 @@ impl libretro_backend::Core for RustBoyAdvanceCore {
 
         // upload sound samples
         {
+            let mut audio_consumer = self.audio_consumer.take().unwrap();
             let mut audio_samples = [0; 4096 * 2];
-            let mut audio = audio.borrow_mut();
-            let consumer = audio.audio_ring_buffer.consumer();
-            let count = consumer.pop_slice(&mut audio_samples);
-
+            let count = audio_consumer.pop_slice(&mut audio_samples);
             handle.upload_audio_frame(&audio_samples[..count]);
+            self.audio_consumer.replace(audio_consumer);
         }
     }
 

@@ -12,20 +12,13 @@ use sdl2::EventPump;
 
 use bytesize;
 use spin_sleep;
-
-use std::cell::RefCell;
-use std::rc::Rc;
+use structopt::StructOpt;
 
 use std::fs;
 use std::io::Cursor;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process;
 use std::time;
-
-use std::convert::TryFrom;
-
-#[macro_use]
-extern crate clap;
 
 #[macro_use]
 extern crate log;
@@ -34,12 +27,11 @@ use flexi_logger::*;
 
 mod audio;
 mod input;
+mod options;
 mod video;
 
-use audio::{create_audio_player, create_dummy_player};
 use video::{SCREEN_HEIGHT, SCREEN_WIDTH};
 
-use rustboyadvance_core::cartridge::BackupType;
 use rustboyadvance_core::prelude::*;
 
 use rustboyadvance_utils::FpsCounter;
@@ -50,9 +42,6 @@ const DEFAULT_GDB_SERVER_ADDR: &'static str = "localhost:1337";
 const CANVAS_WIDTH: u32 = SCREEN_WIDTH;
 const CANVAS_HEIGHT: u32 = SCREEN_HEIGHT;
 
-fn get_savestate_path(rom_filename: &Path) -> PathBuf {
-    rom_filename.with_extension("savestate")
-}
 
 /// Waits for the user to drag a rom file to window
 fn wait_for_rom(canvas: &mut WindowCanvas, event_pump: &mut EventPump) -> Result<String, String> {
@@ -101,6 +90,17 @@ fn ask_download_bios() {
     const OPEN_SOURCE_BIOS_URL: &'static str =
         "https://github.com/Nebuleon/ReGBA/raw/master/bios/gba_bios.bin";
     println!("Missing BIOS file. If you don't have the original GBA BIOS, you can download an open-source bios from {}", OPEN_SOURCE_BIOS_URL);
+    std::process::exit(0);
+}
+
+fn load_bios(bios_path: &Path) -> Box<[u8]> {
+    match read_bin_file(bios_path) {
+        Ok(bios) => bios.into_boxed_slice(),
+        _ => {
+            ask_download_bios();
+            unreachable!()
+        }
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -114,24 +114,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .start()
         .unwrap();
 
-    let mut frame_limiter = true;
-    let yaml = load_yaml!("cli.yml");
-    let matches = clap::App::from_yaml(yaml).get_matches();
-
-    let bios_path = Path::new(matches.value_of("bios").unwrap_or_default());
-    let bios_bin = match read_bin_file(bios_path) {
-        Ok(bios) => bios.into_boxed_slice(),
-        _ => {
-            ask_download_bios();
-            std::process::exit(0);
-        }
-    };
-
-    let skip_bios = matches.occurrences_of("skip_bios") != 0;
-
-    let debug = matches.occurrences_of("debug") != 0;
-    let silent = matches.occurrences_of("silent") != 0;
-    let with_gdbserver = matches.occurrences_of("with_gdbserver") != 0;
+    let opts = options::Options::from_args();
 
     info!("Initializing SDL2 context");
     let sdl_context = sdl2::init().expect("failed to initialize sdl2");
@@ -174,65 +157,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let mut rom_path = match matches.value_of("game_rom") {
-        Some(path) => path.to_string(),
-        _ => {
-            info!("[!] Rom file missing, please drag a rom file into the emulator window...");
-            wait_for_rom(&mut canvas, &mut event_pump)?
-        }
-    };
-
     let mut renderer = video::Renderer::from_canvas(canvas);
-    let audio: Rc<RefCell<dyn AudioInterface>> = if silent {
-        Rc::new(RefCell::new(create_dummy_player()))
-    } else {
-        Rc::new(RefCell::new(create_audio_player(&sdl_context)))
-    };
+    let (audio_interface, mut _sdl_audio_device) = audio::create_audio_player(&sdl_context)?;
+    let mut rom_name = opts.rom_name();
 
-    let mut savestate_path = get_savestate_path(&Path::new(&rom_path));
+    let bios_bin = load_bios(&opts.bios);
 
-    let mut rom_name = Path::new(&rom_path).file_name().unwrap().to_str().unwrap();
+    let mut gba = GameBoyAdvance::new(
+        bios_bin.clone(),
+        opts.cartridge_from_opts()?,
+        audio_interface,
+    );
 
-    let mut builder = GamepakBuilder::new()
-        .save_type(BackupType::try_from(
-            matches.value_of("save_type").unwrap(),
-        )?)
-        .file(Path::new(&rom_path));
-
-    if matches.occurrences_of("rtc") != 0 {
-        builder = builder.with_rtc();
-    }
-
-    let gamepak = builder.build()?;
-
-    let mut gba = GameBoyAdvance::new(bios_bin.clone(), gamepak, audio.clone());
-
-    if skip_bios {
+    if opts.skip_bios {
         gba.skip_bios();
     }
 
-    if debug {
-        #[cfg(feature = "debugger")]
-        {
-            gba.cpu.set_verbose(true);
-            let mut debugger = Debugger::new();
-            info!("starting debugger...");
-            debugger
-                .repl(&mut gba, matches.value_of("script_file"))
-                .unwrap();
-            info!("ending debugger...");
-            return Ok(());
-        }
-        #[cfg(not(feature = "debugger"))]
-        {
-            panic!("Please compile me with 'debugger' feature");
-        }
-    }
-
-    if with_gdbserver {
+    if opts.gdbserver {
         todo!("gdb")
     }
 
+    let mut vsync = true;
     let mut fps_counter = FpsCounter::default();
     let frame_time = time::Duration::new(0, 1_000_000_000u32 / 60);
     'running: loop {
@@ -244,7 +189,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     scancode: Some(scancode),
                     ..
                 } => match scancode {
-                    Scancode::Space => frame_limiter = false,
+                    Scancode::Space => vsync = false,
                     k => input::on_keyboard_key_down(&mut gba, k),
                 },
                 Event::KeyUp {
@@ -265,28 +210,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Scancode::F5 => {
                         info!("Saving state ...");
                         let save = gba.save_state()?;
-                        write_bin_file(&savestate_path, &save)?;
+                        write_bin_file(&opts.savestate_path(), &save)?;
                         info!(
                             "Saved to {:?} ({})",
-                            savestate_path,
+                            opts.savestate_path(),
                             bytesize::ByteSize::b(save.len() as u64)
                         );
                     }
                     Scancode::F9 => {
-                        if savestate_path.is_file() {
-                            let save = read_bin_file(&savestate_path)?;
-                            info!("Restoring state from {:?}...", savestate_path);
+                        if opts.savestate_path().is_file() {
+                            let save = read_bin_file(&opts.savestate_path())?;
+                            info!("Restoring state from {:?}...", opts.savestate_path());
                             gba.restore_state(&save)?;
                             info!("Restored!");
                         } else {
                             info!("Savestate not created, please create one by pressing F5");
                         }
                     }
-                    Scancode::Space => frame_limiter = true,
+                    Scancode::Space => vsync = true,
                     k => input::on_keyboard_key_up(&mut gba, k),
                 },
                 Event::ControllerButtonDown { button, .. } => match button {
-                    Button::RightStick => frame_limiter = !frame_limiter,
+                    Button::RightStick => vsync = !vsync,
                     b => input::on_controller_button_down(&mut gba, b),
                 },
                 Event::ControllerButtonUp { button, .. } => {
@@ -318,16 +263,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 Event::Quit { .. } => break 'running,
                 Event::DropFile { filename, .. } => {
-                    // load the new rom
-                    rom_path = filename;
-                    savestate_path = get_savestate_path(&Path::new(&rom_path));
-                    rom_name = Path::new(&rom_path).file_name().unwrap().to_str().unwrap();
-                    let gamepak = GamepakBuilder::new().file(Path::new(&rom_path)).build()?;
-                    let bios_bin = read_bin_file(bios_path).unwrap();
-
-                    // create a new emulator - TODO, export to a function
-                    gba = GameBoyAdvance::new(bios_bin.into_boxed_slice(), gamepak, audio.clone());
-                    gba.skip_bios();
+                    todo!("impl DropFile again")
                 }
                 _ => {}
             }
@@ -341,7 +277,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             renderer.set_window_title(&title);
         }
 
-        if frame_limiter {
+        if vsync {
             let time_passed = start_time.elapsed();
             let delay = frame_time.checked_sub(time_passed);
             match delay {

@@ -55,26 +55,6 @@ pub(crate) mod overrides;
 #[cfg(feature = "debugger")]
 pub mod debugger;
 
-pub type StereoSample<T> = [T; 2];
-
-pub trait AudioInterface {
-    fn get_sample_rate(&self) -> i32 {
-        44100
-    }
-
-    /// Pushes a stereo sample into the audio device
-    /// Sample should be normilized to siged 16bit values
-    /// Note: It is not guarentied that the sample will be played
-    #[allow(unused_variables)]
-    fn push_sample(&mut self, samples: &[i16]) {}
-}
-
-pub trait InputInterface {
-    fn poll(&mut self) -> u16 {
-        keypad::KEYINPUT_ALL_RELEASED
-    }
-}
-
 #[derive(Debug)]
 pub enum GBAError {
     IO(::std::io::Error),
@@ -122,8 +102,10 @@ pub mod prelude {
     #[cfg(feature = "debugger")]
     pub use super::debugger::Debugger;
     pub use super::gpu::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
+    pub use super::sound::interface::{
+        AudioInterface, DynAudioInterface, NullAudio, SimpleAudioInterface,
+    };
     pub use super::Bus;
-    pub use super::{AudioInterface, StereoSample};
     pub use super::{GBAError, GBAResult, GameBoyAdvance};
     pub use rustboyadvance_utils::{read_bin_file, write_bin_file};
 }

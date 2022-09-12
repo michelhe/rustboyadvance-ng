@@ -1,20 +1,8 @@
-use std::cell::RefCell;
 use std::env;
 use std::path::Path;
-use std::rc::Rc;
 
 use rustboyadvance_core::prelude::*;
 use rustboyadvance_utils::FpsCounter;
-
-struct DummyAudio {}
-
-impl DummyAudio {
-    fn new() -> DummyAudio {
-        DummyAudio {}
-    }
-}
-
-impl AudioInterface for DummyAudio {}
 
 fn main() {
     if env::args().count() < 3 {
@@ -35,9 +23,7 @@ fn main() {
         .build()
         .unwrap();
 
-    let dummy = Rc::new(RefCell::new(DummyAudio::new()));
-
-    let mut gba = GameBoyAdvance::new(bios.into_boxed_slice(), gamepak, dummy.clone());
+    let mut gba = GameBoyAdvance::new(bios.into_boxed_slice(), gamepak, NullAudio::new());
     gba.skip_bios();
 
     let mut fps_counter = FpsCounter::default();

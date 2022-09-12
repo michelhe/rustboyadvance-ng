@@ -7,9 +7,6 @@ use std::rc::Rc;
 
 use rustboyadvance_core::prelude::*;
 
-struct BenchmarkHardware {}
-impl AudioInterface for BenchmarkHardware {}
-
 fn create_gba() -> GameBoyAdvance {
     // TODO: do I really want this file in my repository ?
     let bios = include_bytes!("roms/normatt_gba_bios.bin");
@@ -22,14 +19,7 @@ fn create_gba() -> GameBoyAdvance {
         .build()
         .unwrap();
 
-    let dummy = Rc::new(RefCell::new(BenchmarkHardware {}));
-
-    let mut gba = GameBoyAdvance::new(
-        bios.to_vec().into_boxed_slice(),
-        gpak,
-        dummy.clone(),
-        dummy.clone(),
-    );
+    let mut gba = GameBoyAdvance::new(bios.to_vec().into_boxed_slice(), gpak, NullAudio::new());
     gba.skip_bios();
     // skip initialization of the ROM to get to a stabilized scene
     for _ in 0..60 {

@@ -10,7 +10,7 @@ rustboyadvance-utils = { path = "../../utils/" }
 sdl2 = { version = "0.33.0", features = ["image"] }
 ringbuf = "0.2.2"
 bytesize = "1.0.0"
-clap = { version = "2.33", features = ["color", "yaml"] }
+structopt = "0.3"
 log = "0.4.8"
 flexi_logger = { version = "0.14", features = ["colors"] }
 bit = "^0.1"
