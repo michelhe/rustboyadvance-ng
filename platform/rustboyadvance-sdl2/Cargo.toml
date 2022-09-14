@@ -19,7 +19,7 @@ spin_sleep = "0.3.7"
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
 
-[features]
-default = ["gdb"]
-debugger = ["rustboyadvance-core/debugger"]
-gdb = ["rustboyadvance-core/gdb"]
+# [features]
+# default = ["gdb"]
+# debugger = ["rustboyadvance-core/debugger"]
+# gdb = ["rustboyadvance-core/gdb"]

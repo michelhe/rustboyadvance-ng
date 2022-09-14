@@ -1,14 +1,7 @@
 use sdl2::controller::Button;
-use sdl2::event::{Event, WindowEvent};
-use sdl2::image::{InitFlag, LoadSurface, LoadTexture};
+use sdl2::event::Event;
 use sdl2::keyboard::Scancode;
-use sdl2::pixels::Color;
-use sdl2::rect::Rect;
-use sdl2::render::WindowCanvas;
-use sdl2::surface::Surface;
 use sdl2::{self};
-
-use sdl2::EventPump;
 
 use bytesize;
 use spin_sleep;
@@ -17,7 +10,6 @@ use structopt::StructOpt;
 use std::fs;
 use std::io::Cursor;
 use std::path::Path;
-use std::process;
 use std::time;
 
 #[macro_use]
@@ -30,61 +22,12 @@ mod input;
 mod options;
 mod video;
 
-use video::{SCREEN_HEIGHT, SCREEN_WIDTH};
-
 use rustboyadvance_core::prelude::*;
 
 use rustboyadvance_utils::FpsCounter;
 
 const LOG_DIR: &str = ".logs";
 const DEFAULT_GDB_SERVER_ADDR: &'static str = "localhost:1337";
-
-const CANVAS_WIDTH: u32 = SCREEN_WIDTH;
-const CANVAS_HEIGHT: u32 = SCREEN_HEIGHT;
-
-
-/// Waits for the user to drag a rom file to window
-fn wait_for_rom(canvas: &mut WindowCanvas, event_pump: &mut EventPump) -> Result<String, String> {
-    let texture_creator = canvas.texture_creator();
-    let icon_texture = texture_creator
-        .load_texture("assets/icon_cropped_small.png")
-        .expect("failed to load icon");
-    let background = Color::RGB(0xDD, 0xDD, 0xDD);
-
-    let mut redraw = || -> Result<(), String> {
-        canvas.set_draw_color(background);
-        canvas.clear();
-        canvas.copy(
-            &icon_texture,
-            None,
-            Some(Rect::from_center(
-                ((CANVAS_WIDTH / 2) as i32, (CANVAS_HEIGHT / 2) as i32),
-                160,
-                100,
-            )),
-        )?;
-        canvas.present();
-        Ok(())
-    };
-
-    redraw()?;
-
-    loop {
-        for event in event_pump.wait_iter() {
-            match event {
-                Event::DropFile { filename, .. } => {
-                    return Ok(filename);
-                }
-                Event::Quit { .. } => process::exit(0),
-                Event::Window { win_event, .. } => match win_event {
-                    WindowEvent::SizeChanged(..) | WindowEvent::Restored => redraw()?,
-                    _ => {}
-                },
-                _ => {}
-            }
-        }
-    }
-}
 
 fn ask_download_bios() {
     const OPEN_SOURCE_BIOS_URL: &'static str =
@@ -119,23 +62,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Initializing SDL2 context");
     let sdl_context = sdl2::init().expect("failed to initialize sdl2");
 
-    let mut event_pump = sdl_context.event_pump()?;
-
-    let video_subsystem = sdl_context.video()?;
-    let _image_context = sdl2::image::init(InitFlag::PNG | InitFlag::JPG)?;
-    let mut window = video_subsystem
-        .window("RustBoyAdvance", SCREEN_WIDTH * 3, SCREEN_HEIGHT * 3)
-        .opengl()
-        .position_centered()
-        .resizable()
-        .build()?;
-
-    let window_icon = Surface::from_file("assets/icon.png")?;
-    window.set_icon(window_icon);
-
-    let mut canvas = window.into_canvas().accelerated().build()?;
-    canvas.set_logical_size(CANVAS_WIDTH, CANVAS_HEIGHT)?;
-
     let controller_subsystem = sdl_context.game_controller()?;
     let controller_mappings =
         include_str!("../../../external/SDL_GameControllerDB/gamecontrollerdb.txt");
@@ -157,17 +83,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let mut renderer = video::Renderer::from_canvas(canvas);
+    let mut renderer = video::init(&sdl_context)?;
     let (audio_interface, mut _sdl_audio_device) = audio::create_audio_player(&sdl_context)?;
     let mut rom_name = opts.rom_name();
 
     let bios_bin = load_bios(&opts.bios);
 
-    let mut gba = GameBoyAdvance::new(
+    let mut gba = Box::new(GameBoyAdvance::new(
         bios_bin.clone(),
         opts.cartridge_from_opts()?,
         audio_interface,
-    );
+    ));
 
     if opts.skip_bios {
         gba.skip_bios();
@@ -179,7 +105,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut vsync = true;
     let mut fps_counter = FpsCounter::default();
-    let frame_time = time::Duration::new(0, 1_000_000_000u32 / 60);
+    const FRAME_TIME: time::Duration = time::Duration::new(0, 1_000_000_000u32 / 60);
+    let mut event_pump = sdl_context.event_pump()?;
     'running: loop {
         let start_time = time::Instant::now();
 
@@ -279,7 +206,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if vsync {
             let time_passed = start_time.elapsed();
-            let delay = frame_time.checked_sub(time_passed);
+            let delay = FRAME_TIME.checked_sub(time_passed);
             match delay {
                 None => {}
                 Some(delay) => {
