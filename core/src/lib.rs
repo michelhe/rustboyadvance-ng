@@ -44,13 +44,11 @@ pub use interrupt::Interrupt;
 pub use interrupt::SharedInterruptFlags;
 pub mod gba;
 pub use gba::GameBoyAdvance;
-pub mod bus;
 pub mod dma;
 pub mod keypad;
-pub mod timer;
-pub use bus::*;
 mod mgba_debug;
 pub(crate) mod overrides;
+pub mod timer;
 
 #[cfg(feature = "debugger")]
 pub mod debugger;
@@ -97,7 +95,6 @@ impl From<zip::result::ZipError> for GBAError {
 }
 
 pub mod prelude {
-    pub use super::arm7tdmi;
     pub use super::cartridge::{Cartridge, GamepakBuilder};
     #[cfg(feature = "debugger")]
     pub use super::debugger::Debugger;
@@ -105,7 +102,8 @@ pub mod prelude {
     pub use super::sound::interface::{
         AudioInterface, DynAudioInterface, NullAudio, SimpleAudioInterface,
     };
-    pub use super::Bus;
     pub use super::{GBAError, GBAResult, GameBoyAdvance};
+    pub use arm7tdmi;
+    pub use arm7tdmi::memory::{Addr, BusIO, MemoryAccess, MemoryAccessWidth, MemoryInterface};
     pub use rustboyadvance_utils::{read_bin_file, write_bin_file};
 }

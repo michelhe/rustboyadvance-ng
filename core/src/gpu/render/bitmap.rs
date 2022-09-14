@@ -6,7 +6,7 @@ use super::super::Rgb15;
 
 use super::{utils, MODE5_VIEWPORT, SCREEN_VIEWPORT};
 
-use crate::Bus;
+use crate::prelude::BusIO;
 use rustboyadvance_utils::index2d;
 
 impl Gpu {

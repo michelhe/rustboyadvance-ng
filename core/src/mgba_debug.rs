@@ -4,8 +4,8 @@ use std::str;
 use log::log;
 use log::Level;
 
-use super::bus::Bus;
-use super::iodev::consts::{REG_DEBUG_ENABLE, REG_DEBUG_FLAGS, REG_DEBUG_STRING};
+use super::arm7tdmi::memory::BusIO;
+use crate::iodev::consts::{REG_DEBUG_ENABLE, REG_DEBUG_FLAGS, REG_DEBUG_STRING};
 
 pub const DEBUG_STRING_SIZE: usize = 0x100;
 
