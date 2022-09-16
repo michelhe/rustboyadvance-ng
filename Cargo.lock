@@ -79,7 +79,7 @@ dependencies = [
  "cfg-if 1.0.0",
  "colored 1.9.3",
  "enum-primitive-derive",
- "gdbstub 0.6.3",
+ "gdbstub",
  "gdbstub_arch",
  "log 0.4.11",
  "num",
@@ -649,16 +649,6 @@ dependencies = [
 
 [[package]]
 name = "gdbstub"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cdb70c5cea5faa069cd8a24444b8dee8635c9da6c9d1257008e980ec62bcf14"
-dependencies = [
- "log 0.4.11",
- "num-traits 0.2.12",
-]
-
-[[package]]
-name = "gdbstub"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32c95766e0414f8bfc1d07055574c621b67739466d6ba516c4fef8e99d30d2e6"
@@ -677,7 +667,7 @@ version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eecb536c55c43593a00dde9074dbbdb0e81ce5f20dbca921400f8779c21dea9c"
 dependencies = [
- "gdbstub 0.6.3",
+ "gdbstub",
  "num-traits 0.2.12",
 ]
 
@@ -1355,7 +1345,6 @@ dependencies = [
  "debug_stub_derive",
  "enum-primitive-derive",
  "fuzzy-matcher",
- "gdbstub 0.1.2",
  "hex-literal",
  "hexdump",
  "lazy_static",
