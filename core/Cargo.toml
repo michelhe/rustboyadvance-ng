@@ -5,8 +5,8 @@ authors = ["Michel Heily <michelheily@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-arm7tdmi = { "path" = "../arm7tdmi" }
-rustboyadvance-utils = { "path" = "../utils" }
+arm7tdmi = { path = '../arm7tdmi' }
+rustboyadvance-utils = { path = "../utils" }
 cfg-if = "1.0.0"
 serde = { version = "1.0.104", features = ["derive", "rc"] }
 bincode = "1.2.1"
@@ -41,6 +41,8 @@ bit_reverse = "0.1.8"
 yaml-rust = "0.4"
 lazy_static = "1.4.0"
 smart-default = "0.6.0"
+crossbeam = "0.8.2"
+xml-builder = "0.5.0"
 
 [dev-dependencies]
 criterion = "0.3"

@@ -11,6 +11,9 @@ use rustboyadvance_utils::elf::{load_elf, GoblinError};
 use rustboyadvance_utils::read_bin_file;
 use zip::ZipArchive;
 
+#[cfg(feature = "elf_support")]
+use crate::sysbus::consts::CART_BASE;
+
 pub enum LoadRom {
     #[cfg(feature = "elf_support")]
     Elf {
@@ -30,8 +33,7 @@ impl From<GoblinError> for GBAError {
 
 #[cfg(feature = "elf_support")]
 pub(super) fn try_load_elf(elf_bytes: &[u8]) -> LoadRomResult {
-    const CART_BASE: usize = 0x0800_0000;
-    let elf = load_elf(elf_bytes, CART_BASE)?;
+    let elf = load_elf(elf_bytes, CART_BASE as usize)?;
     Ok(LoadRom::Elf {
         data: elf.data,
         symbols: elf.symbols,

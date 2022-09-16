@@ -145,7 +145,7 @@ impl BusIO for IoDevices {
 
             REG_POSTFLG => io.post_boot_flag as u16,
             REG_HALTCNT => 0,
-            REG_KEYINPUT => io.keyinput as u16,
+            REG_KEYINPUT => io.keyinput,
 
             x if DebugPort::is_debug_access(x) => io.debug.read(io_addr),
 

@@ -27,7 +27,7 @@ use rustboyadvance_core::prelude::*;
 use rustboyadvance_utils::FpsCounter;
 
 const LOG_DIR: &str = ".logs";
-const DEFAULT_GDB_SERVER_ADDR: &'static str = "localhost:1337";
+const DEFAULT_GDB_SERVER_PORT: u16 = 1337;
 
 fn ask_download_bios() {
     const OPEN_SOURCE_BIOS_URL: &'static str =
@@ -109,7 +109,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut event_pump = sdl_context.event_pump()?;
     'running: loop {
         let start_time = time::Instant::now();
-
         for event in event_pump.poll_iter() {
             match event {
                 Event::KeyDown {
@@ -117,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ..
                 } => match scancode {
                     Scancode::Space => vsync = false,
-                    k => input::on_keyboard_key_down(&mut gba, k),
+                    k => input::on_keyboard_key_down(gba.get_key_state_mut(), k),
                 },
                 Event::KeyUp {
                     scancode: Some(scancode),
@@ -132,8 +131,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .unwrap();
                         info!("ending debugger...")
                     }
-                    #[cfg(feature = "gdb")]
-                    Scancode::F2 => todo!("gdb"),
+                    Scancode::F2 => gba.start_gdbserver(DEFAULT_GDB_SERVER_PORT),
                     Scancode::F5 => {
                         info!("Saving state ...");
                         let save = gba.save_state()?;
@@ -155,17 +153,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     Scancode::Space => vsync = true,
-                    k => input::on_keyboard_key_up(&mut gba, k),
+                    k => input::on_keyboard_key_up(gba.get_key_state_mut(), k),
                 },
                 Event::ControllerButtonDown { button, .. } => match button {
                     Button::RightStick => vsync = !vsync,
-                    b => input::on_controller_button_down(&mut gba, b),
+                    b => input::on_controller_button_down(gba.get_key_state_mut(), b),
                 },
                 Event::ControllerButtonUp { button, .. } => {
-                    input::on_controller_button_up(&mut gba, button);
+                    input::on_controller_button_up(gba.get_key_state_mut(), button);
                 }
                 Event::ControllerAxisMotion { axis, value, .. } => {
-                    input::on_axis_motion(&mut gba, axis, value);
+                    input::on_axis_motion(gba.get_key_state_mut(), axis, value);
                 }
                 Event::ControllerDeviceRemoved { which, .. } => {
                     let removed = if let Some(active_controller) = &active_controller {
@@ -196,7 +194,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        gba.frame();
+        if gba.is_debugger_attached() {
+            gba.debugger_run()
+        } else {
+            gba.frame();
+        }
         renderer.render(gba.get_frame_buffer());
 
         if let Some(fps) = fps_counter.tick() {

@@ -1,3 +1,4 @@
+use log::debug;
 use serde::{Deserialize, Serialize};
 
 pub use super::exception::Exception;
@@ -118,7 +119,7 @@ pub struct Arm7tdmiCore<I: MemoryInterface> {
     pub banks: BankedRegisters,
 
     /// Hardware breakpoints for use by gdb
-    pub breakpoints: Vec<Addr>,
+    breakpoints: Vec<Addr>,
 
     /// Deprecated in-house debugger state
     #[cfg(feature = "debugger")]
@@ -194,6 +195,28 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
 
     pub fn set_memory_interface(&mut self, i: Shared<I>) {
         self.bus = i;
+    }
+
+    pub fn add_breakpoint(&mut self, addr: Addr) {
+        debug!("adding breakpoint {:08x}", addr);
+        self.breakpoints.push(addr);
+    }
+
+    pub fn del_breakpoint(&mut self, addr: Addr) {
+        if let Some(pos) = self.breakpoints.iter().position(|x| *x == addr) {
+            debug!("deleting breakpoint {:08x}", addr);
+            self.breakpoints.remove(pos);
+        }
+    }
+
+    pub fn check_breakpoint(&self) -> Option<u32> {
+        let next_pc = self.get_next_pc();
+        for bp in &self.breakpoints {
+            if (*bp & !1) == next_pc {
+                return Some(*bp);
+            }
+        }
+        None
     }
 
     #[cfg(feature = "debugger")]

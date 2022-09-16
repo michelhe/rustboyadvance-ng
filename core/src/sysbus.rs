@@ -22,7 +22,8 @@ pub mod consts {
     pub const PALRAM_ADDR: u32 = 0x0500_0000;
     pub const VRAM_ADDR: u32 = 0x0600_0000;
     pub const OAM_ADDR: u32 = 0x0700_0000;
-    pub const GAMEPAK_WS0_LO: u32 = 0x0800_0000;
+    pub const CART_BASE: u32 = 0x0800_0000;
+    pub const GAMEPAK_WS0_LO: u32 = CART_BASE;
     pub const GAMEPAK_WS0_HI: u32 = 0x0900_0000;
     pub const GAMEPAK_WS1_LO: u32 = 0x0A00_0000;
     pub const GAMEPAK_WS1_HI: u32 = 0x0B00_0000;
@@ -148,9 +149,9 @@ pub struct SysBus {
     scheduler: Shared<Scheduler>,
     arm_core: WeakPointer<Arm7tdmiCore<SysBus>>,
 
-    bios: Bios,
-    ewram: Box<[u8]>,
-    iwram: Box<[u8]>,
+    pub(crate) bios: Bios,
+    pub(crate) ewram: Box<[u8]>,
+    pub(crate) iwram: Box<[u8]>,
     pub cartridge: Cartridge,
 
     cycle_luts: CycleLookupTables,

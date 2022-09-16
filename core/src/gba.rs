@@ -2,8 +2,11 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use arm7tdmi::gdbstub::stub::SingleThreadStopReason;
 use bincode;
 use serde::{Deserialize, Serialize};
+
+use crate::gdb_support::{gdb_thread::start_gdb_server_thread, DebuggerState};
 
 use super::cartridge::Cartridge;
 use super::dma::DmaController;
@@ -21,12 +24,13 @@ use arm7tdmi::{self, Arm7tdmiCore};
 use rustboyadvance_utils::Shared;
 
 pub struct GameBoyAdvance {
-    pub cpu: Box<Arm7tdmiCore<SysBus>>,
-    pub sysbus: Shared<SysBus>,
-    pub io_devs: Shared<IoDevices>,
-    pub scheduler: SharedScheduler,
+    pub(crate) cpu: Box<Arm7tdmiCore<SysBus>>,
+    pub(crate) sysbus: Shared<SysBus>,
+    pub(crate) io_devs: Shared<IoDevices>,
+    pub(crate) scheduler: SharedScheduler,
     interrupt_flags: SharedInterruptFlags,
-    pub audio_interface: DynAudioInterface,
+    audio_interface: DynAudioInterface,
+    pub(crate) debugger: Option<DebuggerState>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -106,6 +110,7 @@ impl GameBoyAdvance {
             audio_interface,
             scheduler,
             interrupt_flags,
+            debugger: None,
         };
 
         gba.sysbus.init(gba.cpu.weak_ptr());
@@ -150,6 +155,7 @@ impl GameBoyAdvance {
             interrupt_flags: interrupts,
             audio_interface,
             scheduler,
+            debugger: None,
         })
     }
 
@@ -206,10 +212,62 @@ impl GameBoyAdvance {
         &mut self.sysbus.io.keyinput
     }
 
+    /// Advance the emulation for one frame worth of time
     pub fn frame(&mut self) {
         static mut OVERSHOOT: usize = 0;
         unsafe {
-            OVERSHOOT = self.run(CYCLES_FULL_REFRESH - OVERSHOOT);
+            OVERSHOOT = CYCLES_FULL_REFRESH - self.run::<false>(CYCLES_FULL_REFRESH - OVERSHOOT);
+        }
+    }
+
+    /// like frame() but stop if a breakpoint is reached
+    fn frame_interruptible(&mut self) {
+        static mut OVERSHOOT: usize = 0;
+        unsafe {
+            OVERSHOOT = CYCLES_FULL_REFRESH - self.run::<true>(CYCLES_FULL_REFRESH - OVERSHOOT);
+        }
+    }
+
+    pub fn start_gdbserver(&mut self, port: u16) {
+        if self.is_debugger_attached() {
+            warn!("debugger already attached!");
+        } else {
+            match start_gdb_server_thread(self, port) {
+                Ok(debugger) => {
+                    info!("attached to the debugger, have fun!");
+                    self.debugger = Some(debugger)
+                }
+                Err(e) => {
+                    error!("failed to start the debugger: {:?}", e);
+                }
+            }
+        }
+    }
+
+    #[inline]
+    pub fn is_debugger_attached(&self) -> bool {
+        self.debugger.is_some()
+    }
+
+    /// Recv & handle messages from the debugger, and return if we are stopped or not
+    pub fn debugger_run(&mut self) {
+        let mut should_stop = false;
+        let debugger = self.debugger.take().expect("debugger should be None here");
+        let debugger = debugger
+            .handle_message(self, &mut should_stop)
+            .map_err(|_| "Failed to handle message")
+            .unwrap();
+
+        self.debugger = debugger;
+
+        if let Some(debugger) = &mut self.debugger {
+            if should_stop {
+                debugger.notify_stop_reason(SingleThreadStopReason::DoneStep);
+            } else {
+                self.frame_interruptible();
+            }
+        } else {
+            error!("debugger was disconnected!");
         }
     }
 
@@ -237,9 +295,9 @@ impl GameBoyAdvance {
     }
 
     /// Runs the emulation for a given amount of cycles
-    /// @return number of extra cycle ran in this iteration
+    /// @return number of cycle actually ran
     #[inline]
-    fn run(&mut self, cycles_to_run: usize) -> usize {
+    pub(super) fn run<const CHECK_BREAKPOINTS: bool>(&mut self, cycles_to_run: usize) -> usize {
         let run_start_time = self.scheduler.timestamp();
 
         // Register an event to mark the end of this run
@@ -251,14 +309,31 @@ impl GameBoyAdvance {
             // The tricky part is to avoid unnecessary calls for Scheduler::process_pending,
             // performance-wise it would be best to run as many cycles as fast as possible while we know there are no pending events.
             // Fast forward emulation until an event occurs
-            while self.scheduler.timestamp() <= self.scheduler.timestamp_of_next_event() {
+            'run_unitl_next_event: while self.scheduler.timestamp()
+                <= self.scheduler.timestamp_of_next_event()
+            {
                 // 3 Options:
                 // 1. DMA is active - thus CPU is blocked
                 // 2. DMA inactive and halt state is RUN - CPU can run
                 // 3. DMA inactive and halt state is HALT - CPU is blocked
                 match self.get_bus_master() {
                     Some(BusMaster::Dma) => self.dma_step(),
-                    Some(BusMaster::Cpu) => self.cpu_step(),
+                    Some(BusMaster::Cpu) => {
+                        self.cpu_step();
+                        if CHECK_BREAKPOINTS {
+                            if let Some(bp) = self.cpu.check_breakpoint() {
+                                debug!("Arm7tdmi breakpoint hit 0x{:08x}", bp);
+                                self.scheduler.cancel_pending(EventType::RunLimitReached);
+                                running = false;
+
+                                if let Some(debugger) = &mut self.debugger {
+                                    debugger.notify_breakpoint(bp);
+                                }
+
+                                break 'run_unitl_next_event;
+                            }
+                        }
+                    }
                     None => {
                         if self.io_devs.intc.irq_pending() {
                             self.io_devs.haltcnt = HaltState::Running;
@@ -273,8 +348,7 @@ impl GameBoyAdvance {
             self.handle_events(&mut running);
         }
 
-        let total_cycles_ran = self.scheduler.timestamp() - run_start_time;
-        total_cycles_ran - cycles_to_run
+        self.scheduler.timestamp() - run_start_time
     }
 
     fn handle_events(&mut self, run_limit_flag: &mut bool) {

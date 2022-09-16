@@ -1,4 +1,3 @@
-use rustboyadvance_core::GameBoyAdvance;
 use sdl2::controller::Axis;
 use sdl2::controller::Button;
 use sdl2::keyboard::Scancode;
@@ -8,31 +7,31 @@ use rustboyadvance_core::keypad as gba_keypad;
 use bit;
 use bit::BitIndex;
 
-pub fn on_keyboard_key_down(gba: &mut GameBoyAdvance, scancode: Scancode) {
+pub fn on_keyboard_key_down(key_state: &mut u16, scancode: Scancode) {
     if let Some(key) = scancode_to_keypad(scancode) {
-        gba.get_key_state_mut().set_bit(key as usize, false);
+        key_state.set_bit(key as usize, false);
     }
 }
 
-pub fn on_keyboard_key_up(gba: &mut GameBoyAdvance, scancode: Scancode) {
+pub fn on_keyboard_key_up(key_state: &mut u16, scancode: Scancode) {
     if let Some(key) = scancode_to_keypad(scancode) {
-        gba.get_key_state_mut().set_bit(key as usize, true);
+        key_state.set_bit(key as usize, true);
     }
 }
 
-pub fn on_controller_button_down(gba: &mut GameBoyAdvance, button: Button) {
+pub fn on_controller_button_down(key_state: &mut u16, button: Button) {
     if let Some(key) = controller_button_to_keypad(button) {
-        gba.get_key_state_mut().set_bit(key as usize, false);
+        key_state.set_bit(key as usize, false);
     }
 }
 
-pub fn on_controller_button_up(gba: &mut GameBoyAdvance, button: Button) {
+pub fn on_controller_button_up(key_state: &mut u16, button: Button) {
     if let Some(key) = controller_button_to_keypad(button) {
-        gba.get_key_state_mut().set_bit(key as usize, true);
+        key_state.set_bit(key as usize, true);
     }
 }
 
-pub fn on_axis_motion(gba: &mut GameBoyAdvance, axis: Axis, val: i16) {
+pub fn on_axis_motion(key_state: &mut u16, axis: Axis, val: i16) {
     use gba_keypad::Keys as GbaKeys;
     let keys = match axis {
         Axis::LeftX => (GbaKeys::Left, GbaKeys::Right),
@@ -44,7 +43,6 @@ pub fn on_axis_motion(gba: &mut GameBoyAdvance, axis: Axis, val: i16) {
         }
     };
 
-    let key_state = gba.get_key_state_mut();
     // Axis motion is an absolute value in the range
     // [-32768, 32767]. Let's simulate a very rough dead
     // zone to ignore spurious events.

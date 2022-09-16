@@ -45,10 +45,13 @@ pub use interrupt::SharedInterruptFlags;
 pub mod gba;
 pub use gba::GameBoyAdvance;
 pub mod dma;
+pub mod gdb_support;
 pub mod keypad;
 mod mgba_debug;
 pub(crate) mod overrides;
 pub mod timer;
+
+use arm7tdmi::gdb::gdbstub::stub::GdbStubError;
 
 #[cfg(feature = "debugger")]
 pub mod debugger;
@@ -59,6 +62,7 @@ pub enum GBAError {
     CartridgeLoadError(String),
     #[cfg(feature = "debugger")]
     DebuggerError(debugger::DebuggerError),
+    GdbError(String),
 }
 
 impl fmt::Display for GBAError {
@@ -91,6 +95,12 @@ impl From<debugger::DebuggerError> for GBAError {
 impl From<zip::result::ZipError> for GBAError {
     fn from(_err: zip::result::ZipError) -> GBAError {
         GBAError::IO(::std::io::Error::from(::std::io::ErrorKind::InvalidInput))
+    }
+}
+
+impl From<GdbStubError<(), std::io::Error>> for GBAError {
+    fn from(err: GdbStubError<(), std::io::Error>) -> Self {
+        GBAError::GdbError(err.to_string())
     }
 }
 

@@ -34,6 +34,11 @@ impl Bios {
     fn read_allowed(&self) -> bool {
         self.arm_core.pc < 0x4000
     }
+
+    #[inline]
+    pub(crate) fn len(&self) -> usize {
+        self.rom.len()
+    }
 }
 
 /// Impl of Bus trait for Bios

@@ -24,6 +24,7 @@ use memory::Addr;
 pub mod disass;
 pub mod exception;
 pub mod gdb;
+pub use gdb::{gdbstub, gdbstub_arch};
 pub mod psr;
 mod simple_memory;
 pub use simple_memory::SimpleMemory;
