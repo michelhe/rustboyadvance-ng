@@ -6,7 +6,7 @@ use arm7tdmi::gdb::gdbstub::{
     target::Target,
 };
 
-use super::{DebuggerMessage, DebuggerTarget};
+use super::{DebuggerRequest, DebuggerTarget};
 
 pub struct DebuggerEventLoop {}
 
@@ -54,7 +54,7 @@ impl run_blocking::BlockingEventLoop for DebuggerEventLoop {
         target: &mut DebuggerTarget,
     ) -> Result<Option<SingleThreadStopReason<u32>>, <DebuggerTarget as Target>::Error> {
         info!("on_interrupt: sending stop message");
-        target.tx.send(DebuggerMessage::Stop).unwrap();
+        target.tx.send(DebuggerRequest::Interrupt).unwrap();
         target.wait_for_operation();
         info!("Waiting for target to stop <blocking>");
         let (lock, cvar) = &*target.stop_signal;

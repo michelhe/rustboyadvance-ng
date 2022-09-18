@@ -12,7 +12,7 @@ use gdbstub::target::ext::breakpoints::BreakpointsOps;
 use gdbstub::target::{self, Target, TargetError, TargetResult};
 use gdbstub_arch::arm::reg::ArmCoreRegs;
 
-use super::{DebuggerMessage, DebuggerTarget};
+use super::{DebuggerRequest, DebuggerTarget};
 
 impl Target for DebuggerTarget {
     type Error = ();
@@ -38,7 +38,7 @@ impl SingleThreadBase for DebuggerTarget {
     fn read_registers(&mut self, regs: &mut ArmCoreRegs) -> TargetResult<(), Self> {
         let regs_copy = Arc::new(Mutex::new(ArmCoreRegs::default()));
         self.tx
-            .send(DebuggerMessage::ReadRegs(regs_copy.clone()))
+            .send(DebuggerRequest::ReadRegs(regs_copy.clone()))
             .unwrap();
         self.wait_for_operation();
         regs_copy.lock().unwrap().clone_into(regs);
@@ -47,7 +47,7 @@ impl SingleThreadBase for DebuggerTarget {
 
     fn write_registers(&mut self, regs: &ArmCoreRegs) -> TargetResult<(), Self> {
         self.tx
-            .send(DebuggerMessage::WriteRegs(regs.clone()))
+            .send(DebuggerRequest::WriteRegs(regs.clone()))
             .unwrap();
         self.wait_for_operation();
         Ok(())
@@ -56,7 +56,7 @@ impl SingleThreadBase for DebuggerTarget {
     fn read_addrs(&mut self, start_addr: u32, data: &mut [u8]) -> TargetResult<(), Self> {
         let buffer = Arc::new(Mutex::new(vec![0; data.len()].into_boxed_slice()));
         self.tx
-            .send(DebuggerMessage::ReadAddrs(start_addr, buffer.clone()))
+            .send(DebuggerRequest::ReadAddrs(start_addr, buffer.clone()))
             .unwrap();
         self.wait_for_operation();
         data.copy_from_slice(&buffer.lock().unwrap());
@@ -78,7 +78,7 @@ impl SingleThreadBase for DebuggerTarget {
 
 impl SingleThreadResume for DebuggerTarget {
     fn resume(&mut self, _signal: Option<Signal>) -> Result<(), Self::Error> {
-        self.tx.send(DebuggerMessage::Resume).unwrap();
+        self.tx.send(DebuggerRequest::Resume).unwrap();
         self.wait_for_operation();
         Ok(())
     }
@@ -94,9 +94,7 @@ impl SingleThreadResume for DebuggerTarget {
 
 impl SingleThreadSingleStep for DebuggerTarget {
     fn step(&mut self, _signal: Option<Signal>) -> Result<(), Self::Error> {
-        self.tx.send(DebuggerMessage::SingleStep).unwrap();
-        self.wait_for_operation();
-        self.tx.send(DebuggerMessage::Stop).unwrap();
+        self.tx.send(DebuggerRequest::SingleStep).unwrap();
         self.wait_for_operation();
         Ok(())
     }
@@ -135,7 +133,7 @@ impl target::ext::breakpoints::SwBreakpoint for DebuggerTarget {
         _kind: gdbstub_arch::arm::ArmBreakpointKind,
     ) -> TargetResult<bool, Self> {
         self.tx
-            .send(DebuggerMessage::AddSwBreakpoint(addr))
+            .send(DebuggerRequest::AddSwBreakpoint(addr))
             .unwrap();
         self.wait_for_operation();
         Ok(true)
@@ -147,7 +145,7 @@ impl target::ext::breakpoints::SwBreakpoint for DebuggerTarget {
         _kind: gdbstub_arch::arm::ArmBreakpointKind,
     ) -> TargetResult<bool, Self> {
         self.tx
-            .send(DebuggerMessage::DelSwBreakpoint(addr))
+            .send(DebuggerRequest::DelSwBreakpoint(addr))
             .unwrap();
         self.wait_for_operation();
         Ok(true)

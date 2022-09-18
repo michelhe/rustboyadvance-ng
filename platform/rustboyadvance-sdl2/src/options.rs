@@ -1,9 +1,10 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, io};
 
 use rustboyadvance_core::{
     cartridge::{BackupType, GamepakBuilder},
     prelude::Cartridge,
 };
+use rustboyadvance_utils::read_bin_file;
 use structopt::StructOpt;
 
 const SAVE_TYPE_POSSIBLE_VALUES: &[&str] =
@@ -60,5 +61,9 @@ impl Options {
 
     pub fn rom_name(&self) -> &str {
         self.rom.file_name().unwrap().to_str().unwrap()
+    }
+
+    pub fn read_rom(&self) -> Result<Vec<u8>, std::io::Error> {
+        read_bin_file(&self.rom)
     }
 }

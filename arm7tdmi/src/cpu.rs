@@ -1,11 +1,18 @@
+use std::fmt;
+
 use log::debug;
 use serde::{Deserialize, Serialize};
+use bit::BitIndex;
+use num::FromPrimitive;
+use ansi_term::{Colour, Style};
+
+use rustboyadvance_utils::{Shared, WeakPointer};
 
 pub use super::exception::Exception;
+use super::reg_string;
 
 use super::{arm::ArmCond, psr::RegPSR, Addr, CpuMode, CpuState};
 
-use rustboyadvance_utils::{Shared, WeakPointer};
 
 use super::memory::{MemoryAccess, MemoryInterface};
 use MemoryAccess::*;
@@ -37,17 +44,11 @@ cfg_if! {
         use super::DecodedInstruction;
         use super::arm::ArmInstruction;
         use super::thumb::ThumbInstruction;
-        use super::reg_string;
-        use std::fmt;
 
-        use ansi_term::{Colour, Style};
     } else {
 
     }
 }
-
-use bit::BitIndex;
-use num::FromPrimitive;
 
 pub enum CpuAction {
     AdvancePC(MemoryAccess),
@@ -104,7 +105,7 @@ impl Default for DebuggerState {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Arm7tdmiCore<I: MemoryInterface> {
     pub pc: u32,
     pub bus: Shared<I>,
@@ -503,6 +504,29 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
 
     pub fn get_cpu_state(&self) -> CpuState {
         self.cpsr.state()
+    }
+}
+
+impl<I: MemoryInterface> fmt::Debug for Arm7tdmiCore<I> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "ARM7TDMI Core Status:")?;
+        writeln!(f, "\tCPSR: {}", self.cpsr)?;
+        writeln!(f, "\tGeneral Purpose Registers:")?;
+        let reg_normal_style = Style::new().bold();
+        let gpr = self.copy_registers();
+        for i in 0..15 {
+            let mut reg_name = reg_string(i).to_string();
+            reg_name.make_ascii_uppercase();
+            let entry = format!("\t{:-3} = 0x{:08x}", reg_name, gpr[i]);
+               write!(
+                f,
+                "{}{}",
+                reg_normal_style.paint(entry),
+                if (i + 1) % 4 == 0 { "\n" } else { "" }
+            )?;
+        }
+        let pc = format!("\tPC  = 0x{:08x}", self.get_next_pc());
+        writeln!(f, "{}", reg_normal_style.paint(pc))
     }
 }
 

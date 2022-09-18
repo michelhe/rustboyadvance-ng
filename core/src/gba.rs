@@ -6,7 +6,7 @@ use arm7tdmi::gdbstub::stub::SingleThreadStopReason;
 use bincode;
 use serde::{Deserialize, Serialize};
 
-use crate::gdb_support::{gdb_thread::start_gdb_server_thread, DebuggerState};
+use crate::gdb_support::{gdb_thread::start_gdb_server_thread, DebuggerRequestHandler};
 
 use super::cartridge::Cartridge;
 use super::dma::DmaController;
@@ -24,13 +24,13 @@ use arm7tdmi::{self, Arm7tdmiCore};
 use rustboyadvance_utils::Shared;
 
 pub struct GameBoyAdvance {
-    pub(crate) cpu: Box<Arm7tdmiCore<SysBus>>,
+    pub cpu: Box<Arm7tdmiCore<SysBus>>,
     pub(crate) sysbus: Shared<SysBus>,
     pub(crate) io_devs: Shared<IoDevices>,
     pub(crate) scheduler: SharedScheduler,
     interrupt_flags: SharedInterruptFlags,
     audio_interface: DynAudioInterface,
-    pub(crate) debugger: Option<DebuggerState>,
+    pub(crate) debugger: Option<DebuggerRequestHandler>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -251,17 +251,12 @@ impl GameBoyAdvance {
 
     /// Recv & handle messages from the debugger, and return if we are stopped or not
     pub fn debugger_run(&mut self) {
-        let mut should_stop = false;
+        let mut should_interrupt_frame = false;
         let debugger = self.debugger.take().expect("debugger should be None here");
-        let debugger = debugger
-            .handle_message(self, &mut should_stop)
-            .map_err(|_| "Failed to handle message")
-            .unwrap();
-
-        self.debugger = debugger;
+        self.debugger = debugger.handle_incoming_requests(self, &mut should_interrupt_frame);
 
         if let Some(debugger) = &mut self.debugger {
-            if should_stop {
+            if should_interrupt_frame {
                 debugger.notify_stop_reason(SingleThreadStopReason::DoneStep);
             } else {
                 self.frame_interruptible();
@@ -277,7 +272,7 @@ impl GameBoyAdvance {
     }
 
     #[inline]
-    pub fn cpu_step(&mut self) {
+    pub(crate) fn cpu_step(&mut self) {
         if self.io_devs.intc.irq_pending() {
             self.cpu.irq();
             self.io_devs.haltcnt = HaltState::Running;

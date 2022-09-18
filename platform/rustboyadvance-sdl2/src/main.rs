@@ -95,12 +95,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         audio_interface,
     ));
 
+    // let gba_raw_ptr = Box::into_raw(gba) as usize;
+    // static mut gba_raw: usize = 0;
+    // unsafe { gba_raw = gba_raw_ptr };
+    // let mut gba = unsafe {Box::from_raw(gba_raw_ptr as *mut GameBoyAdvance) };
+
+    // std::panic::set_hook(Box::new(|panic_info| {
+    //     let gba = unsafe {Box::from_raw(gba_raw as *mut GameBoyAdvance) };
+    //     println!("System crashed Oh No!!! {:?}", gba.cpu);
+    //     let normal_panic = std::panic::take_hook();
+    //     normal_panic(panic_info);
+    // }));
+
+
     if opts.skip_bios {
+        println!("Skipping bios animation..");
         gba.skip_bios();
     }
 
     if opts.gdbserver {
-        todo!("gdb")
+        gba.start_gdbserver(DEFAULT_GDB_SERVER_PORT);
     }
 
     let mut vsync = true;
@@ -146,7 +160,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if opts.savestate_path().is_file() {
                             let save = read_bin_file(&opts.savestate_path())?;
                             info!("Restoring state from {:?}...", opts.savestate_path());
-                            gba.restore_state(&save)?;
+                            let (audio_interface, _sdl_audio_device_new) = audio::create_audio_player(&sdl_context)?;
+                            _sdl_audio_device = _sdl_audio_device_new;
+                            let rom = opts.read_rom()?.into_boxed_slice();
+                            gba = Box::new(GameBoyAdvance::from_saved_state(&save, bios_bin.clone(), rom, audio_interface)?);
                             info!("Restored!");
                         } else {
                             info!("Savestate not created, please create one by pressing F5");

@@ -11,21 +11,23 @@ use arm7tdmi::{
 
 use crate::{GBAError, GameBoyAdvance};
 
-use super::{event_loop::DebuggerEventLoop, DebuggerMessage, DebuggerState, DebuggerTarget};
+use super::{
+    event_loop::DebuggerEventLoop, DebuggerRequest, DebuggerRequestHandler, DebuggerTarget,
+};
 
 /// Starts a gdbserver thread
 pub(crate) fn start_gdb_server_thread(
     gba: &mut GameBoyAdvance,
     port: u16,
-) -> Result<DebuggerState, GBAError> {
+) -> Result<DebuggerRequestHandler, GBAError> {
     let (tx, rx) = crossbeam::channel::unbounded();
-    let operation_signal = Arc::new((Mutex::new(false), Condvar::new()));
+    let request_complete_signal = Arc::new((Mutex::new(false), Condvar::new()));
     let stop_signal = Arc::new((
         Mutex::new(SingleThreadStopReason::Signal(Signal::SIGINT)),
         Condvar::new(),
     ));
     let stop_signal_2 = stop_signal.clone();
-    let operation_signal_2 = operation_signal.clone();
+    let request_complete_signal_2 = request_complete_signal.clone();
     let memory_map = gba.sysbus.generate_memory_map_xml().unwrap();
 
     let conn = wait_for_connection(port)?;
@@ -35,7 +37,7 @@ pub(crate) fn start_gdb_server_thread(
 
         let mut target = DebuggerTarget {
             tx,
-            operation_signal: operation_signal_2,
+            request_complete_signal: request_complete_signal_2,
             stop_signal: stop_signal_2,
             memory_map,
         };
@@ -46,13 +48,13 @@ pub(crate) fn start_gdb_server_thread(
             .unwrap();
         target
             .tx
-            .send(DebuggerMessage::Disconnected(disconnect_reason))
+            .send(DebuggerRequest::Disconnected(disconnect_reason))
             .unwrap();
     });
 
-    let mut debugger = DebuggerState {
+    let mut debugger = DebuggerRequestHandler {
         rx,
-        operation_signal,
+        request_complete_signal,
         stop_signal,
         thread,
         stopped: true,

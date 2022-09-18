@@ -41,7 +41,7 @@ impl<I: MemoryGdbInterface> SingleThreadBase for Arm7tdmiCore<I> {
         &mut self,
         regs: &mut gdbstub_arch::arm::reg::ArmCoreRegs,
     ) -> TargetResult<(), Self> {
-        regs.pc = self.get_next_pc();
+        regs.pc = self.pc;
         regs.lr = self.get_reg(REG_LR);
         regs.sp = self.get_reg(REG_SP);
         regs.r[..].copy_from_slice(&self.gpr[..13]);
@@ -56,7 +56,7 @@ impl<I: MemoryGdbInterface> SingleThreadBase for Arm7tdmiCore<I> {
         self.set_reg(REG_PC, regs.pc);
         self.set_reg(REG_LR, regs.lr);
         self.set_reg(REG_SP, regs.sp);
-        self.gpr.copy_from_slice(&regs.r);
+        self.gpr[..13].copy_from_slice(&regs.r);
         self.cpsr.set(regs.cpsr);
         Ok(())
     }
