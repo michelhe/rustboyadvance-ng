@@ -22,7 +22,7 @@ use self::consts::*;
 pub enum HaltState {
     Running,
     Halt, // In Halt mode, the CPU is paused as long as (IE AND IF)=0,
-    Stop, // In Stop mode, most of the hardware including sound and video are paused
+          // Stop, // In Stop mode, most of the hardware including sound and video are paused TODO: handle
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -288,7 +288,7 @@ impl BusIO for IoDevices {
             REG_POSTFLG => io.post_boot_flag = value != 0,
             REG_HALTCNT => {
                 if value & 0x80 != 0 {
-                    io.haltcnt = HaltState::Stop;
+                    // io.haltcnt = HaltState::Stop;
                     panic!("Can't handle HaltCtrl == Stop yet");
                 } else {
                     io.haltcnt = HaltState::Halt;

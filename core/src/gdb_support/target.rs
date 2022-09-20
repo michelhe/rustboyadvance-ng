@@ -1,8 +1,11 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 /// Implementing the Target trait for gdbstub
 use arm7tdmi::gdb::{copy_range_to_buf, gdbstub, gdbstub_arch};
+use crossbeam::channel::Sender;
 use gdbstub::common::Signal;
+use gdbstub::stub::{DisconnectReason, SingleThreadStopReason};
 use gdbstub::target::ext::base::singlethread::{
     SingleThreadBase, SingleThreadResume, SingleThreadSingleStep,
 };
@@ -12,7 +15,78 @@ use gdbstub::target::ext::breakpoints::BreakpointsOps;
 use gdbstub::target::{self, Target, TargetError, TargetResult};
 use gdbstub_arch::arm::reg::ArmCoreRegs;
 
-use super::{DebuggerRequest, DebuggerTarget};
+use super::DebuggerRequest;
+
+pub(crate) struct DebuggerTarget {
+    tx: Sender<DebuggerRequest>,
+    request_complete_signal: Arc<(Mutex<bool>, Condvar)>,
+    pub(crate) stop_signal: Arc<(Mutex<Option<SingleThreadStopReason<u32>>>, Condvar)>,
+    pub(crate) memory_map: String,
+}
+
+impl DebuggerTarget {
+    pub fn new(
+        tx: Sender<DebuggerRequest>,
+        request_complete_signal: Arc<(Mutex<bool>, Condvar)>,
+        stop_signal: Arc<(Mutex<Option<SingleThreadStopReason<u32>>>, Condvar)>,
+        memory_map: String,
+    ) -> DebuggerTarget {
+        DebuggerTarget {
+            tx,
+            request_complete_signal,
+            stop_signal,
+            memory_map,
+        }
+    }
+
+    pub fn debugger_request(&mut self, req: DebuggerRequest) {
+        let (lock, cvar) = &*self.request_complete_signal;
+        let mut finished = lock.lock().unwrap();
+        *finished = false;
+
+        // now send the request
+        self.tx.send(req).unwrap();
+
+        // wait for the notification
+        while !*finished {
+            finished = cvar.wait(finished).unwrap();
+        }
+        *finished = false;
+    }
+
+    pub fn wait_for_stop_reason_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> Option<SingleThreadStopReason<u32>> {
+        let (lock, cvar) = &*self.stop_signal;
+        let mut stop_reason = lock.lock().unwrap();
+        if let Some(stop_reason) = stop_reason.take() {
+            return Some(stop_reason);
+        }
+        let (mut stop_reason, timeout_result) = cvar.wait_timeout(stop_reason, timeout).unwrap();
+        if timeout_result.timed_out() {
+            None
+        } else {
+            Some(stop_reason.take().expect("None is not expected here"))
+        }
+    }
+
+    pub fn wait_for_stop_reason_blocking(&mut self) -> SingleThreadStopReason<u32> {
+        let (lock, cvar) = &*self.stop_signal;
+        let mut stop_reason = lock.lock().unwrap();
+        if let Some(stop_reason) = stop_reason.take() {
+            return stop_reason;
+        }
+        let mut stop_reason = cvar.wait(stop_reason).unwrap();
+        stop_reason.take().expect("None is not expected here")
+    }
+
+    pub fn disconnect(&mut self, disconnect_reason: DisconnectReason) {
+        self.tx
+            .send(DebuggerRequest::Disconnected(disconnect_reason))
+            .unwrap();
+    }
+}
 
 impl Target for DebuggerTarget {
     type Error = ();
@@ -37,28 +111,19 @@ impl Target for DebuggerTarget {
 impl SingleThreadBase for DebuggerTarget {
     fn read_registers(&mut self, regs: &mut ArmCoreRegs) -> TargetResult<(), Self> {
         let regs_copy = Arc::new(Mutex::new(ArmCoreRegs::default()));
-        self.tx
-            .send(DebuggerRequest::ReadRegs(regs_copy.clone()))
-            .unwrap();
-        self.wait_for_operation();
+        self.debugger_request(DebuggerRequest::ReadRegs(regs_copy.clone()));
         regs_copy.lock().unwrap().clone_into(regs);
         Ok(())
     }
 
     fn write_registers(&mut self, regs: &ArmCoreRegs) -> TargetResult<(), Self> {
-        self.tx
-            .send(DebuggerRequest::WriteRegs(regs.clone()))
-            .unwrap();
-        self.wait_for_operation();
+        self.debugger_request(DebuggerRequest::WriteRegs(regs.clone()));
         Ok(())
     }
 
     fn read_addrs(&mut self, start_addr: u32, data: &mut [u8]) -> TargetResult<(), Self> {
         let buffer = Arc::new(Mutex::new(vec![0; data.len()].into_boxed_slice()));
-        self.tx
-            .send(DebuggerRequest::ReadAddrs(start_addr, buffer.clone()))
-            .unwrap();
-        self.wait_for_operation();
+        self.debugger_request(DebuggerRequest::ReadAddrs(start_addr, buffer.clone()));
         data.copy_from_slice(&buffer.lock().unwrap());
         Ok(())
     }
@@ -78,8 +143,7 @@ impl SingleThreadBase for DebuggerTarget {
 
 impl SingleThreadResume for DebuggerTarget {
     fn resume(&mut self, _signal: Option<Signal>) -> Result<(), Self::Error> {
-        self.tx.send(DebuggerRequest::Resume).unwrap();
-        self.wait_for_operation();
+        self.debugger_request(DebuggerRequest::Resume);
         Ok(())
     }
 
@@ -94,8 +158,7 @@ impl SingleThreadResume for DebuggerTarget {
 
 impl SingleThreadSingleStep for DebuggerTarget {
     fn step(&mut self, _signal: Option<Signal>) -> Result<(), Self::Error> {
-        self.tx.send(DebuggerRequest::SingleStep).unwrap();
-        self.wait_for_operation();
+        self.debugger_request(DebuggerRequest::SingleStep);
         Ok(())
     }
 }
@@ -132,10 +195,7 @@ impl target::ext::breakpoints::SwBreakpoint for DebuggerTarget {
         addr: u32,
         _kind: gdbstub_arch::arm::ArmBreakpointKind,
     ) -> TargetResult<bool, Self> {
-        self.tx
-            .send(DebuggerRequest::AddSwBreakpoint(addr))
-            .unwrap();
-        self.wait_for_operation();
+        self.debugger_request(DebuggerRequest::AddSwBreakpoint(addr));
         Ok(true)
     }
 
@@ -144,10 +204,7 @@ impl target::ext::breakpoints::SwBreakpoint for DebuggerTarget {
         addr: u32,
         _kind: gdbstub_arch::arm::ArmBreakpointKind,
     ) -> TargetResult<bool, Self> {
-        self.tx
-            .send(DebuggerRequest::DelSwBreakpoint(addr))
-            .unwrap();
-        self.wait_for_operation();
+        self.debugger_request(DebuggerRequest::DelSwBreakpoint(addr));
         Ok(true)
     }
 }

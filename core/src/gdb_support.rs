@@ -9,13 +9,14 @@ use arm7tdmi::gdbstub::target::TargetError;
 use arm7tdmi::gdbstub::target::{ext::base::singlethread::SingleThreadBase, Target};
 use arm7tdmi::gdbstub_arch::arm::reg::ArmCoreRegs;
 use arm7tdmi::memory::Addr;
-use crossbeam::channel::{Receiver, Sender};
+use crossbeam::channel::Receiver;
 
 // mod target;
 mod event_loop;
 pub(crate) mod gdb_thread;
 mod memory_map;
 mod target;
+use target::DebuggerTarget;
 
 use crate::GameBoyAdvance;
 
@@ -34,151 +35,117 @@ pub(crate) enum DebuggerRequest {
     Disconnected(DisconnectReason),
 }
 
-pub struct DebuggerTarget {
-    tx: Sender<DebuggerRequest>,
-    request_complete_signal: Arc<(Mutex<bool>, Condvar)>,
-    stop_signal: Arc<(Mutex<SingleThreadStopReason<u32>>, Condvar)>,
-    memory_map: String,
-}
-
-impl DebuggerTarget {
-    #[inline]
-    pub fn wait_for_operation(&mut self) {
-        let (lock, cvar) = &*self.request_complete_signal;
-        let mut finished = lock.lock().unwrap();
-        while !*finished {
-            finished = cvar.wait(finished).unwrap();
-        }
-        *finished = false;
-    }
-}
-
 pub(crate) struct DebuggerRequestHandler {
     rx: Receiver<DebuggerRequest>,
     request_complete_signal: Arc<(Mutex<bool>, Condvar)>,
-    stop_signal: Arc<(Mutex<SingleThreadStopReason<u32>>, Condvar)>,
+    stop_signal: Arc<(Mutex<Option<SingleThreadStopReason<u32>>>, Condvar)>,
     thread: JoinHandle<()>,
     stopped: bool,
 }
 
-enum DebuggerStatus {
-    RequestComplete,
-    ResumeRequested,
-    StopRequested,
-    Disconnected(DisconnectReason),
-}
-
 impl DebuggerRequestHandler {
+    pub fn handle_incoming_requests(
+        mut self,
+        gba: &mut GameBoyAdvance,
+    ) -> Option<DebuggerRequestHandler> {
+        if self.thread.is_finished() {
+            warn!("gdb server thread unexpectdly died");
+            return self.terminate();
+        }
+        loop {
+            // Handle as much as messages as possible
+            while let Ok(mut req) = self.rx.try_recv() {
+                match self.handle_request(gba, &mut req) {
+                    Ok(Some(disconnect_reason)) => {
+                        debug!("Debugger disconnected due to {:?}", disconnect_reason);
+                        debug!("closing gdbserver thread");
+                        return self.terminate();
+                    }
+                    Ok(None) => {}
+                    Err(_) => {
+                        error!("An error occured while handling debug request {:?}", req);
+                        return self.terminate();
+                    }
+                }
+            }
+            // If target is in stopped state, stay here.
+            if !self.stopped {
+                break;
+            }
+        }
+        Some(self)
+    }
+
     fn handle_request(
         &mut self,
         gba: &mut GameBoyAdvance,
         req: &mut DebuggerRequest,
-    ) -> Result<DebuggerStatus, TargetError<<DebuggerTarget as Target>::Error>> {
+    ) -> Result<Option<DisconnectReason>, TargetError<<DebuggerTarget as Target>::Error>> {
         use DebuggerRequest::*;
         match req {
             ReadRegs(regs) => {
                 let mut regs = regs.lock().unwrap();
                 gba.cpu.read_registers(&mut regs)?;
-                debug!("Debugger requested to read regs: {:?}", regs);
-                Ok(DebuggerStatus::RequestComplete)
+                trace!("Debugger requested to read regs: {:?}", regs);
+                self.complete_request(None)
             }
             WriteRegs(regs) => {
-                debug!("Debugger requested to write regs: {:?}", regs);
+                trace!("Debugger requested to write regs: {:?}", regs);
                 gba.cpu.write_registers(regs)?;
-                Ok(DebuggerStatus::RequestComplete)
+                self.complete_request(None)
             }
             ReadAddrs(addr, data) => {
                 let mut data = data.lock().unwrap();
-                debug!(
+                trace!(
                     "Debugger requested to read {} bytes from 0x{:08x}",
                     data.len(),
                     addr
                 );
                 gba.cpu.read_addrs(*addr, &mut data)?;
-                Ok(DebuggerStatus::RequestComplete)
+                self.complete_request(None)
             }
             WriteAddrs(addr, data) => {
-                debug!(
+                trace!(
                     "Debugger requested to write {} bytes at 0x{:08x}",
                     data.len(),
                     addr
                 );
                 gba.cpu.write_addrs(*addr, &data)?;
-                Ok(DebuggerStatus::RequestComplete)
+                self.complete_request(None)
             }
             Interrupt => {
-                debug!("Debugger requested stopped");
-                self.notify_stop_reason(SingleThreadStopReason::Signal(Signal::SIGINT));
-                Ok(DebuggerStatus::StopRequested)
+                debug!("Ctrl-C from debugger");
+                self.stopped = true;
+                self.complete_request(Some(SingleThreadStopReason::Signal(Signal::SIGINT)))
             }
             Resume => {
-                debug!("Debugger requested resume");
+                debug!("Resume");
                 self.stopped = false;
-                Ok(DebuggerStatus::ResumeRequested)
+                self.complete_request(None)
             }
             SingleStep => {
                 debug!("Debugger requested single step");
-                gba.cpu_step();
-                let stop_reason = SingleThreadStopReason::DoneStep;
-                self.notify_stop_reason(stop_reason);
-                Ok(DebuggerStatus::StopRequested)
+                self.stopped = true;
+                gba.single_step();
+                let _ = gba.handle_events();
+                self.complete_request(Some(SingleThreadStopReason::DoneStep))
             }
             AddSwBreakpoint(addr) => {
                 gba.cpu.add_breakpoint(*addr);
-                Ok(DebuggerStatus::RequestComplete)
+                self.complete_request(None)
             }
             DelSwBreakpoint(addr) => {
                 gba.cpu.del_breakpoint(*addr);
-                Ok(DebuggerStatus::RequestComplete)
+                self.complete_request(None)
             }
-            Disconnected(reason) => Ok(DebuggerStatus::Disconnected(*reason)),
+            Disconnected(reason) => Ok(Some(*reason)),
         }
     }
 
-    fn terminate(mut self, should_interrupt_frame: &mut bool) -> Option<DebuggerRequestHandler> {
+    fn terminate(mut self) -> Option<DebuggerRequestHandler> {
         self.notify_stop_reason(SingleThreadStopReason::Exited(1));
         self.thread.join().unwrap();
-        self.stopped = true;
-        *should_interrupt_frame = true;
         None
-    }
-
-    pub fn handle_incoming_requests(
-        mut self,
-        gba: &mut GameBoyAdvance,
-        should_interrupt_frame: &mut bool,
-    ) -> Option<DebuggerRequestHandler> {
-        if self.thread.is_finished() {
-            warn!("gdb server thread unexpectdly died");
-            return self.terminate(should_interrupt_frame);
-        }
-        while let Ok(mut req) = self.rx.try_recv() {
-            match self.handle_request(gba, &mut req) {
-                Ok(DebuggerStatus::RequestComplete) => {
-                    self.notify_request_complete();
-                }
-                Ok(DebuggerStatus::StopRequested) => {
-                    self.stopped = true;
-                    self.notify_request_complete();
-                }
-                Ok(DebuggerStatus::ResumeRequested) => {
-                    self.stopped = false;
-                    self.notify_request_complete();
-                }
-                Ok(DebuggerStatus::Disconnected(reason)) => {
-                    debug!("Debugger disconnected due to {:?}", reason);
-                    debug!("closing gdbserver thread");
-                    return self.terminate(should_interrupt_frame);
-                }
-
-                Err(_) => {
-                    error!("An error occured while handling debug request {:?}", req);
-                    return self.terminate(should_interrupt_frame);
-                }
-            }
-        }
-        *should_interrupt_frame = self.stopped;
-        Some(self)
     }
 
     fn notify_request_complete(&mut self) {
@@ -188,15 +155,27 @@ impl DebuggerRequestHandler {
         cvar.notify_one();
     }
 
+    fn complete_request(
+        &mut self,
+        stop_reason: Option<SingleThreadStopReason<u32>>,
+    ) -> Result<Option<DisconnectReason>, TargetError<<DebuggerTarget as Target>::Error>> {
+        self.notify_request_complete();
+        if let Some(stop_reason) = stop_reason {
+            self.notify_stop_reason(stop_reason);
+        }
+        Ok(None)
+    }
+
     pub fn notify_stop_reason(&mut self, reason: SingleThreadStopReason<u32>) {
-        self.stopped = true;
+        debug!("Notifying debugger on stop reason: {:?}", reason);
         let (lock, cvar) = &*self.stop_signal;
         let mut stop_reason = lock.lock().unwrap();
-        *stop_reason = reason;
+        *stop_reason = Some(reason);
         cvar.notify_one();
     }
 
     pub fn notify_breakpoint(&mut self, _bp: Addr) {
+        self.stopped = true;
         self.notify_stop_reason(SingleThreadStopReason::SwBreak(()));
     }
 }

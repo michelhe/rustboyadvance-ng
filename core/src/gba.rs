@@ -2,7 +2,6 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use arm7tdmi::gdbstub::stub::SingleThreadStopReason;
 use bincode;
 use serde::{Deserialize, Serialize};
 
@@ -251,19 +250,9 @@ impl GameBoyAdvance {
 
     /// Recv & handle messages from the debugger, and return if we are stopped or not
     pub fn debugger_run(&mut self) {
-        let mut should_interrupt_frame = false;
         let debugger = self.debugger.take().expect("debugger should be None here");
-        self.debugger = debugger.handle_incoming_requests(self, &mut should_interrupt_frame);
-
-        if let Some(debugger) = &mut self.debugger {
-            if should_interrupt_frame {
-                debugger.notify_stop_reason(SingleThreadStopReason::DoneStep);
-            } else {
-                self.frame_interruptible();
-            }
-        } else {
-            error!("debugger was disconnected!");
-        }
+        self.debugger = debugger.handle_incoming_requests(self);
+        self.frame_interruptible();
     }
 
     #[inline]
@@ -272,10 +261,15 @@ impl GameBoyAdvance {
     }
 
     #[inline]
-    pub(crate) fn cpu_step(&mut self) {
+    fn cpu_interrupt(&mut self) {
+        self.cpu.irq();
+        self.io_devs.haltcnt = HaltState::Running; // Clear out from low power mode
+    }
+
+    #[inline]
+    fn cpu_step(&mut self) {
         if self.io_devs.intc.irq_pending() {
-            self.cpu.irq();
-            self.io_devs.haltcnt = HaltState::Running;
+            self.cpu_interrupt();
         }
         self.cpu.step();
     }
@@ -285,7 +279,29 @@ impl GameBoyAdvance {
         match (self.io_devs.dmac.is_active(), self.io_devs.haltcnt) {
             (true, _) => Some(BusMaster::Dma),
             (false, HaltState::Running) => Some(BusMaster::Cpu),
-            (false, _) => None,
+            (false, HaltState::Halt) => None,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn single_step(&mut self) {
+        // 3 Options:
+        // 1. DMA is active - thus CPU is blocked
+        // 2. DMA inactive and halt state is RUN - CPU can run
+        // 3. DMA inactive and halt state is HALT - CPU is blocked
+        match self.get_bus_master() {
+            Some(BusMaster::Dma) => self.dma_step(),
+            Some(BusMaster::Cpu) => self.cpu_step(),
+            None => {
+                // Halt mode - system is in a low-power mode, only (IE and IF) can release CPU from this state.
+                if self.io_devs.intc.irq_pending() {
+                    self.cpu_interrupt();
+                } else {
+                    // Fast-forward to next pending HW event so we don't waste time idle-looping when we know the only way
+                    // To get out of Halt mode is through an interrupt.
+                    self.scheduler.fast_forward_to_next();
+                }
+            }
         }
     }
 
@@ -293,60 +309,45 @@ impl GameBoyAdvance {
     /// @return number of cycle actually ran
     #[inline]
     pub(super) fn run<const CHECK_BREAKPOINTS: bool>(&mut self, cycles_to_run: usize) -> usize {
-        let run_start_time = self.scheduler.timestamp();
+        let start_time = self.scheduler.timestamp();
+        let end_time = start_time + cycles_to_run;
 
         // Register an event to mark the end of this run
         self.scheduler
-            .schedule_at(EventType::RunLimitReached, run_start_time + cycles_to_run);
+            .schedule_at(EventType::RunLimitReached, end_time);
 
-        let mut running = true;
-        while running {
-            // The tricky part is to avoid unnecessary calls for Scheduler::process_pending,
+        'running: loop {
+            // The tricky part is to avoid unnecessary calls for Scheduler::handle_events,
             // performance-wise it would be best to run as many cycles as fast as possible while we know there are no pending events.
-            // Fast forward emulation until an event occurs
-            'run_unitl_next_event: while self.scheduler.timestamp()
-                <= self.scheduler.timestamp_of_next_event()
+            // Safety: Since we pushed a RunLimitReached event, we know this check has a hard limit
+            while self.scheduler.timestamp()
+                <= unsafe { self.scheduler.timestamp_of_next_event_unchecked() }
             {
-                // 3 Options:
-                // 1. DMA is active - thus CPU is blocked
-                // 2. DMA inactive and halt state is RUN - CPU can run
-                // 3. DMA inactive and halt state is HALT - CPU is blocked
-                match self.get_bus_master() {
-                    Some(BusMaster::Dma) => self.dma_step(),
-                    Some(BusMaster::Cpu) => {
-                        self.cpu_step();
-                        if CHECK_BREAKPOINTS {
-                            if let Some(bp) = self.cpu.check_breakpoint() {
-                                debug!("Arm7tdmi breakpoint hit 0x{:08x}", bp);
-                                self.scheduler.cancel_pending(EventType::RunLimitReached);
-                                running = false;
-
-                                if let Some(debugger) = &mut self.debugger {
-                                    debugger.notify_breakpoint(bp);
-                                }
-
-                                break 'run_unitl_next_event;
-                            }
+                self.single_step();
+                if CHECK_BREAKPOINTS {
+                    if let Some(bp) = self.cpu.check_breakpoint() {
+                        debug!("Arm7tdmi breakpoint hit 0x{:08x}", bp);
+                        self.scheduler.cancel_pending(EventType::RunLimitReached);
+                        let _ = self.handle_events();
+                        if let Some(debugger) = &mut self.debugger {
+                            debugger.notify_breakpoint(bp);
                         }
-                    }
-                    None => {
-                        if self.io_devs.intc.irq_pending() {
-                            self.io_devs.haltcnt = HaltState::Running;
-                        } else {
-                            self.scheduler.fast_forward_to_next();
-                            self.handle_events(&mut running)
-                        }
+                        break 'running;
                     }
                 }
             }
 
-            self.handle_events(&mut running);
+            if self.handle_events() {
+                break 'running;
+            }
         }
 
-        self.scheduler.timestamp() - run_start_time
+        self.scheduler.timestamp() - start_time
     }
 
-    fn handle_events(&mut self, run_limit_flag: &mut bool) {
+    /// Handle all pending scheduler events and return if run limit was reached.
+    #[inline]
+    pub(super) fn handle_events(&mut self) -> bool {
         let io = &mut (*self.io_devs);
         while let Some((event, event_time)) = self.scheduler.pop_pending_event() {
             // Since we only examine the scheduler queue every so often, most events will be handled late by a few cycles.
@@ -354,8 +355,8 @@ impl GameBoyAdvance {
             // every cpu cycle, where in 99% of cases it will always be empty.
             let new_event = match event {
                 EventType::RunLimitReached => {
-                    *run_limit_flag = false;
-                    None
+                    // If we have pending events, we handle by the next frame.
+                    return true;
                 }
                 EventType::DmaActivateChannel(channel_id) => {
                     io.dmac.activate_channel(channel_id);
@@ -375,6 +376,7 @@ impl GameBoyAdvance {
                 self.scheduler.schedule_at(new_event, event_time + when)
             }
         }
+        false
     }
 
     pub fn skip_bios(&mut self) {
@@ -412,26 +414,6 @@ impl GameBoyAdvance {
         }
 
         None
-    }
-
-    #[cfg(feature = "debugger")]
-    /// 'step' function that checks for breakpoints
-    /// TODO avoid code duplication
-    pub fn step_debugger(&mut self) -> Option<u32> {
-        // clear any pending DMAs
-        self.dma_step();
-
-        // Run the CPU
-        self.cpu_step();
-
-        let breakpoint = self.check_breakpoint();
-
-        let mut _running = true;
-        while let Some((event, cycles_late)) = self.scheduler.pop_pending_event() {
-            self.handle_event(event, cycles_late, &mut _running);
-        }
-
-        breakpoint
     }
 
     pub fn get_frame_buffer(&self) -> &[u32] {

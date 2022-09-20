@@ -95,6 +95,7 @@ impl fmt::Display for CpuState {
 }
 
 #[derive(Debug, Primitive, Copy, Clone, PartialEq, Eq)]
+#[repr(u8)]
 pub enum CpuMode {
     User = 0b10000,
     Fiq = 0b10001,

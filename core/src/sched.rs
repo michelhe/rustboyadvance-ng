@@ -194,9 +194,12 @@ impl Scheduler {
     }
 
     #[inline]
-    /// The event queue is assumed to be not empty
-    pub fn timestamp_of_next_event(&self) -> usize {
-        self.events.peek().unwrap_or_else(|| unreachable!()).time
+    /// Safety - Onyl safe to call when we know the event queue is not empty
+    pub unsafe fn timestamp_of_next_event_unchecked(&self) -> usize {
+        self.events
+            .peek()
+            .unwrap_or_else(|| std::hint::unreachable_unchecked())
+            .time
     }
 
     #[inline]
