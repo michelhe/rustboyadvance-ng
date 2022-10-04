@@ -1,4 +1,4 @@
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, WaitTimeoutResult};
 use std::time::Duration;
 
 /// Implementing the Target trait for gdbstub
@@ -12,6 +12,7 @@ use gdbstub::target::ext::base::singlethread::{
 use gdbstub::target::ext::base::singlethread::{SingleThreadResumeOps, SingleThreadSingleStepOps};
 use gdbstub::target::ext::base::BaseOps;
 use gdbstub::target::ext::breakpoints::BreakpointsOps;
+use gdbstub::target::ext::monitor_cmd::{outputln, ConsoleOutput};
 use gdbstub::target::{self, Target, TargetError, TargetResult};
 use gdbstub_arch::arm::reg::ArmCoreRegs;
 
@@ -42,16 +43,15 @@ impl DebuggerTarget {
     pub fn debugger_request(&mut self, req: DebuggerRequest) {
         let (lock, cvar) = &*self.request_complete_signal;
         let mut finished = lock.lock().unwrap();
-        *finished = false;
-
         // now send the request
         self.tx.send(req).unwrap();
-
         // wait for the notification
         while !*finished {
             finished = cvar.wait(finished).unwrap();
         }
+        // ack the other side we got the signal
         *finished = false;
+        cvar.notify_one();
     }
 
     pub fn wait_for_stop_reason_timeout(
@@ -60,24 +60,22 @@ impl DebuggerTarget {
     ) -> Option<SingleThreadStopReason<u32>> {
         let (lock, cvar) = &*self.stop_signal;
         let mut stop_reason = lock.lock().unwrap();
-        if let Some(stop_reason) = stop_reason.take() {
-            return Some(stop_reason);
+        let mut timeout_result: WaitTimeoutResult;
+        while stop_reason.is_none() {
+            (stop_reason, timeout_result) = cvar.wait_timeout(stop_reason, timeout).unwrap();
+            if timeout_result.timed_out() {
+                return None;
+            }
         }
-        let (mut stop_reason, timeout_result) = cvar.wait_timeout(stop_reason, timeout).unwrap();
-        if timeout_result.timed_out() {
-            None
-        } else {
-            Some(stop_reason.take().expect("None is not expected here"))
-        }
+        Some(stop_reason.take().expect("None is not expected here"))
     }
 
     pub fn wait_for_stop_reason_blocking(&mut self) -> SingleThreadStopReason<u32> {
         let (lock, cvar) = &*self.stop_signal;
         let mut stop_reason = lock.lock().unwrap();
-        if let Some(stop_reason) = stop_reason.take() {
-            return stop_reason;
+        while stop_reason.is_none() {
+            stop_reason = cvar.wait(stop_reason).unwrap();
         }
-        let mut stop_reason = cvar.wait(stop_reason).unwrap();
         stop_reason.take().expect("None is not expected here")
     }
 
@@ -104,6 +102,10 @@ impl Target for DebuggerTarget {
     }
 
     fn support_memory_map(&mut self) -> Option<target::ext::memory_map::MemoryMapOps<Self>> {
+        Some(self)
+    }
+
+    fn support_monitor_cmd(&mut self) -> Option<target::ext::monitor_cmd::MonitorCmdOps<'_, Self>> {
         Some(self)
     }
 }
@@ -206,5 +208,33 @@ impl target::ext::breakpoints::SwBreakpoint for DebuggerTarget {
     ) -> TargetResult<bool, Self> {
         self.debugger_request(DebuggerRequest::DelSwBreakpoint(addr));
         Ok(true)
+    }
+}
+
+impl target::ext::monitor_cmd::MonitorCmd for DebuggerTarget {
+    fn handle_monitor_cmd(
+        &mut self,
+        cmd: &[u8],
+        mut out: ConsoleOutput<'_>,
+    ) -> Result<(), Self::Error> {
+        let cmd = match std::str::from_utf8(cmd) {
+            Ok(cmd) => cmd,
+            Err(_) => {
+                outputln!(out, "command must be valid UTF-8");
+                return Ok(());
+            }
+        };
+
+        match cmd {
+            "reset" => {
+                self.debugger_request(DebuggerRequest::Reset);
+                outputln!(out, "sent reset signal");
+            }
+            unk => {
+                outputln!(out, "unknown command: {}", unk);
+            }
+        }
+
+        Ok(())
     }
 }

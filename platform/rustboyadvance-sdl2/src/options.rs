@@ -1,4 +1,4 @@
-use std::{path::PathBuf, io};
+use std::{io, path::PathBuf};
 
 use rustboyadvance_core::{
     cartridge::{BackupType, GamepakBuilder},
@@ -32,6 +32,9 @@ pub struct Options {
     /// Initalize gdbserver and wait for a connection from gdb
     #[structopt(short = "d", long)]
     pub gdbserver: bool,
+
+    #[structopt(long = "port", default_value = "1337")]
+    pub gdbserver_port: u16,
 
     /// Force emulation of RTC, use for games that have RTC but the emulator fails to detect
     #[structopt(long)]

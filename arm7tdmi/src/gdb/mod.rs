@@ -13,9 +13,10 @@ pub extern crate gdbstub_arch;
 /// Wait for tcp connection on port
 pub fn wait_for_connection(port: u16) -> io::Result<TcpStream> {
     let bind_addr = format!("0.0.0.0:{port}");
+    info!("waiting for connection on {:?}", bind_addr);
+
     let sock = TcpListener::bind(bind_addr)?;
 
-    info!("waiting for connection");
     // Blocks until a GDB client connects via TCP.
     // i.e: Running `target remote localhost:<port>` from the GDB prompt.
     let (stream, addr) = sock.accept()?;

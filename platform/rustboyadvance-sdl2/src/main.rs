@@ -27,7 +27,6 @@ use rustboyadvance_core::prelude::*;
 use rustboyadvance_utils::FpsCounter;
 
 const LOG_DIR: &str = ".logs";
-const DEFAULT_GDB_SERVER_PORT: u16 = 1337;
 
 fn ask_download_bios() {
     const OPEN_SOURCE_BIOS_URL: &'static str =
@@ -113,7 +112,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if opts.gdbserver {
-        gba.start_gdbserver(DEFAULT_GDB_SERVER_PORT);
+        gba.start_gdbserver(opts.gdbserver_port);
     }
 
     let mut vsync = true;
@@ -144,7 +143,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             .unwrap();
                         info!("ending debugger...")
                     }
-                    Scancode::F2 => gba.start_gdbserver(DEFAULT_GDB_SERVER_PORT),
+                    Scancode::F2 => gba.start_gdbserver(opts.gdbserver_port),
                     Scancode::F5 => {
                         info!("Saving state ...");
                         let save = gba.save_state()?;
@@ -159,10 +158,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if opts.savestate_path().is_file() {
                             let save = read_bin_file(&opts.savestate_path())?;
                             info!("Restoring state from {:?}...", opts.savestate_path());
-                            let (audio_interface, _sdl_audio_device_new) = audio::create_audio_player(&sdl_context)?;
+                            let (audio_interface, _sdl_audio_device_new) =
+                                audio::create_audio_player(&sdl_context)?;
                             _sdl_audio_device = _sdl_audio_device_new;
                             let rom = opts.read_rom()?.into_boxed_slice();
-                            gba = Box::new(GameBoyAdvance::from_saved_state(&save, bios_bin.clone(), rom, audio_interface)?);
+                            gba = Box::new(GameBoyAdvance::from_saved_state(
+                                &save,
+                                bios_bin.clone(),
+                                rom,
+                                audio_interface,
+                            )?);
                             info!("Restored!");
                         } else {
                             info!("Savestate not created, please create one by pressing F5");

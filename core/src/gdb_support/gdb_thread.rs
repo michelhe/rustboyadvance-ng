@@ -3,9 +3,8 @@ use std::sync::{Arc, Condvar, Mutex};
 use arm7tdmi::{
     gdb::wait_for_connection,
     gdbstub::{
-        common::Signal,
         conn::ConnectionExt,
-        stub::{GdbStub, SingleThreadStopReason},
+        stub::GdbStub,
     },
 };
 
@@ -41,14 +40,12 @@ pub(crate) fn start_gdb_server_thread(
         target.disconnect(disconnect_reason);
     });
 
-    let mut debugger = DebuggerRequestHandler {
+    let debugger = DebuggerRequestHandler {
         rx,
         request_complete_signal,
         stop_signal,
         thread,
         stopped: true,
     };
-    debugger.notify_stop_reason(SingleThreadStopReason::Signal(Signal::SIGINT));
-
     Ok(debugger)
 }

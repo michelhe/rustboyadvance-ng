@@ -32,6 +32,7 @@ pub(crate) enum DebuggerRequest {
     Interrupt,
     Resume,
     SingleStep,
+    Reset,
     Disconnected(DisconnectReason),
 }
 
@@ -40,7 +41,7 @@ pub(crate) struct DebuggerRequestHandler {
     request_complete_signal: Arc<(Mutex<bool>, Condvar)>,
     stop_signal: Arc<(Mutex<Option<SingleThreadStopReason<u32>>>, Condvar)>,
     thread: JoinHandle<()>,
-    stopped: bool,
+    pub(crate) stopped: bool,
 }
 
 impl DebuggerRequestHandler {
@@ -123,6 +124,12 @@ impl DebuggerRequestHandler {
                 self.stopped = false;
                 self.complete_request(None)
             }
+            Reset => {
+                debug!("Sending reset interrupt to gba");
+                self.stopped = true;
+                gba.cpu.reset();
+                self.complete_request(Some(SingleThreadStopReason::Signal(Signal::SIGTRAP)))
+            }
             SingleStep => {
                 debug!("Debugger requested single step");
                 self.stopped = true;
@@ -153,6 +160,10 @@ impl DebuggerRequestHandler {
         let mut finished = lock.lock().unwrap();
         *finished = true;
         cvar.notify_one();
+        // wait for the ack
+        while *finished {
+            finished = cvar.wait(finished).unwrap();
+        }
     }
 
     fn complete_request(
