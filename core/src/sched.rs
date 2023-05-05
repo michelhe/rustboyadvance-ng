@@ -149,14 +149,8 @@ impl Scheduler {
     }
 
     /// Cancel all events with type `typ`
-    /// This method is rather expansive to call since we are reallocating the entire event tree
     pub fn cancel_pending(&mut self, typ: EventType) {
-        let mut new_events = BinaryHeap::with_capacity(NUM_EVENTS);
-        self.events
-            .iter()
-            .filter(|e| e.typ != typ)
-            .for_each(|e| new_events.push(e.clone()));
-        self.events = new_events;
+        self.events.retain(|e| e.typ != typ);
     }
 
     /// Updates the scheduler timestamp
@@ -166,17 +160,15 @@ impl Scheduler {
     }
 
     pub fn pop_pending_event(&mut self) -> Option<(EventType, usize)> {
-        if let Some(event) = self.events.peek() {
-            if self.timestamp >= event.time {
-                // remove the event
-                let event = self.events.pop().unwrap_or_else(|| unreachable!());
-                Some((event.get_type(), event.time))
-            } else {
-                None
-            }
-        } else {
-            None
+        let Some(event) = self.events.peek() else {
+            return None
+        };
+        if self.timestamp >= event.time {
+            return None
         }
+        // SAFETY: events.peek() above guarantees that event exists
+        let event = unsafe { self.events.pop().unwrap_unchecked() };
+        Some((event.get_type(), event.time))
     }
 
     #[inline]
@@ -186,11 +178,10 @@ impl Scheduler {
 
     #[inline]
     pub fn get_cycles_to_next_event(&self) -> usize {
-        if let Some(event) = self.events.peek() {
-            event.time - self.timestamp
-        } else {
-            0
-        }
+        self.events
+            .peek()
+            .map(|event| event.time - self.timestamp)
+            .unwrap_or(0)
     }
 
     #[inline]
@@ -198,7 +189,7 @@ impl Scheduler {
     pub unsafe fn timestamp_of_next_event_unchecked(&self) -> usize {
         self.events
             .peek()
-            .unwrap_or_else(|| std::hint::unreachable_unchecked())
+            .unwrap_unchecked()
             .time
     }
 
