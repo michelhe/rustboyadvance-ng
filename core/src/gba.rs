@@ -215,7 +215,7 @@ impl GameBoyAdvance {
     pub fn frame(&mut self) {
         static mut OVERSHOOT: usize = 0;
         unsafe {
-            OVERSHOOT = CYCLES_FULL_REFRESH - self.run::<false>(CYCLES_FULL_REFRESH - OVERSHOOT);
+            OVERSHOOT = CYCLES_FULL_REFRESH.saturating_sub(self.run::<false>(CYCLES_FULL_REFRESH - OVERSHOOT));
         }
     }
 
@@ -223,7 +223,7 @@ impl GameBoyAdvance {
     fn frame_interruptible(&mut self) {
         static mut OVERSHOOT: usize = 0;
         unsafe {
-            OVERSHOOT = CYCLES_FULL_REFRESH - self.run::<true>(CYCLES_FULL_REFRESH - OVERSHOOT);
+            OVERSHOOT = CYCLES_FULL_REFRESH.saturating_sub(self.run::<true>(CYCLES_FULL_REFRESH - OVERSHOOT));
         }
     }
 
