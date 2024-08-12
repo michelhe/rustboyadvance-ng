@@ -42,6 +42,14 @@ sudo apt-get -y install libsdl2-dev libsdl2-image-dev
 ## Windows build dependencies
 SDL2 runtime binaries are included in this repository, no extra setup needed.
 
+## macOS
+
+Install SDL2 dependencies
+```bash
+brew install SDL2 SDL2_image
+export LIBRARY_PATH="$LIBRARY_PATH:/opt/homebrew/lib"
+```
+
 ## Build & Usage
 You need to obtain a gba bios binary.
 An [open source GBA bios](https://github.com/Nebuleon/ReGBA/blob/master/bios/gba_bios.bin) is also available and supported.
