@@ -8,7 +8,8 @@ members = [
     # "platform/rustboyadvance-minifb", - DEPRECATED
     "platform/rustboyadvance-wasm",
     "platform/rustboyadvance-jni",
-    "fps_bench"
+    "fps_bench",
+    "platform/rustboyadvance-py"
 ]
 
 default-members = ["platform/rustboyadvance-sdl2"]

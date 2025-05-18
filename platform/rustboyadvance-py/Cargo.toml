@@ -1,0 +1,12 @@
+[package]
+name = "rustboyadvance_py"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pyo3 = { version = "0.18", features = ["extension-module"] }
+rustboyadvance-core = { path = "../../core/" }
+
+[lib]
+name = "rustboyadvance_py"
+crate-type = ["cdylib"]
