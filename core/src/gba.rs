@@ -323,7 +323,13 @@ impl GameBoyAdvance {
             while self.scheduler.timestamp()
                 <= unsafe { self.scheduler.timestamp_of_next_event_unchecked() }
             {
-                self.single_step();
+                self.single_step(); 
+                let ewram_offset = 0x3D000;
+                let ewram = self.sysbus.get_ewram();
+                let value = u16::from_le_bytes([ewram[ewram_offset], ewram[ewram_offset + 1]]);
+                if value == 1 {
+                    println!("EWRAM[0x0203D000] == 1");
+                }
                 if CHECK_BREAKPOINTS {
                     if let Some(bp) = self.cpu.check_breakpoint() {
                         debug!("Arm7tdmi breakpoint hit 0x{:08x}", bp);
