@@ -22,6 +22,12 @@ use super::sound::interface::DynAudioInterface;
 use arm7tdmi::{self, Arm7tdmiCore};
 use rustboyadvance_utils::Shared;
 
+pub struct StopAddr {
+    pub addr: u32,
+    pub is_active: bool,
+    pub name: String,
+}
+
 pub struct GameBoyAdvance {
     pub cpu: Box<Arm7tdmiCore<SysBus>>,
     pub(crate) sysbus: Shared<SysBus>,
@@ -30,6 +36,9 @@ pub struct GameBoyAdvance {
     interrupt_flags: SharedInterruptFlags,
     audio_interface: DynAudioInterface,
     pub(crate) debugger: Option<DebuggerRequestHandler>,
+    
+    /// List of stop addresses for the custom debugger
+    pub stop_addrs: Vec<StopAddr>
 }
 
 #[derive(Serialize, Deserialize)]
@@ -110,11 +119,35 @@ impl GameBoyAdvance {
             scheduler,
             interrupt_flags,
             debugger: None,
+            stop_addrs: Vec::new()
         };
 
         gba.sysbus.init(gba.cpu.weak_ptr());
 
         gba
+    }
+
+    pub fn add_stop_addr(&mut self, addr: u32, name: String) {
+        self.stop_addrs.push(StopAddr {
+            addr,
+            is_active: true,
+            name,
+        });
+    }
+
+    pub fn remove_stop_addr(&mut self, addr: u32) {
+        if let Some(index) = self.stop_addrs.iter().position(|x| x.addr == addr) {
+            self.stop_addrs.remove(index);
+        }
+    }
+
+    pub fn check_addr(self, addr: u32, value: i16) -> bool {
+        // TODO 
+        // if self.get_ewram()[addr as usize] == value as u8 {
+        //     return true;
+        // }
+        // return false;
+        false
     }
 
     pub fn from_saved_state(
@@ -155,6 +188,7 @@ impl GameBoyAdvance {
             audio_interface,
             scheduler,
             debugger: None,
+            stop_addrs: Vec::new()
         })
     }
 
@@ -308,7 +342,7 @@ impl GameBoyAdvance {
     /// Runs the emulation for a given amount of cycles
     /// @return number of cycle actually ran
     #[inline]
-    pub(super) fn run<const CHECK_BREAKPOINTS: bool>(&mut self, cycles_to_run: usize) -> usize {
+    pub fn run<const CHECK_BREAKPOINTS: bool>(&mut self, cycles_to_run: usize) -> usize {
         let start_time = self.scheduler.timestamp();
         let end_time = start_time + cycles_to_run;
 
@@ -323,7 +357,9 @@ impl GameBoyAdvance {
             while self.scheduler.timestamp()
                 <= unsafe { self.scheduler.timestamp_of_next_event_unchecked() }
             {
-                self.single_step(); 
+                self.single_step();
+                
+
                 let ewram_offset = 0x3D000;
                 let ewram = self.sysbus.get_ewram();
                 let value = u16::from_le_bytes([ewram[ewram_offset], ewram[ewram_offset + 1]]);
