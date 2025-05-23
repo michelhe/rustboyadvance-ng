@@ -366,8 +366,7 @@ impl GameBoyAdvance {
     pub fn run<const CHECK_BREAKPOINTS: bool>(&mut self, cycles_to_run: usize) -> usize {
         let start_time = self.scheduler.timestamp();
         let end_time = start_time + cycles_to_run;
-        let ewram_offset = 0x3D000;
-        self.add_stop_addr(ewram_offset, 1, true, "on_est_la_".to_string());
+        
         // Register an event to mark the end of this run
         self.scheduler
             .schedule_at(EventType::RunLimitReached, end_time);
@@ -388,17 +387,17 @@ impl GameBoyAdvance {
                 // if value == 1 {
                 //     println!("EWRAM[0x0203D000] == 1");
                 // }
-                // let mut addrs_find = self.check_stop_addrs();
-                // if addrs_find.len() > 0 {
-                //     for stop_addr in addrs_find {
-                //         println!("Stop address: {} - {}", stop_addr.addr, stop_addr.name);
-                //         for stop in &mut self.stop_addrs {
-                //             if stop.addr == stop_addr.addr {
-                //                 stop.is_active = false;
-                //             }
-                //         }
-                //     }
-                // }
+                let mut addrs_find = self.check_stop_addrs();
+                if addrs_find.len() > 0 {
+                    for stop_addr in addrs_find {
+                        println!("Stop address: {} - {}", stop_addr.addr, stop_addr.name);
+                        for stop in &mut self.stop_addrs {
+                            if stop.addr == stop_addr.addr {
+                                stop.is_active = false;
+                            }
+                        }
+                    }
+                }
                 if CHECK_BREAKPOINTS {
                     if let Some(bp) = self.cpu.check_breakpoint() {
                         debug!("Arm7tdmi breakpoint hit 0x{:08x}", bp);
