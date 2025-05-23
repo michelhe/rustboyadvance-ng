@@ -22,10 +22,13 @@ use super::sound::interface::DynAudioInterface;
 use arm7tdmi::{self, Arm7tdmiCore};
 use rustboyadvance_utils::Shared;
 
+#[derive(Clone)]
 pub struct StopAddr {
     pub addr: u32,
     pub is_active: bool,
+    pub value: i16,
     pub name: String,
+
 }
 
 pub struct GameBoyAdvance {
@@ -127,10 +130,11 @@ impl GameBoyAdvance {
         gba
     }
 
-    pub fn add_stop_addr(&mut self, addr: u32, name: String) {
+    pub fn add_stop_addr(&mut self, addr: u32, value: i16, is_active:bool, name: String) {
         self.stop_addrs.push(StopAddr {
             addr,
-            is_active: true,
+            is_active,
+            value,
             name,
         });
     }
@@ -141,14 +145,31 @@ impl GameBoyAdvance {
         }
     }
 
-    pub fn check_addr(self, addr: u32, value: i16) -> bool {
-        // TODO 
-        // if self.get_ewram()[addr as usize] == value as u8 {
-        //     return true;
-        // }
-        // return false;
+    pub fn check_addr(&self, addr: u32, value: i16) -> bool {
+        let ewram = self.sysbus.get_ewram();
+        let ewram_offset = addr as usize;
+        let _value = u16::from_le_bytes([ewram[ewram_offset], ewram[ewram_offset + 1]]);
+
+        if _value == value as u16 {
+            return true;
+        }
+
         false
     }
+
+    pub fn check_stop_addrs(&self) -> Vec<StopAddr> {
+        let mut stop_addrs = Vec::new();
+        for stop_addr in &self.stop_addrs {
+            if stop_addr.is_active {
+                if self.check_addr(stop_addr.addr, stop_addr.value) {
+                    stop_addrs.push(stop_addr.clone());
+                }
+            }
+        }
+        stop_addrs
+    }
+
+
 
     pub fn from_saved_state(
         savestate: &[u8],
@@ -345,7 +366,8 @@ impl GameBoyAdvance {
     pub fn run<const CHECK_BREAKPOINTS: bool>(&mut self, cycles_to_run: usize) -> usize {
         let start_time = self.scheduler.timestamp();
         let end_time = start_time + cycles_to_run;
-
+        let ewram_offset = 0x3D000;
+        self.add_stop_addr(ewram_offset, 1, true, "on_est_la_".to_string());
         // Register an event to mark the end of this run
         self.scheduler
             .schedule_at(EventType::RunLimitReached, end_time);
@@ -360,11 +382,22 @@ impl GameBoyAdvance {
                 self.single_step();
                 
 
-                let ewram_offset = 0x3D000;
-                let ewram = self.sysbus.get_ewram();
-                let value = u16::from_le_bytes([ewram[ewram_offset], ewram[ewram_offset + 1]]);
-                if value == 1 {
-                    println!("EWRAM[0x0203D000] == 1");
+                // let ewram_offset = 0x3D000;
+                // let ewram = self.sysbus.get_ewram();
+                // let value = u16::from_le_bytes([ewram[ewram_offset], ewram[ewram_offset + 1]]);
+                // if value == 1 {
+                //     println!("EWRAM[0x0203D000] == 1");
+                // }
+                let mut addrs_find = self.check_stop_addrs();
+                if addrs_find.len() > 0 {
+                    for stop_addr in addrs_find {
+                        println!("Stop address: {} - {}", stop_addr.addr, stop_addr.name);
+                        for stop in &mut self.stop_addrs {
+                            if stop.addr == stop_addr.addr {
+                                stop.is_active = false;
+                            }
+                        }
+                    }
                 }
                 if CHECK_BREAKPOINTS {
                     if let Some(bp) = self.cpu.check_breakpoint() {

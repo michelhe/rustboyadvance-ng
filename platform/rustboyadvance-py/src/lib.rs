@@ -18,7 +18,6 @@ fn load_bios(bios_path: &Path) -> Box<[u8]> {
     match read_bin_file(bios_path) {
         Ok(bios) => bios.into_boxed_slice(),
         _ => {
-            // You can print a message or raise a Python exception here
             panic!("Missing BIOS file: {:?}", bios_path);
         }
     }
@@ -29,6 +28,13 @@ impl RustGba {
     #[new]
     pub fn new() -> Self {
         RustGba { core: None }
+    }
+
+    pub fn run_cycles(&mut self, cycles: usize) -> PyResult<usize> {
+        match &mut self.core {
+            Some(core) => Ok(core.run::<false>(cycles)),
+            None => Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded")),
+        }
     }
 
     pub fn load(&mut self, bios_path: &str, rom_path: &str) -> PyResult<()> {
