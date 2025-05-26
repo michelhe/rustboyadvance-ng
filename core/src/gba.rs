@@ -28,8 +28,9 @@ pub struct StopAddr {
     pub is_active: bool,
     pub value: i16,
     pub name: String,
-
 }
+
+
 
 pub struct GameBoyAdvance {
     pub cpu: Box<Arm7tdmiCore<SysBus>>,
@@ -169,8 +170,37 @@ impl GameBoyAdvance {
         stop_addrs
     }
 
+    pub fn read_u32_list(&self, addr: u32, count: usize) -> Vec<u32> {
+        let ewram = self.sysbus.get_ewram();
+        let base_address = 0x02000000;  // EWRAM base address in GBA memory
+        let mut result: Vec<u32> = Vec::with_capacity(count);
+        
+        // Convert GBA address to EWRAM array index
+        let ewram_offset = (addr - base_address) as usize;
+        
+        for i in 0..count {
+            let byte_offset = ewram_offset + (i * 4);
+            
+            // Safety check: verify we don't read past EWRAM bounds
+            if byte_offset + 3 >= ewram.len() {
+                break;
+            }
+            
+            // Read 4 bytes in little-endian format
+            let bytes = [
+                ewram[byte_offset],
+                ewram[byte_offset + 1],
+                ewram[byte_offset + 2],
+                ewram[byte_offset + 3],
+            ];
+            
+            result.push(u32::from_le_bytes(bytes));
+        }
+        
+        result
+    }
 
-
+    /// Create a new GameBoyAdvance instance from a saved state
     pub fn from_saved_state(
         savestate: &[u8],
         bios: Box<[u8]>,
@@ -391,6 +421,10 @@ impl GameBoyAdvance {
                 if addrs_find.len() > 0 {
                     for stop_addr in addrs_find {
                         println!("Stop address: {} - {}", stop_addr.addr, stop_addr.name);
+                        let enemy_data = self.read_u32_list(0x0203d364, 36);
+                        for (i, enemy) in enemy_data.iter().enumerate() {
+                            println!("Enemy {}: {}", i, enemy);
+                        }
                         for stop in &mut self.stop_addrs {
                             if stop.addr == stop_addr.addr {
                                 stop.is_active = false;

@@ -93,7 +93,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         opts.cartridge_from_opts()?,
         audio_interface,
     ));
-    let ewram_offset = 0x3D000;
+                        
+    let ewram_offset = 0x3d000;
     gba.add_stop_addr(ewram_offset, 1, true, "on_est_la_".to_string());
 
     // let gba_raw_ptr = Box::into_raw(gba) as usize;
