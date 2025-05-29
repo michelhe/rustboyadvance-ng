@@ -23,6 +23,8 @@ fn load_bios(bios_path: &Path) -> Box<[u8]> {
     }
 }
 
+
+
 #[pymethods]
 impl RustGba {
     #[new]
@@ -51,4 +53,24 @@ impl RustGba {
         self.core = Some(GameBoyAdvance::new(bios, cartridge, audio));
         Ok(())
     }
+
+    fn add_stop_addr(&mut self, addr:u32, value:i16, is_active:bool , name:String) -> PyResult<()> {
+        if let Some(core) = &mut self.core {
+            core.add_stop_addr(addr, value, is_active, name);
+            Ok(())
+        } else {
+            Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+        }
+    }
+
+    fn remove_stop_addr(&mut self, addr: u32) -> PyResult<()> {
+        if let Some(core) = &mut self.core {
+            core.remove_stop_addr(addr);
+            Ok(())
+        } else {
+            Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+        }
+    }
+
+
 }

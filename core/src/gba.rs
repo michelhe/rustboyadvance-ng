@@ -410,13 +410,6 @@ impl GameBoyAdvance {
             {
                 self.single_step();
                 
-
-                // let ewram_offset = 0x3D000;
-                // let ewram = self.sysbus.get_ewram();
-                // let value = u16::from_le_bytes([ewram[ewram_offset], ewram[ewram_offset + 1]]);
-                // if value == 1 {
-                //     println!("EWRAM[0x0203D000] == 1");
-                // }
                 let mut addrs_find = self.check_stop_addrs();
                 if addrs_find.len() > 0 {
                     for stop_addr in addrs_find {
@@ -432,6 +425,7 @@ impl GameBoyAdvance {
                         }
                     }
                 }
+                
                 if CHECK_BREAKPOINTS {
                     if let Some(bp) = self.cpu.check_breakpoint() {
                         debug!("Arm7tdmi breakpoint hit 0x{:08x}", bp);
