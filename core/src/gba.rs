@@ -21,6 +21,7 @@ use super::sound::interface::DynAudioInterface;
 
 use arm7tdmi::{self, Arm7tdmiCore};
 use rustboyadvance_utils::Shared;
+use std::convert::TryInto;
 
 #[derive(Clone)]
 pub struct StopAddr {
@@ -170,34 +171,83 @@ impl GameBoyAdvance {
         stop_addrs
     }
 
-    pub fn read_u32_list(&self, addr: u32, count: usize) -> Vec<u32> {
+    fn get_ewram_offset(&self, addr: u32) -> usize {
+        const EWRAM_BASE: u32 = 0x02000000;
+        (addr - EWRAM_BASE) as usize
+    }
+
+    // Common helper to read bytes from EWRAM
+    fn read_bytes(&self, offset: usize, byte_count: usize) -> Option<&[u8]> {
         let ewram = self.sysbus.get_ewram();
-        let base_address = 0x02000000;  // EWRAM base address in GBA memory
-        let mut result: Vec<u32> = Vec::with_capacity(count);
-        
-        // Convert GBA address to EWRAM array index
-        let ewram_offset = (addr - base_address) as usize;
+        if offset + byte_count > ewram.len() {
+            return None;
+        }
+        Some(&ewram[offset..offset + byte_count])
+    }
+
+    // Common helper to write bytes to EWRAM
+    fn write_bytes(&mut self, offset: usize, bytes: &[u8]) {
+        let ewram = self.sysbus.get_ewram_mut();
+        if offset + bytes.len() <= ewram.len() {
+            ewram[offset..offset + bytes.len()].copy_from_slice(bytes);
+        }
+    }
+
+    pub fn read_u32_list(&self, addr: u32, count: usize) -> Vec<u32> {
+        let ewram_offset = self.get_ewram_offset(addr);
+        let mut result = Vec::with_capacity(count);
         
         for i in 0..count {
             let byte_offset = ewram_offset + (i * 4);
-            
-            // Safety check: verify we don't read past EWRAM bounds
-            if byte_offset + 3 >= ewram.len() {
+            if let Some(bytes) = self.read_bytes(byte_offset, 4) {
+                result.push(u32::from_le_bytes(bytes.try_into().unwrap()));
+            } else {
                 break;
             }
-            
-            // Read 4 bytes in little-endian format
-            let bytes = [
-                ewram[byte_offset],
-                ewram[byte_offset + 1],
-                ewram[byte_offset + 2],
-                ewram[byte_offset + 3],
-            ];
-            
-            result.push(u32::from_le_bytes(bytes));
         }
         
         result
+    }
+
+    pub fn read_u16_list(&self, addr: u32, count: usize) -> Vec<u16> {
+        let ewram_offset = self.get_ewram_offset(addr);
+        let mut result = Vec::with_capacity(count);
+        
+        for i in 0..count {
+            let byte_offset = ewram_offset + (i * 2);
+            if let Some(bytes) = self.read_bytes(byte_offset, 2) {
+                result.push(u16::from_le_bytes(bytes.try_into().unwrap()));
+            } else {
+                break;
+            }
+        }
+        
+        result
+    }
+
+    fn read_u32(&self, addr: u32) -> u32 {
+        let offset = self.get_ewram_offset(addr);
+        self.read_bytes(offset, 4)
+            .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
+            .unwrap_or_else(|| panic!("Attempted to read past EWRAM bounds at address: {:#010x}", addr))
+    }
+
+    fn read_u16(&self, addr: u32) -> u16 {
+        let offset = self.get_ewram_offset(addr);
+        self.read_bytes(offset, 2)
+            .map(|bytes| u16::from_le_bytes(bytes.try_into().unwrap()))
+            .unwrap_or_else(|| panic!("Attempted to read past EWRAM bounds at address: {:#010x}", addr))
+    }
+
+    pub fn write_u16(&mut self, addr: u32, value: u16) {
+        let offset = self.get_ewram_offset(addr);
+        self.write_bytes(offset, &value.to_le_bytes());
+    }
+
+    // You could also add write_u32 if needed following the same pattern
+    pub fn write_u32(&mut self, addr: u32, value: u32) {
+        let offset = self.get_ewram_offset(addr);
+        self.write_bytes(offset, &value.to_le_bytes());
     }
 
     /// Create a new GameBoyAdvance instance from a saved state
@@ -414,10 +464,13 @@ impl GameBoyAdvance {
                 if addrs_find.len() > 0 {
                     for stop_addr in addrs_find {
                         println!("Stop address: {} - {}", stop_addr.addr, stop_addr.name);
-                        let enemy_data = self.read_u32_list(0x0203d364, 36);
-                        for (i, enemy) in enemy_data.iter().enumerate() {
-                            println!("Enemy {}: {}", i, enemy);
-                        }
+                        // let enemy_data = self.read_u32_list(0x0203d364, 36);
+                        // for (i, enemy) in enemy_data.iter().enumerate() {
+                        //     println!("Enemy {}: {}", i, enemy);
+                        // }
+                        self.write_u16( 0x0203d6c4, 12);
+                        let v = self.read_u16(0x0203d6c4);
+                        println!("Value at 0x0203d6c4: {}", v);
                         for stop in &mut self.stop_addrs {
                             if stop.addr == stop_addr.addr {
                                 stop.is_active = false;

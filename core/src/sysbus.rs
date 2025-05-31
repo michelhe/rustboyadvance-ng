@@ -218,6 +218,10 @@ impl SysBus {
         &self.ewram
     }
 
+    pub fn get_ewram_mut(&mut self) -> &mut [u8] {
+        &mut self.ewram
+    }
+
     pub fn get_iwram(&self) -> &[u8] {
         &self.iwram
     }

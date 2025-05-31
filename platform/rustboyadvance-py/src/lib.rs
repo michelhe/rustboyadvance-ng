@@ -71,6 +71,14 @@ impl RustGba {
             Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
         }
     }
+    //TODO: add test in example.py 
+    pub fn read_u32_list(&self, addr: u32, count: usize) -> PyResult<Vec<u32>> {
+        if let Some(core) = &self.core {
+            Ok(core.read_u32_list(addr, count))
+        } else {
+            Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+        }
+    }
 
 
 }

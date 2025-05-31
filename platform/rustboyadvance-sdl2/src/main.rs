@@ -91,6 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut gba = Box::new(GameBoyAdvance::new(
         bios_bin.clone(),
         opts.cartridge_from_opts()?,
+        
         audio_interface,
     ));
                         
