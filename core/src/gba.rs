@@ -148,15 +148,7 @@ impl GameBoyAdvance {
     }
 
     pub fn check_addr(&self, addr: u32, value: i16) -> bool {
-        let ewram = self.sysbus.get_ewram();
-        let ewram_offset = addr as usize;
-        let _value = u16::from_le_bytes([ewram[ewram_offset], ewram[ewram_offset + 1]]);
-
-        if _value == value as u16 {
-            return true;
-        }
-
-        false
+        self.read_u16(addr) == value as u16
     }
 
     pub fn check_stop_addrs(&self) -> Vec<StopAddr> {
@@ -459,26 +451,13 @@ impl GameBoyAdvance {
                 <= unsafe { self.scheduler.timestamp_of_next_event_unchecked() }
             {
                 self.single_step();
-                
-                let mut addrs_find = self.check_stop_addrs();
+                let addrs_find = self.check_stop_addrs();
                 if addrs_find.len() > 0 {
+                    println!("Stop address(es) found:");
                     for stop_addr in addrs_find {
                         println!("Stop address: {} - {}", stop_addr.addr, stop_addr.name);
-                        // let enemy_data = self.read_u32_list(0x0203d364, 36);
-                        // for (i, enemy) in enemy_data.iter().enumerate() {
-                        //     println!("Enemy {}: {}", i, enemy);
-                        // }
-                        self.write_u16( 0x0203d6c4, 12);
-                        let v = self.read_u16(0x0203d6c4);
-                        println!("Value at 0x0203d6c4: {}", v);
-                        for stop in &mut self.stop_addrs {
-                            if stop.addr == stop_addr.addr {
-                                stop.is_active = false;
-                            }
-                        }
                     }
                 }
-                
                 if CHECK_BREAKPOINTS {
                     if let Some(bp) = self.cpu.check_breakpoint() {
                         debug!("Arm7tdmi breakpoint hit 0x{:08x}", bp);
@@ -498,6 +477,42 @@ impl GameBoyAdvance {
         }
 
         self.scheduler.timestamp() - start_time
+    }
+
+    #[inline]
+    pub fn run_to_next_stop(&mut self, cycles_to_run: usize) -> i32 {
+        let start_time = self.scheduler.timestamp();
+        let end_time = start_time + cycles_to_run;
+        
+        // Register an event to mark the end of this run
+        self.scheduler
+            .schedule_at(EventType::RunLimitReached, end_time);
+
+        'running: loop {
+            // The tricky part is to avoid unnecessary calls for Scheduler::handle_events,
+            // performance-wise it would be best to run as many cycles as fast as possible while we know there are no pending events.
+            // Safety: Since we pushed a RunLimitReached event, we know this check has a hard limit
+            while self.scheduler.timestamp()
+                <= unsafe { self.scheduler.timestamp_of_next_event_unchecked() }
+            {
+                self.single_step();
+                
+                let addrs_find = self.check_stop_addrs();
+                if addrs_find.len() > 0 {
+                    println!("Stop address(es) found:");
+                    for stop_addr in addrs_find {
+                        println!("TROUVEEE: {} - {}", stop_addr.addr, stop_addr.name);
+                    }
+                    return -1;
+                }
+            }
+
+            if self.handle_events() {
+                break 'running;
+            }
+        }
+
+        (self.scheduler.timestamp() - start_time).try_into().unwrap()
     }
 
     /// Handle all pending scheduler events and return if run limit was reached.

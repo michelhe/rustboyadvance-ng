@@ -10,3 +10,7 @@ rustboyadvance-core = { path = "../../core/" }
 [lib]
 name = "rustboyadvance_py"
 crate-type = ["cdylib"]
+
+[features]
+elf_support = ["rustboyadvance-core/elf_support"]
+default = []

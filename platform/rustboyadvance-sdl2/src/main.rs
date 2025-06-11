@@ -95,7 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         audio_interface,
     ));
                         
-    let ewram_offset = 0x3d000;
+    let ewram_offset = 0x0203d000;
     gba.add_stop_addr(ewram_offset, 1, true, "on_est_la_".to_string());
 
     // let gba_raw_ptr = Box::into_raw(gba) as usize;
