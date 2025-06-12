@@ -20,6 +20,7 @@ WebAssembly Demo: https://michelhe.github.io/rustboyadvance-ng/ ![Deploy](https:
     * `platform/rustbodyadvance-sdl2` - Desktop application built with sdl2
     * `platform/rustbodyadvance-minifb` - Desktop application built with minifb, *not maintained*.
     * `platform/rustbodyadvance-jni` - Java JNI binidngs for the emulator.
+    * `platform/rustbodyadvance-term` - A full in-terminal frontend implemented via crossterm and viuer by @FRoith.
     * `platform/android` - A PoC Android application.
 
 # Progress
