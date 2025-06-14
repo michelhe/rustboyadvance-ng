@@ -11,6 +11,8 @@ use std::fs;
 use std::io::Cursor;
 use std::path::Path;
 use std::time;
+use std::io::{stdin, stdout, Write};
+
 
 #[macro_use]
 extern crate log;
@@ -95,24 +97,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         audio_interface,
     ));
                         
-    let ewram_offset = 0x0203d000;
+    let ewram_offset = 0x0203d6c4;
     gba.add_stop_addr(ewram_offset, 1, true, "on_est_la_".to_string());
-
-    // let gba_raw_ptr = Box::into_raw(gba) as usize;
-    // static mut gba_raw: usize = 0;
-    // unsafe { gba_raw = gba_raw_ptr };
-    // let mut gba = unsafe {Box::from_raw(gba_raw_ptr as *mut GameBoyAdvance) };
-
-    // std::panic::set_hook(Box::new(|panic_info| {
-    //     let gba = unsafe {Box::from_raw(gba_raw as *mut GameBoyAdvance) };
-    //     println!("System crashed Oh No!!! {:?}", gba.cpu);
-    //     let normal_panic = std::panic::take_hook();
-    //     normal_panic(panic_info);
-    // }));
 
     if opts.skip_bios {
         println!("Skipping bios animation..");
         gba.skip_bios();
+    }
+
+    if opts.cli {
+        info!("Running in CLI mode ..");
     }
 
     if opts.gdbserver {
@@ -123,7 +117,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut fps_counter = FpsCounter::default();
     const FRAME_TIME: time::Duration = time::Duration::new(0, 1_000_000_000u32 / 60);
     let mut event_pump = sdl_context.event_pump()?;
-    'running: loop {
+    
+    if opts.cli {
+        while(1==1){
+            let start_time = time::Instant::now();
+            let result = gba.run_to_next_stop(100000);
+            renderer.render(gba.get_frame_buffer());
+            if( result == -1) {
+                loop {
+                    print!("Enter a number between 0 and 10: ");
+                    stdout().flush().unwrap();
+
+                    let mut input = String::new();
+                    stdin().read_line(&mut input).unwrap();
+
+                    match input.trim().parse::<u16>() {
+                        Ok(num) if num <= 10 => {
+                            gba.write_u16(0x0203d6c6, num);
+                            gba.write_u16(0x0203d6c4, 0);
+                            println!("You entered: {}", num);
+                            break;
+                        }
+                        _ => {
+                            println!("Invalid input, please try again.");
+                        }
+                    }
+                }
+            }
+        }
+        
+    }
+    else {
+        'running: loop {
         let start_time = time::Instant::now();
         for event in event_pump.poll_iter() {
             match event {
@@ -242,6 +267,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
         }
     }
+    }
 
     Ok(())
 }
+    

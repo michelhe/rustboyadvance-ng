@@ -33,6 +33,9 @@ pub struct Options {
     #[structopt(short = "d", long)]
     pub gdbserver: bool,
 
+    #[structopt(long = "cli", long)]
+    pub cli: bool,
+
     #[structopt(long = "port", default_value = "1337")]
     pub gdbserver_port: u16,
 

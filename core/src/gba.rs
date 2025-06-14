@@ -141,6 +141,10 @@ impl GameBoyAdvance {
         });
     }
 
+    fn get_stop_addr(&self , name: String) -> Option<&StopAddr> {
+        self.stop_addrs.iter().find(|&x| x.name == name)
+    }
+
     pub fn remove_stop_addr(&mut self, addr: u32) {
         if let Some(index) = self.stop_addrs.iter().position(|x| x.addr == addr) {
             self.stop_addrs.remove(index);
@@ -500,9 +504,12 @@ impl GameBoyAdvance {
                 let addrs_find = self.check_stop_addrs();
                 if addrs_find.len() > 0 {
                     println!("Stop address(es) found:");
-                    for stop_addr in addrs_find {
-                        println!("TROUVEEE: {} - {}", stop_addr.addr, stop_addr.name);
-                    }
+                    // for stop_addr in &addrs_find {
+                    //     println!("Stop address: {} - {}", stop_addr.addr, stop_addr.name);
+                    //     if let Some(orig) = self.stop_addrs.iter_mut().find(|x| x.addr == stop_addr.addr && x.name == stop_addr.name) {
+                    //         orig.is_active = false;
+                    //     }
+                    // }
                     return -1;
                 }
             }
