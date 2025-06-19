@@ -13,7 +13,7 @@ jobs:
 
     steps:
     - name: Checkout 🛎️
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         submodules: recursive
 
@@ -53,7 +53,7 @@ jobs:
         cp ./target/release/rustboyadvance-sdl2 artifacts
 
     - name : Upload artifacts
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: rustboyadvance-sdl2-x86_64-unknown-linux-gnu
         path: artifacts
@@ -64,7 +64,7 @@ jobs:
 
     steps:
     - name: Checkout 🛎️
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         submodules: recursive
     - name: Install toolchains
@@ -90,7 +90,7 @@ jobs:
       working-directory: ./platform/android
       run: ./gradlew assemble
     - name: Upload artifacts
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: rustdroid.apk
         path: ./platform/android/app/build/outputs/apk/release/app-release-unsigned.apk
@@ -103,7 +103,7 @@ jobs:
 
     steps:
     - name: Checkout 🛎️
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         submodules: recursive
 
@@ -140,7 +140,7 @@ jobs:
         copy .\platform\rustboyadvance-sdl2\msvc\64\LICENSE.* artifacts
 
     - name : Upload artifacts
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: rustboyadvance-sdl2-x86_64-pc-windows-msvc
         path: artifacts
