@@ -58,42 +58,43 @@ jobs:
         name: rustboyadvance-sdl2-x86_64-unknown-linux-gnu
         path: artifacts
 
-  build-android-apk:
+  # TODO: this workflow is stale
+  # build-android-apk:
 
-    runs-on: ubuntu-latest
+  #   runs-on: ubuntu-latest
 
-    steps:
-    - name: Checkout 🛎️
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-    - name: Install toolchains
-      run: rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android
+  #   steps:
+  #   - name: Checkout 🛎️
+  #     uses: actions/checkout@v4
+  #     with:
+  #       submodules: recursive
+  #   - name: Install toolchains
+  #     run: rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android
 
-    - name: Cache cargo registry
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/registry
-        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-    - name: Cache cargo index
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/git
-        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-    - name: Cache cargo build
-      uses: actions/cache@v4
-      with:
-        path: target
-        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+  #   - name: Cache cargo registry
+  #     uses: actions/cache@v4
+  #     with:
+  #       path: ~/.cargo/registry
+  #       key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+  #   - name: Cache cargo index
+  #     uses: actions/cache@v4
+  #     with:
+  #       path: ~/.cargo/git
+  #       key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+  #   - name: Cache cargo build
+  #     uses: actions/cache@v4
+  #     with:
+  #       path: target
+  #       key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Build APK
-      working-directory: ./platform/android
-      run: ./gradlew assemble
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: rustdroid.apk
-        path: ./platform/android/app/build/outputs/apk/release/app-release-unsigned.apk
+  #   - name: Build APK
+  #     working-directory: ./platform/android
+  #     run: ./gradlew assemble
+  #   - name: Upload artifacts
+  #     uses: actions/upload-artifact@v4
+  #     with:
+  #       name: rustdroid.apk
+  #       path: ./platform/android/app/build/outputs/apk/release/app-release-unsigned.apk
 
 
 
