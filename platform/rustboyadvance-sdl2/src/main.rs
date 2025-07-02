@@ -97,8 +97,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         audio_interface,
     ));
                         
-    let ewram_offset = 0x0203d6c4;
-    gba.add_stop_addr(ewram_offset, 1, true, "on_est_la_".to_string());
+    // let ewram_offset = 0x0203d6c4;
+    // gba.add_stop_addr(ewram_offset, 1, true, "on_est_la_".to_string());
 
     if opts.skip_bios {
         println!("Skipping bios animation..");
@@ -190,7 +190,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let (audio_interface, _sdl_audio_device_new) =
                                 audio::create_audio_player(&sdl_context)?;
                             _sdl_audio_device = _sdl_audio_device_new;
-                            let rom = opts.read_rom()?.into_boxed_slice();
+                            let rom_path = &opts.rom;
+                            let rom: Box<[u8]> = match rom_path.extension().and_then(|e| e.to_str()) {
+                                Some("elf") => {
+                                    let elf_bytes = read_bin_file(rom_path)?;
+                                    let loaded_elf = rustboyadvance_utils::elf::load_elf(&elf_bytes, 0x08000000)?;
+                                    loaded_elf.data.into_boxed_slice()
+                                }
+                                _ => opts.read_rom()?.into_boxed_slice(),
+                            };
                             gba = Box::new(GameBoyAdvance::from_saved_state(
                                 &save,
                                 bios_bin.clone(),

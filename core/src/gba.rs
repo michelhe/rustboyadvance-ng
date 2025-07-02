@@ -141,7 +141,7 @@ impl GameBoyAdvance {
         });
     }
 
-    fn get_stop_addr(&self , name: String) -> Option<&StopAddr> {
+    pub fn get_stop_addr(&self , name: String) -> Option<&StopAddr> {
         self.stop_addrs.iter().find(|&x| x.name == name)
     }
 
@@ -221,14 +221,14 @@ impl GameBoyAdvance {
         result
     }
 
-    fn read_u32(&self, addr: u32) -> u32 {
+    pub fn read_u32(&self, addr: u32) -> u32 {
         let offset = self.get_ewram_offset(addr);
         self.read_bytes(offset, 4)
             .map(|bytes| u32::from_le_bytes(bytes.try_into().unwrap()))
             .unwrap_or_else(|| panic!("Attempted to read past EWRAM bounds at address: {:#010x}", addr))
     }
 
-    fn read_u16(&self, addr: u32) -> u16 {
+    pub fn read_u16(&self, addr: u32) -> u16 {
         let offset = self.get_ewram_offset(addr);
         self.read_bytes(offset, 2)
             .map(|bytes| u16::from_le_bytes(bytes.try_into().unwrap()))

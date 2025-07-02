@@ -1,4 +1,5 @@
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use rustboyadvance_core::prelude::*;
 use std::fs::read;
 use std::path::Path;
@@ -94,6 +95,106 @@ impl RustGba {
             None => Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded")),
         }
     }
+
+    /// Get a stop address by name. Returns a dict or None.
+    pub fn get_stop_addr(&self, name: String) -> PyResult<Option<PyObject>> {
+        Python::with_gil(|py| {
+            if let Some(core) = &self.core {
+                if let Some(stop_addr) = core.get_stop_addr(name) {
+                    let dict = PyDict::new(py);
+                    dict.set_item("addr", stop_addr.addr)?;
+                    dict.set_item("is_active", stop_addr.is_active)?;
+                    dict.set_item("value", stop_addr.value)?;
+                    dict.set_item("name", stop_addr.name.clone())?;
+                    Ok(Some(dict.into()))
+                } else {
+                    Ok(None)
+                }
+            } else {
+                Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+            }
+        })
+    }
+
+    /// Check if a given address contains a value.
+    pub fn check_addr(&self, addr: u32, value: i16) -> PyResult<bool> {
+        if let Some(core) = &self.core {
+            Ok(core.check_addr(addr, value))
+        } else {
+            Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+        }
+    }
+
+    /// Return a list of active stop addresses that match their value.
+    pub fn check_stop_addrs(&self) -> PyResult<Vec<PyObject>> {
+        Python::with_gil(|py| {
+            if let Some(core) = &self.core {
+                let result: Vec<PyObject> = core
+                    .check_stop_addrs()
+                    .into_iter()
+                    .map(|stop_addr| {
+                        let dict = PyDict::new(py);
+                        dict.set_item("addr", stop_addr.addr).unwrap();
+                        dict.set_item("is_active", stop_addr.is_active).unwrap();
+                        dict.set_item("value", stop_addr.value).unwrap();
+                        dict.set_item("name", stop_addr.name.clone()).unwrap();
+                        dict.into()
+                    })
+                    .collect();
+                Ok(result)
+            } else {
+                Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+            }
+        })
+    }
+
+    /// Read a u16 from EWRAM.
+    pub fn read_u16(&self, addr: u32) -> PyResult<u16> {
+        if let Some(core) = &self.core {
+            Ok(core.read_u16(addr))
+        } else {
+            Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+        }
+    }
+
+    /// Write a u16 to EWRAM.
+    pub fn write_u16(&mut self, addr: u32, value: u16) -> PyResult<()> {
+        if let Some(core) = &mut self.core {
+            core.write_u16(addr, value);
+            Ok(())
+        } else {
+            Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+        }
+    }
+
+    /// Read a u32 from EWRAM.
+    pub fn read_u32(&self, addr: u32) -> PyResult<u32> {
+        if let Some(core) = &self.core {
+            Ok(core.read_u32(addr))
+        } else {
+            Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+        }
+    }
+
+    /// Write a u32 to EWRAM.
+    pub fn write_u32(&mut self, addr: u32, value: u32) -> PyResult<()> {
+        if let Some(core) = &mut self.core {
+            core.write_u32(addr, value);
+            Ok(())
+        } else {
+            Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+        }
+    }
+
+    /// Read a list of u16 from EWRAM.
+    pub fn read_u16_list(&self, addr: u32, count: usize) -> PyResult<Vec<u16>> {
+        if let Some(core) = &self.core {
+            Ok(core.read_u16_list(addr, count))
+        } else {
+            Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+        }
+    }
+
 
 
 }
