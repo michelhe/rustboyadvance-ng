@@ -26,6 +26,8 @@ use rustboyadvance_core::prelude::*;
 
 use rustboyadvance_utils::FpsCounter;
 
+use rustboyadvance_core::cartridge::loader::{load_from_file, LoadRom};
+
 const LOG_DIR: &str = ".logs";
 
 fn ask_download_bios() {
@@ -161,7 +163,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let (audio_interface, _sdl_audio_device_new) =
                                 audio::create_audio_player(&sdl_context)?;
                             _sdl_audio_device = _sdl_audio_device_new;
-                            let rom = opts.read_rom()?.into_boxed_slice();
+                            let rom = match load_from_file(&opts.rom)? {
+                                LoadRom::Raw(data) => data.into_boxed_slice(),
+                                LoadRom::Elf { data, .. } => data.into_boxed_slice(),
+                            };
                             gba = Box::new(GameBoyAdvance::from_saved_state(
                                 &save,
                                 bios_bin.clone(),

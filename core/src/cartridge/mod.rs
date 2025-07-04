@@ -18,7 +18,7 @@ mod rtc;
 use gpio::Gpio;
 
 mod builder;
-mod loader;
+pub mod loader;
 pub use builder::GamepakBuilder;
 
 pub const GPIO_PORT_DATA: u32 = 0xC4;
