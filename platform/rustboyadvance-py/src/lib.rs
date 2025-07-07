@@ -195,6 +195,14 @@ impl RustGba {
         }
     }
 
+    pub fn get_frame_buffer(&self) -> PyResult<Vec<u32>> {
+        if let Some(core) = &self.core {
+            Ok(core.get_frame_buffer().to_vec())
+        } else {
+            Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+        }
+    }
+
 
 
 }
