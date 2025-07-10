@@ -13,7 +13,7 @@ jobs:
 
     steps:
     - name: Checkout 🛎️
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         submodules: recursive
 
@@ -25,17 +25,17 @@ jobs:
         sudo apt-get install libsdl2-image-dev
 
     - name: Cache cargo registry
-      uses: actions/cache@v1
+      uses: actions/cache@v4
       with:
         path: ~/.cargo/registry
         key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
     - name: Cache cargo index
-      uses: actions/cache@v1
+      uses: actions/cache@v4
       with:
         path: ~/.cargo/git
         key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
     - name: Cache cargo build
-      uses: actions/cache@v1
+      uses: actions/cache@v4
       with:
         path: target
         key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
@@ -53,47 +53,48 @@ jobs:
         cp ./target/release/rustboyadvance-sdl2 artifacts
 
     - name : Upload artifacts
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: rustboyadvance-sdl2-x86_64-unknown-linux-gnu
         path: artifacts
 
-  build-android-apk:
+  # TODO: this workflow is stale
+  # build-android-apk:
 
-    runs-on: ubuntu-latest
+  #   runs-on: ubuntu-latest
 
-    steps:
-    - name: Checkout 🛎️
-      uses: actions/checkout@v2
-      with:
-        submodules: recursive
-    - name: Install toolchains
-      run: rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android
+  #   steps:
+  #   - name: Checkout 🛎️
+  #     uses: actions/checkout@v4
+  #     with:
+  #       submodules: recursive
+  #   - name: Install toolchains
+  #     run: rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android
 
-    - name: Cache cargo registry
-      uses: actions/cache@v1
-      with:
-        path: ~/.cargo/registry
-        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-    - name: Cache cargo index
-      uses: actions/cache@v1
-      with:
-        path: ~/.cargo/git
-        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-    - name: Cache cargo build
-      uses: actions/cache@v1
-      with:
-        path: target
-        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+  #   - name: Cache cargo registry
+  #     uses: actions/cache@v4
+  #     with:
+  #       path: ~/.cargo/registry
+  #       key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+  #   - name: Cache cargo index
+  #     uses: actions/cache@v4
+  #     with:
+  #       path: ~/.cargo/git
+  #       key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+  #   - name: Cache cargo build
+  #     uses: actions/cache@v4
+  #     with:
+  #       path: target
+  #       key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Build APK
-      working-directory: ./platform/android
-      run: ./gradlew assemble
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v2
-      with:
-        name: rustdroid.apk
-        path: ./platform/android/app/build/outputs/apk/release/app-release-unsigned.apk
+  #   - name: Build APK
+  #     working-directory: ./platform/android
+  #     run: ./gradlew assemble
+  #   - name: Upload artifacts
+  #     uses: actions/upload-artifact@v4
+  #     with:
+  #       name: rustdroid.apk
+  #       path: ./platform/android/app/build/outputs/apk/release/app-release-unsigned.apk
 
 
 
@@ -103,24 +104,24 @@ jobs:
 
     steps:
     - name: Checkout 🛎️
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         submodules: recursive
 
     - run: rustup target add x86_64-pc-windows-msvc
 
     - name: Cache cargo registry
-      uses: actions/cache@v1
+      uses: actions/cache@v4
       with:
         path: ~/.cargo/registry
         key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
     - name: Cache cargo index
-      uses: actions/cache@v1
+      uses: actions/cache@v4
       with:
         path: ~/.cargo/git
         key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
     - name: Cache cargo build
-      uses: actions/cache@v1
+      uses: actions/cache@v4
       with:
         path: target
         key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
@@ -140,7 +141,7 @@ jobs:
         copy .\platform\rustboyadvance-sdl2\msvc\64\LICENSE.* artifacts
 
     - name : Upload artifacts
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: rustboyadvance-sdl2-x86_64-pc-windows-msvc
         path: artifacts

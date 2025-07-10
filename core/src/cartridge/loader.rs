@@ -56,7 +56,7 @@ fn try_load_zip(data: &[u8]) -> LoadRomResult {
     ))
 }
 
-pub(super) fn load_from_file(path: &Path) -> LoadRomResult {
+pub fn load_from_file(path: &Path) -> LoadRomResult {
     let bytes = read_bin_file(path)?;
 
     match path.extension() {

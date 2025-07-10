@@ -8,6 +8,7 @@ members = [
     # "platform/rustboyadvance-minifb", - DEPRECATED
     "platform/rustboyadvance-wasm",
     "platform/rustboyadvance-jni",
+    "platform/rustboyadvance-term",
     "fps_bench",
     "platform/rustboyadvance-py"
 ]
