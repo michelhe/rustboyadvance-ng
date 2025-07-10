@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+fs = "0.0.5"
 pyo3 = { version = "0.18", features = ["extension-module"] }
 rustboyadvance-core = { path = "../../core/" }
 

@@ -4,6 +4,9 @@ use rustboyadvance_core::prelude::*;
 use std::fs::read;
 use std::path::Path;
 
+use rustboyadvance_core::cartridge::loader::{load_from_file, LoadRom};
+
+
 #[pymodule]
 fn rustboyadvance_py(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<RustGba>()?;
@@ -204,7 +207,7 @@ impl RustGba {
     }
 
     /// Load a savestate from a file
-    pub fn load_savestate(
+pub fn load_savestate(
         &mut self,
         savestate_path: &str,
         bios_path: &str,
@@ -218,32 +221,18 @@ impl RustGba {
             )));
         }
 
-        let save = fs::read(savestate_file).map_err(|e| {
+        let save = std::fs::read(savestate_file).map_err(|e| {
             pyo3::exceptions::PyIOError::new_err(format!("Failed to read savestate: {}", e))
         })?;
 
         let bios = load_bios(Path::new(bios_path));
 
         let rom_path = Path::new(rom_path);
-        let rom: Box<[u8]> = match rom_path.extension().and_then(|e| e.to_str()) {
-            Some("elf") => {
-                let elf_bytes = fs::read(rom_path).map_err(|e| {
-                    pyo3::exceptions::PyIOError::new_err(format!("Failed to read ROM: {}", e))
-                })?;
-                let loaded_elf = rustboyadvance_utils::elf::load_elf(&elf_bytes, 0x08000000)
-                    .map_err(|e| {
-                        pyo3::exceptions::PyValueError::new_err(format!(
-                            "Failed to load ELF ROM: {}",
-                            e
-                        ))
-                    })?;
-                loaded_elf.data.into_boxed_slice()
-            }
-            _ => fs::read(rom_path)
-                .map_err(|e| {
-                    pyo3::exceptions::PyIOError::new_err(format!("Failed to read ROM: {}", e))
-                })?
-                .into_boxed_slice(),
+        let rom = match load_from_file(rom_path).map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to load ROM: {}", e))
+        })? {
+            LoadRom::Raw(data) => data.into_boxed_slice(),
+            LoadRom::Elf { data, .. } => data.into_boxed_slice(),
         };
 
         let audio = NullAudio::new();
