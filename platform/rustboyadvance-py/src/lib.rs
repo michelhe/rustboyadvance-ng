@@ -62,10 +62,10 @@ impl RustGba {
         Ok(())
     }
 
-    fn add_stop_addr(&mut self, addr:u32, value:i16, is_active:bool , name:String) -> PyResult<()> {
+    fn add_stop_addr(&mut self, addr:u32, value:i16, is_active:bool , name:String, id:u32) -> PyResult<()> {
         if let Some(core) = &mut self.core {
             print!("Adding stop address: addr={}, value={}, is_active={}, name={}\n", addr, value, is_active, name);
-            core.add_stop_addr(addr, value, is_active, name);
+            core.add_stop_addr(addr, value, is_active, name, id);
             Ok(())
         } else {
             Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
@@ -203,6 +203,62 @@ impl RustGba {
         }
     }
 
+    /// Load a savestate from a file
+    pub fn load_savestate(
+        &mut self,
+        savestate_path: &str,
+        bios_path: &str,
+        rom_path: &str,
+    ) -> PyResult<()> {
+        let savestate_file = Path::new(savestate_path);
+        if !savestate_file.is_file() {
+            return Err(pyo3::exceptions::PyFileNotFoundError::new_err(format!(
+                "Savestate file not found: {}",
+                savestate_path
+            )));
+        }
+
+        let save = fs::read(savestate_file).map_err(|e| {
+            pyo3::exceptions::PyIOError::new_err(format!("Failed to read savestate: {}", e))
+        })?;
+
+        let bios = load_bios(Path::new(bios_path));
+
+        let rom_path = Path::new(rom_path);
+        let rom: Box<[u8]> = match rom_path.extension().and_then(|e| e.to_str()) {
+            Some("elf") => {
+                let elf_bytes = fs::read(rom_path).map_err(|e| {
+                    pyo3::exceptions::PyIOError::new_err(format!("Failed to read ROM: {}", e))
+                })?;
+                let loaded_elf = rustboyadvance_utils::elf::load_elf(&elf_bytes, 0x08000000)
+                    .map_err(|e| {
+                        pyo3::exceptions::PyValueError::new_err(format!(
+                            "Failed to load ELF ROM: {}",
+                            e
+                        ))
+                    })?;
+                loaded_elf.data.into_boxed_slice()
+            }
+            _ => fs::read(rom_path)
+                .map_err(|e| {
+                    pyo3::exceptions::PyIOError::new_err(format!("Failed to read ROM: {}", e))
+                })?
+                .into_boxed_slice(),
+        };
+
+        let audio = NullAudio::new();
+
+        self.core = Some(
+            GameBoyAdvance::from_saved_state(&save, bios, rom, audio).map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!(
+                    "Failed to restore savestate: {}",
+                    e
+                ))
+            })?,
+        );
+
+        Ok(())
+    }
 
 
 }

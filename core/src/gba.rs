@@ -29,6 +29,7 @@ pub struct StopAddr {
     pub is_active: bool,
     pub value: i16,
     pub name: String,
+    pub id: u32
 }
 
 
@@ -132,12 +133,13 @@ impl GameBoyAdvance {
         gba
     }
 
-    pub fn add_stop_addr(&mut self, addr: u32, value: i16, is_active:bool, name: String) {
+    pub fn add_stop_addr(&mut self, addr: u32, value: i16, is_active:bool, name: String, id: u32) {
         self.stop_addrs.push(StopAddr {
             addr,
             is_active,
             value,
             name,
+            id
         });
     }
 
@@ -244,6 +246,18 @@ impl GameBoyAdvance {
     pub fn write_u32(&mut self, addr: u32, value: u32) {
         let offset = self.get_ewram_offset(addr);
         self.write_bytes(offset, &value.to_le_bytes());
+    }
+
+    pub fn write_u32_list(&mut self, addr: u32, values: &[u32]) {
+        let ewram_offset = self.get_ewram_offset(addr);
+        for (i, &value) in values.iter().enumerate() {
+            let byte_offset = ewram_offset + (i * 4);
+            if byte_offset + 4 <= self.sysbus.get_ewram().len() {
+                self.write_bytes(byte_offset, &value.to_le_bytes());
+            } else {
+                panic!("Attempted to write past EWRAM bounds at address: {:#010x}", addr);
+            }
+        }
     }
 
     /// Create a new GameBoyAdvance instance from a saved state
@@ -510,7 +524,7 @@ impl GameBoyAdvance {
                     //         orig.is_active = false;
                     //     }
                     // }
-                    return -1;
+                    return addrs_find[0].id as i32;
                 }
             }
 

@@ -47,6 +47,7 @@ fn load_bios(bios_path: &Path) -> Box<[u8]> {
     }
 }
 
+use rand::Rng;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(LOG_DIR).expect(&format!("could not create log directory ({})", LOG_DIR));
     flexi_logger::Logger::with_env_or_str("info")
@@ -97,9 +98,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         audio_interface,
     ));
                         
-    // let ewram_offset = 0x0203d6c4;
-    // gba.add_stop_addr(ewram_offset, 1, true, "on_est_la_".to_string());
-
+    let ewram_offset = 0x02000810;
+    gba.add_stop_addr(ewram_offset, 1, true, "stop CreateTeam".to_string(),12);
+    gba.add_stop_addr(0x02000812, 1, true, "stop handle turn".to_string(),3);
+    
     if opts.skip_bios {
         println!("Skipping bios animation..");
         gba.skip_bios();
@@ -123,7 +125,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let start_time = time::Instant::now();
             let result = gba.run_to_next_stop(100000);
             renderer.render(gba.get_frame_buffer());
-            if( result == -1) {
+            if( result == 12) {
+                let mut rng = rand::thread_rng(); // Create a random number generator
+                let random_values: Vec<u32> = (0..36).map(|_| rng.gen_range(1..=30)).collect();
+                let random_values2: Vec<u32> = (0..36).map(|_| rng.gen_range(1..=30)).collect();
+                gba.write_u32_list(0x02000094, random_values.as_slice());
+                gba.write_u32_list(0x02000004, random_values2.as_slice());
+                gba.write_u16(0x02000810, 0);
+
+            }
+            if( result == 3 ){
                 loop {
                     print!("Enter a number between 0 and 10: ");
                     stdout().flush().unwrap();
@@ -133,8 +144,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     match input.trim().parse::<u16>() {
                         Ok(num) if num <= 10 => {
-                            gba.write_u16(0x0203d6c6, num);
-                            gba.write_u16(0x0203d6c4, 0);
+                            gba.write_u16(0x02000814, num);
+                            gba.write_u16(0x02000812, 0);
                             println!("You entered: {}", num);
                             break;
                         }
