@@ -67,7 +67,7 @@ impl RustGba {
 
     fn add_stop_addr(&mut self, addr:u32, value:i16, is_active:bool , name:String, id:u32) -> PyResult<()> {
         if let Some(core) = &mut self.core {
-            print!("Adding stop address: addr={}, value={}, is_active={}, name={}\n", addr, value, is_active, name);
+            print!("Adding stop address: addr={}, value={}, is_active={}, name={}, id={}\n", addr, value, is_active, name,id);
             core.add_stop_addr(addr, value, is_active, name, id);
             Ok(())
         } else {

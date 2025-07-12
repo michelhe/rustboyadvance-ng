@@ -456,7 +456,7 @@ impl GameBoyAdvance {
     pub fn run<const CHECK_BREAKPOINTS: bool>(&mut self, cycles_to_run: usize) -> usize {
         let start_time = self.scheduler.timestamp();
         let end_time = start_time + cycles_to_run;
-        
+
         // Register an event to mark the end of this run
         self.scheduler
             .schedule_at(EventType::RunLimitReached, end_time);
@@ -474,6 +474,7 @@ impl GameBoyAdvance {
                     println!("Stop address(es) found:");
                     for stop_addr in addrs_find {
                         println!("Stop address: {} - {}", stop_addr.addr, stop_addr.name);
+
                     }
                 }
                 if CHECK_BREAKPOINTS {
@@ -500,8 +501,8 @@ impl GameBoyAdvance {
     #[inline]
     pub fn run_to_next_stop(&mut self, cycles_to_run: usize) -> i32 {
         let start_time = self.scheduler.timestamp();
-        let end_time = start_time + cycles_to_run;
-        
+        let end_time = start_time + cycles_to_run; 
+       
         // Register an event to mark the end of this run
         self.scheduler
             .schedule_at(EventType::RunLimitReached, end_time);
@@ -517,13 +518,6 @@ impl GameBoyAdvance {
                 
                 let addrs_find = self.check_stop_addrs();
                 if addrs_find.len() > 0 {
-                    println!("Stop address(es) found:");
-                    // for stop_addr in &addrs_find {
-                    //     println!("Stop address: {} - {}", stop_addr.addr, stop_addr.name);
-                    //     if let Some(orig) = self.stop_addrs.iter_mut().find(|x| x.addr == stop_addr.addr && x.name == stop_addr.name) {
-                    //         orig.is_active = false;
-                    //     }
-                    // }
                     return addrs_find[0].id as i32;
                 }
             }
@@ -533,7 +527,7 @@ impl GameBoyAdvance {
             }
         }
 
-        (self.scheduler.timestamp() - start_time).try_into().unwrap()
+        return -1;
     }
 
     /// Handle all pending scheduler events and return if run limit was reached.

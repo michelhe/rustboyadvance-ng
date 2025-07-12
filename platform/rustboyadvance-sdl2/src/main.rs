@@ -101,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
                         
     let ewram_offset = 0x02000810;
-    gba.add_stop_addr(ewram_offset, 1, true, "stop CreateTeam".to_string(),12);
+    // gba.add_stop_addr(ewram_offset, 1, true, "stop CreateTeam".to_string(),12);
     gba.add_stop_addr(0x02000812, 1, true, "stop handle turn".to_string(),3);
     
     if opts.skip_bios {
