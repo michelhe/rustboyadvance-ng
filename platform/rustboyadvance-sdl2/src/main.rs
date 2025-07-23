@@ -88,6 +88,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut renderer = video::init(&sdl_context)?;
+    let audio = NullAudio::new();
+
     let (audio_interface, mut _sdl_audio_device) = audio::create_audio_player(&sdl_context)?;
     let mut rom_name = opts.rom_name();
 
@@ -97,12 +99,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         bios_bin.clone(),
         opts.cartridge_from_opts()?,
         
-        audio_interface,
+        audio,
     ));
                         
-    let ewram_offset = 0x02000810;
+    let ewram_offset = 0x20007e0;
     // gba.add_stop_addr(ewram_offset, 1, true, "stop CreateTeam".to_string(),12);
-    gba.add_stop_addr(0x02000812, 1, true, "stop handle turn".to_string(),3);
+    // gba.add_stop_addr(0x02000812, 1, true, "stop handle turn".to_string(),3);
     
     if opts.skip_bios {
         println!("Skipping bios animation..");
@@ -128,12 +130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let result = gba.run_to_next_stop(100000);
             renderer.render(gba.get_frame_buffer());
             if( result == 12) {
-                let mut rng = rand::thread_rng(); // Create a random number generator
-                let random_values: Vec<u32> = (0..36).map(|_| rng.gen_range(1..=30)).collect();
-                let random_values2: Vec<u32> = (0..36).map(|_| rng.gen_range(1..=30)).collect();
-                gba.write_u32_list(0x02000094, random_values.as_slice());
-                gba.write_u32_list(0x02000004, random_values2.as_slice());
-                gba.write_u16(0x02000810, 0);
+                println!("{}", gba.read_u32(0x20007f0));
 
             }
             if( result == 3 ){

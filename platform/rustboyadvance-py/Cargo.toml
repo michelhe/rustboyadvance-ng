@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+flexi_logger = "0.14"
+log = "0.4"
 fs = "0.0.5"
 pyo3 = { version = "0.18", features = ["extension-module"] }
 rustboyadvance-core = { path = "../../core/" }

@@ -147,6 +147,13 @@ impl GameBoyAdvance {
         self.stop_addrs.iter().find(|&x| x.name == name)
     }
 
+    pub fn get_stop_id(&self, name: &str) -> Option<u32> {
+        self.stop_addrs
+            .iter()
+            .find(|&stop_addr| stop_addr.name == name)
+            .map(|stop_addr| stop_addr.id)
+    }
+
     pub fn remove_stop_addr(&mut self, addr: u32) {
         if let Some(index) = self.stop_addrs.iter().position(|x| x.addr == addr) {
             self.stop_addrs.remove(index);

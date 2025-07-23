@@ -3,15 +3,26 @@ use pyo3::types::PyDict;
 use rustboyadvance_core::prelude::*;
 use std::fs::read;
 use std::path::Path;
+use flexi_logger::{Logger, Duplicate};
 
 use rustboyadvance_core::cartridge::loader::{load_from_file, LoadRom};
 
 
 #[pymodule]
+
 fn rustboyadvance_py(_py: Python, m: &PyModule) -> PyResult<()> {
+    // Initialize flexi_logger
+    Logger::with_env_or_str("info") // Default log level is "info"
+        .log_to_file() 
+        .directory(".logs")      
+        .duplicate_to_stderr(Duplicate::Debug) 
+        .start()
+        .unwrap();
+
     m.add_class::<RustGba>()?;
     Ok(())
 }
+
 
 #[pyclass(unsendable)]
 pub struct RustGba {
@@ -63,6 +74,15 @@ impl RustGba {
 
         self.core = Some(GameBoyAdvance::new(bios, builder, audio));
         Ok(())
+    }
+
+     /// Get the stop ID by name. Returns the ID or None if not found.
+    pub fn get_stop_id(&self, name: String) -> PyResult<Option<u32>> {
+        if let Some(core) = &self.core {
+            Ok(core.get_stop_id(&name))
+        } else {
+            Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+        }
     }
 
     fn add_stop_addr(&mut self, addr:u32, value:i16, is_active:bool , name:String, id:u32) -> PyResult<()> {
@@ -206,8 +226,17 @@ impl RustGba {
         }
     }
 
+    pub fn write_u32_list(&mut self, addr: u32, values: Vec<u32>) -> PyResult<()> {
+        if let Some(core) = &mut self.core {
+            core.write_u32_list(addr, &values);
+            Ok(())
+        } else {
+            Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+        }
+    }
+
     /// Load a savestate from a file
-pub fn load_savestate(
+    pub fn load_savestate(
         &mut self,
         savestate_path: &str,
         bios_path: &str,
@@ -247,6 +276,22 @@ pub fn load_savestate(
         );
 
         Ok(())
+    }
+
+    pub fn save_savestate(&self, savestate_path: &str) -> PyResult<()> {
+        if let Some(core) = &self.core {
+            let savestate_file = Path::new(savestate_path);
+            let save_data = core.save_state().map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to save state: {}", e))
+            })?;
+
+            std::fs::write(savestate_file, save_data).map_err(|e| {
+                pyo3::exceptions::PyIOError::new_err(format!("Failed to write savestate: {}", e))
+            })?;
+            Ok(())
+        } else {
+            Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+        }
     }
 
 

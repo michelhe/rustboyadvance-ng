@@ -2592,7 +2592,9 @@ dependencies = [
 name = "rustboyadvance_py"
 version = "0.1.0"
 dependencies = [
+ "flexi_logger",
  "fs",
+ "log 0.4.27",
  "pyo3",
  "rustboyadvance-core",
 ]
