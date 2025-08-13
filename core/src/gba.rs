@@ -267,6 +267,47 @@ impl GameBoyAdvance {
         }
     }
 
+    pub fn read_i8_list(&self, addr: u32, count: usize) -> Vec<i8> {
+        let ewram_offset = self.get_ewram_offset(addr);
+        let mut result = Vec::with_capacity(count);
+
+        for i in 0..count {
+            let byte_offset = ewram_offset + i;
+            if let Some(bytes) = self.read_bytes(byte_offset, 1) {
+                result.push(bytes[0] as i8);
+            } else {
+                break;
+            }
+        }
+        
+        result
+    }
+
+    pub fn write_i8_list(&mut self, addr: u32, values: &[i8]) {
+        let ewram_offset = self.get_ewram_offset(addr);
+        for (i, &value) in values.iter().enumerate() {
+            let byte_offset = ewram_offset + i;
+            if byte_offset < self.sysbus.get_ewram().len() {
+                self.write_bytes(byte_offset, &[value as u8]);
+            } else {
+                panic!("Attempted to write past EWRAM bounds at address: {:#010x}", addr);
+            }
+        }
+    }
+
+    pub fn read_i8(&self, addr: u32) -> i8 {
+        let offset = self.get_ewram_offset(addr);
+        self.read_bytes(offset, 1)
+            .map(|bytes| bytes[0] as i8)
+            .unwrap_or_else(|| panic!("Attempted to read past EWRAM bounds at address: {:#010x}", addr))
+    }
+
+    pub fn write_i8(&mut self, addr: u32, value: i8) {
+        let offset = self.get_ewram_offset(addr);
+        self.write_bytes(offset, &[value as u8]);
+    }
+
+
     /// Create a new GameBoyAdvance instance from a saved state
     pub fn from_saved_state(
         savestate: &[u8],

@@ -235,6 +235,44 @@ impl RustGba {
         }
     }
 
+    /// Read a single i8 from EWRAM.
+    pub fn read_i8(&self, addr: u32) -> PyResult<i8> {
+        if let Some(core) = &self.core {
+            Ok(core.read_i8(addr))
+        } else {
+            Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+        }
+    }
+
+    /// Write a single i8 to EWRAM.
+    pub fn write_i8(&mut self, addr: u32, value: i8) -> PyResult<()> {
+        if let Some(core) = &mut self.core {
+            core.write_i8(addr, value);
+            Ok(())
+        } else {
+            Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+        }
+    }
+
+    /// Read a list of i8 from EWRAM.
+    pub fn read_i8_list(&self, addr: u32, count: usize) -> PyResult<Vec<i8>> {
+        if let Some(core) = &self.core {
+            Ok(core.read_i8_list(addr, count))
+        } else {
+            Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+        }
+    }
+
+    /// Write a list of i8 to EWRAM.
+    pub fn write_i8_list(&mut self, addr: u32, values: Vec<i8>) -> PyResult<()> {
+        if let Some(core) = &mut self.core {
+            core.write_i8_list(addr, &values);
+            Ok(())
+        } else {
+            Err(pyo3::exceptions::PyRuntimeError::new_err("GBA core not loaded"))
+        }
+    }
+
     /// Load a savestate from a file
     pub fn load_savestate(
         &mut self,
