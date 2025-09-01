@@ -6,6 +6,7 @@ use std::path::Path;
 use std::ptr;
 use std::time;
 
+pub use ringbuf::traits::*;
 pub mod elf;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -89,9 +90,11 @@ macro_rules! host_breakpoint {
 }
 
 pub mod audio {
-    pub use ringbuf::{Consumer, Producer, RingBuffer};
-    pub type SampleProducer = Producer<i16>;
-    pub type SampleConsumer = Consumer<i16>;
+    use ringbuf::{traits::*, HeapCons, HeapProd};
+    pub use ringbuf::HeapRb;
+
+    pub type SampleProducer = HeapProd<i16>;
+    pub type SampleConsumer = HeapCons<i16>;
 
     pub struct AudioRingBuffer {
         prod: SampleProducer,
@@ -106,7 +109,7 @@ pub mod audio {
 
     impl AudioRingBuffer {
         pub fn new_with_capacity(capacity: usize) -> AudioRingBuffer {
-            let rb = RingBuffer::new(capacity);
+            let rb = HeapRb::<i16>::new(capacity);
             let (prod, cons) = rb.split();
 
             AudioRingBuffer { prod, cons }

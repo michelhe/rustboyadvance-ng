@@ -1,6 +1,6 @@
 use crossterm::event::EventStream;
 use crossterm::ExecutableCommand;
-use structopt::StructOpt;
+use clap::Parser;
 
 use std::path::Path;
 use std::time;
@@ -111,7 +111,7 @@ fn load_bios(bios_path: &Path) -> Box<[u8]> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let opts = options::Options::from_args();
+    let opts = options::Options::parse();
 
     let (audio_interface, _output_device) = audio::create_audio_player();
     let _rom_name = opts.rom_name();
@@ -197,7 +197,7 @@ async fn main() -> Result<()> {
                             crossterm::event::KeyCode::F(1) => {
                                 let mut debugger = Debugger::new();
                                 debugger
-                                    .repl(&mut gba, matches.value_of("script_file"))
+                                    .repl(&mut gba, opts.script_file.as_deref())
                                     .unwrap();
                             }
                             crossterm::event::KeyCode::F(2) => {

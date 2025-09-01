@@ -3,10 +3,14 @@ use nom::branch::alt;
 use nom::bytes::complete::{tag, take_while1, take_while_m_n};
 use nom::character::complete::{char, digit1, multispace0, multispace1};
 use nom::combinator::{cut, map, map_res, opt};
-use nom::error::{context, convert_error, ParseError, VerboseError};
-use nom::multi::separated_list;
-use nom::sequence::{delimited, preceded, separated_pair, terminated, tuple};
+use nom::error::{context, ContextError, ParseError, FromExternalError};
+use nom::Parser;
+use nom::sequence::{delimited, preceded, separated_pair, terminated};
 use nom::IResult;
+use nom::multi::separated_list0;
+use nom_language::error::{VerboseError, convert_error};
+
+use std::num::ParseIntError;
 
 use super::{DebuggerError, DebuggerResult};
 
@@ -34,39 +38,39 @@ pub enum Expr {
     Empty,
 }
 
-fn parse_u32_hex<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, u32, E> {
-    let (i, _) = context("hex", tag("0x"))(i)?;
+fn parse_u32_hex<'a, E: ParseError<&'a str> + ContextError<&'a str> + FromExternalError<&'a str, ParseIntError>>(i: &'a str) -> IResult<&'a str, u32, E> {
+    let (i, _) = context("hex", tag("0x")).parse(i)?;
     map_res(take_while_m_n(1, 8, |c: char| c.is_digit(16)), |s| {
         u32::from_str_radix(s, 16)
-    })(i)
+    }).parse(i)
 }
 
-fn parse_u32<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, u32, E> {
-    context("u32", map_res(digit1, |s| u32::from_str_radix(s, 10)))(i)
+fn parse_u32<'a, E: ParseError<&'a str> + ContextError<&'a str> + FromExternalError<&'a str, ParseIntError>>(i: &'a str) -> IResult<&'a str, u32, E> {
+    context("u32", map_res(digit1, |s| u32::from_str_radix(s, 10))).parse(i)
 }
 
-fn parse_num<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, Value, E> {
-    map(alt((parse_u32_hex, parse_u32)), |n| Value::Num(n))(i)
+fn parse_num<'a, E: ParseError<&'a str> + ContextError<&'a str> + FromExternalError<&'a str, ParseIntError>>(i: &'a str) -> IResult<&'a str, Value, E> {
+    map(alt((parse_u32_hex, parse_u32)), |n| Value::Num(n)).parse(i)
 }
 
-fn parse_boolean<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, Value, E> {
+fn parse_boolean<'a, E: ParseError<&'a str> + ContextError<&'a str> + FromExternalError<&'a str, ParseIntError>>(i: &'a str) -> IResult<&'a str, Value, E> {
     context(
         "bool",
         alt((
             map(tag("true"), |_| Value::Boolean(true)),
             map(tag("false"), |_| Value::Boolean(false)),
         )),
-    )(i)
+    ).parse(i)
 }
 
-fn parse_identifier<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, Value, E> {
+fn parse_identifier<'a, E: ParseError<&'a str> + ContextError<&'a str> + FromExternalError<&'a str, ParseIntError>>(i: &'a str) -> IResult<&'a str, Value, E> {
     map(
         take_while1(|c: char| c.is_alphanumeric() || c == '_' || c == '-'),
         |s: &str| Value::Identifier(String::from(s)),
-    )(i)
+    ).parse(i)
 }
 
-fn parse_deref_type<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, DerefType, E> {
+fn parse_deref_type<'a, E: ParseError<&'a str> + ContextError<&'a str> + FromExternalError<&'a str, ParseIntError>>(i: &'a str) -> IResult<&'a str, DerefType, E> {
     delimited(
         char('('),
         alt((
@@ -75,49 +79,49 @@ fn parse_deref_type<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, 
             map(tag("u8*"), |_| DerefType::Byte),
         )),
         char(')'),
-    )(i)
+    ).parse(i)
 }
 
-fn parse_deref<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, Value, E> {
+fn parse_deref<'a, E: ParseError<&'a str> + ContextError<&'a str> + FromExternalError<&'a str, ParseIntError>>(i: &'a str) -> IResult<&'a str, Value, E> {
     context(
         "deref",
         preceded(
             char('*'),
             cut(map(
-                tuple((
+                (
                     map(opt(parse_deref_type), |t| match t {
                         Some(t) => t,
                         None => DerefType::Word,
                     }),
                     alt((parse_num, parse_identifier)),
-                )),
+                ),
                 |(t, v)| Value::Deref(Box::new(v), t),
             )),
         ),
-    )(i)
+    ).parse(i)
 }
 
-fn parse_value<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&'a str, Value, E> {
+fn parse_value<'a, E: ParseError<&'a str> + ContextError<&'a str> + FromExternalError<&'a str, ParseIntError>>(i: &'a str) -> IResult<&'a str, Value, E> {
     context(
         "argument",
         alt((parse_boolean, parse_deref, parse_num, parse_identifier)),
-    )(i)
+    ).parse(i)
 }
 
-fn parse_command<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&str, Expr, E> {
+fn parse_command<'a, E: ParseError<&'a str> + ContextError<&'a str> + FromExternalError<&'a str, ParseIntError>>(i: &'a str) -> IResult<&'a str, Expr, E> {
     context(
         "command",
         map(
-            tuple((
+            (
                 terminated(parse_identifier, multispace0),
-                separated_list(multispace1, parse_value),
-            )),
+                separated_list0(multispace1, parse_value),
+            ),
             |(cmd, args)| Expr::Command(cmd, args),
         ),
-    )(i)
+    ).parse(i)
 }
 
-fn parse_assignment<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&str, Expr, E> {
+fn parse_assignment<'a, E: ParseError<&'a str> + ContextError<&'a str> + FromExternalError<&'a str, ParseIntError>>(i: &'a str) -> IResult<&'a str, Expr, E> {
     context(
         "assignment",
         map(
@@ -128,10 +132,10 @@ fn parse_assignment<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&str, Exp
             ),
             |(lvalue, rvalue)| Expr::Assignment(lvalue, rvalue),
         ),
-    )(i)
+    ).parse(i)
 }
 
-fn _parse_expr<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&str, Expr, E> {
+fn _parse_expr<'a, E: ParseError<&'a str> + ContextError<&'a str> + FromExternalError<&'a str, ParseIntError>>(i: &'a str) -> IResult<&'a str, Expr, E> {
     context(
         "expression",
         preceded(
@@ -142,10 +146,10 @@ fn _parse_expr<'a, E: ParseError<&'a str>>(i: &'a str) -> IResult<&str, Expr, E>
                 map(multispace0, |_| Expr::Empty),
             )),
         ),
-    )(i)
+    ).parse(i)
 }
 
-pub fn parse_expr(i: &str) -> DebuggerResult<Expr> {
+pub fn parse_expr<'a>(i: &'a str) -> DebuggerResult<Expr> {
     match _parse_expr::<VerboseError<&str>>(i) {
         Ok((_, expr)) => Ok(expr),
         Err(nom::Err::Failure(e)) | Err(nom::Err::Error(e)) => {

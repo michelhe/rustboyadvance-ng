@@ -1,11 +1,11 @@
 use std::fmt;
 
-use crate::bit::BitIndex;
+use bit::BitIndex;
 
 use super::{ArmDecodeHelper, ArmFormat, ArmInstruction};
 
 use super::{AluOpCode, ArmCond, ArmHalfwordTransferType};
-use crate::arm7tdmi::*;
+use crate::*;
 
 impl fmt::Display for ArmCond {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -55,9 +55,11 @@ impl fmt::Display for AluOpCode {
     }
 }
 
+use crate::BarrelShiftOpCode;
+
 impl fmt::Display for BarrelShiftOpCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use BarrelShiftOpCode::*;
+        use crate::BarrelShiftOpCode::*;
         match self {
             LSL => write!(f, "lsl"),
             LSR => write!(f, "lsr"),
@@ -200,7 +202,7 @@ impl ArmInstruction {
         write!(f, "[{Rn}", Rn = reg_string(rn))?;
         let (ofs_string, comment) = match offset {
             BarrelShifterValue::ImmediateValue(value) => {
-                let value_for_commnet = if rn == REG_PC {
+                let value_for_commnet = if rn == registers_consts::REG_PC {
                     value + self.pc + 8 // account for pipelining
                 } else {
                     value
@@ -331,7 +333,7 @@ impl ArmInstruction {
             },
         )?;
         if let Ok(Some(op)) = self.fmt_operand2(f) {
-            let psr = RegPSR::new(op & 0xf000_0000);
+            let psr = psr::RegPSR::new(op & 0xf000_0000);
             write!(
                 f,
                 "\t; N={} Z={} C={} V={}",

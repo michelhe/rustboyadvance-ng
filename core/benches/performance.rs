@@ -1,9 +1,7 @@
 /// Measure first 60 frames bigmap.gba from tonc demos
 ///
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
-
-use std::cell::RefCell;
-use std::rc::Rc;
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
+use std::hint::black_box;
 
 use rustboyadvance_core::prelude::*;
 

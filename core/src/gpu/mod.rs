@@ -1,4 +1,5 @@
 use num::FromPrimitive;
+use num_derive::{FromPrimitive, ToPrimitive};
 use serde::{Deserialize, Serialize};
 
 use arm7tdmi::memory::{Addr, BusIO, DebugRead};
@@ -55,7 +56,7 @@ pub mod consts {
 }
 pub use self::consts::*;
 
-#[derive(Debug, Primitive, Copy, Clone)]
+#[derive(Debug, FromPrimitive, ToPrimitive, Copy, Clone)]
 pub enum PixelFormat {
     BPP4 = 0,
     BPP8 = 1,

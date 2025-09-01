@@ -2,6 +2,7 @@ use super::{BackupFile, BackupMemoryInterface};
 
 use bytesize;
 use num::FromPrimitive;
+use num_derive::{FromPrimitive, ToPrimitive};
 use serde::{Deserialize, Serialize};
 
 use std::cell::RefCell;
@@ -44,7 +45,7 @@ impl From<EepromAddressBits> for usize {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Primitive, PartialEq, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, ToPrimitive, FromPrimitive, PartialEq, Copy, Clone)]
 enum SpiInstruction {
     Read = 0b011,
     Write = 0b010,
@@ -160,7 +161,7 @@ impl EepromChip {
                 }
             }
             RxAddress(insn) => {
-                if self.rx_count == self.addr_bits.into() {
+                if self.rx_count == bitfield::Into::<usize>::into(self.addr_bits) {
                     self.address = (self.rx_buffer as usize) * 8;
                     trace!(
                         "{:?} mode , recvd address = {:#x} (rx_buffer={:#x})",
@@ -468,7 +469,6 @@ mod tests {
             bytes[18] = b'S';
             bytes[19] = b'T';
             bytes[20] = b'!';
-            drop(bytes);
             chip.memory.flush();
         }
 

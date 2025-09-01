@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use memmem::{Searcher, TwoWaySearcher};
-use num::FromPrimitive;
+use num_traits::FromPrimitive;
 
 use super::super::overrides;
 use super::super::{GBAError, GBAResult};

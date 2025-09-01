@@ -4,11 +4,14 @@ use std::io::{prelude::*, BufReader};
 
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use rustyline::history::DefaultHistory;
+
+use arm7tdmi::memory::BusIO;
 
 use colored::*;
 
 use super::GameBoyAdvance;
-use super::{Addr, Bus};
+use crate::prelude::Addr;
 
 mod parser;
 use parser::{parse_expr, DerefType, Expr, Value};
@@ -26,6 +29,18 @@ pub enum DebuggerError {
     InvalidArgument(String),
     InvalidCommandFormat(String),
     IoError(::std::io::Error),
+}
+
+impl PartialEq for DebuggerError {
+    fn eq(&self, other: &Self) -> bool { 
+        match self {
+            Self::ParsingError(s1) => {if let Self::ParsingError(s2) = other {s1 == s2} else { false }}
+            Self::InvalidCommand(s1) => {if let Self::InvalidCommand(s2) = other {s1 == s2} else { false }}
+            Self::InvalidArgument(s1) => {if let Self::InvalidArgument(s2) = other {s1 == s2} else { false }}
+            Self::InvalidCommandFormat(s1) => {if let Self::InvalidCommandFormat(s2) = other {s1 == s2} else { false }}
+            Self::IoError(_) => {if let Self::IoError(_) = other { true } else { false }}
+        }
+    }
 }
 
 impl From<::std::io::Error> for DebuggerError {
@@ -188,7 +203,7 @@ impl Debugger {
     ) -> DebuggerResult<()> {
         println!("Welcome to rustboyadvance-NG debugger 😎!\n");
         self.running = true;
-        let mut rl = Editor::<()>::new();
+        let mut rl = Editor::<(), DefaultHistory>::new().unwrap();
         let _ = rl.load_history(".rustboyadvance_history");
         if let Some(path) = script_file {
             println!("Executing script file");
@@ -211,7 +226,7 @@ impl Debugger {
                             continue;
                         }
                     }
-                    rl.add_history_entry(line.as_str());
+                    let _ = rl.add_history_entry(line.as_str());
                     let expr = parse_expr(&line);
                     match expr {
                         Ok(expr) => self.eval_expr(gba, expr),

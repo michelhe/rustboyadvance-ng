@@ -123,11 +123,11 @@ impl SingleThreadBase for DebuggerTarget {
         Ok(())
     }
 
-    fn read_addrs(&mut self, start_addr: u32, data: &mut [u8]) -> TargetResult<(), Self> {
+    fn read_addrs(&mut self, start_addr: u32, data: &mut [u8]) -> Result<usize, TargetError<()>> {
         let buffer = Arc::new(Mutex::new(vec![0; data.len()].into_boxed_slice()));
         self.debugger_request(DebuggerRequest::ReadAddrs(start_addr, buffer.clone()));
         data.copy_from_slice(&buffer.lock().unwrap());
-        Ok(())
+        Ok(start_addr as usize + data.len())
     }
 
     fn write_addrs(&mut self, _start_addr: u32, _data: &[u8]) -> TargetResult<(), Self> {

@@ -1,8 +1,9 @@
-use num::FromPrimitive;
+use num_derive::{FromPrimitive, ToPrimitive};
+use num_traits::FromPrimitive;
 
 use super::*;
 
-#[derive(Primitive, Debug, Ord, Eq, PartialOrd, PartialEq, Clone, Copy)]
+#[derive(FromPrimitive, ToPrimitive, Debug, Ord, Eq, PartialOrd, PartialEq, Clone, Copy)]
 pub enum RenderLayerKind {
     Backdrop = 0b00100000,
     Background3 = 0b00001000,
@@ -69,7 +70,7 @@ mod tests {
 
     #[test]
     fn test_layer_sort_order() {
-        let mut layers = ArrayVec::<[_; 7]>::new();
+        let mut layers = ArrayVec::<_, 7>::new();
 
         let backdrop = Rgb15(0xaaaa);
         let pixel = Rgb15::WHITE;

@@ -1,6 +1,7 @@
 use super::super::regs::*;
 use super::super::*;
 
+use num_derive::{FromPrimitive, ToPrimitive};
 use rustboyadvance_utils::index2d;
 
 const OVRAM: u32 = 0x0601_0000;
@@ -278,7 +279,7 @@ impl Gpu {
     }
 
     fn write_obj_pixel(&mut self, x: usize, y: usize, pixel_color: Rgb15, attrs: &ObjAttrs) {
-        let mut current_obj = self.obj_buffer_get_mut(x, y);
+        let current_obj = self.obj_buffer_get_mut(x, y);
         let obj_mode = attrs.0.objmode();
         match obj_mode {
             ObjMode::Normal | ObjMode::Sfx => {
@@ -305,7 +306,8 @@ impl Gpu {
     }
 }
 
-#[derive(Debug, Primitive, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, FromPrimitive, ToPrimitive, Copy, Clone, PartialEq, Eq)]
+#[repr(u16)]
 pub enum ObjMode {
     Normal = 0b00,
     Sfx = 0b01,
@@ -319,7 +321,7 @@ impl From<u16> for ObjMode {
     }
 }
 
-#[derive(Debug, Primitive, Copy, Clone, PartialEq)]
+#[derive(Debug, FromPrimitive, ToPrimitive, Copy, Clone, PartialEq)]
 enum ObjType {
     Normal = 0b00,
     Affine = 0b01,

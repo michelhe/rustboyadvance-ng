@@ -1,6 +1,7 @@
 use super::{BackupFile, BackupMemoryInterface};
 
 use num::FromPrimitive;
+use num_derive::{FromPrimitive, ToPrimitive};
 use serde::{Deserialize, Serialize};
 
 use std::path::PathBuf;
@@ -22,7 +23,7 @@ enum FlashMode {
     Select,
 }
 
-#[derive(Debug, Primitive)]
+#[derive(Debug,  ToPrimitive, FromPrimitive)]
 enum FlashCommand {
     EnterIdMode = 0x90,
     TerminateIdMode = 0xf0,

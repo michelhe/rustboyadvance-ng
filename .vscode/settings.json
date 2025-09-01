@@ -1,0 +1,5 @@
+{
+    "rust-analyzer.runnables.command": null,
+    "rust-analyzer.diagnostics.styleLints.enable": false,
+    "rust-analyzer.check.features": "all"
+}

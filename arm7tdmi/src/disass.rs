@@ -20,7 +20,7 @@ impl<'a, D> Disassembler<'a, D>
 where
     D: InstructionDecoder,
 {
-    pub fn new(base: Addr, bytes: &'a [u8]) -> Disassembler<'_, D> {
+    pub fn new(base: Addr, bytes: &'a [u8]) -> Disassembler<'a, D> {
         Disassembler {
             base: base as Addr,
             pos: 0,

@@ -3,10 +3,11 @@ use std::str::FromStr;
 
 mod backup_file;
 pub use backup_file::BackupFile;
+use num_derive::{FromPrimitive, ToPrimitive};
 pub mod eeprom;
 pub mod flash;
 
-#[derive(Debug, Primitive, Serialize, Deserialize, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, ToPrimitive, FromPrimitive, Serialize, Deserialize, Copy, Clone, PartialEq, Eq)]
 pub enum BackupType {
     Eeprom = 0,
     Sram = 1,

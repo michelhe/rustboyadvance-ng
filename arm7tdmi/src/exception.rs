@@ -33,7 +33,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
         #[cfg(feature = "debugger")]
         {
             if self.dbg.trace_exceptions {
-                trace!("exception {:?} lr={:x} new_mode={:?}", e, lr, new_mode);
+                log::trace!("exception {:?} lr={:x} new_mode={:?}", e, lr, new_mode);
             }
         }
 

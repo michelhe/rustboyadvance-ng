@@ -1,5 +1,7 @@
+use rustboyadvance_utils::Consumer;
 use sdl2;
 use sdl2::audio::{AudioCallback, AudioDevice, AudioFormat, AudioSpec, AudioSpecDesired};
+use log::info;
 
 use rustboyadvance_core::prelude::SimpleAudioInterface;
 use rustboyadvance_utils::audio::SampleConsumer;

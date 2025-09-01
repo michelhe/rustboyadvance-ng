@@ -35,9 +35,13 @@ pub(crate) fn start_gdb_server_thread(
         let gdbserver = GdbStub::new(conn);
         let disconnect_reason = gdbserver
             .run_blocking::<DebuggerEventLoop>(&mut target)
-            .map_err(|e| e.to_string())
+            .map_err(|e| if e.is_connection_error() {
+                format!("{:?}", e.into_connection_error())
+            } else {
+                "".to_string()
+            })
             .unwrap();
-        target.disconnect(disconnect_reason);
+        target.disconnect(disconnect_reason); 
     });
 
     let debugger = DebuggerRequestHandler {

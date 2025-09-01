@@ -198,7 +198,7 @@ impl Scheduler {
     pub unsafe fn timestamp_of_next_event_unchecked(&self) -> usize {
         self.events
             .peek()
-            .unwrap_or_else(|| std::hint::unreachable_unchecked())
+            .unwrap_or_else(|| unsafe { std::hint::unreachable_unchecked() })
             .time
     }
 

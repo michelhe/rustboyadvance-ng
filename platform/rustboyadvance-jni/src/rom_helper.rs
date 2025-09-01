@@ -12,7 +12,7 @@ fn parse_rom_header(env: &JNIEnv, barr: jbyteArray) -> cartridge::header::Cartri
 mod bindings {
     use super::*;
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_RomHelper_getGameCode(
         env: JNIEnv,
         _obj: JClass,
@@ -22,7 +22,7 @@ mod bindings {
         env.new_string(header.game_code).unwrap().into_inner()
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_RomHelper_getGameTitle(
         env: JNIEnv,
         _obj: JClass,

@@ -1,14 +1,12 @@
-#[macro_use]
-extern crate libretro_backend;
-
-#[macro_use]
-extern crate log;
+use libretro_backend::*;
+use log::{info, debug, error};
 
 use libretro_backend::{
     AudioVideoInfo, CoreInfo, GameData, JoypadButton, LoadGameResult, PixelFormat, RuntimeHandle,
 };
 
 use bit::BitIndex;
+use rustboyadvance_utils::Consumer;
 use unsafe_unwrap::UnsafeUnwrap;
 
 use rustboyadvance_core::keypad::Keys as _GbaButton;
@@ -123,17 +121,18 @@ impl libretro_backend::Core for RustBoyAdvanceCore {
         // gba and audio are `Some` after the game is loaded, so avoiding overhead of unwrap
         let gba = unsafe { self.gba.as_mut().unsafe_unwrap() };
 
-        let key_state = gba.get_key_state_mut();
-        macro_rules! update_controllers {
-            ( $( $button:ident ),+ ) => (
-                $(
-                    key_state.set_bit(*GbaButton::from(JoypadButton::$button) as usize, !handle.is_joypad_button_pressed( joypad_port, JoypadButton::$button ));
-                )+
-            )
+        {
+            let key_state = gba.get_key_state_mut();
+            macro_rules! update_controllers {
+                ( $( $button:ident ),+ ) => (
+                    $(
+                        key_state.set_bit(*GbaButton::from(JoypadButton::$button) as usize, !handle.is_joypad_button_pressed( joypad_port, JoypadButton::$button ));
+                    )+
+                )
+            }
+    
+            update_controllers!(A, B, Start, Select, Left, Up, Right, Down, L1, R1);    
         }
-
-        update_controllers!(A, B, Start, Select, Left, Up, Right, Down, L1, R1);
-        drop(key_state);
 
         gba.frame();
 

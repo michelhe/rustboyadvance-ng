@@ -5,7 +5,7 @@ use std::time;
 use crate::arm7tdmi::arm::ArmInstruction;
 use crate::arm7tdmi::thumb::ThumbInstruction;
 use crate::arm7tdmi::CpuState;
-use crate::bus::{Addr, Bus, DebugRead};
+use crate::arm7tdmi::memory::{Addr, DebugRead, BusIO};
 use crate::disass::Disassembler;
 use rustboyadvance_utils::{read_bin_file, write_bin_file};
 
@@ -37,6 +37,7 @@ pub enum MemWriteCommandSize {
 }
 
 bitflags! {
+    #[derive(Debug, PartialEq, Clone)]
     pub struct TraceFlags: u32 {
         const TRACE_SYSBUS = 0b00000001;
         const TRACE_OPCODE = 0b00000010;
@@ -111,7 +112,7 @@ impl Debugger {
                     println!("PC at {:08x}", pc);
                 }
 
-                println!("{}", gba.cpu);
+                println!("{:?}", gba.cpu);
                 // println!("IME={}", gba.io_devs.intc.interrupt_master_enable);
                 // println!("IE={:#?}", gba.io_devs.intc.interrupt_enable);
                 // println!("IF={:#?}", gba.io_devs.intc.interrupt_flags);
@@ -156,7 +157,7 @@ impl Debugger {
                     }
                 }
                 println!("cycles: {}", gba.scheduler.timestamp());
-                println!("{}\n", gba.cpu);
+                println!("{:?}\n", gba.cpu);
             }
             Continue => 'running: loop {
                 gba.key_poll();
@@ -304,7 +305,7 @@ impl Debugger {
                     if let Ok(elf) = goblin::elf::Elf::parse(&elf_buffer) {
                         let strtab = elf.strtab;
                         for sym in elf.syms.iter() {
-                            if let Some(Ok(name)) = strtab.get(sym.st_name) {
+                            if let Some(name) = strtab.get_at(sym.st_name) {
                                 self.symbols
                                     .insert(name.to_owned(), offset + (sym.st_value as u32));
                             } else {

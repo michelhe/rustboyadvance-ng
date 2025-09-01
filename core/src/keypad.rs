@@ -1,4 +1,6 @@
-#[derive(Debug, Primitive, PartialEq, Eq, Clone, Copy)]
+use num_derive::{FromPrimitive, ToPrimitive};
+
+#[derive(Debug, ToPrimitive, FromPrimitive, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 pub enum Keys {
     ButtonA = 0,
@@ -16,7 +18,7 @@ pub enum Keys {
 pub const NUM_KEYS: usize = 10;
 pub const KEYINPUT_ALL_RELEASED: u16 = 0b1111111111;
 
-#[derive(Debug, Primitive, PartialEq, Eq)]
+#[derive(Debug, ToPrimitive, FromPrimitive, PartialEq, Eq)]
 #[repr(u8)]
 pub enum KeyState {
     Pressed = 0,

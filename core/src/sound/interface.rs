@@ -1,4 +1,5 @@
 use rustboyadvance_utils::audio::{AudioRingBuffer, SampleConsumer, SampleProducer};
+use ringbuf::traits::*;
 
 pub type StereoSample<T> = [T; 2];
 
@@ -44,8 +45,8 @@ impl AudioInterface for SimpleAudioInterface {
 
     #[inline]
     fn push_sample(&mut self, sample: &StereoSample<i16>) {
-        let _ = self.producer.push(sample[0]);
-        let _ = self.producer.push(sample[1]);
+        let _ = self.producer.try_push(sample[0]);
+        let _ = self.producer.try_push(sample[1]);
     }
 }
 

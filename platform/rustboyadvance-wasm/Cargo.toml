@@ -2,7 +2,7 @@
 name = "rustboyadvance-wasm"
 version = "0.1.0"
 authors = ["Michel Heily <michelheily@gmail.com>"]
-edition = "2018"
+edition = "2024"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -51,5 +51,5 @@ features = [
 
 
 [dev-dependencies]
-wasm-bindgen-test = "0.2"
+wasm-bindgen-test = "0.3.50"
 

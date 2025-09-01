@@ -22,6 +22,8 @@ use super::sound::interface::DynAudioInterface;
 use arm7tdmi::{self, Arm7tdmiCore};
 use rustboyadvance_utils::Shared;
 
+pub const CONFIG: bincode::config::Configuration<bincode::config::LittleEndian, bincode::config::Fixint> = bincode::config::legacy();
+
 pub struct GameBoyAdvance {
     pub cpu: Box<Arm7tdmiCore<SysBus>>,
     pub(crate) sysbus: Shared<SysBus>,
@@ -54,8 +56,8 @@ fn check_real_bios(bios: &[u8]) -> bool {
     use sha2::{Digest, Sha256};
 
     let mut hasher = Sha256::new();
-    hasher.input(bios);
-    let digest = hasher.result();
+    hasher.update(bios);
+    let digest = hasher.finalize();
 
     let expected_hash = hex!("fd2547724b505f487e6dcb29ec2ecff3af35a841a77ab2e85fd87350abd36570");
 
@@ -122,8 +124,8 @@ impl GameBoyAdvance {
         bios: Box<[u8]>,
         rom: Box<[u8]>,
         audio_interface: DynAudioInterface,
-    ) -> bincode::Result<GameBoyAdvance> {
-        let decoded: Box<SaveState> = bincode::deserialize_from(savestate)?;
+    ) -> Result<GameBoyAdvance, bincode::error::DecodeError> {
+        let (decoded, _n): (Box<SaveState>, usize) = bincode::serde::borrow_decode_from_slice(savestate, CONFIG)?;
 
         let interrupts = Rc::new(Cell::new(IrqBitmask(decoded.interrupt_flags)));
         let scheduler = decoded.scheduler.make_shared();
@@ -158,7 +160,7 @@ impl GameBoyAdvance {
         })
     }
 
-    pub fn save_state(&self) -> bincode::Result<Vec<u8>> {
+    pub fn save_state(&self) -> Result<Vec<u8>, bincode::error::EncodeError> {
         let s = SaveState {
             cpu_state: self.cpu.save_state(),
             io_devs: self.io_devs.clone_inner(),
@@ -169,11 +171,11 @@ impl GameBoyAdvance {
             scheduler: self.scheduler.clone_inner(),
         };
 
-        bincode::serialize(&s)
+        bincode::serde::encode_to_vec(&s, CONFIG)
     }
 
-    pub fn restore_state(&mut self, bytes: &[u8]) -> bincode::Result<()> {
-        let decoded: Box<SaveState> = bincode::deserialize_from(bytes)?;
+    pub fn restore_state(&mut self, bytes: &[u8]) -> Result<(), bincode::error::DecodeError> {
+        let (decoded, _n): (Box<SaveState>, usize) = bincode::serde::borrow_decode_from_slice(bytes, CONFIG)?;
 
         self.cpu.restore_state(decoded.cpu_state);
         self.scheduler = Scheduler::make_shared(decoded.scheduler);
@@ -253,6 +255,17 @@ impl GameBoyAdvance {
         let debugger = self.debugger.take().expect("debugger should be None here");
         self.debugger = debugger.handle_incoming_requests(self);
         self.frame_interruptible();
+    }
+
+    #[cfg(feature = "debugger")]
+    pub fn step_debugger(&mut self) -> Option<u32> {
+        self.single_step();
+        self.check_breakpoint()
+    }
+
+    #[cfg(feature = "debugger")]
+    pub fn key_poll(&mut self) {
+        //TODO
     }
 
     #[inline]

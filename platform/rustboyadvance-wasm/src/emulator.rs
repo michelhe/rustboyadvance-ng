@@ -1,4 +1,6 @@
 use rustboyadvance_utils::audio::SampleConsumer;
+use rustboyadvance_utils::Consumer;
+use rustboyadvance_utils::Observer;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::Clamped;
 
@@ -115,8 +117,8 @@ impl Emulator {
     }
 
     pub fn collect_audio_samples(&mut self) -> Result<Float32Array, JsValue> {
-        let mut samples = Vec::with_capacity(self.audio_consumer.len());
-        while let Some(sample) = self.audio_consumer.pop() {
+        let mut samples = Vec::with_capacity(self.audio_consumer.occupied_len());
+        while let Some(sample) = self.audio_consumer.try_pop() {
             samples.push(convert_sample(sample));
         }
 

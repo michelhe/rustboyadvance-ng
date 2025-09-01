@@ -1,5 +1,6 @@
 use rustboyadvance_core::prelude::SimpleAudioInterface;
 
+use rustboyadvance_utils::Consumer;
 use tinyaudio::prelude::*;
 
 pub fn create_audio_player() -> (Box<SimpleAudioInterface>, OutputDevice) {
@@ -18,7 +19,7 @@ pub fn create_audio_player() -> (Box<SimpleAudioInterface>, OutputDevice) {
     let r = run_output_device(desired_spec, move |data| {
         'outer: for samples in data.chunks_mut(desired_spec.channels_count) {
             for sample in samples {
-                if let Some(v) = consumer.pop() {
+                if let Some(v) = consumer.try_pop() {
                     *sample = v as f32 / i16::MAX as f32;
                 } else {
                     break 'outer;

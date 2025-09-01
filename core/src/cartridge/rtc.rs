@@ -1,6 +1,7 @@
 use bit::BitIndex;
 use bit_reverse::LookupReverse;
 use chrono::prelude::*;
+use num_derive::{FromPrimitive, ToPrimitive};
 use serde::{Deserialize, Serialize};
 
 use num::FromPrimitive;
@@ -66,7 +67,7 @@ impl PortValue {
 }
 
 /// RTC Registers codes in the GBA
-#[derive(Primitive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[derive(FromPrimitive, ToPrimitive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 enum RegisterKind {
     ForceReset = 0,
     DateTime = 2,

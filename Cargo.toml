@@ -7,13 +7,13 @@ members = [
     "platform/rustboyadvance-libretro",
     # "platform/rustboyadvance-minifb", - DEPRECATED
     "platform/rustboyadvance-wasm",
-    "platform/rustboyadvance-jni",
+    # "platform/rustboyadvance-jni", - TODO fix up for modern Rust
     "platform/rustboyadvance-term",
     "fps_bench"
 ]
 
 default-members = ["platform/rustboyadvance-sdl2"]
-
+resolver = "1"
 
 [profile.dev]
 opt-level = 2

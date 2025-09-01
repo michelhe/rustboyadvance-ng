@@ -2,12 +2,12 @@
 name = "rustboyadvance-term"
 version = "0.1.0"
 authors = ["Felix Roithmayr <felix.roithmayr@aon.at>"]
-edition = "2018"
+edition = "2024"
 
 [dependencies]
 rustboyadvance-core = { path = "../../core/", features = ["elf_support"] }
 rustboyadvance-utils = { path = "../../utils/" }
-structopt = "0.3"
+clap = { version = "4.5.46", features = ["derive"] }
 bit = "^0.1"
 tinyaudio = "1.1.0"
 tokio = { version = "1.44.2", features = ["full"] }
@@ -20,7 +20,6 @@ viuer = "0.9.1"
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
 
-# [features]
-# default = ["gdb"]
-# debugger = ["rustboyadvance-core/debugger"]
-# gdb = ["rustboyadvance-core/gdb"]
+[features]
+default = []
+debugger = ["rustboyadvance-core/debugger"]

@@ -4,7 +4,10 @@ use log::debug;
 use serde::{Deserialize, Serialize};
 use bit::BitIndex;
 use num::FromPrimitive;
-use ansi_term::{Colour, Style};
+use ansi_term::Style;
+
+#[cfg(feature = "debugger")]
+use ansi_term::Colour;
 
 use rustboyadvance_utils::{Shared, WeakPointer};
 
@@ -531,7 +534,7 @@ impl<I: MemoryInterface> fmt::Debug for Arm7tdmiCore<I> {
 }
 
 #[cfg(feature = "debugger")]
-impl<I: MemoryInterface> fmt::Display for Core<I> {
+impl<I: MemoryInterface> fmt::Display for Arm7tdmiCore<I> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "ARM7TDMI Core Status:")?;
         writeln!(f, "\tCPSR: {}", self.cpsr)?;

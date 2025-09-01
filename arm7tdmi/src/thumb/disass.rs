@@ -1,9 +1,9 @@
 use std::fmt;
 
-use crate::bit::BitIndex;
+use bit::BitIndex;
 
 use super::*;
-use crate::arm7tdmi::*;
+use crate::*;
 
 use super::ThumbDecodeHelper;
 
@@ -23,7 +23,7 @@ impl ThumbInstruction {
     fn fmt_thumb_move_shifted_reg(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{op}\t{Rd}, {Rs}, #{Offset5}",
+            "{op:?}\t{Rd}, {Rs}, #{Offset5}",
             op = self.raw.format1_op(),
             Rd = reg_string(self.raw & 0b111),
             Rs = reg_string(self.raw.rs()),

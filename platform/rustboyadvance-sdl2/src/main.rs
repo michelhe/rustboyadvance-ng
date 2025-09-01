@@ -3,17 +3,16 @@ use sdl2::event::Event;
 use sdl2::keyboard::Scancode;
 use sdl2::{self};
 
-use bytesize;
+use log::info;
+
 use spin_sleep;
-use structopt::StructOpt;
+use clap::Parser;
 
 use std::fs;
 use std::io::Cursor;
 use std::path::Path;
 use std::time;
 
-#[macro_use]
-extern crate log;
 use flexi_logger;
 use flexi_logger::*;
 
@@ -49,16 +48,16 @@ fn load_bios(bios_path: &Path) -> Box<[u8]> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(LOG_DIR).expect(&format!("could not create log directory ({})", LOG_DIR));
-    flexi_logger::Logger::with_env_or_str("info")
-        .log_to_file()
-        .directory(LOG_DIR)
+    flexi_logger::Logger::try_with_env_or_str("info")
+        .unwrap()
+        .log_to_file(FileSpec::default().directory(LOG_DIR))
         .duplicate_to_stderr(Duplicate::Debug)
         .format_for_files(default_format)
         .format_for_stderr(colored_default_format)
         .start()
         .unwrap();
 
-    let opts = options::Options::from_args();
+    let opts = options::Options::parse();
 
     info!("Initializing SDL2 context");
     let sdl_context = sdl2::init().expect("failed to initialize sdl2");
@@ -86,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut renderer = video::init(&sdl_context)?;
     let (audio_interface, mut _sdl_audio_device) = audio::create_audio_player(&sdl_context)?;
-    let mut rom_name = opts.rom_name();
+    let rom_name = opts.rom_name();
 
     let bios_bin = load_bios(&opts.bios);
 
@@ -141,7 +140,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let mut debugger = Debugger::new();
                         info!("starting debugger...");
                         debugger
-                            .repl(&mut gba, matches.value_of("script_file"))
+                            .repl(&mut gba, opts.script_file.as_deref())
                             .unwrap();
                         info!("ending debugger...")
                     }
@@ -193,7 +192,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 Event::ControllerDeviceRemoved { which, .. } => {
                     let removed = if let Some(active_controller) = &active_controller {
-                        active_controller.instance_id() == (which as i32)
+                        active_controller.instance_id() == (which as u32)
                     } else {
                         false
                     };
@@ -213,7 +212,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 Event::Quit { .. } => break 'running,
-                Event::DropFile { filename, .. } => {
+                Event::DropFile {  .. } => {
                     todo!("impl DropFile again")
                 }
                 _ => {}

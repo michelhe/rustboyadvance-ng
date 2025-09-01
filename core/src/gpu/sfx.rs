@@ -20,7 +20,7 @@ impl Rgb15 {
 fn filter_window_backgrounds(
     backgrounds: &[usize],
     window_flags: WindowFlags,
-) -> ArrayVec<[usize; 4]> {
+) -> ArrayVec<usize, 4> {
     backgrounds
         .iter()
         .copied()
@@ -47,7 +47,7 @@ impl Gpu {
 
         // filter out disabled backgrounds and sort by priority
         // the backgrounds are sorted once for the entire scanline
-        let mut sorted_backgrounds: ArrayVec<[usize; 4]> = (bg_start..=bg_end)
+        let mut sorted_backgrounds: ArrayVec<usize, 4> = (bg_start..=bg_end)
             .filter(|bg| self.dispcnt.enable_bg[*bg])
             .collect();
         sorted_backgrounds.sort_by_key(|bg| (self.bgcnt[*bg].priority, *bg));
