@@ -1,5 +1,5 @@
 use libretro_backend::*;
-use log::{info, debug, error};
+use log::{debug, error, info};
 
 use libretro_backend::{
     AudioVideoInfo, CoreInfo, GameData, JoypadButton, LoadGameResult, PixelFormat, RuntimeHandle,
@@ -130,8 +130,8 @@ impl libretro_backend::Core for RustBoyAdvanceCore {
                     )+
                 )
             }
-    
-            update_controllers!(A, B, Start, Select, Left, Up, Right, Down, L1, R1);    
+
+            update_controllers!(A, B, Start, Select, Left, Up, Right, Down, L1, R1);
         }
 
         gba.frame();

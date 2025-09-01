@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{prelude::*, BufReader};
+use std::io::{BufReader, prelude::*};
 
-use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;
 
 use arm7tdmi::memory::BusIO;
@@ -14,7 +14,7 @@ use super::GameBoyAdvance;
 use crate::prelude::Addr;
 
 mod parser;
-use parser::{parse_expr, DerefType, Expr, Value};
+use parser::{DerefType, Expr, Value, parse_expr};
 
 mod command;
 use command::Command;
@@ -32,13 +32,39 @@ pub enum DebuggerError {
 }
 
 impl PartialEq for DebuggerError {
-    fn eq(&self, other: &Self) -> bool { 
+    fn eq(&self, other: &Self) -> bool {
         match self {
-            Self::ParsingError(s1) => {if let Self::ParsingError(s2) = other {s1 == s2} else { false }}
-            Self::InvalidCommand(s1) => {if let Self::InvalidCommand(s2) = other {s1 == s2} else { false }}
-            Self::InvalidArgument(s1) => {if let Self::InvalidArgument(s2) = other {s1 == s2} else { false }}
-            Self::InvalidCommandFormat(s1) => {if let Self::InvalidCommandFormat(s2) = other {s1 == s2} else { false }}
-            Self::IoError(_) => {if let Self::IoError(_) = other { true } else { false }}
+            Self::ParsingError(s1) => {
+                if let Self::ParsingError(s2) = other {
+                    s1 == s2
+                } else {
+                    false
+                }
+            }
+            Self::InvalidCommand(s1) => {
+                if let Self::InvalidCommand(s2) = other {
+                    s1 == s2
+                } else {
+                    false
+                }
+            }
+            Self::InvalidArgument(s1) => {
+                if let Self::InvalidArgument(s2) = other {
+                    s1 == s2
+                } else {
+                    false
+                }
+            }
+            Self::InvalidCommandFormat(s1) => {
+                if let Self::InvalidCommandFormat(s2) = other {
+                    s1 == s2
+                } else {
+                    false
+                }
+            }
+            Self::IoError(_) => {
+                matches!(other, Self::IoError(_))
+            }
         }
     }
 }
@@ -51,6 +77,7 @@ impl From<::std::io::Error> for DebuggerError {
 
 type DebuggerResult<T> = Result<T, DebuggerError>;
 
+#[derive(Default)]
 pub struct Debugger {
     running: bool,
     pub previous_command: Option<Command>,
@@ -58,12 +85,8 @@ pub struct Debugger {
 }
 
 impl Debugger {
-    pub fn new() -> Debugger {
-        Debugger {
-            running: false,
-            previous_command: None,
-            symbols: HashMap::new(),
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn check_breakpoint(&self, gba: &GameBoyAdvance) -> Option<u32> {
@@ -99,7 +122,7 @@ impl Debugger {
 
     fn val_reg(&self, arg: &Value) -> DebuggerResult<usize> {
         match arg {
-            Value::Identifier(reg) => self.decode_reg(&reg),
+            Value::Identifier(reg) => self.decode_reg(reg),
             v => Err(DebuggerError::InvalidArgument(format!(
                 "expected a number, got {:?}",
                 v
@@ -131,7 +154,7 @@ impl Debugger {
                     Ok(*address)
                 } else {
                     // otherwise, decode as register (TODO special token to separate symbol and register)
-                    let reg = self.decode_reg(&ident)?;
+                    let reg = self.decode_reg(ident)?;
                     Ok(gba.cpu.get_reg(reg))
                 }
             }
@@ -182,12 +205,13 @@ impl Debugger {
                 }
                 Err(e) => println!("{} {:?}", "failed to build command".red(), e),
             },
-            Expr::Assignment(lvalue, rvalue) => match self.eval_assignment(gba, lvalue, rvalue) {
-                Err(DebuggerError::InvalidArgument(m)) => {
+            Expr::Assignment(lvalue, rvalue) => {
+                if let Err(DebuggerError::InvalidArgument(m)) =
+                    self.eval_assignment(gba, lvalue, rvalue)
+                {
                     println!("{}: {}", "assignment error".red(), m)
                 }
-                _ => (),
-            },
+            }
             Expr::Empty => println!("Got empty expr"),
         }
     }

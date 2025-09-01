@@ -368,8 +368,8 @@ impl Gpu {
             self.render_scanline();
             // update BG2/3 reference points on the end of a scanline
             for i in 0..2 {
-                self.bg_aff[i].internal_x += self.bg_aff[i].pb as i16 as i32;
-                self.bg_aff[i].internal_y += self.bg_aff[i].pd as i16 as i32;
+                self.bg_aff[i].internal_x += self.bg_aff[i].pb as i32;
+                self.bg_aff[i].internal_y += self.bg_aff[i].pd as i32;
             }
 
             (GpuEvent::HDraw, CYCLES_HDRAW)
@@ -550,25 +550,25 @@ mod tests {
             println!("line = {}", line);
             assert_eq!(gpu.vcount, line);
             assert_eq!(sched.peek_next(), Some(EventType::Gpu(GpuEvent::HDraw)));
-            assert_eq!(gpu.dispstat.hblank_flag, false);
-            assert_eq!(gpu.dispstat.vblank_flag, false);
+            assert!(!gpu.dispstat.hblank_flag);
+            assert!(!gpu.dispstat.vblank_flag);
 
             update!(CYCLES_HDRAW);
 
             println!("{:?}", sched.num_pending_events());
             assert_eq!(sched.peek_next(), Some(EventType::Gpu(GpuEvent::HBlank)));
-            assert_eq!(gpu.dispstat.hblank_flag, true);
-            assert_eq!(gpu.dispstat.vblank_flag, false);
+            assert!(gpu.dispstat.hblank_flag);
+            assert!(!gpu.dispstat.vblank_flag);
 
             update!(CYCLES_HBLANK);
 
-            assert_eq!(gpu.interrupt_flags.get().LCD_VCounterMatch(), false);
+            assert!(!gpu.interrupt_flags.get().LCD_VCounterMatch());
         }
 
         for line in 0..68 {
             println!("line = {}", 160 + line);
-            assert_eq!(gpu.dispstat.hblank_flag, false);
-            assert_eq!(gpu.dispstat.vblank_flag, true);
+            assert!(!gpu.dispstat.hblank_flag);
+            assert!(gpu.dispstat.vblank_flag);
             assert_eq!(
                 sched.peek_next(),
                 Some(EventType::Gpu(GpuEvent::VBlankHDraw))
@@ -576,24 +576,24 @@ mod tests {
 
             update!(CYCLES_HDRAW);
 
-            assert_eq!(gpu.dispstat.hblank_flag, true);
-            assert_eq!(gpu.dispstat.vblank_flag, true);
+            assert!(gpu.dispstat.hblank_flag);
+            assert!(gpu.dispstat.vblank_flag);
             assert_eq!(
                 sched.peek_next(),
                 Some(EventType::Gpu(GpuEvent::VBlankHBlank))
             );
-            assert_eq!(gpu.interrupt_flags.get().LCD_VCounterMatch(), false);
+            assert!(!gpu.interrupt_flags.get().LCD_VCounterMatch());
 
             update!(CYCLES_HBLANK);
         }
 
         assert_eq!(sched.timestamp(), CYCLES_FULL_REFRESH);
 
-        assert_eq!(gpu.interrupt_flags.get().LCD_VCounterMatch(), true);
+        assert!(gpu.interrupt_flags.get().LCD_VCounterMatch());
         assert_eq!(gpu.cycles_left_for_current_state, CYCLES_HDRAW);
         assert_eq!(sched.peek_next(), Some(EventType::Gpu(GpuEvent::HDraw)));
         assert_eq!(gpu.vcount, 0);
-        assert_eq!(gpu.dispstat.vcount_flag, true);
-        assert_eq!(gpu.dispstat.hblank_flag, false);
+        assert!(gpu.dispstat.vcount_flag);
+        assert!(!gpu.dispstat.hblank_flag);
     }
 }

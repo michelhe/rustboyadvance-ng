@@ -4,7 +4,6 @@ use sdl2::keyboard::Scancode;
 
 use rustboyadvance_core::keypad as gba_keypad;
 
-use bit;
 use bit::BitIndex;
 
 pub fn on_keyboard_key_down(key_state: &mut u16, scancode: Scancode) {

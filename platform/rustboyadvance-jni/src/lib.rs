@@ -34,10 +34,13 @@ fn save_state(env: &JNIEnv, gba: &mut GameBoyAdvance) -> Result<jbyteArray, Stri
     let byte_array = env
         .byte_array_from_slice(&saved_state)
         .map_err(|e| format!("failed to create byte array, error: {:?}", e))?;
-    Ok(byte_array)
+    Ok(**byte_array)
 }
 
 fn load_state(env: &JNIEnv, gba: &mut GameBoyAdvance, state: jbyteArray) -> Result<(), String> {
+    let state = unsafe {
+        JByteArray::from_raw(state)
+    };
     let state = env
         .convert_byte_array(state)
         .map_err(|e| format!("failed to convert byte array, error: {:?}", e))?;
@@ -51,12 +54,12 @@ pub mod bindings {
 
     #[inline(always)]
     unsafe fn cast_ctx<'a>(ctx: jlong) -> &'a mut EmulatorContext {
-        &mut (*(ctx as *mut EmulatorContext))
+        unsafe { &mut (*(ctx as *mut EmulatorContext)) }
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn JNI_OnLoad(vm: *mut JavaVM, _reserved: *mut c_void) -> jint {
-        if DID_LOAD {
+        if unsafe { DID_LOAD } {
             return JNI_VERSION_1_6;
         }
         #[cfg(target_os = "android")]
@@ -67,14 +70,14 @@ pub mod bindings {
         debug!("library loaded and logger initialized!");
         debug!("JVM: {:?}", vm);
 
-        DID_LOAD = true;
+        unsafe { DID_LOAD = true };
 
         JNI_VERSION_1_6
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_openEmulator(
-        env: JNIEnv,
+        mut env: JNIEnv,
         _obj: JClass,
         bios: jbyteArray,
         rom: jbyteArray,
@@ -85,7 +88,7 @@ pub mod bindings {
         skip_bios: jboolean,
     ) -> jlong {
         match EmulatorContext::native_open_context(
-            &env,
+            &mut env,
             bios,
             rom,
             renderer_obj,
@@ -102,9 +105,9 @@ pub mod bindings {
         }
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_openSavedState(
-        env: JNIEnv,
+        mut env: JNIEnv,
         _obj: JClass,
         bios: jbyteArray,
         rom: jbyteArray,
@@ -114,7 +117,7 @@ pub mod bindings {
         keypad_obj: JObject,
     ) -> jlong {
         match EmulatorContext::native_open_saved_state(
-            &env,
+            &mut env,
             bios,
             rom,
             savestate,
@@ -130,7 +133,7 @@ pub mod bindings {
         }
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_closeEmulator(
         _env: JNIEnv,
         _obj: JClass,
@@ -139,24 +142,24 @@ pub mod bindings {
         info!("waiting for emulation thread to stop");
 
         {
-            let ctx = cast_ctx(ctx);
+            let ctx = unsafe { cast_ctx(ctx) };
             ctx.request_stop();
             while !ctx.is_stopped() {}
         }
 
         info!("destroying context {:#x}", ctx);
         // consume the wrapped content
-        let _ = Box::from_raw(ctx as *mut EmulatorContext);
+        let _ = unsafe { Box::from_raw(ctx as *mut EmulatorContext) };
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_runMainLoop(
-        env: JNIEnv,
+        mut env: JNIEnv,
         _obj: JClass,
         ctx: jlong,
     ) {
-        let ctx = cast_ctx(ctx);
-        match ctx.native_run(&env) {
+        let ctx = unsafe { cast_ctx(ctx) };
+        match ctx.native_run(&mut env) {
             Ok(_) => {}
             Err(err) => {
                 env.throw_new(NATIVE_EXCEPTION_CLASS, format!("Error: {:?}", err))
@@ -165,27 +168,27 @@ pub mod bindings {
         }
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_pause(
         _env: JNIEnv,
         _obj: JClass,
         ctx: jlong,
     ) {
-        let ctx = cast_ctx(ctx);
+        let ctx = unsafe { cast_ctx(ctx) };
         ctx.pause();
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_resume(
         _env: JNIEnv,
         _obj: JClass,
         ctx: jlong,
     ) {
-        let ctx = cast_ctx(ctx);
+        let ctx = unsafe { cast_ctx(ctx) };
         ctx.resume();
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_setTurbo(
         _env: JNIEnv,
         _obj: JClass,
@@ -193,99 +196,97 @@ pub mod bindings {
         turbo: jboolean,
     ) {
         info!("setTurbo called!");
-        let ctx = cast_ctx(ctx);
+        let ctx = unsafe { cast_ctx(ctx) };
         ctx.set_turbo(turbo != 0);
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_stop(
         _env: JNIEnv,
         _obj: JClass,
         ctx: jlong,
     ) {
-        let ctx = cast_ctx(ctx);
+        let ctx = unsafe { cast_ctx(ctx) };
         ctx.request_stop();
         while !ctx.is_stopped() {}
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_getFrameBuffer(
         env: JNIEnv,
         _obj: JClass,
         ctx: jlong,
     ) -> jintArray {
-        let ctx = cast_ctx(ctx);
+        let ctx = unsafe { cast_ctx(ctx) };
         ctx.native_get_framebuffer(&env)
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_saveState(
-        env: JNIEnv,
+        mut env: JNIEnv,
         _obj: JClass,
         ctx: jlong,
     ) -> jbyteArray {
-        let ctx = cast_ctx(ctx);
+        let ctx = unsafe { cast_ctx(ctx) };
         ctx.pause();
         let (_lock, gba) = ctx.lock_and_get_gba();
         match save_state(&env, gba) {
             Ok(result) => {
                 drop(_lock);
-                drop(gba);
                 ctx.resume();
                 return result;
             }
             Err(msg) => {
                 env.throw_new(NATIVE_EXCEPTION_CLASS, msg).unwrap();
-                return JObject::null().into_inner();
+                return JObject::null().into_raw();
             }
         }
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_loadState(
-        env: JNIEnv,
+        mut env: JNIEnv,
         _obj: JClass,
         ctx: jlong,
         state: jbyteArray,
     ) {
-        let ctx = cast_ctx(ctx);
+        let ctx = unsafe { cast_ctx(ctx) };
         ctx.pause();
         let (_lock, gba) = ctx.lock_and_get_gba();
         match load_state(&env, gba, state) {
             Ok(_) => {
                 drop(_lock);
-                drop(gba);
                 ctx.resume();
             }
             Err(msg) => env.throw_new(NATIVE_EXCEPTION_CLASS, msg).unwrap(),
         }
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_getGameTitle(
         env: JNIEnv,
         _obj: JClass,
         ctx: jlong,
     ) -> jstring {
-        let ctx = cast_ctx(ctx);
+        let ctx = unsafe { cast_ctx(ctx) };
         env.new_string(ctx.gba.get_game_title())
             .unwrap()
-            .into_inner()
+            .into_raw()
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_getGameCode(
         env: JNIEnv,
         _obj: JClass,
         ctx: jlong,
     ) -> jstring {
-        let ctx = cast_ctx(ctx);
+        let ctx = unsafe { cast_ctx(ctx) };
         env.new_string(ctx.gba.get_game_code())
             .unwrap()
-            .into_inner()
+            .into_raw()
     }
 
-    #[no_mangle]
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_log(
         _env: JNIEnv,
         _obj: JClass,

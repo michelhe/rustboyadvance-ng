@@ -1,7 +1,7 @@
 use super::SysBus;
 use arm7tdmi::{
-    memory::{Addr, BusIO, DebugRead},
     Arm7tdmiCore,
+    memory::{Addr, BusIO, DebugRead},
 };
 
 use rustboyadvance_utils::WeakPointer;
@@ -57,7 +57,7 @@ impl BusIO for Bios {
     #[inline]
     fn read_16(&mut self, addr: Addr) -> u16 {
         if self.read_allowed() {
-            self.rom.read_16(addr) as u16
+            self.rom.read_16(addr)
         } else {
             (self.last_opcode >> ((addr & 2) << 3)) as u16
         }

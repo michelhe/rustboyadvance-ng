@@ -1,8 +1,8 @@
-use rustboyadvance_utils::audio::SampleConsumer;
 use rustboyadvance_utils::Consumer;
 use rustboyadvance_utils::Observer;
-use wasm_bindgen::prelude::*;
+use rustboyadvance_utils::audio::SampleConsumer;
 use wasm_bindgen::Clamped;
+use wasm_bindgen::prelude::*;
 
 use js_sys::Float32Array;
 

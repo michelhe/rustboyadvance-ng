@@ -22,7 +22,7 @@ pub struct Renderer<'a> {
     image_context: Sdl2ImageContext,
 }
 
-pub fn init<'a>(sdl_context: &'a Sdl) -> Result<Renderer<'a>, Box<dyn std::error::Error>> {
+pub fn init(sdl_context: &Sdl) -> Result<Renderer<'_>, Box<dyn std::error::Error>> {
     let video_subsystem = sdl_context.video()?;
     let image_context = sdl2::image::init(InitFlag::PNG | InitFlag::JPG)?;
     let mut window = video_subsystem
@@ -55,9 +55,9 @@ pub fn init<'a>(sdl_context: &'a Sdl) -> Result<Renderer<'a>, Box<dyn std::error
     })
 }
 
-impl<'a> Renderer<'a> {
+impl Renderer<'_> {
     pub fn set_window_title(&mut self, title: &str) {
-        self.canvas.window_mut().set_title(&title).unwrap();
+        self.canvas.window_mut().set_title(title).unwrap();
     }
 
     pub fn render(&mut self, buffer: &[u32]) {

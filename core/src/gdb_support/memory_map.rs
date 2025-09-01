@@ -5,7 +5,7 @@ use arm7tdmi::{
     memory::Addr,
 };
 
-use crate::sysbus::{consts, SysBus};
+use crate::sysbus::{SysBus, consts};
 
 impl SysBus {
     pub fn generate_memory_map_xml(&self) -> Result<String, Box<dyn std::error::Error>> {

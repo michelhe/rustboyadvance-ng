@@ -232,7 +232,18 @@ impl BlendFlags {
     }
 }
 
-#[derive(SmartDefault, Debug, Serialize, Deserialize, FromPrimitive, ToPrimitive, PartialEq, Eq, Clone, Copy)]
+#[derive(
+    SmartDefault,
+    Debug,
+    Serialize,
+    Deserialize,
+    FromPrimitive,
+    ToPrimitive,
+    PartialEq,
+    Eq,
+    Clone,
+    Copy,
+)]
 pub enum BlendMode {
     #[default]
     BldNone = 0b00,

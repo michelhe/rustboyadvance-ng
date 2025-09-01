@@ -3,16 +3,11 @@ use std::fmt;
 
 pub type Addr = u32;
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, Default)]
 pub enum MemoryAccess {
+    #[default]
     NonSeq = 0,
     Seq,
-}
-
-impl Default for MemoryAccess {
-    fn default() -> MemoryAccess {
-        MemoryAccess::NonSeq
-    }
 }
 
 impl fmt::Display for MemoryAccess {

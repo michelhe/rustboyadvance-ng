@@ -5,15 +5,15 @@ use num_traits::FromPrimitive;
 
 use super::super::overrides;
 use super::super::{GBAError, GBAResult};
+use super::BackupMedia;
+use super::Cartridge;
 use super::backup::eeprom::*;
 use super::backup::flash::*;
 use super::backup::{BackupFile, BackupType};
 use super::gpio::Gpio;
 use super::header;
-use super::BackupMedia;
-use super::Cartridge;
 
-use super::loader::{load_from_bytes, load_from_file, LoadRom};
+use super::loader::{LoadRom, load_from_bytes, load_from_file};
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -34,9 +34,9 @@ pub struct GamepakBuilder {
     create_backup_file: bool,
 }
 
-impl GamepakBuilder {
-    pub fn new() -> GamepakBuilder {
-        GamepakBuilder {
+impl Default for GamepakBuilder {
+    fn default() -> Self {
+        Self {
             save_type: BackupType::AutoDetect,
             path: None,
             save_path: None,
@@ -44,6 +44,12 @@ impl GamepakBuilder {
             gpio_device: GpioDeviceType::None,
             create_backup_file: true,
         }
+    }
+}
+
+impl GamepakBuilder {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn take_buffer(mut self, bytes: Box<[u8]>) -> Self {
@@ -199,11 +205,7 @@ impl GamepakBuilder {
 
 const BACKUP_FILE_EXT: &str = "sav";
 fn create_backup(backup_type: BackupType, rom_path: Option<PathBuf>) -> BackupMedia {
-    let backup_path = if let Some(rom_path) = rom_path {
-        Some(rom_path.with_extension(BACKUP_FILE_EXT))
-    } else {
-        None
-    };
+    let backup_path = rom_path.map(|rom_path| rom_path.with_extension(BACKUP_FILE_EXT));
     match backup_type {
         BackupType::Flash | BackupType::Flash512 => {
             BackupMedia::Flash(Flash::new(backup_path, FlashSize::Flash64k))
@@ -218,11 +220,10 @@ fn create_backup(backup_type: BackupType, rom_path: Option<PathBuf>) -> BackupMe
 fn detect_backup_type(bytes: &[u8]) -> Option<BackupType> {
     const ID_STRINGS: &[&str] = &["EEPROM", "SRAM", "FLASH_", "FLASH512_", "FLASH1M_"];
 
-    for i in 0..5 {
-        let search = TwoWaySearcher::new(ID_STRINGS[i].as_bytes());
-        match search.search_in(bytes) {
-            Some(_) => return Some(BackupType::from_u8(i as u8).unwrap()),
-            _ => {}
+    for (i, ids) in ID_STRINGS.iter().enumerate() {
+        let search = TwoWaySearcher::new(ids.as_bytes());
+        if search.search_in(bytes).is_some() {
+            return Some(BackupType::from_u8(i as u8).unwrap());
         }
     }
     None

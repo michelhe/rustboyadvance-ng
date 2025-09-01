@@ -6,13 +6,13 @@ use arm7tdmi::gdb::{copy_range_to_buf, gdbstub, gdbstub_arch};
 use crossbeam::channel::Sender;
 use gdbstub::common::Signal;
 use gdbstub::stub::{DisconnectReason, SingleThreadStopReason};
+use gdbstub::target::ext::base::BaseOps;
 use gdbstub::target::ext::base::singlethread::{
     SingleThreadBase, SingleThreadResume, SingleThreadSingleStep,
 };
 use gdbstub::target::ext::base::singlethread::{SingleThreadResumeOps, SingleThreadSingleStepOps};
-use gdbstub::target::ext::base::BaseOps;
 use gdbstub::target::ext::breakpoints::BreakpointsOps;
-use gdbstub::target::ext::monitor_cmd::{outputln, ConsoleOutput};
+use gdbstub::target::ext::monitor_cmd::{ConsoleOutput, outputln};
 use gdbstub::target::{self, Target, TargetError, TargetResult};
 use gdbstub_arch::arm::reg::ArmCoreRegs;
 

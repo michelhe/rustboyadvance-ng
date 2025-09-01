@@ -4,9 +4,9 @@ pub mod exec;
 
 use serde::{Deserialize, Serialize};
 
+use super::InstructionDecoder;
 use super::alu::*;
 use super::memory::Addr;
-use super::InstructionDecoder;
 
 use bit::BitIndex;
 use byteorder::{LittleEndian, ReadBytesExt};

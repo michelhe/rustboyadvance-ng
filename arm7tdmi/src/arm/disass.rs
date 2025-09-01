@@ -90,7 +90,7 @@ fn is_lsl0(shift: &ShiftedRegister) -> bool {
 impl fmt::Display for ShiftedRegister {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let reg = reg_string(self.reg).to_string();
-        if !is_lsl0(&self) {
+        if !is_lsl0(self) {
             write!(f, "{}", reg)
         } else {
             match self.shift_by {
@@ -123,11 +123,7 @@ impl ArmInstruction {
     }
 
     fn set_cond_mark(&self) -> &str {
-        if self.raw.set_cond_flag() {
-            "s"
-        } else {
-            ""
-        }
+        if self.raw.set_cond_flag() { "s" } else { "" }
     }
 
     fn fmt_operand2(&self, f: &mut fmt::Formatter<'_>) -> Result<Option<u32>, fmt::Error> {
@@ -136,7 +132,7 @@ impl ArmInstruction {
             BarrelShifterValue::RotatedImmediate(_, _) => {
                 let value = operand2.decode_rotated_immediate().unwrap();
                 write!(f, "#{}\t; {:#x}", value, value)?;
-                Ok(Some(value as u32))
+                Ok(Some(value))
             }
             BarrelShifterValue::ShiftedRegister(shift) => {
                 write!(f, "{}", shift)?;
@@ -186,11 +182,7 @@ impl ArmInstruction {
     }
 
     fn auto_incremenet_mark(&self) -> &str {
-        if self.raw.write_back_flag() {
-            "!"
-        } else {
-            ""
-        }
+        if self.raw.write_back_flag() { "!" } else { "" }
     }
 
     fn fmt_rn_offset(
@@ -373,11 +365,7 @@ impl ArmInstruction {
     }
 
     fn sign_mark(&self) -> &str {
-        if self.raw.u_flag() {
-            "s"
-        } else {
-            "u"
-        }
+        if self.raw.u_flag() { "s" } else { "u" }
     }
 
     fn fmt_mull_mlal(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

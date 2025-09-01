@@ -1,13 +1,10 @@
 use std::path::PathBuf;
 
+use clap::Parser;
 use rustboyadvance_core::{
     cartridge::{BackupType, GamepakBuilder},
     prelude::Cartridge,
 };
-use clap::Parser;
-
-const SAVE_TYPE_POSSIBLE_VALUES: [&str; 5] =
-    ["sram", "flash128k", "flash64k", "eeprom", "autodetect"];
 
 #[derive(Parser, Debug)]
 #[command(name = "rustboyadvance-sdl2")]
@@ -40,11 +37,11 @@ pub struct Options {
     pub rtc: bool,
 
     /// Override save type, useful for troublemaking games that fool the auto detection
-    #[arg(long, default_value = "autodetect", value_parser = SAVE_TYPE_POSSIBLE_VALUES)]
-    pub save_type: BackupType,
+    #[arg(long, default_value = "autodetect", value_enum)]
+    pub save_type: Option<BackupType>,
 
     #[cfg(feature = "debugger")]
-    #[arg(long, default_value = "autodetect")]
+    #[arg(long, default_value = None)]
     pub script_file: Option<String>,
 }
 
@@ -53,7 +50,7 @@ type DynError = Box<dyn std::error::Error>;
 impl Options {
     pub fn cartridge_from_opts(&self) -> Result<Cartridge, DynError> {
         let mut builder = GamepakBuilder::new()
-            .save_type(self.save_type)
+            .save_type(self.save_type.unwrap_or(BackupType::AutoDetect))
             .file(&self.rom);
         if self.rtc {
             builder = builder.with_rtc();

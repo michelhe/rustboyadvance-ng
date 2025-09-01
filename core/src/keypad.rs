@@ -25,9 +25,9 @@ pub enum KeyState {
     Released = 1,
 }
 
-impl Into<bool> for KeyState {
-    fn into(self) -> bool {
-        match self {
+impl From<KeyState> for bool {
+    fn from(val: KeyState) -> Self {
+        match val {
             KeyState::Pressed => false,
             KeyState::Released => true,
         }

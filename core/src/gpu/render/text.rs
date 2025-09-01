@@ -1,9 +1,9 @@
 //! Rendering for modes 0-3
 
-use super::super::consts::*;
 use super::super::Rgb15;
+use super::super::consts::*;
 use super::super::{Gpu, PixelFormat, SCREEN_BLOCK_SIZE};
-use super::{utils, ViewPort};
+use super::{ViewPort, utils};
 use crate::prelude::BusIO;
 
 use rustboyadvance_utils::index2d;
@@ -44,7 +44,7 @@ impl Gpu {
 
         // this will be non-zero if the h-scroll lands in a middle of a tile
         let mut start_tile_x = bg_x % 8;
-        let tile_py = (bg_y % 8) as u32;
+        let tile_py = bg_y % 8;
 
         #[allow(unused)]
         macro_rules! render_loop {
@@ -98,8 +98,8 @@ impl Gpu {
         let viewport = ViewPort::new(texture_size, texture_size);
 
         let ref_point = self.get_ref_point(bg);
-        let pa = self.bg_aff[bg - 2].pa as i16 as i32;
-        let pc = self.bg_aff[bg - 2].pc as i16 as i32;
+        let pa = self.bg_aff[bg - 2].pa as i32;
+        let pc = self.bg_aff[bg - 2].pc as i32;
 
         let screen_block = self.bgcnt[bg].screen_block();
         let char_block = self.bgcnt[bg].char_block();

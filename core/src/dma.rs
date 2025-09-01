@@ -93,11 +93,7 @@ impl DmaChannel {
                 if trace {
                     trace!(
                         "DMA{} enabled! timing={} src={:#x} dst={:#x} cnt={}",
-                        self.id,
-                        timing,
-                        self.src,
-                        self.dst,
-                        self.wc
+                        self.id, timing, self.src, self.dst, self.wc
                     );
                 }
             }

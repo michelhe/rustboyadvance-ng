@@ -1,6 +1,6 @@
-use crossterm::event::EventStream;
-use crossterm::ExecutableCommand;
 use clap::Parser;
+use crossterm::ExecutableCommand;
+use crossterm::event::EventStream;
 
 use std::path::Path;
 use std::time;
@@ -95,7 +95,10 @@ impl EventHandler {
 fn ask_download_bios() {
     const OPEN_SOURCE_BIOS_URL: &'static str =
         "https://github.com/Nebuleon/ReGBA/raw/master/bios/gba_bios.bin";
-    println!("Missing BIOS file. If you don't have the original GBA BIOS, you can download an open-source bios from {}", OPEN_SOURCE_BIOS_URL);
+    println!(
+        "Missing BIOS file. If you don't have the original GBA BIOS, you can download an open-source bios from {}",
+        OPEN_SOURCE_BIOS_URL
+    );
     std::process::exit(0);
 }
 

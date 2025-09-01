@@ -2,22 +2,22 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time;
 
-use crate::arm7tdmi::arm::ArmInstruction;
-use crate::arm7tdmi::thumb::ThumbInstruction;
 use crate::arm7tdmi::CpuState;
-use crate::arm7tdmi::memory::{Addr, DebugRead, BusIO};
+use crate::arm7tdmi::arm::ArmInstruction;
+use crate::arm7tdmi::memory::{Addr, BusIO, DebugRead};
+use crate::arm7tdmi::thumb::ThumbInstruction;
 use crate::disass::Disassembler;
 use rustboyadvance_utils::{read_bin_file, write_bin_file};
 
 // use super::palette_view::create_palette_view;
 // use super::tile_view::create_tile_view;
 use super::GameBoyAdvance;
-use super::{parser::Value, Debugger, DebuggerError, DebuggerResult};
+use super::{Debugger, DebuggerError, DebuggerResult, parser::Value};
 
 use ansi_term::Colour;
 
-use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 
 use hexdump;
 
@@ -132,10 +132,10 @@ impl Debugger {
                     }
                     if let Some(last_executed) = &gba.cpu.dbg.last_executed {
                         let pc = last_executed.get_pc();
-                        let symbol =
-                            self.symbols
-                                .iter()
-                                .find_map(|(key, &val)| if val == pc { Some(key) } else { None });
+                        let symbol = self
+                            .symbols
+                            .iter()
+                            .find_map(|(key, &val)| if val == pc { Some(key) } else { None });
 
                         let text = if let Some(symbol) = symbol {
                             format!("Executed at {} @0x{:08x}:", symbol, pc)
@@ -193,7 +193,7 @@ impl Debugger {
             MemWrite(size, addr, val) => match size {
                 MemWriteCommandSize::Byte => gba.sysbus.write_8(addr, val as u8),
                 MemWriteCommandSize::Half => gba.sysbus.write_16(addr, val as u16),
-                MemWriteCommandSize::Word => gba.sysbus.write_32(addr, val as u32),
+                MemWriteCommandSize::Word => gba.sysbus.write_32(addr, val),
             },
             Disass(mode, addr, n) => {
                 match mode {
@@ -276,11 +276,11 @@ impl Debugger {
             }
             SaveState(save_path) => {
                 let state = gba.save_state().expect("failed to serialize");
-                write_bin_file(&Path::new(&save_path), &state)
+                write_bin_file(Path::new(&save_path), &state)
                     .expect("failed to save state to file");
             }
             LoadState(load_path) => {
-                let save = read_bin_file(&Path::new(&load_path))
+                let save = read_bin_file(Path::new(&load_path))
                     .expect("failed to read save state from file");
                 gba.restore_state(&save).expect("failed to deserialize");
             }
@@ -314,12 +314,10 @@ impl Debugger {
                         }
                     } else {
                         println!("[error] Failed to parse elf file!");
-                        return;
                     }
                 } else {
                     println!("[error] Can't read elf file!");
-                    return;
-                };
+                }
             }
             _ => println!("Not Implemented",),
         }
@@ -344,16 +342,14 @@ impl Debugger {
             }
             0 => {
                 if let Some(Command::Disass(_mode, addr, n)) = &self.previous_command {
-                    Ok((*addr + (*n as u32), 10))
+                    Ok((*addr + { *n }, 10))
                 } else {
                     Ok((gba.cpu.get_next_pc(), 10))
                 }
             }
-            _ => {
-                return Err(DebuggerError::InvalidCommandFormat(
-                    "disass [addr] [n]".to_string(),
-                ))
-            }
+            _ => Err(DebuggerError::InvalidCommandFormat(
+                "disass [addr] [n]".to_string(),
+            )),
         }
     }
 
@@ -400,7 +396,7 @@ impl Debugger {
                     _ => {
                         return Err(DebuggerError::InvalidCommandFormat(
                             "step [count]".to_string(),
-                        ))
+                        ));
                     }
                 };
                 Ok(Command::Step(count as usize))
@@ -413,7 +409,7 @@ impl Debugger {
                     _ => {
                         return Err(DebuggerError::InvalidCommandFormat(
                             "frame [count]".to_string(),
-                        ))
+                        ));
                     }
                 };
                 Ok(Command::Frame(count as usize))
@@ -433,7 +429,7 @@ impl Debugger {
                     }
                     0 => {
                         if let Some(Command::HexDump(addr, n)) = self.previous_command {
-                            (addr + (4 * n as u32), 0x100)
+                            (addr + (4 * n), 0x100)
                         } else {
                             (gba.cpu.get_reg(15), 0x100)
                         }
@@ -441,7 +437,7 @@ impl Debugger {
                     _ => {
                         return Err(DebuggerError::InvalidCommandFormat(
                             "xxd [addr] [n]".to_string(),
-                        ))
+                        ));
                     }
                 };
                 Ok(Command::HexDump(addr, n))
@@ -457,7 +453,7 @@ impl Debugger {
                     _ => {
                         return Err(DebuggerError::InvalidCommandFormat(
                             "mwb [addr] [n]".to_string(),
-                        ))
+                        ));
                     }
                 };
                 Ok(Command::MemWrite(
@@ -477,7 +473,7 @@ impl Debugger {
                     _ => {
                         return Err(DebuggerError::InvalidCommandFormat(
                             "mwb [addr] [n]".to_string(),
-                        ))
+                        ));
                     }
                 };
                 Ok(Command::MemWrite(
@@ -490,21 +486,17 @@ impl Debugger {
                 let (addr, val) = match args.len() {
                     2 => {
                         let addr = self.val_address(gba, &args[0])?;
-                        let val = self.val_number(&args[1])? as u32;
+                        let val = self.val_number(&args[1])?;
 
                         (addr, val)
                     }
                     _ => {
                         return Err(DebuggerError::InvalidCommandFormat(
                             "mwb [addr] [n]".to_string(),
-                        ))
+                        ));
                     }
                 };
-                Ok(Command::MemWrite(
-                    MemWriteCommandSize::Half,
-                    addr,
-                    val as u32,
-                ))
+                Ok(Command::MemWrite(MemWriteCommandSize::Half, addr, val))
             }
             "d" | "disass" => {
                 let (addr, n) = self.get_disassembler_args(gba, args)?;
@@ -562,37 +554,33 @@ impl Debugger {
                 ));
                 if args.len() != 1 {
                     Err(usage)
+                } else if let Value::Identifier(flag_str) = &args[0] {
+                    let flags = match flag_str.as_ref() {
+                        "sysbus" => TraceFlags::TRACE_SYSBUS,
+                        "opcode" => TraceFlags::TRACE_OPCODE,
+                        "exceptions" => TraceFlags::TRACE_EXCEPTIONS,
+                        "dma" => TraceFlags::TRACE_DMA,
+                        "timers" => TraceFlags::TRACE_TIMERS,
+                        "all" => TraceFlags::all(),
+                        _ => return Err(usage),
+                    };
+                    Ok(Command::TraceToggle(flags))
                 } else {
-                    if let Value::Identifier(flag_str) = &args[0] {
-                        let flags = match flag_str.as_ref() {
-                            "sysbus" => TraceFlags::TRACE_SYSBUS,
-                            "opcode" => TraceFlags::TRACE_OPCODE,
-                            "exceptions" => TraceFlags::TRACE_EXCEPTIONS,
-                            "dma" => TraceFlags::TRACE_DMA,
-                            "timers" => TraceFlags::TRACE_TIMERS,
-                            "all" => TraceFlags::all(),
-                            _ => return Err(usage),
-                        };
-                        Ok(Command::TraceToggle(flags))
-                    } else {
-                        Err(usage)
-                    }
+                    Err(usage)
                 }
             }
             "save" | "load" => {
                 let usage = DebuggerError::InvalidCommandFormat(String::from("save/load <path>"));
                 if args.len() != 1 {
                     Err(usage)
-                } else {
-                    if let Value::Identifier(path) = &args[0] {
-                        match command.as_ref() {
-                            "save" => Ok(Command::SaveState(path.to_string())),
-                            "load" => Ok(Command::LoadState(path.to_string())),
-                            _ => unreachable!(),
-                        }
-                    } else {
-                        Err(usage)
+                } else if let Value::Identifier(path) = &args[0] {
+                    match command.as_ref() {
+                        "save" => Ok(Command::SaveState(path.to_string())),
+                        "load" => Ok(Command::LoadState(path.to_string())),
+                        _ => unreachable!(),
                     }
+                } else {
+                    Err(usage)
                 }
             }
             "add-symbols-file" | "load-symbols" | "load-syms" => match args.len() {

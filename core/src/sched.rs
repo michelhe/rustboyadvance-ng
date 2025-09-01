@@ -64,6 +64,7 @@ impl Ord for Event {
 }
 
 /// Implement custom reverse ordering
+#[allow(clippy::non_canonical_partial_ord_impl)]
 impl PartialOrd for Event {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -108,12 +109,18 @@ pub struct Scheduler {
 
 pub type SharedScheduler = Shared<Scheduler>;
 
-impl Scheduler {
-    pub fn new() -> Scheduler {
-        Scheduler {
+impl Default for Scheduler {
+    fn default() -> Self {
+        Self {
             timestamp: 0,
             events: BinaryHeap::with_capacity(NUM_EVENTS),
         }
+    }
+}
+
+impl Scheduler {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn new_shared() -> SharedScheduler {
@@ -347,59 +354,29 @@ mod test {
         run_for!(100);
 
         println!("{:?}", *sched);
-        assert_eq!(
-            holder.is_event_done(EventType::Apu(ApuEvent::Psg1Generate)),
-            true
-        );
-        assert_eq!(
-            holder.is_event_done(EventType::Apu(ApuEvent::Psg2Generate)),
-            true
-        );
-        assert_eq!(
-            holder.is_event_done(EventType::Apu(ApuEvent::Psg4Generate)),
-            true
-        );
-        assert_eq!(
-            holder.is_event_done(EventType::Apu(ApuEvent::Sample)),
-            false
-        );
-        assert_eq!(
-            holder.is_event_done(EventType::Gpu(GpuEvent::VBlankHDraw)),
-            false
-        );
+        assert!(holder.is_event_done(EventType::Apu(ApuEvent::Psg1Generate)));
+        assert!(holder.is_event_done(EventType::Apu(ApuEvent::Psg2Generate)));
+        assert!(holder.is_event_done(EventType::Apu(ApuEvent::Psg4Generate)));
+        assert!(!holder.is_event_done(EventType::Apu(ApuEvent::Sample)));
+        assert!(!holder.is_event_done(EventType::Gpu(GpuEvent::VBlankHDraw)));
 
         run_for!(100);
 
-        assert_eq!(
-            holder.is_event_done(EventType::Gpu(GpuEvent::VBlankHDraw)),
-            false
-        );
-        assert_eq!(
-            holder.is_event_done(EventType::Apu(ApuEvent::Sample)),
-            false
-        );
+        assert!(!holder.is_event_done(EventType::Gpu(GpuEvent::VBlankHDraw)));
+        assert!(!holder.is_event_done(EventType::Apu(ApuEvent::Sample)));
 
         run_for!(100);
 
-        assert_eq!(
-            holder.is_event_done(EventType::Gpu(GpuEvent::VBlankHDraw)),
-            true
-        );
-        assert_eq!(
-            holder.is_event_done(EventType::Apu(ApuEvent::Sample)),
-            false
-        );
+        assert!(holder.is_event_done(EventType::Gpu(GpuEvent::VBlankHDraw)));
+        assert!(!holder.is_event_done(EventType::Apu(ApuEvent::Sample)));
 
         run_for!(211);
 
-        assert_eq!(
-            holder.is_event_done(EventType::Apu(ApuEvent::Sample)),
-            false
-        );
+        assert!(!holder.is_event_done(EventType::Apu(ApuEvent::Sample)));
 
         run_for!(1);
 
-        assert_eq!(holder.is_event_done(EventType::Apu(ApuEvent::Sample)), true);
+        assert!(holder.is_event_done(EventType::Apu(ApuEvent::Sample)));
 
         println!("all events (holder)");
         for e in holder.sched.events.iter() {

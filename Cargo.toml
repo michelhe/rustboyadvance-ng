@@ -7,7 +7,7 @@ members = [
     "platform/rustboyadvance-libretro",
     # "platform/rustboyadvance-minifb", - DEPRECATED
     "platform/rustboyadvance-wasm",
-    # "platform/rustboyadvance-jni", - TODO fix up for modern Rust
+    "platform/rustboyadvance-jni",
     "platform/rustboyadvance-term",
     "fps_bench"
 ]

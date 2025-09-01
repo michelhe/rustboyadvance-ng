@@ -1,5 +1,5 @@
-use super::memory::MemoryInterface;
 use super::Arm7tdmiCore;
+use super::memory::MemoryInterface;
 use super::{CpuMode, CpuState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

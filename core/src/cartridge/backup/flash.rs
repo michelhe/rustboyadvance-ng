@@ -23,7 +23,7 @@ enum FlashMode {
     Select,
 }
 
-#[derive(Debug,  ToPrimitive, FromPrimitive)]
+#[derive(Debug, ToPrimitive, FromPrimitive)]
 enum FlashCommand {
     EnterIdMode = 0x90,
     TerminateIdMode = 0xf0,
@@ -40,9 +40,9 @@ pub enum FlashSize {
     Flash128k,
 }
 
-impl Into<usize> for FlashSize {
-    fn into(self) -> usize {
-        match self {
+impl From<FlashSize> for usize {
+    fn from(val: FlashSize) -> Self {
+        match val {
             FlashSize::Flash64k => 64 * 1024,
             FlashSize::Flash128k => 128 * 1024,
         }
@@ -144,7 +144,7 @@ impl Flash {
     /// Returns the phyiscal offset inside the flash file according to the selected bank
     #[inline]
     fn flash_offset(&self, offset: usize) -> usize {
-        let offset = (offset & 0xffff) as usize;
+        let offset = offset & 0xffff;
         self.bank * BANK_SIZE + offset
     }
 

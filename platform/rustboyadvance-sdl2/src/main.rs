@@ -5,7 +5,6 @@ use sdl2::{self};
 
 use log::info;
 
-use spin_sleep;
 use clap::Parser;
 
 use std::fs;
@@ -13,7 +12,6 @@ use std::io::Cursor;
 use std::path::Path;
 use std::time;
 
-use flexi_logger;
 use flexi_logger::*;
 
 mod audio;
@@ -25,14 +23,17 @@ use rustboyadvance_core::prelude::*;
 
 use rustboyadvance_utils::FpsCounter;
 
-use rustboyadvance_core::cartridge::loader::{load_from_file, LoadRom};
+use rustboyadvance_core::cartridge::loader::{LoadRom, load_from_file};
 
 const LOG_DIR: &str = ".logs";
 
 fn ask_download_bios() {
-    const OPEN_SOURCE_BIOS_URL: &'static str =
+    const OPEN_SOURCE_BIOS_URL: &str =
         "https://github.com/Nebuleon/ReGBA/raw/master/bios/gba_bios.bin";
-    println!("Missing BIOS file. If you don't have the original GBA BIOS, you can download an open-source bios from {}", OPEN_SOURCE_BIOS_URL);
+    println!(
+        "Missing BIOS file. If you don't have the original GBA BIOS, you can download an open-source bios from {}",
+        OPEN_SOURCE_BIOS_URL
+    );
     std::process::exit(0);
 }
 
@@ -47,7 +48,8 @@ fn load_bios(bios_path: &Path) -> Box<[u8]> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    fs::create_dir_all(LOG_DIR).expect(&format!("could not create log directory ({})", LOG_DIR));
+    fs::create_dir_all(LOG_DIR)
+        .unwrap_or_else(|_| panic!("could not create log directory ({})", LOG_DIR));
     flexi_logger::Logger::try_with_env_or_str("info")
         .unwrap()
         .log_to_file(FileSpec::default().directory(LOG_DIR))
@@ -192,13 +194,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 Event::ControllerDeviceRemoved { which, .. } => {
                     let removed = if let Some(active_controller) = &active_controller {
-                        active_controller.instance_id() == (which as u32)
+                        active_controller.instance_id() == which
                     } else {
                         false
                     };
                     if removed {
                         let name = active_controller
-                            .and_then(|controller| Some(controller.name()))
+                            .map(|controller| controller.name())
                             .unwrap();
                         info!("Removing game controller: {}", name);
                         active_controller = None;
@@ -212,7 +214,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 Event::Quit { .. } => break 'running,
-                Event::DropFile {  .. } => {
+                Event::DropFile { .. } => {
                     todo!("impl DropFile again")
                 }
                 _ => {}

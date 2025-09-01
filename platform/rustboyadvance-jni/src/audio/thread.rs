@@ -5,6 +5,7 @@ use std::thread;
 use std::thread::JoinHandle;
 
 use rustboyadvance_utils::audio::SampleConsumer;
+use rustboyadvance_utils::Consumer;
 
 use jni::JavaVM;
 
@@ -31,26 +32,26 @@ pub(crate) fn spawn_audio_worker_thread(
         info!("[AudioWorker] spawned!");
 
         info!("[AudioWorker] Attaching JVM");
-        let env = jvm.attach_current_thread().unwrap();
+        let mut env = jvm.attach_current_thread().unwrap();
 
         loop {
             let command = rx.recv().unwrap();
             match command {
                 AudioThreadCommand::Pause => {
                     info!("[AudioWorker] - got {:?} command", command);
-                    audio_connector.pause(&env);
+                    audio_connector.pause(&mut env);
                 }
 
                 AudioThreadCommand::Play => {
                     info!("[AudioWorker] - got {:?} command", command);
-                    audio_connector.play(&env);
+                    audio_connector.play(&mut env);
                 }
 
                 AudioThreadCommand::RenderAudio => {
                     let mut samples = [0; 4096 * 2]; // TODO is this memset expansive ?
                     let count = consumer.pop_slice(&mut samples);
 
-                    audio_connector.write_audio_samples(&env, &samples[0..count]);
+                    audio_connector.write_audio_samples(&mut env, &samples[0..count]);
                 }
                 AudioThreadCommand::Terminate => {
                     info!("[AudioWorker] - got terminate command!");

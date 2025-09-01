@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use jni::objects::{GlobalRef, JMethodID, JObject, JString, JValue};
+use jni::objects::{GlobalRef, JByteArray, JIntArray, JMethodID, JObject, JString, JValue};
 use jni::signature;
 use jni::sys::{jboolean, jbyteArray, jintArray, jmethodID};
 use jni::JNIEnv;
@@ -20,7 +20,7 @@ struct Renderer {
 }
 
 impl Renderer {
-    fn new(env: &JNIEnv, renderer_obj: JObject) -> Result<Renderer, String> {
+    fn new(env: &mut JNIEnv, renderer_obj: JObject) -> Result<Renderer, String> {
         let renderer_ref = env
             .new_global_ref(renderer_obj)
             .map_err(|e| format!("failed to add new global ref, error: {:?}", e))?;
@@ -37,7 +37,7 @@ impl Renderer {
         let mid_render_frame = env
             .get_method_id(renderer_klass, "renderFrame", "([I)V")
             .expect("failed to get methodID for renderFrame")
-            .into_inner();
+            .into_raw();
 
         Ok(Renderer {
             renderer_ref,
@@ -47,23 +47,24 @@ impl Renderer {
     }
 
     #[inline]
-    fn render_frame(&self, env: &JNIEnv, buffer: &[u32]) {
+    fn render_frame(&self, env: &mut JNIEnv, buffer: &[u32]) {
         unsafe {
+            let fbo: &JIntArray = self.frame_buffer_ref.as_obj().into();
             env.set_int_array_region(
-                self.frame_buffer_ref.as_obj().into_inner(),
+                fbo,
                 0,
                 std::mem::transmute::<&[u32], &[i32]>(buffer),
             )
             .unwrap();
         }
 
-        env.call_method_unchecked(
+        unsafe { env.call_method_unchecked(
             self.renderer_ref.as_obj(),
-            JMethodID::from(self.mid_render_frame),
-            signature::JavaType::Primitive(signature::Primitive::Void),
-            &[JValue::from(self.frame_buffer_ref.as_obj())],
+            JMethodID::from_raw(self.mid_render_frame),
+            signature::ReturnType::Primitive(signature::Primitive::Void),
+            &[JValue::from(self.frame_buffer_ref.as_obj()).as_jni()],
         )
-        .expect("failed to call renderFrame");
+        .expect("failed to call renderFrame") };
     }
 }
 
@@ -73,7 +74,7 @@ struct Keypad {
 }
 
 impl Keypad {
-    fn new(env: &JNIEnv, keypad_obj: JObject) -> Keypad {
+    fn new(env: &mut JNIEnv, keypad_obj: JObject) -> Keypad {
         let keypad_ref = env
             .new_global_ref(keypad_obj)
             .expect("failed to create keypad_ref");
@@ -83,7 +84,7 @@ impl Keypad {
         let mid_get_key_state = env
             .get_method_id(keypad_klass, "getKeyState", "()I")
             .expect("failed to get methodID for getKeyState")
-            .into_inner();
+            .into_raw();
 
         Keypad {
             keypad_ref,
@@ -92,15 +93,20 @@ impl Keypad {
     }
 
     #[inline]
-    fn get_key_state(&self, env: &JNIEnv) -> u16 {
-        match env.call_method_unchecked(
-            self.keypad_ref.as_obj(),
-            JMethodID::from(self.mid_get_key_state),
-            signature::JavaType::Primitive(signature::Primitive::Int),
-            &[],
-        ) {
-            Ok(JValue::Int(key_state)) => key_state as u16,
-            _ => panic!("failed to call getKeyState"),
+    fn get_key_state(&self, env: &mut JNIEnv) -> u16 {
+        unsafe { 
+            match env.call_method_unchecked(
+                self.keypad_ref.as_obj(),
+                JMethodID::from_raw(self.mid_get_key_state),
+                signature::ReturnType::Primitive(signature::Primitive::Int),
+                &[],
+            ) {
+                Ok(result) => match result.i() {
+                    Ok(i) => i as u16,
+                    _ => panic!("failed to call getKeyState"),
+                },
+                Err(_) => panic!("failed to call getKeyState"),
+            }
         }
     }
 }
@@ -122,8 +128,8 @@ impl Default for EmulationState {
 }
 
 fn create_audio(
-    env: &JNIEnv,
-    audio_player_obj: JObject,
+    env: &mut JNIEnv,
+    audio_player_obj: &JObject,
 ) -> Result<(Box<SimpleAudioInterface>, SampleConsumer), String> {
     let sample_rate = audio::util::get_sample_rate(env, audio_player_obj)?;
     let sample_count = audio::util::get_sample_count(env, audio_player_obj)? as usize;
@@ -144,7 +150,7 @@ pub struct EmulatorContext {
 
 impl EmulatorContext {
     pub fn native_open_context(
-        env: &JNIEnv,
+        env: &mut JNIEnv,
         bios: jbyteArray,
         rom: jbyteArray,
         renderer_obj: JObject,
@@ -154,15 +160,15 @@ impl EmulatorContext {
         skip_bios: jboolean,
     ) -> Result<EmulatorContext, String> {
         let bios = env
-            .convert_byte_array(bios)
+            .convert_byte_array(unsafe { JByteArray::from_raw(bios) })
             .map_err(|e| format!("could not get bios buffer, error {}", e))?
             .into_boxed_slice();
         let rom = env
-            .convert_byte_array(rom)
+            .convert_byte_array(unsafe { JByteArray::from_raw(rom) })
             .map_err(|e| format!("could not get rom buffer, error {}", e))?
             .into_boxed_slice();
         let save_file: String = env
-            .get_string(save_file)
+            .get_string(&save_file)
             .map_err(|_| String::from("could not get save path"))?
             .into();
         let gamepak = GamepakBuilder::new()
@@ -200,7 +206,7 @@ impl EmulatorContext {
     }
 
     pub fn native_open_saved_state(
-        env: &JNIEnv,
+        env: &mut JNIEnv,
         bios: jbyteArray,
         rom: jbyteArray,
         savestate: jbyteArray,
@@ -209,15 +215,15 @@ impl EmulatorContext {
         keypad_obj: JObject,
     ) -> Result<EmulatorContext, String> {
         let bios = env
-            .convert_byte_array(bios)
+            .convert_byte_array(unsafe { JByteArray::from_raw(bios) })
             .map_err(|e| format!("could not get bios buffer, error {}", e))?
             .into_boxed_slice();
         let rom = env
-            .convert_byte_array(rom)
+            .convert_byte_array(unsafe { JByteArray::from_raw(rom) })
             .map_err(|e| format!("could not get rom buffer, error {}", e))?
             .into_boxed_slice();
         let savestate = env
-            .convert_byte_array(savestate)
+            .convert_byte_array(unsafe { JByteArray::from_raw(savestate) })
             .map_err(|e| format!("could not get savestate buffer, error {}", e))?;
 
         let renderer = Renderer::new(env, renderer_obj)?;
@@ -243,7 +249,7 @@ impl EmulatorContext {
         })
     }
 
-    fn render_video(&mut self, env: &JNIEnv) {
+    fn render_video(&mut self, env: &mut JNIEnv) {
         self.renderer.render_frame(env, self.gba.get_frame_buffer());
     }
 
@@ -253,7 +259,7 @@ impl EmulatorContext {
     }
 
     /// Run the emulation main loop
-    pub fn native_run(&mut self, env: &JNIEnv) -> Result<(), jni::errors::Error> {
+    pub fn native_run(&mut self, env: &mut JNIEnv) -> Result<(), jni::errors::Error> {
         const FRAME_TIME: Duration = Duration::from_nanos(1_000_000_000u64 / 60);
 
         // Set the state to running
@@ -344,7 +350,7 @@ impl EmulatorContext {
         self.pause();
         unsafe {
             env.set_int_array_region(
-                fb,
+                &fb,
                 0,
                 std::mem::transmute::<&[u32], &[i32]>(self.gba.get_frame_buffer()),
             )
@@ -352,7 +358,7 @@ impl EmulatorContext {
         }
         self.resume();
 
-        fb
+        **fb
     }
 
     pub fn pause(&mut self) {

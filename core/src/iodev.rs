@@ -113,18 +113,14 @@ impl BusIO for IoDevices {
             REG_WIN1H => (io.gpu.win1.left as u16) << 8 | (io.gpu.win1.right as u16),
             REG_WIN0V => (io.gpu.win0.top as u16) << 8 | (io.gpu.win0.bottom as u16),
             REG_WIN1V => (io.gpu.win1.top as u16) << 8 | (io.gpu.win1.bottom as u16),
-            REG_WININ => {
-                ((io.gpu.win1.flags.bits() as u16) << 8) | (io.gpu.win0.flags.bits() as u16)
-            }
-            REG_WINOUT => {
-                ((io.gpu.winobj_flags.bits() as u16) << 8) | (io.gpu.winout_flags.bits() as u16)
-            }
+            REG_WININ => (io.gpu.win1.flags.bits() << 8) | io.gpu.win0.flags.bits(),
+            REG_WINOUT => (io.gpu.winobj_flags.bits() << 8) | io.gpu.winout_flags.bits(),
             REG_BLDCNT => io.gpu.bldcnt.read(),
             REG_BLDALPHA => io.gpu.bldalpha.read(),
 
             REG_IME => io.intc.interrupt_master_enable as u16,
-            REG_IE => io.intc.interrupt_enable.0 as u16,
-            REG_IF => io.intc.interrupt_flags.get().value() as u16,
+            REG_IE => io.intc.interrupt_enable.0,
+            REG_IF => io.intc.interrupt_flags.get().value(),
 
             REG_TM0CNT_L..=REG_TM3CNT_H => io.timers.handle_read(io_addr, &io.scheduler),
 
@@ -310,13 +306,9 @@ impl BusIO for IoDevices {
     fn write_8(&mut self, addr: Addr, value: u8) {
         match addr + IO_BASE {
             /* FIFO_A */
-            0x0400_00A0 | 0x0400_00A1 | 0x0400_00A2 | 0x0400_00A3 => {
-                self.sound.write_fifo(0, value as i8)
-            }
+            0x0400_00A0..=0x0400_00A3 => self.sound.write_fifo(0, value as i8),
             /* FIFO_B */
-            0x0400_00A4 | 0x0400_00A5 | 0x0400_00A6 | 0x0400_00A7 => {
-                self.sound.write_fifo(1, value as i8)
-            }
+            0x0400_00A4..=0x0400_00A7 => self.sound.write_fifo(1, value as i8),
             _ => {
                 let t = self.read_16(addr & !1);
                 let t = if addr & 1 != 0 {
@@ -588,5 +580,5 @@ pub fn io_reg_string(addr: u32) -> &'static str {
 
 fn sign_extend_i32(value: i32, size: u32) -> i32 {
     let shift = 32 - size;
-    ((value << shift) as i32) >> shift
+    (value << shift) >> shift
 }

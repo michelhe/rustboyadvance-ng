@@ -1,10 +1,10 @@
 use std::fmt;
 
-use log::debug;
-use serde::{Deserialize, Serialize};
-use bit::BitIndex;
-use num::FromPrimitive;
 use ansi_term::Style;
+use bit::BitIndex;
+use log::debug;
+use num::FromPrimitive;
+use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "debugger")]
 use ansi_term::Colour;
@@ -14,8 +14,7 @@ use rustboyadvance_utils::{Shared, WeakPointer};
 pub use super::exception::Exception;
 use super::reg_string;
 
-use super::{arm::ArmCond, psr::RegPSR, Addr, CpuMode, CpuState};
-
+use super::{Addr, CpuMode, CpuState, arm::ArmCond, psr::RegPSR};
 
 use super::memory::{MemoryAccess, MemoryInterface};
 use MemoryAccess::*;
@@ -82,8 +81,8 @@ pub struct SavedCpuState {
     pub(super) banks: BankedRegisters,
 }
 
-#[derive(Clone, Debug)]
 #[cfg(feature = "debugger")]
+#[derive(Default, Clone, Debug)]
 pub struct DebuggerState {
     pub last_executed: Option<DecodedInstruction>,
     /// store the gpr before executing an instruction to show diff in the Display impl
@@ -92,20 +91,6 @@ pub struct DebuggerState {
     pub verbose: bool,
     pub trace_opcodes: bool,
     pub trace_exceptions: bool,
-}
-
-#[cfg(feature = "debugger")]
-impl Default for DebuggerState {
-    fn default() -> DebuggerState {
-        DebuggerState {
-            last_executed: None,
-            gpr_previous: [0; 15],
-            breakpoints: Vec::new(),
-            verbose: false,
-            trace_opcodes: false,
-            trace_exceptions: false,
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -517,11 +502,11 @@ impl<I: MemoryInterface> fmt::Debug for Arm7tdmiCore<I> {
         writeln!(f, "\tGeneral Purpose Registers:")?;
         let reg_normal_style = Style::new().bold();
         let gpr = self.copy_registers();
-        for i in 0..15 {
+        for (i, gp) in gpr.iter().enumerate() {
             let mut reg_name = reg_string(i).to_string();
             reg_name.make_ascii_uppercase();
-            let entry = format!("\t{:-3} = 0x{:08x}", reg_name, gpr[i]);
-               write!(
+            let entry = format!("\t{:-3} = 0x{:08x}", reg_name, gp);
+            write!(
                 f,
                 "{}{}",
                 reg_normal_style.paint(entry),
@@ -542,7 +527,7 @@ impl<I: MemoryInterface> fmt::Display for Arm7tdmiCore<I> {
         let reg_normal_style = Style::new().bold();
         let reg_dirty_style = Colour::Black.bold().on(Colour::Yellow);
         let gpr = self.copy_registers();
-        for i in 0..15 {
+        for (i, gp) in gpr.iter().enumerate() {
             let mut reg_name = reg_string(i).to_string();
             reg_name.make_ascii_uppercase();
 
@@ -552,7 +537,7 @@ impl<I: MemoryInterface> fmt::Display for Arm7tdmiCore<I> {
                 &reg_normal_style
             };
 
-            let entry = format!("\t{:-3} = 0x{:08x}", reg_name, gpr[i]);
+            let entry = format!("\t{:-3} = 0x{:08x}", reg_name, gp);
 
             write!(
                 f,

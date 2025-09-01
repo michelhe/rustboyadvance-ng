@@ -224,10 +224,7 @@ impl Rtc {
 
     fn serial_transfer_in_progress(&self) -> bool {
         use RtcState::*;
-        match self.state {
-            Idle | WaitForChipSelectHigh => false,
-            _ => true,
-        }
+        !matches!(self.state, Idle | WaitForChipSelectHigh)
     }
 
     /// Loads a register contents into an internal buffer
@@ -573,7 +570,7 @@ mod tests {
         setup_rtc!(rtc, gpio_state);
 
         rtc.status.set_mode_24h(false);
-        start_serial_transfer(&mut rtc, &mut gpio_state);
+        start_serial_transfer(&mut rtc, &gpio_state);
 
         // write Status register command
         transmit_bits(&mut rtc, &gpio_state, &[0, 1, 1, 0, 0, 0, 1, 0]);
@@ -586,7 +583,7 @@ mod tests {
             }
         );
 
-        assert_eq!(rtc.status.mode_24h(), false);
+        assert!(!rtc.status.mode_24h());
 
         let mut serial_buffer = SerialBuffer::new();
         serial_buffer.load_byte(1 << 6);
@@ -596,9 +593,9 @@ mod tests {
         }
 
         assert!(rtc.serial_buffer.is_empty());
-        assert_eq!(rtc.status.mode_24h(), true);
+        assert!(rtc.status.mode_24h());
 
-        start_serial_transfer(&mut rtc, &mut gpio_state);
+        start_serial_transfer(&mut rtc, &gpio_state);
 
         // read Status register command
         transmit_bits(&mut rtc, &gpio_state, &[0, 1, 1, 0, 0, 0, 1, 1]);
@@ -617,14 +614,14 @@ mod tests {
         receive_bytes(&mut rtc, &gpio_state, &mut bytes);
 
         let read_status = registers::StatusRegister(bytes[0]);
-        assert_eq!(read_status.mode_24h(), true);
+        assert!(read_status.mode_24h());
     }
 
     #[test]
     fn test_date_time() {
         setup_rtc!(rtc, gpio_state);
 
-        start_serial_transfer(&mut rtc, &mut gpio_state);
+        start_serial_transfer(&mut rtc, &gpio_state);
         transmit_bits(&mut rtc, &gpio_state, &[0, 1, 1, 0, 0, 1, 0, 1]);
         assert_eq!(
             rtc.state,

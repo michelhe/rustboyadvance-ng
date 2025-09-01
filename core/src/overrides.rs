@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::str::FromStr;
 
 use yaml_rust::YamlLoader;
 
@@ -34,10 +33,7 @@ lazy_static! {
             let game_code = String::from(game["code"].as_str().unwrap());
             let force_rtc = game["rtc"].as_bool().unwrap_or(false);
             let save_type = if let Some(save_type) = game["save_type"].as_str() {
-                match BackupType::from_str(save_type) {
-                    Ok(x) => Some(x),
-                    _ => panic!("{}: invalid save type {:#}", game_code, save_type),
-                }
+                Some(BackupType::from(save_type.to_string()))
             } else {
                 None
             };

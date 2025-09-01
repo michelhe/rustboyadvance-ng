@@ -5,7 +5,7 @@ use std::rc::Rc;
 use bincode;
 use serde::{Deserialize, Serialize};
 
-use crate::gdb_support::{gdb_thread::start_gdb_server_thread, DebuggerRequestHandler};
+use crate::gdb_support::{DebuggerRequestHandler, gdb_thread::start_gdb_server_thread};
 
 use super::cartridge::Cartridge;
 use super::dma::DmaController;
@@ -22,7 +22,10 @@ use super::sound::interface::DynAudioInterface;
 use arm7tdmi::{self, Arm7tdmiCore};
 use rustboyadvance_utils::Shared;
 
-pub const CONFIG: bincode::config::Configuration<bincode::config::LittleEndian, bincode::config::Fixint> = bincode::config::legacy();
+pub const CONFIG: bincode::config::Configuration<
+    bincode::config::LittleEndian,
+    bincode::config::Fixint,
+> = bincode::config::legacy();
 
 pub struct GameBoyAdvance {
     pub cpu: Box<Arm7tdmiCore<SysBus>>,
@@ -125,7 +128,8 @@ impl GameBoyAdvance {
         rom: Box<[u8]>,
         audio_interface: DynAudioInterface,
     ) -> Result<GameBoyAdvance, bincode::error::DecodeError> {
-        let (decoded, _n): (Box<SaveState>, usize) = bincode::serde::borrow_decode_from_slice(savestate, CONFIG)?;
+        let (decoded, _n): (Box<SaveState>, usize) =
+            bincode::serde::borrow_decode_from_slice(savestate, CONFIG)?;
 
         let interrupts = Rc::new(Cell::new(IrqBitmask(decoded.interrupt_flags)));
         let scheduler = decoded.scheduler.make_shared();
@@ -175,7 +179,8 @@ impl GameBoyAdvance {
     }
 
     pub fn restore_state(&mut self, bytes: &[u8]) -> Result<(), bincode::error::DecodeError> {
-        let (decoded, _n): (Box<SaveState>, usize) = bincode::serde::borrow_decode_from_slice(bytes, CONFIG)?;
+        let (decoded, _n): (Box<SaveState>, usize) =
+            bincode::serde::borrow_decode_from_slice(bytes, CONFIG)?;
 
         self.cpu.restore_state(decoded.cpu_state);
         self.scheduler = Scheduler::make_shared(decoded.scheduler);
@@ -217,7 +222,8 @@ impl GameBoyAdvance {
     pub fn frame(&mut self) {
         static mut OVERSHOOT: usize = 0;
         unsafe {
-            OVERSHOOT = CYCLES_FULL_REFRESH.saturating_sub(self.run::<false>(CYCLES_FULL_REFRESH - OVERSHOOT));
+            OVERSHOOT = CYCLES_FULL_REFRESH
+                .saturating_sub(self.run::<false>(CYCLES_FULL_REFRESH - OVERSHOOT));
         }
     }
 
@@ -225,7 +231,8 @@ impl GameBoyAdvance {
     fn frame_interruptible(&mut self) {
         static mut OVERSHOOT: usize = 0;
         unsafe {
-            OVERSHOOT = CYCLES_FULL_REFRESH.saturating_sub(self.run::<true>(CYCLES_FULL_REFRESH - OVERSHOOT));
+            OVERSHOOT = CYCLES_FULL_REFRESH
+                .saturating_sub(self.run::<true>(CYCLES_FULL_REFRESH - OVERSHOOT));
         }
     }
 

@@ -1,16 +1,16 @@
 /// Implementing the Target trait for gdbstub
 use gdbstub::common::Signal;
+use gdbstub::target::ext::base::BaseOps;
 use gdbstub::target::ext::base::singlethread::{
     SingleThreadBase, SingleThreadResume, SingleThreadSingleStep,
 };
 use gdbstub::target::ext::base::singlethread::{SingleThreadResumeOps, SingleThreadSingleStepOps};
-use gdbstub::target::ext::base::BaseOps;
 use gdbstub::target::ext::breakpoints::BreakpointsOps;
 use gdbstub::target::{self, Target, TargetError, TargetResult};
 
+use crate::Arm7tdmiCore;
 use crate::memory::{DebugRead, MemoryInterface};
 use crate::registers_consts::*;
-use crate::Arm7tdmiCore;
 
 pub trait MemoryGdbInterface: MemoryInterface + DebugRead {
     fn memory_map_xml(&self, offset: u64, length: usize, buf: &mut [u8]) -> usize;

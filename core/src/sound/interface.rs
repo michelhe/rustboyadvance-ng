@@ -1,5 +1,5 @@
-use rustboyadvance_utils::audio::{AudioRingBuffer, SampleConsumer, SampleProducer};
 use ringbuf::traits::*;
+use rustboyadvance_utils::audio::{AudioRingBuffer, SampleConsumer, SampleProducer};
 
 pub type StereoSample<T> = [T; 2];
 

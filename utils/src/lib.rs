@@ -90,8 +90,8 @@ macro_rules! host_breakpoint {
 }
 
 pub mod audio {
-    use ringbuf::{traits::*, HeapCons, HeapProd};
     pub use ringbuf::HeapRb;
+    use ringbuf::{HeapCons, HeapProd, traits::*};
 
     pub type SampleProducer = HeapProd<i16>;
     pub type SampleConsumer = HeapCons<i16>;

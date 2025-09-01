@@ -1,6 +1,6 @@
 /// Measure first 60 frames bigmap.gba from tonc demos
 ///
-use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
+use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 
 use rustboyadvance_core::prelude::*;
@@ -30,11 +30,12 @@ pub fn performance_benchmark(c: &mut Criterion) {
     c.bench_function("run_60_frames", |b| {
         b.iter_batched(
             // setup
-            || create_gba(),
+            create_gba,
             // bencher
             |mut gba| {
                 for _ in 0..60 {
-                    black_box(gba.frame())
+                    gba.frame();
+                    black_box(())
                 }
             },
             BatchSize::SmallInput,

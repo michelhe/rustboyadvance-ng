@@ -6,7 +6,7 @@ use rustboyadvance_utils::FpsCounter;
 
 fn main() {
     if env::args().count() < 3 {
-        eprintln!("usage: {} <bios> <rom>", env::args().nth(0).unwrap());
+        eprintln!("usage: {} <bios> <rom>", env::args().next().unwrap());
         return;
     }
 
