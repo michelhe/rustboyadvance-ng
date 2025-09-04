@@ -2,12 +2,12 @@ use super::super::{GBAError, GBAResult};
 
 #[cfg(feature = "elf_support")]
 use std::collections::HashMap;
-use std::io::prelude::*;
 use std::io::Cursor;
+use std::io::prelude::*;
 use std::path::Path;
 
 #[cfg(feature = "elf_support")]
-use rustboyadvance_utils::elf::{load_elf, GoblinError};
+use rustboyadvance_utils::elf::{GoblinError, load_elf};
 use rustboyadvance_utils::read_bin_file;
 use zip::ZipArchive;
 

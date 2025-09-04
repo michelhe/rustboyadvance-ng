@@ -16,7 +16,7 @@ fn read_symbols_from_elf(elf: &elf::Elf) -> SymbolMap {
     let mut symbols = SymbolMap::new();
     let strtab = &elf.strtab;
     for sym in elf.syms.iter() {
-        if let Some(Ok(name)) = strtab.get(sym.st_name) {
+        if let Some(name) = strtab.get_at(sym.st_name) {
             // TODO do I also want to save the symbol size ?
             symbols.insert(name.to_owned(), sym.st_value as u32);
         } else {

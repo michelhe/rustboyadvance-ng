@@ -8,9 +8,6 @@ extern crate lazy_static;
 extern crate debug_stub_derive;
 
 #[macro_use]
-extern crate enum_primitive_derive;
-
-#[macro_use]
 extern crate bitfield;
 #[macro_use]
 extern crate bitflags;
@@ -100,7 +97,11 @@ impl From<zip::result::ZipError> for GBAError {
 
 impl From<GdbStubError<(), std::io::Error>> for GBAError {
     fn from(err: GdbStubError<(), std::io::Error>) -> Self {
-        GBAError::GdbError(err.to_string())
+        GBAError::GdbError(if err.is_connection_error() {
+            format!("{:?}", err.into_connection_error().unwrap())
+        } else {
+            "".to_string()
+        })
     }
 }
 

@@ -20,7 +20,7 @@ impl Rgb15 {
 fn filter_window_backgrounds(
     backgrounds: &[usize],
     window_flags: WindowFlags,
-) -> ArrayVec<[usize; 4]> {
+) -> ArrayVec<usize, 4> {
     backgrounds
         .iter()
         .copied()
@@ -47,7 +47,7 @@ impl Gpu {
 
         // filter out disabled backgrounds and sort by priority
         // the backgrounds are sorted once for the entire scanline
-        let mut sorted_backgrounds: ArrayVec<[usize; 4]> = (bg_start..=bg_end)
+        let mut sorted_backgrounds: ArrayVec<usize, 4> = (bg_start..=bg_end)
             .filter(|bg| self.dispcnt.enable_bg[*bg])
             .collect();
         sorted_backgrounds.sort_by_key(|bg| (self.bgcnt[*bg].priority, *bg));
@@ -105,8 +105,8 @@ impl Gpu {
                 let win_obj = WindowInfo::new(WindowType::WinObj, self.winobj_flags);
                 let win_obj_backgrounds =
                     filter_window_backgrounds(&sorted_backgrounds, win_obj.flags);
-                for (x, is_occupid) in occupied.iter().enumerate().take(DISPLAY_WIDTH) {
-                    if *is_occupid {
+                for (x, is_occupied) in occupied.iter().enumerate().take(DISPLAY_WIDTH) {
+                    if *is_occupied {
                         continue;
                     }
                     let obj_entry = self.obj_buffer_get(x, y);
@@ -119,8 +119,8 @@ impl Gpu {
                     }
                 }
             } else {
-                for x in 0..DISPLAY_WIDTH {
-                    if occupied[x] {
+                for (x, is_occupied) in occupied.iter().enumerate() {
+                    if *is_occupied {
                         continue;
                     }
                     self.finalize_pixel(x, y, &win_out, &win_out_backgrounds, backdrop_color);

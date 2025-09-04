@@ -1,7 +1,7 @@
 use std::fmt;
 use std::fs::{File, OpenOptions};
-use std::io::prelude::*;
 use std::io::SeekFrom;
+use std::io::prelude::*;
 use std::path::PathBuf;
 
 use serde::de::{self, Deserialize, Deserializer, SeqAccess, Visitor};
@@ -81,7 +81,7 @@ impl BackupFile {
             let mut _file = OpenOptions::new()
                 .read(true)
                 .write(true)
-                .open(&path)
+                .open(path)
                 .unwrap();
 
             let mut buffer = Vec::new();

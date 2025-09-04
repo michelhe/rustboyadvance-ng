@@ -1,7 +1,7 @@
+use super::InstructionDecoder;
 use super::alu::*;
 use super::arm::*;
 use super::memory::Addr;
-use super::InstructionDecoder;
 use bit::BitIndex;
 use byteorder::{LittleEndian, ReadBytesExt};
 use num::FromPrimitive;

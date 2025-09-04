@@ -20,7 +20,7 @@ impl<'a, D> Disassembler<'a, D>
 where
     D: InstructionDecoder,
 {
-    pub fn new(base: Addr, bytes: &'a [u8]) -> Disassembler<'_, D> {
+    pub fn new(base: Addr, bytes: &'a [u8]) -> Disassembler<'a, D> {
         Disassembler {
             base: base as Addr,
             pos: 0,
@@ -31,7 +31,7 @@ where
     }
 }
 
-impl<'a, D> Iterator for Disassembler<'a, D>
+impl<D> Iterator for Disassembler<'_, D>
 where
     D: InstructionDecoder + fmt::Display,
     <D as InstructionDecoder>::IntType: std::fmt::LowerHex,
@@ -42,7 +42,7 @@ where
         let mut line = String::new();
 
         let addr = self.base + self.pos as Addr;
-        let decoded: D = D::decode_from_bytes(&self.bytes[(self.pos as usize)..], addr);
+        let decoded: D = D::decode_from_bytes(&self.bytes[self.pos..], addr);
         let decoded_raw = decoded.get_raw();
         self.pos += self.word_size;
         write!(&mut line, "{addr:8x}:\t{decoded_raw:08x} \t{decoded}").unwrap();

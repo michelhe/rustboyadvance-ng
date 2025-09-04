@@ -1,6 +1,7 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use num_derive::{FromPrimitive, ToPrimitive};
 use serde::{Deserialize, Serialize};
 
 pub trait InterruptConnect {
@@ -8,7 +9,7 @@ pub trait InterruptConnect {
     fn connect_irq(&mut self, interrupt_flags: SharedInterruptFlags);
 }
 
-#[derive(Serialize, Deserialize, Debug, Primitive, Copy, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, FromPrimitive, ToPrimitive, Copy, Clone, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub enum Interrupt {
     LCD_VBlank = 0,

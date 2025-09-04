@@ -336,8 +336,8 @@ impl SoundController {
 
         self.output_buffer.drain(..).for_each(|[left, right]| {
             audio_device.push_sample(&[
-                (left.round() as i16) * (std::i16::MAX / 512),
-                (right.round() as i16) * (std::i16::MAX / 512),
+                (left.round() as i16) * (i16::MAX / 512),
+                (right.round() as i16) * (i16::MAX / 512),
             ]);
         });
         (EventType::Apu(ApuEvent::Sample), self.cycles_per_sample)
@@ -360,22 +360,14 @@ fn apply_bias(sample: &mut i16, level: i16) {
     let mut s = *sample;
     s += level;
     // clamp
-    if s > 0x3ff {
-        s = 0x3ff;
-    } else if s < 0 {
-        s = 0;
-    }
+    s = s.clamp(0, 0x3ff);
     s -= level;
     *sample = s;
 }
 
 // TODO move
 fn cbit(idx: u8, value: bool) -> u16 {
-    if value {
-        1 << idx
-    } else {
-        0
-    }
+    if value { 1 << idx } else { 0 }
 }
 
 // TODO mvoe

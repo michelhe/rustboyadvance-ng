@@ -1,8 +1,8 @@
 use crate::{
+    Arm7tdmiCore, CpuAction,
     exception::Exception,
     memory::{MemoryAccess, MemoryInterface},
     registers_consts::*,
-    Arm7tdmiCore, CpuAction,
 };
 
 use bit::BitIndex;
@@ -59,7 +59,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
             self.alu_add_flags(op1, op2, &mut carry, &mut overflow)
         };
         self.alu_update_flags(result, true, carry, overflow);
-        self.set_reg(rd, result as u32);
+        self.set_reg(rd, result);
 
         CpuAction::AdvancePC(Seq)
     }
@@ -84,7 +84,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
         let arithmetic = op == ADD || op == SUB;
         self.alu_update_flags(result, arithmetic, carry, overflow);
         if op != CMP {
-            self.gpr[RD] = result as u32;
+            self.gpr[RD] = result;
         }
 
         CpuAction::AdvancePC(Seq)
@@ -144,7 +144,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
         self.alu_update_flags(result, op.is_arithmetic(), carry, overflow);
 
         if !op.is_setting_flags() {
-            self.set_reg(rd, result as u32);
+            self.set_reg(rd, result);
         }
 
         CpuAction::AdvancePC(Seq)
@@ -189,7 +189,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
                 self.alu_update_flags(result, true, carry, overflow);
             }
             OpFormat5::MOV => {
-                self.set_reg(dst_reg, op2 as u32);
+                self.set_reg(dst_reg, op2);
                 if dst_reg == REG_PC {
                     self.reload_pipeline16();
                     result = CpuAction::PipelineFlushed;
@@ -333,7 +333,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
         if LOAD {
             let data = self.ldr_half(addr, NonSeq);
             self.idle_cycle();
-            self.gpr[rd] = data as u32;
+            self.gpr[rd] = data;
             CpuAction::AdvancePC(Seq)
         } else {
             self.store_aligned_16(addr, self.gpr[rd] as u16, NonSeq);
@@ -541,7 +541,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
     /// Format 18
     /// Execution Time: 2S+1N
     pub(in super::super) fn exec_thumb_branch(&mut self, insn: u16) -> CpuAction {
-        let offset = ((insn.offset11() << 21) >> 20) as i32;
+        let offset = (insn.offset11() << 21) >> 20;
         self.pc = (self.pc as i32).wrapping_add(offset) as u32;
         self.reload_pipeline16(); // 2S + 1N
         CpuAction::PipelineFlushed

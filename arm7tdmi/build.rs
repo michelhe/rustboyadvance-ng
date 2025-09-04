@@ -42,7 +42,7 @@ fn thumb_decode(i: u16) -> (&'static str, String) {
     } else if i & 0xfc00 == 0x4000 {
         (
             "AluOps",
-            format!("exec_thumb_alu_ops::<{OP}>", OP = i.bit_range(6..10) as u16),
+            format!("exec_thumb_alu_ops::<{OP}>", OP = { i.bit_range(6..10) }),
         )
     } else if i & 0xfc00 == 0x4400 {
         (
@@ -306,17 +306,31 @@ fn arm_decode(i: u32) -> (&'static str, String) {
                         let is_op_not_touching_rd = i.bit_range(21..25) & 0b1100 == 0b1000;
                         if !set_cond_flags && is_op_not_touching_rd {
                             if i.bit(21) {
-                                ("MoveToStatus", format!("exec_arm_transfer_to_status::<{IMM}, {SPSR_FLAG}>",
-                                    IMM = i.bit(25), SPSR_FLAG = i.bit(22)))
+                                (
+                                    "MoveToStatus",
+                                    format!(
+                                        "exec_arm_transfer_to_status::<{IMM}, {SPSR_FLAG}>",
+                                        IMM = i.bit(25),
+                                        SPSR_FLAG = i.bit(22)
+                                    ),
+                                )
                             } else {
-                                ("MoveFromStatus", format!("exec_arm_mrs::<{SPSR_FLAG}>", SPSR_FLAG = i.bit(22)))
+                                (
+                                    "MoveFromStatus",
+                                    format!("exec_arm_mrs::<{SPSR_FLAG}>", SPSR_FLAG = i.bit(22)),
+                                )
                             }
                         } else {
-                            ("DataProcessing", format!("exec_arm_data_processing::<{OP}, {IMM}, {SET_FLAGS}, {SHIFT_BY_REG}>",
-                                OP=i.bit_range(21..25),
-                                IMM=i.bit(25),
-                                SET_FLAGS=i.bit(20),
-                                SHIFT_BY_REG=i.bit(4)))
+                            (
+                                "DataProcessing",
+                                format!(
+                                    "exec_arm_data_processing::<{OP}, {IMM}, {SET_FLAGS}, {SHIFT_BY_REG}>",
+                                    OP = i.bit_range(21..25),
+                                    IMM = i.bit(25),
+                                    SET_FLAGS = i.bit(20),
+                                    SHIFT_BY_REG = i.bit(4)
+                                ),
+                            )
                         }
                     }
                 }
@@ -324,17 +338,20 @@ fn arm_decode(i: u32) -> (&'static str, String) {
         }
         0b01 => {
             match (i.bit(25), i.bit(4)) {
-                (_, F) | (F, T) => ("SingleDataTransfer", format!(
-                    "exec_arm_ldr_str::<{LOAD}, {WRITEBACK}, {PRE_INDEX}, {BYTE}, {SHIFT}, {ADD}, {BS_OP}, {SHIFT_BY_REG}>",
-                    LOAD = i.bit(20),
-                    WRITEBACK = i.bit(21),
-                    BYTE = i.bit(22),
-                    ADD = i.bit(23),
-                    PRE_INDEX = i.bit(24),
-                    SHIFT = i.bit(25),
-                    BS_OP = i.bit_range(5..7) as u8,
-                    SHIFT_BY_REG = i.bit(4),
-                )),
+                (_, F) | (F, T) => (
+                    "SingleDataTransfer",
+                    format!(
+                        "exec_arm_ldr_str::<{LOAD}, {WRITEBACK}, {PRE_INDEX}, {BYTE}, {SHIFT}, {ADD}, {BS_OP}, {SHIFT_BY_REG}>",
+                        LOAD = i.bit(20),
+                        WRITEBACK = i.bit(21),
+                        BYTE = i.bit(22),
+                        ADD = i.bit(23),
+                        PRE_INDEX = i.bit(24),
+                        SHIFT = i.bit(25),
+                        BS_OP = i.bit_range(5..7) as u8,
+                        SHIFT_BY_REG = i.bit(4),
+                    ),
+                ),
                 (T, T) => ("Undefined", String::from("arm_undefined")), /* Possible ARM11 but we don't implement these */
             }
         }

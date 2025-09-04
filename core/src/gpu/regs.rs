@@ -1,6 +1,7 @@
 use super::layer::RenderLayer;
 use super::*;
 
+use num_derive::{FromPrimitive, ToPrimitive};
 use serde::{Deserialize, Serialize};
 
 pub const SCREEN_BLOCK_SIZE: u32 = 0x800;
@@ -198,7 +199,7 @@ bitfield! {
 }
 
 bitflags! {
-    #[derive(Serialize, Deserialize, Default)]
+    #[derive(Serialize, Deserialize, Default, Clone, Copy, Debug)]
     pub struct BlendFlags: u16 {
         const BG0 = 0b00000001;
         const BG1 = 0b00000010;
@@ -231,7 +232,18 @@ impl BlendFlags {
     }
 }
 
-#[derive(SmartDefault, Debug, Serialize, Deserialize, Primitive, PartialEq, Eq, Clone, Copy)]
+#[derive(
+    SmartDefault,
+    Debug,
+    Serialize,
+    Deserialize,
+    FromPrimitive,
+    ToPrimitive,
+    PartialEq,
+    Eq,
+    Clone,
+    Copy,
+)]
 pub enum BlendMode {
     #[default]
     BldNone = 0b00,
@@ -281,7 +293,7 @@ impl GpuMemoryMappedIO for BlendAlpha {
 }
 
 bitflags! {
-    #[derive(Serialize, Deserialize, Default)]
+    #[derive(Serialize, Deserialize, Default, Clone, Copy, Debug)]
     pub struct WindowFlags: u16 {
         const BG0 = 0b00000001;
         const BG1 = 0b00000010;

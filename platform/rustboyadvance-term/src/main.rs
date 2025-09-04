@@ -1,6 +1,6 @@
-use crossterm::event::EventStream;
+use clap::Parser;
 use crossterm::ExecutableCommand;
-use structopt::StructOpt;
+use crossterm::event::EventStream;
 
 use std::path::Path;
 use std::time;
@@ -95,7 +95,10 @@ impl EventHandler {
 fn ask_download_bios() {
     const OPEN_SOURCE_BIOS_URL: &'static str =
         "https://github.com/Nebuleon/ReGBA/raw/master/bios/gba_bios.bin";
-    println!("Missing BIOS file. If you don't have the original GBA BIOS, you can download an open-source bios from {}", OPEN_SOURCE_BIOS_URL);
+    println!(
+        "Missing BIOS file. If you don't have the original GBA BIOS, you can download an open-source bios from {}",
+        OPEN_SOURCE_BIOS_URL
+    );
     std::process::exit(0);
 }
 
@@ -111,7 +114,7 @@ fn load_bios(bios_path: &Path) -> Box<[u8]> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let opts = options::Options::from_args();
+    let opts = options::Options::parse();
 
     let (audio_interface, _output_device) = audio::create_audio_player();
     let _rom_name = opts.rom_name();
@@ -197,7 +200,7 @@ async fn main() -> Result<()> {
                             crossterm::event::KeyCode::F(1) => {
                                 let mut debugger = Debugger::new();
                                 debugger
-                                    .repl(&mut gba, matches.value_of("script_file"))
+                                    .repl(&mut gba, opts.script_file.as_deref())
                                     .unwrap();
                             }
                             crossterm::event::KeyCode::F(2) => {

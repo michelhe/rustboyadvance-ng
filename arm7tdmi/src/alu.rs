@@ -1,6 +1,6 @@
 use bit::BitIndex;
 
-use crate::{memory::MemoryInterface, registers_consts::REG_PC, Arm7tdmiCore};
+use crate::{Arm7tdmiCore, memory::MemoryInterface, registers_consts::REG_PC};
 
 #[derive(Debug, Primitive, Eq, PartialEq)]
 pub enum AluOpCode {
@@ -77,7 +77,7 @@ impl BarrelShifterValue {
     /// Decode operand2 as an immediate value
     pub fn decode_rotated_immediate(&self) -> Option<u32> {
         if let BarrelShifterValue::RotatedImmediate(immediate, rotate) = self {
-            return Some(immediate.rotate_right(*rotate) as u32);
+            return Some(immediate.rotate_right(*rotate));
         }
         None
     }
@@ -151,11 +151,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
             _ => {
                 let bit31 = val.bit(31);
                 *carry = bit31;
-                if bit31 {
-                    0xffffffff
-                } else {
-                    0
-                }
+                if bit31 { 0xffffffff } else { 0 }
             }
         }
     }
@@ -163,7 +159,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
     pub fn rrx(&mut self, val: u32, carry: &mut bool) -> u32 {
         let old_c = *carry as i32;
         *carry = val & 0b1 != 0;
-        (((val as u32) >> 1) as i32 | (old_c << 31)) as u32
+        ((val >> 1) as i32 | (old_c << 31)) as u32
     }
 
     pub fn ror(
@@ -189,7 +185,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
                 } else {
                     val
                 };
-                *carry = (val as u32).bit(31);
+                *carry = val.bit(31);
                 val
             }
         }
@@ -265,7 +261,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
             let rs = offset.bit_range(8..12) as usize;
             self.shift_by_register(op, reg, rs, carry)
         } else {
-            let amount = offset.bit_range(7..12) as u32;
+            let amount = offset.bit_range(7..12);
             self.barrel_shift_op(op, self.get_reg(reg), amount, carry, true)
         }
     }
@@ -284,15 +280,11 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
     pub fn get_barrel_shifted_value(&mut self, sval: &BarrelShifterValue, carry: &mut bool) -> u32 {
         // TODO decide if error handling or panic here
         match sval {
-            BarrelShifterValue::ImmediateValue(offset) => *offset as u32,
+            BarrelShifterValue::ImmediateValue(offset) => *offset,
             BarrelShifterValue::ShiftedRegister(shifted_reg) => {
-                let added = (*shifted_reg).added.unwrap_or(true);
-                let abs = self.register_shift(shifted_reg, carry) as u32;
-                if added {
-                    abs as u32
-                } else {
-                    (-(abs as i32)) as u32
-                }
+                let added = shifted_reg.added.unwrap_or(true);
+                let abs = self.register_shift(shifted_reg, carry);
+                if added { abs } else { (-(abs as i32)) as u32 }
             }
             _ => panic!("bad barrel shift"),
         }

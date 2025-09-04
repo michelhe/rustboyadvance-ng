@@ -6,13 +6,13 @@ use arm7tdmi::gdb::{copy_range_to_buf, gdbstub, gdbstub_arch};
 use crossbeam::channel::Sender;
 use gdbstub::common::Signal;
 use gdbstub::stub::{DisconnectReason, SingleThreadStopReason};
+use gdbstub::target::ext::base::BaseOps;
 use gdbstub::target::ext::base::singlethread::{
     SingleThreadBase, SingleThreadResume, SingleThreadSingleStep,
 };
 use gdbstub::target::ext::base::singlethread::{SingleThreadResumeOps, SingleThreadSingleStepOps};
-use gdbstub::target::ext::base::BaseOps;
 use gdbstub::target::ext::breakpoints::BreakpointsOps;
-use gdbstub::target::ext::monitor_cmd::{outputln, ConsoleOutput};
+use gdbstub::target::ext::monitor_cmd::{ConsoleOutput, outputln};
 use gdbstub::target::{self, Target, TargetError, TargetResult};
 use gdbstub_arch::arm::reg::ArmCoreRegs;
 
@@ -123,11 +123,11 @@ impl SingleThreadBase for DebuggerTarget {
         Ok(())
     }
 
-    fn read_addrs(&mut self, start_addr: u32, data: &mut [u8]) -> TargetResult<(), Self> {
+    fn read_addrs(&mut self, start_addr: u32, data: &mut [u8]) -> Result<usize, TargetError<()>> {
         let buffer = Arc::new(Mutex::new(vec![0; data.len()].into_boxed_slice()));
         self.debugger_request(DebuggerRequest::ReadAddrs(start_addr, buffer.clone()));
         data.copy_from_slice(&buffer.lock().unwrap());
-        Ok(())
+        Ok(start_addr as usize + data.len())
     }
 
     fn write_addrs(&mut self, _start_addr: u32, _data: &[u8]) -> TargetResult<(), Self> {

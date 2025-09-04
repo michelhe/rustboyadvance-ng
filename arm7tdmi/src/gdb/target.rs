@@ -1,16 +1,16 @@
 /// Implementing the Target trait for gdbstub
 use gdbstub::common::Signal;
+use gdbstub::target::ext::base::BaseOps;
 use gdbstub::target::ext::base::singlethread::{
     SingleThreadBase, SingleThreadResume, SingleThreadSingleStep,
 };
 use gdbstub::target::ext::base::singlethread::{SingleThreadResumeOps, SingleThreadSingleStepOps};
-use gdbstub::target::ext::base::BaseOps;
 use gdbstub::target::ext::breakpoints::BreakpointsOps;
 use gdbstub::target::{self, Target, TargetError, TargetResult};
 
+use crate::Arm7tdmiCore;
 use crate::memory::{DebugRead, MemoryInterface};
 use crate::registers_consts::*;
-use crate::Arm7tdmiCore;
 
 pub trait MemoryGdbInterface: MemoryInterface + DebugRead {
     fn memory_map_xml(&self, offset: u64, length: usize, buf: &mut [u8]) -> usize;
@@ -61,9 +61,9 @@ impl<I: MemoryGdbInterface> SingleThreadBase for Arm7tdmiCore<I> {
         Ok(())
     }
 
-    fn read_addrs(&mut self, start_addr: u32, data: &mut [u8]) -> TargetResult<(), Self> {
+    fn read_addrs(&mut self, start_addr: u32, data: &mut [u8]) -> Result<usize, TargetError<()>> {
         self.bus.debug_get_into_bytes(start_addr, data);
-        Ok(())
+        Ok(start_addr as usize + data.len())
     }
 
     fn write_addrs(&mut self, _start_addr: u32, _data: &[u8]) -> TargetResult<(), Self> {

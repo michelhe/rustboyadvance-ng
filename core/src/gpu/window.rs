@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use super::consts::*;
 use super::WindowFlags;
+use super::consts::*;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Window {

@@ -1,12 +1,15 @@
 use std::fmt;
-use std::str::FromStr;
+
+use clap::ValueEnum;
 
 mod backup_file;
 pub use backup_file::BackupFile;
+use num_derive::{FromPrimitive, ToPrimitive};
 pub mod eeprom;
 pub mod flash;
 
-#[derive(Debug, Primitive, Serialize, Deserialize, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, ToPrimitive, FromPrimitive, Serialize, Deserialize, Copy, Clone, PartialEq, Eq, ValueEnum)]
+#[value(rename_all = "lower")]
 pub enum BackupType {
     Eeprom = 0,
     Sram = 1,
@@ -16,17 +19,16 @@ pub enum BackupType {
     AutoDetect = 5,
 }
 
-impl FromStr for BackupType {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+impl From<String> for BackupType {  
+    fn from(value: String) -> Self {
         use BackupType::*;
-        match s {
-            "autodetect" => Ok(AutoDetect),
-            "sram" => Ok(Sram),
-            "flash128k" => Ok(Flash1M),
-            "flash64k" => Ok(Flash512),
-            "eeprom" => Ok(Eeprom),
-            _ => Err(format!("{} is not a valid save type", s)),
+        match value.as_str() {
+            "autodetect" => AutoDetect,
+            "sram" => Sram,
+            "flash128k" => Flash1M,
+            "flash64k" => Flash512,
+            "eeprom" => Eeprom,
+            _ => panic!("invalid save type {}", value),
         }
     }
 }

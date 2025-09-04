@@ -1,8 +1,8 @@
 /// mGBA 0.8.1 Debug peripheral support
 use std::str;
 
-use log::log;
 use log::Level;
+use log::log;
 
 use super::arm7tdmi::memory::BusIO;
 use crate::iodev::consts::{REG_DEBUG_ENABLE, REG_DEBUG_FLAGS, REG_DEBUG_STRING};
@@ -16,13 +16,19 @@ pub struct DebugPort {
     debug_string: Box<[u8]>,
 }
 
-impl DebugPort {
-    pub fn new() -> DebugPort {
+impl Default for DebugPort {
+    fn default() -> Self {
         DebugPort {
             enable: false,
             flags: DebugFlags(0),
             debug_string: vec![0; DEBUG_STRING_SIZE].into_boxed_slice(),
         }
+    }
+}
+
+impl DebugPort {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     #[inline]

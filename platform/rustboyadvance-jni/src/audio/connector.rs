@@ -1,5 +1,5 @@
-use jni::objects::{GlobalRef, JMethodID, JObject, JValue};
-use jni::signature::{JavaType, Primitive};
+use jni::objects::{GlobalRef, JMethodID, JObject, JShortArray, JValue, JValueGen};
+use jni::signature::{Primitive, ReturnType};
 use jni::sys::{jlong, jmethodID};
 use jni::JNIEnv;
 
@@ -13,59 +13,60 @@ pub struct AudioJNIConnector {
     mid_audio_play: jlong,
     mid_audio_pause: jlong,
 
-    pub sample_rate: i32,
-    pub sample_count: usize,
+    pub _sample_rate: i32,
+    pub _sample_count: usize,
 }
 
 impl AudioJNIConnector {
-    pub fn new(env: &JNIEnv, audio_player: JObject) -> AudioJNIConnector {
+    pub fn new(env: &mut JNIEnv, audio_player: &JObject) -> AudioJNIConnector {
         let audio_player_ref = env.new_global_ref(audio_player).unwrap();
         let audio_player_klass = env.get_object_class(audio_player_ref.as_obj()).unwrap();
 
         let mid_audio_write = env
-            .get_method_id(audio_player_klass, "audioWrite", "([SII)I")
+            .get_method_id(&audio_player_klass, "audioWrite", "([SII)I")
             .expect("failed to get methodID for audioWrite")
-            .into_inner() as jlong;
+            .into_raw() as jlong;
         let mid_audio_play = env
-            .get_method_id(audio_player_klass, "play", "()V")
+            .get_method_id(&audio_player_klass, "play", "()V")
             .expect("failed to get methodID for audioPlay")
-            .into_inner() as jlong;
+            .into_raw() as jlong;
         let mid_audio_pause = env
-            .get_method_id(audio_player_klass, "pause", "()V")
+            .get_method_id(&audio_player_klass, "pause", "()V")
             .expect("failed to get methodID for audioPause")
-            .into_inner() as jlong;
+            .into_raw() as jlong;
 
         let mid_get_sample_rate = env
-            .get_method_id(audio_player_klass, "getSampleRate", "()I")
+            .get_method_id(&audio_player_klass, "getSampleRate", "()I")
             .expect("failed to get methodID for getSampleRate");
         let mid_get_sample_count = env
-            .get_method_id(audio_player_klass, "getSampleCount", "()I")
+            .get_method_id(&audio_player_klass, "getSampleCount", "()I")
             .expect("failed to get methodID for getSampleCount");
 
-        let result = env
+        let result = unsafe { env
             .call_method_unchecked(
                 audio_player_ref.as_obj(),
                 mid_get_sample_count,
-                JavaType::Primitive(Primitive::Int),
+                ReturnType::Primitive(Primitive::Int),
                 &[],
             )
-            .unwrap();
+            .unwrap() };
 
-        let sample_count = match result {
-            JValue::Int(sample_count) => sample_count as usize,
+        
+        let sample_count = match result.i() {
+            Ok(sample_count) => sample_count as usize,
             _ => panic!("bad return value"),
         };
 
-        let result = env
+        let result = unsafe { env
             .call_method_unchecked(
                 audio_player_ref.as_obj(),
                 mid_get_sample_rate,
-                JavaType::Primitive(Primitive::Int),
+                ReturnType::Primitive(Primitive::Int),
                 &[],
             )
-            .unwrap();
-        let sample_rate = match result {
-            JValue::Int(sample_rate) => sample_rate as i32,
+            .unwrap() };
+        let sample_rate = match result.i() {
+            Ok(sample_rate) => sample_rate as i32,
             _ => panic!("bad return value"),
         };
 
@@ -83,47 +84,51 @@ impl AudioJNIConnector {
             mid_audio_pause,
             mid_audio_play,
             mid_audio_write,
-            sample_rate,
-            sample_count,
+            _sample_rate: sample_rate,
+            _sample_count: sample_count,
         }
     }
 
     #[inline]
-    pub fn pause(&self, env: &JNIEnv) {
+    pub fn pause(&self, env: &mut JNIEnv) {
+        let mid_audio_pause = unsafe {
+            JMethodID::from_raw(self.mid_audio_pause as jmethodID)
+        };
         // TODO handle errors
-        let _ = env.call_method_unchecked(
+        let _ = unsafe { env.call_method_unchecked(
             self.audio_player_ref.as_obj(),
-            JMethodID::from(self.mid_audio_pause as jmethodID),
-            JavaType::Primitive(Primitive::Void),
+            JMethodID::from(mid_audio_pause),
+            ReturnType::Primitive(Primitive::Void),
             &[],
-        );
+        ) };
     }
 
     #[inline]
-    pub fn play(&self, env: &JNIEnv) {
+    pub fn play(&self, env: &mut JNIEnv) {
         // TODO handle errors
-        let _ = env.call_method_unchecked(
+        let _ = unsafe { env.call_method_unchecked(
             self.audio_player_ref.as_obj(),
-            JMethodID::from(self.mid_audio_play as jmethodID),
-            JavaType::Primitive(Primitive::Void),
+            JMethodID::from_raw(self.mid_audio_play as jmethodID),
+            ReturnType::Primitive(Primitive::Void),
             &[],
-        );
+        ) };
     }
 
     #[inline]
-    pub fn write_audio_samples(&self, env: &JNIEnv, samples: &[i16]) {
+    pub fn write_audio_samples(&self, env: &mut JNIEnv, samples: &[i16]) {
         // TODO handle errors
-        env.set_short_array_region(self.audio_buffer_ref.as_obj().into_inner(), 0, &samples)
+        let arr: &JShortArray = self.audio_buffer_ref.as_obj().into();
+        env.set_short_array_region( arr, 0, &samples)
             .unwrap();
-        let _ = env.call_method_unchecked(
+        let _ = unsafe { env.call_method_unchecked(
             self.audio_player_ref.as_obj(),
-            JMethodID::from(self.mid_audio_write as jmethodID),
-            JavaType::Primitive(Primitive::Int),
+            JMethodID::from_raw(self.mid_audio_write as jmethodID),
+            ReturnType::Primitive(Primitive::Int),
             &[
-                JValue::from(self.audio_buffer_ref.as_obj()),
-                JValue::Int(0),                    // offset_in_shorts
-                JValue::Int(samples.len() as i32), // size_in_shorts
+                JValueGen::Object(self.audio_buffer_ref.as_obj()).as_jni(),
+                JValue::Int(0).as_jni(),                    // offset_in_shorts
+                JValue::Int(samples.len() as i32).as_jni(), // size_in_shorts
             ],
-        );
+        ) };
     }
 }

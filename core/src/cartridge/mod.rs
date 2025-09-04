@@ -8,9 +8,9 @@ pub mod header;
 use header::CartridgeHeader;
 
 mod backup;
+pub use backup::BackupType;
 use backup::eeprom::EepromController;
 use backup::flash::Flash;
-pub use backup::BackupType;
 use backup::{BackupFile, BackupMemoryInterface};
 
 mod gpio;
@@ -103,10 +103,10 @@ use super::sysbus::consts::*;
 pub const EEPROM_BASE_ADDR: u32 = 0x0DFF_FF00;
 
 fn is_gpio_access(addr: u32) -> bool {
-    match addr & 0x1ff_ffff {
-        GPIO_PORT_DATA | GPIO_PORT_DIRECTION | GPIO_PORT_CONTROL => true,
-        _ => false,
-    }
+    matches!(
+        addr & 0x1ff_ffff,
+        GPIO_PORT_DATA | GPIO_PORT_DIRECTION | GPIO_PORT_CONTROL
+    )
 }
 
 impl BusIO for Cartridge {
@@ -122,7 +122,7 @@ impl BusIO for Cartridge {
                 if offset >= self.size {
                     self.read_unused(addr)
                 } else {
-                    unsafe { *self.bytes.get_unchecked(offset as usize) }
+                    unsafe { *self.bytes.get_unchecked(offset) }
                 }
             }
         }

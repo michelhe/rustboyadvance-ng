@@ -6,6 +6,6 @@ edition = "2018"
 
 [dependencies]
 rustboyadvance-core = {path = "../../core/"}
-minifb = "0.11.2"
-clap = {version = "2.33", features = ["color", "yaml"]}
+minifb = "0.28.0"
+clap = {version = "4.5.46", features = ["color", "yaml"]}
 bit = "^0.1"

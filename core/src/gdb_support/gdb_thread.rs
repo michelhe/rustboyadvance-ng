@@ -2,16 +2,13 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use arm7tdmi::{
     gdb::wait_for_connection,
-    gdbstub::{
-        conn::ConnectionExt,
-        stub::GdbStub,
-    },
+    gdbstub::{conn::ConnectionExt, stub::GdbStub},
 };
 
 use crate::{GBAError, GameBoyAdvance};
 
 use super::target::DebuggerTarget;
-use super::{event_loop::DebuggerEventLoop, DebuggerRequestHandler};
+use super::{DebuggerRequestHandler, event_loop::DebuggerEventLoop};
 
 /// Starts a gdbserver thread
 pub(crate) fn start_gdb_server_thread(
@@ -35,7 +32,13 @@ pub(crate) fn start_gdb_server_thread(
         let gdbserver = GdbStub::new(conn);
         let disconnect_reason = gdbserver
             .run_blocking::<DebuggerEventLoop>(&mut target)
-            .map_err(|e| e.to_string())
+            .map_err(|e| {
+                if e.is_connection_error() {
+                    format!("{:?}", e.into_connection_error())
+                } else {
+                    "".to_string()
+                }
+            })
             .unwrap();
         target.disconnect(disconnect_reason);
     });

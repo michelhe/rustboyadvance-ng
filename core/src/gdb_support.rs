@@ -6,7 +6,7 @@ type SendSync<T> = Arc<Mutex<T>>;
 use arm7tdmi::gdbstub::common::Signal;
 use arm7tdmi::gdbstub::stub::{DisconnectReason, SingleThreadStopReason};
 use arm7tdmi::gdbstub::target::TargetError;
-use arm7tdmi::gdbstub::target::{ext::base::singlethread::SingleThreadBase, Target};
+use arm7tdmi::gdbstub::target::{Target, ext::base::singlethread::SingleThreadBase};
 use arm7tdmi::gdbstub_arch::arm::reg::ArmCoreRegs;
 use arm7tdmi::memory::Addr;
 use crossbeam::channel::Receiver;
@@ -111,7 +111,7 @@ impl DebuggerRequestHandler {
                     data.len(),
                     addr
                 );
-                gba.cpu.write_addrs(*addr, &data)?;
+                gba.cpu.write_addrs(*addr, data)?;
                 self.complete_request(None)
             }
             Interrupt => {

@@ -21,11 +21,7 @@ impl From<CpuState> for bool {
 
 impl From<bool> for CpuState {
     fn from(flag: bool) -> CpuState {
-        if flag {
-            CpuState::THUMB
-        } else {
-            CpuState::ARM
-        }
+        if flag { CpuState::THUMB } else { CpuState::ARM }
     }
 }
 
@@ -156,6 +152,6 @@ impl fmt::Display for RegPSR {
             Z = self.Z() as u8,
             C = self.C() as u8,
             V = self.V() as u8,
-            )
+        )
     }
 }

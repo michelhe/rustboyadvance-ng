@@ -2,6 +2,7 @@ use super::{BackupFile, BackupMemoryInterface};
 
 use bytesize;
 use num::FromPrimitive;
+use num_derive::{FromPrimitive, ToPrimitive};
 use serde::{Deserialize, Serialize};
 
 use std::cell::RefCell;
@@ -44,32 +45,24 @@ impl From<EepromAddressBits> for usize {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Primitive, PartialEq, Copy, Clone)]
+#[derive(
+    Serialize, Deserialize, Debug, ToPrimitive, FromPrimitive, PartialEq, Copy, Clone, Default,
+)]
 enum SpiInstruction {
+    #[default]
     Read = 0b011,
     Write = 0b010,
 }
 
-impl Default for SpiInstruction {
-    fn default() -> SpiInstruction {
-        SpiInstruction::Read /* TODO this is an arbitrary choice */
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Default)]
 enum SpiState {
+    #[default]
     RxInstruction,
     RxAddress(SpiInstruction),
     StopBit(SpiInstruction),
     TxDummy,
     TxData,
     RxData,
-}
-
-impl Default for SpiState {
-    fn default() -> SpiState {
-        SpiState::RxInstruction
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -160,13 +153,11 @@ impl EepromChip {
                 }
             }
             RxAddress(insn) => {
-                if self.rx_count == self.addr_bits.into() {
+                if self.rx_count == bitfield::Into::<usize>::into(self.addr_bits) {
                     self.address = (self.rx_buffer as usize) * 8;
                     trace!(
                         "{:?} mode , recvd address = {:#x} (rx_buffer={:#x})",
-                        insn,
-                        self.address,
-                        self.rx_buffer
+                        insn, self.address, self.rx_buffer
                     );
                     match insn {
                         Read => {
@@ -255,10 +246,7 @@ impl EepromChip {
 
     pub(crate) fn is_transmitting(&self) -> bool {
         use SpiState::*;
-        match self.state {
-            TxData | TxDummy => true,
-            _ => false,
-        }
+        matches!(self.state, TxData | TxDummy)
     }
 
     pub(crate) fn reset(&mut self) {
@@ -288,7 +276,7 @@ impl EepromController {
         let mut detect = true;
         let mut eeprom_type = EepromType::Eeprom512;
         if let Some(path) = &path {
-            if let Ok(metadata) = fs::metadata(&path) {
+            if let Ok(metadata) = fs::metadata(path) {
                 let human_size = bytesize::ByteSize::b(metadata.len());
                 let assumed_type = match metadata.len() {
                     512 => EepromType::Eeprom512,
@@ -359,7 +347,9 @@ impl EepromController {
                 }
                 // EEPROM to DMA
                 (0x0d000000..=0x0dffffff, _) => {
-                    panic!("reading from eeprom when real size is not detected yet is not supported by this emulator")
+                    panic!(
+                        "reading from eeprom when real size is not detected yet is not supported by this emulator"
+                    )
                 }
                 _ => { /* Not a eeprom dma, doing nothing */ }
             }
@@ -391,13 +381,12 @@ mod tests {
 
         fn rx_data(&self) -> [u8; 8] {
             let mut bytes = [0; 8];
-            for byte_index in 0..8 {
-                let mut byte = 0u8;
+            for byte in &mut bytes.iter_mut() {
+                *byte = 0u8;
                 for _ in 0..8 {
                     let bit = self.read_half(EEPROM_BASE_ADDR) as u8;
-                    byte = (byte.wrapping_shl(1)) | bit;
+                    *byte = (byte.wrapping_shl(1)) | bit;
                 }
-                bytes[byte_index] = byte;
             }
             bytes
         }
@@ -468,7 +457,6 @@ mod tests {
             bytes[18] = b'S';
             bytes[19] = b'T';
             bytes[20] = b'!';
-            drop(bytes);
             chip.memory.flush();
         }
 

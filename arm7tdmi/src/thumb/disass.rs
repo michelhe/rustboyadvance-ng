@@ -1,9 +1,9 @@
 use std::fmt;
 
-use crate::bit::BitIndex;
+use bit::BitIndex;
 
 use super::*;
-use crate::arm7tdmi::*;
+use crate::*;
 
 use super::ThumbDecodeHelper;
 
@@ -23,7 +23,7 @@ impl ThumbInstruction {
     fn fmt_thumb_move_shifted_reg(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{op}\t{Rd}, {Rs}, #{Offset5}",
+            "{op:?}\t{Rd}, {Rs}, #{Offset5}",
             op = self.raw.format1_op(),
             Rd = reg_string(self.raw & 0b111),
             Rs = reg_string(self.raw.rs()),
@@ -54,7 +54,7 @@ impl ThumbInstruction {
     fn fmt_thumb_high_reg_op_or_bx(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let op = self.raw.format5_op();
         let dst_reg = if self.raw.flag(consts::flags::FLAG_H1) {
-            self.raw & 0b111 + 8
+            self.raw & (0b111 + 8)
         } else {
             self.raw & 0b111
         };
@@ -82,7 +82,7 @@ impl ThumbInstruction {
             "ldr\t{Rd}, [pc, #{Imm:#x}] ; = #{effective:#x}",
             Rd = reg_string(self.raw.bit_range(8..11)),
             Imm = self.raw.word8(),
-            effective = (self.pc + 4 & !0b10) + (self.raw.word8() as Addr)
+            effective = ((self.pc + 4) & !0b10) + (self.raw.word8() as Addr)
         )
     }
 
@@ -267,9 +267,9 @@ impl ThumbInstruction {
         write!(f, "bl\t#0x{:08x}", {
             let offset11 = self.raw.offset11();
             if self.raw.flag(consts::flags::FLAG_LOW_OFFSET) {
-                (offset11 << 1) as i32
+                offset11 << 1
             } else {
-                ((offset11 << 21) >> 9) as i32
+                (offset11 << 21) >> 9
             }
         })
     }

@@ -1,6 +1,6 @@
 use rustboyadvance_core::gpu::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
 
-use crossterm::{terminal, ExecutableCommand};
+use crossterm::{ExecutableCommand, terminal};
 
 pub const SCREEN_WIDTH: u32 = DISPLAY_WIDTH as u32;
 pub const SCREEN_HEIGHT: u32 = DISPLAY_HEIGHT as u32;

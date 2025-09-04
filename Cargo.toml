@@ -13,7 +13,7 @@ members = [
 ]
 
 default-members = ["platform/rustboyadvance-sdl2"]
-
+resolver = "1"
 
 [profile.dev]
 opt-level = 2

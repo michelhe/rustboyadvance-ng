@@ -1,10 +1,10 @@
 //! Rendering for modes 4-5
 
-use super::super::consts::*;
 use super::super::Gpu;
 use super::super::Rgb15;
+use super::super::consts::*;
 
-use super::{utils, MODE5_VIEWPORT, SCREEN_VIEWPORT};
+use super::{MODE5_VIEWPORT, SCREEN_VIEWPORT, utils};
 
 use crate::prelude::BusIO;
 use rustboyadvance_utils::index2d;

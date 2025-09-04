@@ -3,7 +3,7 @@ use simple_logger::SimpleLogger;
 
 use gdbstub::common::Signal;
 use gdbstub::conn::{Connection, ConnectionExt};
-use gdbstub::stub::{run_blocking, GdbStub, SingleThreadStopReason};
+use gdbstub::stub::{GdbStub, SingleThreadStopReason, run_blocking};
 use gdbstub::target::Target;
 
 use arm7tdmi::gdb::wait_for_connection;

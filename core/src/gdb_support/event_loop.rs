@@ -2,11 +2,11 @@ use std::time::Duration;
 
 use arm7tdmi::gdb::gdbstub::{
     conn::{Connection, ConnectionExt},
-    stub::{run_blocking, SingleThreadStopReason},
+    stub::{SingleThreadStopReason, run_blocking},
     target::Target,
 };
 
-use super::{target::DebuggerTarget, DebuggerRequest};
+use super::{DebuggerRequest, target::DebuggerTarget};
 
 pub(crate) struct DebuggerEventLoop {}
 

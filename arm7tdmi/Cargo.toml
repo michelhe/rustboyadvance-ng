@@ -1,27 +1,30 @@
 [package]
 name = "arm7tdmi"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 rustboyadvance-utils = {"path" = "../utils" }
 log = "0.4.8"
-bit = "^0.1"
+bit = "0.1.1"
 cfg-if = "1.0.0"
 serde = { version = "1.0.104", features = ["derive", "rc"] }
 ansi_term = "0.12.1"
-colored = "1.9"
+colored = "3.0.0"
 byteorder = "1"
-num = "0.2.1"
+num = "0.4.3"
 num-traits = "0.2"
-enum-primitive-derive = "^0.1"
-gdbstub = "0.6.3"
-gdbstub_arch = "0.2.4"
+enum-primitive-derive = "0.3.0"
+gdbstub = "0.7.7"
+gdbstub_arch = "0.3.2"
 
 [dev-dependencies]
-simple_logger = "2.3.0"  # For the examples
+simple_logger = "5.0.0"  # For the examples
 
 [build-dependencies]
-bit = "^0.1"
+bit = "0.1.1"
+
+[features]
+debugger = []

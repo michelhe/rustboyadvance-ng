@@ -1,5 +1,5 @@
-use super::memory::MemoryInterface;
 use super::Arm7tdmiCore;
+use super::memory::MemoryInterface;
 use super::{CpuMode, CpuState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,7 +33,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
         #[cfg(feature = "debugger")]
         {
             if self.dbg.trace_exceptions {
-                trace!("exception {:?} lr={:x} new_mode={:?}", e, lr, new_mode);
+                log::trace!("exception {:?} lr={:x} new_mode={:?}", e, lr, new_mode);
             }
         }
 
