@@ -54,10 +54,17 @@ impl Gpu {
 
         let y = self.vcount;
 
+        let output = unsafe {
+            let ptr = self.frame_buffer[y * DISPLAY_WIDTH..].as_mut_ptr();
+            std::slice::from_raw_parts_mut(ptr, DISPLAY_WIDTH)
+        };
+
         if !self.dispcnt.is_using_windows() {
             for x in 0..DISPLAY_WIDTH {
                 let win = WindowInfo::new(WindowType::WinNone, WindowFlags::all());
-                self.finalize_pixel(x, y, &win, &sorted_backgrounds, backdrop_color);
+                output[x] = self
+                    .finalize_pixel(x, y, &win, &sorted_backgrounds, backdrop_color)
+                    .to_rgb24();
             }
         } else {
             let mut occupied = [false; DISPLAY_WIDTH];
@@ -71,7 +78,9 @@ impl Gpu {
                     .take(self.win0.right())
                     .skip(self.win0.left())
                 {
-                    self.finalize_pixel(x, y, &win, &backgrounds, backdrop_color);
+                    output[x] = self
+                        .finalize_pixel(x, y, &win, &backgrounds, backdrop_color)
+                        .to_rgb24();
                     *is_occupid = true;
                     occupied_count += 1;
                 }
@@ -91,7 +100,9 @@ impl Gpu {
                     if *is_occupid {
                         continue;
                     }
-                    self.finalize_pixel(x, y, &win, &backgrounds, backdrop_color);
+                    output[x] = self
+                        .finalize_pixel(x, y, &win, &backgrounds, backdrop_color)
+                        .to_rgb24();
                     *is_occupid = true;
                     occupied_count += 1;
                 }
@@ -112,10 +123,14 @@ impl Gpu {
                     let obj_entry = self.obj_buffer_get(x, y);
                     if obj_entry.window {
                         // WinObj
-                        self.finalize_pixel(x, y, &win_obj, &win_obj_backgrounds, backdrop_color);
+                        output[x] = self
+                            .finalize_pixel(x, y, &win_obj, &win_obj_backgrounds, backdrop_color)
+                            .to_rgb24();
                     } else {
                         // WinOut
-                        self.finalize_pixel(x, y, &win_out, &win_out_backgrounds, backdrop_color);
+                        output[x] = self
+                            .finalize_pixel(x, y, &win_out, &win_out_backgrounds, backdrop_color)
+                            .to_rgb24();
                     }
                 }
             } else {
@@ -123,12 +138,15 @@ impl Gpu {
                     if *is_occupied {
                         continue;
                     }
-                    self.finalize_pixel(x, y, &win_out, &win_out_backgrounds, backdrop_color);
+                    output[x] = self
+                        .finalize_pixel(x, y, &win_out, &win_out_backgrounds, backdrop_color)
+                        .to_rgb24();
                 }
             }
         }
     }
 
+    #[must_use]
     fn finalize_pixel(
         &mut self,
         x: usize,
@@ -136,12 +154,7 @@ impl Gpu {
         win: &WindowInfo,
         backgrounds: &[usize],
         backdrop_color: Rgb15,
-    ) {
-        let output = unsafe {
-            let ptr = self.frame_buffer[y * DISPLAY_WIDTH..].as_mut_ptr();
-            std::slice::from_raw_parts_mut(ptr, DISPLAY_WIDTH)
-        };
-
+    ) -> Rgb15 {
         // The backdrop layer is the default
         let backdrop_layer = RenderLayer::backdrop(backdrop_color);
 
@@ -174,40 +187,34 @@ impl Gpu {
             }
         }
 
-        let obj_entry = self.obj_buffer_get(x, y);
-        let obj_alpha_blend = top_layer.is_object() && obj_entry.alpha;
-
         let top_flags = self.bldcnt.target1;
         let bot_flags = self.bldcnt.target2;
 
-        let sfx_enabled = self.bldcnt.mode != BlendMode::BldNone
-            && top_flags.contains_render_layer(&top_layer); // sfx must at least have a first target configured
+        let sfx_enabled =
+            self.bldcnt.mode != BlendMode::BldNone && top_flags.contains_render_layer(&top_layer); // sfx must at least have a first target configured
 
-        if top_layer.is_object()
-            && obj_alpha_blend
-            && bot_flags.contains_render_layer(&bot_layer)
-        {
-            output[x] = self.do_alpha(top_layer.pixel, bot_layer.pixel).to_rgb24();
+        if top_layer.is_object() && obj_entry.alpha && bot_flags.contains_render_layer(&bot_layer) {
+            self.do_alpha(top_layer.pixel, bot_layer.pixel)
         } else if win.flags.sfx_enabled() && sfx_enabled {
             let (top_layer, bot_layer) = (top_layer, bot_layer);
             match self.bldcnt.mode {
                 BlendMode::BldAlpha => {
-                    output[x] = if bot_flags.contains_render_layer(&bot_layer) {
-                        self.do_alpha(top_layer.pixel, bot_layer.pixel).to_rgb24()
+                    if bot_flags.contains_render_layer(&bot_layer) {
+                        self.do_alpha(top_layer.pixel, bot_layer.pixel)
                     } else {
                         // alpha blending must have a 2nd target
-                        top_layer.pixel.to_rgb24()
+                        top_layer.pixel
                     }
                 }
-                BlendMode::BldWhite => output[x] = self.do_brighten(top_layer.pixel).to_rgb24(),
+                BlendMode::BldWhite => self.do_brighten(top_layer.pixel),
 
-                BlendMode::BldBlack => output[x] = self.do_darken(top_layer.pixel).to_rgb24(),
+                BlendMode::BldBlack => self.do_darken(top_layer.pixel),
 
-                BlendMode::BldNone => output[x] = top_layer.pixel.to_rgb24(),
+                BlendMode::BldNone => top_layer.pixel,
             }
         } else {
             // no blending, just use the top pixel
-            output[x] = top_layer.pixel.to_rgb24();
+            top_layer.pixel
         }
     }
 

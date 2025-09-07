@@ -17,6 +17,7 @@ impl Rgb15 {
     pub const WHITE: Rgb15 = Rgb15(0x7fff);
     pub const TRANSPARENT: Rgb15 = Rgb15(0x8000);
 
+    #[must_use]
     pub fn to_rgb24(&self) -> u32 {
         ((self.r() as u32) << 19) | ((self.g() as u32) << 11) | ((self.b() as u32) << 3)
     }
