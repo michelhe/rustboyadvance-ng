@@ -180,33 +180,30 @@ impl Gpu {
         let top_flags = self.bldcnt.target1;
         let bot_flags = self.bldcnt.target2;
 
-        let sfx_enabled = (self.bldcnt.mode != BlendMode::BldNone || obj_alpha_blend)
+        let sfx_enabled = self.bldcnt.mode != BlendMode::BldNone
             && top_flags.contains_render_layer(&top_layer); // sfx must at least have a first target configured
 
-        if win.flags.sfx_enabled() && sfx_enabled {
-            if top_layer.is_object()
-                && obj_alpha_blend
-                && bot_flags.contains_render_layer(&bot_layer)
-            {
-                output[x] = self.do_alpha(top_layer.pixel, bot_layer.pixel).to_rgb24();
-            } else {
-                let (top_layer, bot_layer) = (top_layer, bot_layer);
-
-                match self.bldcnt.mode {
-                    BlendMode::BldAlpha => {
-                        output[x] = if bot_flags.contains_render_layer(&bot_layer) {
-                            self.do_alpha(top_layer.pixel, bot_layer.pixel).to_rgb24()
-                        } else {
-                            // alpha blending must have a 2nd target
-                            top_layer.pixel.to_rgb24()
-                        }
+        if top_layer.is_object()
+            && obj_alpha_blend
+            && bot_flags.contains_render_layer(&bot_layer)
+        {
+            output[x] = self.do_alpha(top_layer.pixel, bot_layer.pixel).to_rgb24();
+        } else if win.flags.sfx_enabled() && sfx_enabled {
+            let (top_layer, bot_layer) = (top_layer, bot_layer);
+            match self.bldcnt.mode {
+                BlendMode::BldAlpha => {
+                    output[x] = if bot_flags.contains_render_layer(&bot_layer) {
+                        self.do_alpha(top_layer.pixel, bot_layer.pixel).to_rgb24()
+                    } else {
+                        // alpha blending must have a 2nd target
+                        top_layer.pixel.to_rgb24()
                     }
-                    BlendMode::BldWhite => output[x] = self.do_brighten(top_layer.pixel).to_rgb24(),
-
-                    BlendMode::BldBlack => output[x] = self.do_darken(top_layer.pixel).to_rgb24(),
-
-                    BlendMode::BldNone => output[x] = top_layer.pixel.to_rgb24(),
                 }
+                BlendMode::BldWhite => output[x] = self.do_brighten(top_layer.pixel).to_rgb24(),
+
+                BlendMode::BldBlack => output[x] = self.do_darken(top_layer.pixel).to_rgb24(),
+
+                BlendMode::BldNone => output[x] = top_layer.pixel.to_rgb24(),
             }
         } else {
             // no blending, just use the top pixel
