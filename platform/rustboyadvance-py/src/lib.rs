@@ -1,12 +1,13 @@
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rustboyadvance_core::prelude::*;
-use std::fs::read;
 use std::path::Path;
 use flexi_logger::{Logger, Duplicate};
 
 use rustboyadvance_core::cartridge::loader::{load_from_file, LoadRom};
 
+#[macro_use]
+extern crate log;
 
 #[pymodule]
 
@@ -87,7 +88,7 @@ impl RustGba {
 
     fn add_stop_addr(&mut self, addr:u32, value:i16, is_active:bool , name:String, id:u32) -> PyResult<()> {
         if let Some(core) = &mut self.core {
-            print!("Adding stop address: addr={}, value={}, is_active={}, name={}, id={}\n", addr, value, is_active, name,id);
+            debug!("Adding stop address: addr={}, value={}, is_active={}, name={}, id={}\n", &addr, &value, &is_active, &name,id);
             core.add_stop_addr(addr, value, is_active, name, id);
             Ok(())
         } else {
