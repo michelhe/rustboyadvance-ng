@@ -285,6 +285,7 @@ impl RustGba {
         savestate_path: &str,
         bios_path: &str,
         rom_path: &str,
+        stop_addresses : Option<Vec<(u32,i16,bool,String,u32)>>,
     ) -> PyResult<()> {
         let savestate_file = Path::new(savestate_path);
         if !savestate_file.is_file() {
@@ -311,14 +312,13 @@ impl RustGba {
         let audio = NullAudio::new();
 
         self.core = Some(
-            GameBoyAdvance::from_saved_state(&save, bios, rom, audio).map_err(|e| {
+            GameBoyAdvance::from_saved_state(&save, bios, rom, audio, stop_addresses).map_err(|e| {
                 pyo3::exceptions::PyRuntimeError::new_err(format!(
                     "Failed to restore savestate: {}",
                     e
                 ))
             })?,
         );
-
         Ok(())
     }
 

@@ -314,6 +314,7 @@ impl GameBoyAdvance {
         bios: Box<[u8]>,
         rom: Box<[u8]>,
         audio_interface: DynAudioInterface,
+        stop_addrs_data: Option<Vec<(u32,i16,bool,String,u32)>>,
     ) -> bincode::Result<GameBoyAdvance> {
         let decoded: Box<SaveState> = bincode::deserialize_from(savestate)?;
 
@@ -339,6 +340,16 @@ impl GameBoyAdvance {
 
         sysbus.init(arm7tdmi.weak_ptr());
 
+        let stop_addrs : Vec<StopAddr> = stop_addrs_data.unwrap_or_default().into_iter().map(|(addr, value, is_active, name, id)| 
+            StopAddr {
+                    addr,
+                    value,
+                    is_active,
+                    name,
+                    id
+                }
+        ).collect();
+        
         Ok(GameBoyAdvance {
             cpu: arm7tdmi,
             sysbus,
@@ -347,7 +358,7 @@ impl GameBoyAdvance {
             audio_interface,
             scheduler,
             debugger: None,
-            stop_addrs: Vec::new()
+            stop_addrs,
         })
     }
 
