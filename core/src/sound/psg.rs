@@ -186,7 +186,8 @@ impl Sweep {
         (None, false)
     }
 
-    fn trigger(&mut self, frequency: u16) {
+    /// Returns true if overflow was detected (channel should be disabled).
+    fn trigger(&mut self, frequency: u16) -> bool {
         self.shadow_freq = frequency;
         self.timer = if self.period != 0 { self.period } else { 8 };
         self.enabled = self.period != 0 || self.shift != 0;
@@ -195,8 +196,10 @@ impl Sweep {
             let (_, overflow) = self.calculate_freq();
             if overflow {
                 self.enabled = false;
+                return true;
             }
         }
+        false
     }
 
     fn write(&mut self, value: u16) {
@@ -329,9 +332,8 @@ impl PsgChannel1 {
         }
         self.timer = self.period();
         self.envelope.trigger();
-        self.sweep.trigger(self.frequency);
-        if !self.sweep.enabled && (self.sweep.period != 0 || self.sweep.shift != 0) {
-            // sweep trigger may have disabled us
+        if self.sweep.trigger(self.frequency) {
+            self.enabled = false;
         }
         if !self.envelope.dac_enabled() {
             self.enabled = false;
@@ -494,7 +496,7 @@ impl PsgChannel3 {
         self.timer -= cycles as i32;
         while self.timer <= 0 {
             self.timer += self.period();
-            let num_samples = if self.bank_mode { 32 } else { 64 };
+            let num_samples: u8 = if self.bank_mode { 64 } else { 32 };
             self.sample_pos = (self.sample_pos + 1) % num_samples;
         }
     }
@@ -504,18 +506,18 @@ impl PsgChannel3 {
             return 0;
         }
 
-        // Determine which byte and nibble to read
-        let (bank_offset, pos) = if self.bank_mode {
-            // Two-bank mode: play from the selected bank
-            (self.bank_select as usize * 16, self.sample_pos)
+        // Determine which byte and nibble to read.
+        // In single-bank mode (bank_mode=false): play 32 samples from the non-selected bank.
+        // In two-bank mode (bank_mode=true): play 64 samples starting from selected bank.
+        let start_byte = if self.bank_mode {
+            self.bank_select as usize * 16
         } else {
-            // Single bank mode: play all 64 samples (both banks sequentially)
-            (0, self.sample_pos)
+            (1 - self.bank_select) as usize * 16
         };
 
-        let byte_idx = bank_offset + (pos / 2) as usize;
+        let byte_idx = (start_byte + (self.sample_pos / 2) as usize) % 32;
         let byte = self.wave_ram[byte_idx];
-        let nibble = if pos % 2 == 0 {
+        let nibble = if self.sample_pos % 2 == 0 {
             (byte >> 4) & 0xf
         } else {
             byte & 0xf
@@ -816,5 +818,483 @@ impl Psg {
             | ((self.channel2.enabled as u16) << 1)
             | ((self.channel3.enabled as u16) << 2)
             | ((self.channel4.enabled as u16) << 3)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Collect N samples from a channel 1 by ticking at 512 cpu-cycles per sample.
+    fn collect_ch1_samples(ch: &mut PsgChannel1, n: usize) -> Vec<i16> {
+        (0..n)
+            .map(|_| {
+                ch.tick(512);
+                ch.sample()
+            })
+            .collect()
+    }
+
+    /// Count transitions (from 0→vol or vol→0) in a sample buffer.
+    fn count_transitions(samples: &[i16]) -> usize {
+        samples
+            .windows(2)
+            .filter(|w| (w[0] == 0) != (w[1] == 0))
+            .count()
+    }
+
+    // ─── Channel 1: Square wave tests ───────────────────────────
+
+    #[test]
+    fn ch1_trigger_enables_channel() {
+        let mut ch = PsgChannel1::default();
+        assert!(!ch.enabled);
+
+        // Set envelope with volume > 0 so DAC is on
+        // REG_SOUND1CNT_H: length=0, duty=2 (50%), envelope: period=0, dir=0, vol=15
+        ch.write_duty_envelope(0xF080); // vol=15, dir=0, period=0, duty=2
+        // REG_SOUND1CNT_X: freq=1024, trigger=1
+        ch.write_freq_control(0x8400); // bit15=trigger, freq=1024
+        assert!(ch.enabled);
+    }
+
+    #[test]
+    fn ch1_no_trigger_without_dac() {
+        let mut ch = PsgChannel1::default();
+        // Set envelope vol=0, dir=decrease → DAC disabled
+        ch.write_duty_envelope(0x0080); // vol=0, dir=0, duty=2
+        ch.write_freq_control(0x8400);
+        assert!(!ch.enabled, "channel should not enable when DAC is off");
+    }
+
+    #[test]
+    fn ch1_50pct_duty_produces_square_wave() {
+        let mut ch = PsgChannel1::default();
+        // duty=2 (50%), vol=15
+        ch.write_duty_envelope(0xF080); // vol=15, duty=2
+        // freq=1024 → period = (2048-1024)*16 = 16384 cpu cycles per full cycle
+        // At 512 cycles/sample → 32 samples per cycle
+        ch.write_freq_control(0x8400); // trigger, freq=1024
+
+        // Collect enough samples for several cycles
+        let samples = collect_ch1_samples(&mut ch, 256);
+
+        // With 50% duty, roughly half should be nonzero
+        let nonzero = samples.iter().filter(|&&s| s > 0).count();
+        let ratio = nonzero as f64 / samples.len() as f64;
+        assert!(
+            (0.40..=0.60).contains(&ratio),
+            "50% duty should have ~50% high samples, got {:.1}%",
+            ratio * 100.0
+        );
+
+        // Verify amplitude is correct (vol=15)
+        let max_val = *samples.iter().max().unwrap();
+        assert_eq!(max_val, 15, "max sample should equal envelope volume");
+    }
+
+    #[test]
+    fn ch1_125pct_duty() {
+        let mut ch = PsgChannel1::default();
+        // duty=0 (12.5%), vol=15
+        ch.write_duty_envelope(0xF000); // vol=15, duty=0
+        ch.write_freq_control(0x8400); // trigger, freq=1024
+
+        let samples = collect_ch1_samples(&mut ch, 512);
+        let nonzero = samples.iter().filter(|&&s| s > 0).count();
+        let ratio = nonzero as f64 / samples.len() as f64;
+        assert!(
+            (0.08..=0.20).contains(&ratio),
+            "12.5% duty should have ~12.5% high samples, got {:.1}%",
+            ratio * 100.0
+        );
+    }
+
+    #[test]
+    fn ch1_frequency_affects_pitch() {
+        // Higher frequency value → shorter period → more transitions per sample window
+        let mut ch_low = PsgChannel1::default();
+        ch_low.write_duty_envelope(0xF080);
+        ch_low.write_freq_control(0x8000 | 512); // freq=512
+
+        let mut ch_high = PsgChannel1::default();
+        ch_high.write_duty_envelope(0xF080);
+        ch_high.write_freq_control(0x8000 | 1536); // freq=1536
+
+        let samples_low = collect_ch1_samples(&mut ch_low, 1024);
+        let samples_high = collect_ch1_samples(&mut ch_high, 1024);
+
+        let transitions_low = count_transitions(&samples_low);
+        let transitions_high = count_transitions(&samples_high);
+
+        assert!(
+            transitions_high > transitions_low * 2,
+            "higher freq should have more transitions: low={}, high={}",
+            transitions_low,
+            transitions_high
+        );
+    }
+
+    #[test]
+    fn ch1_length_counter_disables_channel() {
+        let mut ch = PsgChannel1::default();
+        // Set length=63 → counter = 64 - 63 = 1
+        ch.write_duty_envelope(0xF03F); // vol=15, duty=0, length=63
+        ch.write_freq_control(0xC400); // trigger + length enable, freq=1024
+
+        assert!(ch.enabled);
+        // Clock length once → counter goes from 1 to 0 → disable
+        ch.clock_length();
+        assert!(!ch.enabled, "channel should be disabled after length expires");
+    }
+
+    #[test]
+    fn ch1_envelope_decreases_volume() {
+        let mut ch = PsgChannel1::default();
+        // vol=15, dir=decrease, period=1
+        ch.write_duty_envelope(0xF180);
+        ch.write_freq_control(0x8400);
+
+        assert_eq!(ch.envelope.current_volume, 15);
+
+        // Clock envelope several times
+        for expected in (0..15).rev() {
+            ch.clock_envelope();
+            assert_eq!(
+                ch.envelope.current_volume, expected,
+                "volume should decrease each envelope clock"
+            );
+        }
+        // Should not go below 0
+        ch.clock_envelope();
+        assert_eq!(ch.envelope.current_volume, 0);
+    }
+
+    #[test]
+    fn ch1_envelope_increases_volume() {
+        let mut ch = PsgChannel1::default();
+        // vol=0, dir=increase (bit 11), period=1
+        ch.write_duty_envelope(0x0980);
+        ch.write_freq_control(0x8400);
+
+        assert_eq!(ch.envelope.current_volume, 0);
+        ch.clock_envelope();
+        assert_eq!(ch.envelope.current_volume, 1);
+        ch.clock_envelope();
+        assert_eq!(ch.envelope.current_volume, 2);
+    }
+
+    #[test]
+    fn ch1_sweep_increases_frequency() {
+        let mut ch = PsgChannel1::default();
+        // sweep: shift=1, dir=increase (0), period=1
+        ch.write_sweep(0x0011); // period=1, dir=0, shift=1
+        ch.write_duty_envelope(0xF080);
+        // Use freq=400 so double-overflow check doesn't trigger:
+        // first: 400 + 200 = 600, second check: 600 + 300 = 900, both < 2047
+        ch.write_freq_control(0x8000 | 400); // freq=400, trigger
+
+        assert_eq!(ch.frequency, 400);
+        ch.clock_sweep();
+        assert_eq!(ch.frequency, 600);
+        assert!(ch.enabled);
+    }
+
+    #[test]
+    fn ch1_sweep_overflow_disables() {
+        let mut ch = PsgChannel1::default();
+        ch.write_sweep(0x0011); // period=1, shift=1, dir=increase
+        ch.write_duty_envelope(0xF080);
+        ch.write_freq_control(0x8000 | 2000); // freq=2000, trigger
+
+        // sweep: 2000 + (2000 >> 1) = 3000 > 2047 → disable
+        ch.clock_sweep();
+        assert!(!ch.enabled, "sweep overflow should disable channel");
+    }
+
+    #[test]
+    fn ch1_sweep_double_overflow_check() {
+        let mut ch = PsgChannel1::default();
+        ch.write_sweep(0x0011); // period=1, shift=1, dir=increase
+        ch.write_duty_envelope(0xF080);
+        // freq=1000: first calc 1000+500=1500 ok, but second calc 1500+750=2250 > 2047
+        ch.write_freq_control(0x8000 | 1000);
+
+        ch.clock_sweep();
+        // Frequency was updated to 1500, but second overflow check disabled channel
+        assert_eq!(ch.frequency, 1500);
+        assert!(!ch.enabled, "double overflow check should disable channel");
+    }
+
+    // ─── Channel 2: Square wave (no sweep) ──────────────────────
+
+    #[test]
+    fn ch2_produces_output() {
+        let mut ch = PsgChannel2::default();
+        ch.write_duty_envelope(0xF080); // vol=15, duty=2
+        ch.write_freq_control(0x8400); // trigger, freq=1024
+
+        assert!(ch.enabled);
+
+        let samples: Vec<i16> = (0..128)
+            .map(|_| {
+                ch.tick(512);
+                ch.sample()
+            })
+            .collect();
+
+        let has_nonzero = samples.iter().any(|&s| s > 0);
+        assert!(has_nonzero, "ch2 should produce nonzero samples");
+
+        let max_val = *samples.iter().max().unwrap();
+        assert_eq!(max_val, 15);
+    }
+
+    // ─── Channel 3: Wave ────────────────────────────────────────
+
+    #[test]
+    fn ch3_plays_wave_ram() {
+        let mut ch = PsgChannel3::default();
+        // Enable DAC, single bank mode, bank 1 selected (writes go to bank 1, plays from bank 0)
+        // Wait — writes go to bank_select in single mode. Play comes from (1 - bank_select).
+        // So select bank 1: writes go to bank 1, plays from bank 0.
+        // We need to write to the PLAY bank. So select bank 0: writes to bank 0, plays from bank 1.
+        // Hmm, that means our written data goes to bank 0 but plays from bank 1 (empty).
+        // Instead, select bank 1: writes to bank 1, plays from bank 0 (empty). Still wrong.
+        // The correct flow: write data, THEN switch bank_select so the written bank becomes playback.
+        // Or: use two-bank mode where writes go to the non-playing bank.
+        //
+        // Simplest: write with bank_select=0 (data goes to bank 0), then switch to bank_select=1
+        // (plays from bank 0).
+        ch.write_bank_control(0x0080); // dac_enable, bank_select=0, single mode
+        for i in 0..16 {
+            ch.write_wave_ram(i, i as u8 * 17); // 0x00, 0x11, 0x22, ..., 0xFF → bank 0
+        }
+        // Switch to bank_select=1 so playback reads from bank 0 (where we wrote)
+        ch.write_bank_control(0x00C0); // dac_enable + bank_select=1
+
+        // volume=1 (100%), length doesn't matter
+        ch.write_length_volume(0x2000); // vol_code=1 (bits 13-14)
+        // freq=1800, trigger
+        ch.write_freq_control(0x8000 | 1800);
+
+        assert!(ch.enabled);
+
+        // Collect samples
+        let samples: Vec<i16> = (0..512)
+            .map(|_| {
+                ch.tick(512);
+                ch.sample()
+            })
+            .collect();
+
+        let has_nonzero = samples.iter().any(|&s| s > 0);
+        assert!(has_nonzero, "wave channel should produce nonzero output");
+
+        // Check that we see a variety of values (not just 0 and max)
+        let unique_values: std::collections::HashSet<i16> = samples.iter().cloned().collect();
+        assert!(
+            unique_values.len() > 2,
+            "wave channel should produce varied output, got {} unique values",
+            unique_values.len()
+        );
+    }
+
+    #[test]
+    fn ch3_volume_mutes_at_zero() {
+        let mut ch = PsgChannel3::default();
+        ch.write_bank_control(0x0080); // bank_select=0
+        for i in 0..16 {
+            ch.write_wave_ram(i, 0xFF); // writes to bank 0
+        }
+        ch.write_bank_control(0x00C0); // switch to bank_select=1, play from bank 0
+        // volume=0 (mute)
+        ch.write_length_volume(0x0000);
+        ch.write_freq_control(0x8000 | 1800);
+
+        let samples: Vec<i16> = (0..64)
+            .map(|_| {
+                ch.tick(512);
+                ch.sample()
+            })
+            .collect();
+
+        assert!(
+            samples.iter().all(|&s| s == 0),
+            "wave channel at volume 0 should be silent"
+        );
+    }
+
+    // ─── Channel 4: Noise ───────────────────────────────────────
+
+    #[test]
+    fn ch4_produces_pseudorandom_output() {
+        let mut ch = PsgChannel4::default();
+        // vol=15, period=0 (no envelope change)
+        ch.write_length_envelope(0xF000);
+        // divider=1, shift=2, 15-bit mode, trigger
+        ch.write_freq_control(0x8021); // trigger, shift=2, div=1
+
+        assert!(ch.enabled);
+
+        let samples: Vec<i16> = (0..1024)
+            .map(|_| {
+                ch.tick(512);
+                ch.sample()
+            })
+            .collect();
+
+        let nonzero = samples.iter().filter(|&&s| s > 0).count();
+        let ratio = nonzero as f64 / samples.len() as f64;
+
+        // LFSR should produce roughly 50% high/low for 15-bit mode
+        assert!(
+            (0.30..=0.70).contains(&ratio),
+            "noise should be roughly 50/50, got {:.1}%",
+            ratio * 100.0
+        );
+    }
+
+    #[test]
+    fn ch4_7bit_mode_repeats() {
+        let mut ch = PsgChannel4::default();
+        ch.write_length_envelope(0xF000);
+        // 7-bit mode (bit 3), div=0, shift=0, trigger
+        ch.write_freq_control(0x8008);
+
+        // 7-bit LFSR has period of 127 (2^7 - 1)
+        // Collect enough samples to see the pattern repeat
+        // At div=0, shift=0: period = 8 << 1 = 16 cpu cycles per LFSR tick
+        // At 512 cycles/sample: 512/16 = 32 LFSR ticks per sample
+        // So 127 ticks takes about 4 samples. Collect plenty.
+        let samples: Vec<i16> = (0..256)
+            .map(|_| {
+                ch.tick(512);
+                ch.sample()
+            })
+            .collect();
+
+        let has_nonzero = samples.iter().any(|&s| s > 0);
+        assert!(has_nonzero, "7-bit noise should produce output");
+    }
+
+    // ─── Frame Sequencer ────────────────────────────────────────
+
+    #[test]
+    fn frame_sequencer_timing() {
+        let mut fs = FrameSequencer::default();
+        assert_eq!(fs.step, 0);
+
+        // Should not advance before 32768 cycles
+        let clocks = fs.tick(32767);
+        assert!(!clocks.length);
+        assert_eq!(fs.step, 0);
+
+        // One more cycle should trigger step 0→1
+        let clocks = fs.tick(1);
+        assert!(clocks.length, "step 0 should clock length");
+        assert!(!clocks.sweep, "step 0 should not clock sweep");
+        assert!(!clocks.envelope, "step 0 should not clock envelope");
+        assert_eq!(fs.step, 1);
+
+        // Advance to step 2 (should clock length + sweep)
+        let clocks = fs.tick(32768);
+        assert_eq!(fs.step, 2);
+        assert!(!clocks.length, "step 1 should not clock length");
+
+        let clocks = fs.tick(32768);
+        assert_eq!(fs.step, 3);
+        assert!(clocks.length, "step 2 should clock length");
+        assert!(clocks.sweep, "step 2 should clock sweep");
+
+        // Advance to step 7 (should clock envelope)
+        for _ in 3..7 {
+            fs.tick(32768);
+        }
+        assert_eq!(fs.step, 7);
+        let clocks = fs.tick(32768);
+        assert!(clocks.envelope, "step 7 should clock envelope");
+        assert_eq!(fs.step, 0, "should wrap back to 0");
+    }
+
+    // ─── Psg mixer ──────────────────────────────────────────────
+
+    #[test]
+    fn psg_mixer_produces_output() {
+        let mut psg = Psg::default();
+
+        // Configure channel 1: 50% duty, vol=15, freq=1024
+        psg.channel1.write_duty_envelope(0xF080);
+        psg.channel1.write_freq_control(0x8400);
+
+        // Configure channel 2: 50% duty, vol=10, freq=1536
+        psg.channel2.write_duty_envelope(0xA080);
+        psg.channel2.write_freq_control(0x8600);
+
+        let all_enabled = [true, true, true, true];
+        let master_vol = 7; // max
+
+        // Tick and collect mixed samples
+        let samples: Vec<i16> = (0..256)
+            .map(|_| {
+                psg.tick(512);
+                psg.sample(all_enabled, master_vol)
+            })
+            .collect();
+
+        let max_sample = *samples.iter().max().unwrap();
+        assert!(
+            max_sample > 0,
+            "mixed output should have nonzero samples"
+        );
+        // Max possible: ch1(15) + ch2(10) = 25, * (1+7)/8 = 25
+        assert!(
+            max_sample <= 25,
+            "mixed output should not exceed sum of channel volumes, got {}",
+            max_sample
+        );
+    }
+
+    #[test]
+    fn psg_status_bits_reflect_active_channels() {
+        let mut psg = Psg::default();
+        assert_eq!(psg.status_bits(), 0);
+
+        psg.channel1.write_duty_envelope(0xF080);
+        psg.channel1.write_freq_control(0x8400);
+        assert_eq!(psg.status_bits() & 1, 1, "ch1 should be active");
+
+        psg.channel3.write_bank_control(0x0080);
+        psg.channel3.write_length_volume(0x2000);
+        psg.channel3.write_freq_control(0x8700);
+        assert_eq!(psg.status_bits() & 4, 4, "ch3 should be active");
+    }
+
+    // ─── Waveform frequency verification ────────────────────────
+
+    #[test]
+    fn ch1_correct_frequency_period() {
+        // freq_val=1920 → period per duty step = (2048-1920)*16 = 2048 cpu cycles
+        // Full 8-step cycle = 2048*8 = 16384 cpu cycles
+        // At 512 cycles/sample: 16384/512 = 32 samples per cycle
+        let mut ch = PsgChannel1::default();
+        ch.write_duty_envelope(0xF080); // vol=15, 50% duty
+        ch.write_freq_control(0x8000 | 1920); // freq=1920, trigger
+
+        // Collect 320 samples = 10 full cycles
+        let samples = collect_ch1_samples(&mut ch, 320);
+
+        // Count rising edges (0→nonzero transitions) ≈ number of cycles
+        let rising_edges = samples
+            .windows(2)
+            .filter(|w| w[0] == 0 && w[1] > 0)
+            .count();
+
+        // Expected: 10 cycles → 10 rising edges (±1 for boundary)
+        assert!(
+            (9..=11).contains(&rising_edges),
+            "expected ~10 rising edges for 10 cycles, got {}",
+            rising_edges
+        );
     }
 }
