@@ -13,9 +13,11 @@ pub use interface::{AudioInterface, DynAudioInterface, StereoSample};
 mod dsp;
 use dsp::{CosineResampler, Resampler};
 
+mod psg;
+use psg::Psg;
+
 const DMG_RATIOS: [f32; 4] = [0.25, 0.5, 1.0, 0.0];
 const DMA_TIMERS: [usize; 2] = [0, 1];
-const DUTY_RATIOS: [f32; 4] = [0.125, 0.25, 0.5, 0.75];
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct DmaSoundChannel {
@@ -76,14 +78,7 @@ pub struct SoundController {
 
     dmg_volume_ratio: f32,
 
-    sqr1_rate: usize,
-    sqr1_timed: bool,
-    sqr1_length: f32,
-    sqr1_duty: f32,
-    sqr1_step_time: usize,
-    sqr1_step_increase: bool,
-    sqr1_initial_vol: usize,
-    sqr1_cur_vol: usize,
+    psg: Psg,
 
     sound_bias: u16,
 
@@ -116,14 +111,7 @@ impl SoundController {
             right_wave: false,
             right_noise: false,
             dmg_volume_ratio: 0.0,
-            sqr1_rate: 0,
-            sqr1_timed: false,
-            sqr1_length: 0.0,
-            sqr1_duty: DUTY_RATIOS[0],
-            sqr1_step_time: 0,
-            sqr1_step_increase: false,
-            sqr1_initial_vol: 0,
-            sqr1_cur_vol: 0,
+            psg: Psg::default(),
             sound_bias: 0x200,
             sample_rate: 32_768f32,
             dma_sound: [Default::default(), Default::default()],
@@ -135,7 +123,7 @@ impl SoundController {
 
     pub fn handle_read(&self, io_addr: u32) -> u16 {
         let value = match io_addr {
-            REG_SOUNDCNT_X => cbit(7, self.mse),
+            REG_SOUNDCNT_X => cbit(7, self.mse) | self.psg.status_bits(),
             REG_SOUNDCNT_L => {
                 self.left_volume as u16
                     | (self.right_volume as u16) << 4
@@ -166,14 +154,25 @@ impl SoundController {
 
             REG_SOUNDBIAS => self.sound_bias,
 
-            _ => {
-                // println!(
-                //     "Unimplemented read from {:x} {}",
-                //     io_addr,
-                //     io_reg_string(io_addr)
-                // );
-                0
+            REG_SOUND1CNT_L => self.psg.channel1.read_sweep(),
+            REG_SOUND1CNT_H => self.psg.channel1.read_duty_envelope(),
+            REG_SOUND1CNT_X => self.psg.channel1.read_freq_control(),
+            REG_SOUND2CNT_L => self.psg.channel2.read_duty_envelope(),
+            REG_SOUND2CNT_H => self.psg.channel2.read_freq_control(),
+            REG_SOUND3CNT_L => self.psg.channel3.read_bank_control(),
+            REG_SOUND3CNT_H => self.psg.channel3.read_length_volume(),
+            REG_SOUND3CNT_X => self.psg.channel3.read_freq_control(),
+            REG_SOUND4CNT_L => self.psg.channel4.read_length_envelope(),
+            REG_SOUND4CNT_H => self.psg.channel4.read_freq_control(),
+
+            addr @ REG_WAVE_RAM..=0x0400_009F => {
+                let offset = (addr - REG_WAVE_RAM) as usize;
+                let lo = self.psg.channel3.read_wave_ram(offset * 2) as u16;
+                let hi = self.psg.channel3.read_wave_ram(offset * 2 + 1) as u16;
+                lo | (hi << 8)
             }
+
+            _ => 0
         };
         // println!(
         //     "Read {} ({:08x}) = {:04x}",
@@ -239,20 +238,21 @@ impl SoundController {
                 }
             }
 
-            REG_SOUND1CNT_H => {
-                self.sqr1_length = (64 - value.bit_range(0..5) as usize) as f32 / 256.0;
-                self.sqr1_duty = DUTY_RATIOS[value.bit_range(6..7) as usize];
-                self.sqr1_step_time = value.bit_range(8..10) as usize;
-                self.sqr1_step_increase = value.bit(11);
-                self.sqr1_initial_vol = value.bit_range(12..15) as usize;
-            }
+            REG_SOUND1CNT_L => self.psg.channel1.write_sweep(value),
+            REG_SOUND1CNT_H => self.psg.channel1.write_duty_envelope(value),
+            REG_SOUND1CNT_X => self.psg.channel1.write_freq_control(value),
+            REG_SOUND2CNT_L => self.psg.channel2.write_duty_envelope(value),
+            REG_SOUND2CNT_H => self.psg.channel2.write_freq_control(value),
+            REG_SOUND3CNT_L => self.psg.channel3.write_bank_control(value),
+            REG_SOUND3CNT_H => self.psg.channel3.write_length_volume(value),
+            REG_SOUND3CNT_X => self.psg.channel3.write_freq_control(value),
+            REG_SOUND4CNT_L => self.psg.channel4.write_length_envelope(value),
+            REG_SOUND4CNT_H => self.psg.channel4.write_freq_control(value),
 
-            REG_SOUND1CNT_X => {
-                self.sqr1_rate = value.bit_range(0..10) as usize;
-                self.sqr1_timed = value.bit(14);
-                if value.bit(15) {
-                    self.sqr1_cur_vol = self.sqr1_initial_vol;
-                }
+            addr @ REG_WAVE_RAM..=0x0400_009F => {
+                let offset = (addr - REG_WAVE_RAM) as usize;
+                self.psg.channel3.write_wave_ram(offset * 2, (value & 0xff) as u8);
+                self.psg.channel3.write_wave_ram(offset * 2 + 1, ((value >> 8) & 0xff) as u8);
             }
 
             REG_FIFO_A_L | REG_FIFO_A_H => {
@@ -319,8 +319,14 @@ impl SoundController {
     fn on_sample(&mut self, audio_device: &mut DynAudioInterface) -> FutureEvent {
         let mut sample = [0f32, 0f32];
 
+        // Tick PSG channels forward by one sample period
+        self.psg.tick(self.cycles_per_sample as u32);
+
+        let left_enables = [self.left_sqr1, self.left_sqr2, self.left_wave, self.left_noise];
+        let right_enables = [self.right_sqr1, self.right_sqr2, self.right_wave, self.right_noise];
+
         for (channel, out_sample) in sample.iter_mut().enumerate() {
-            let mut dma_sample = 0;
+            let mut dma_sample: i16 = 0;
             for dma in &mut self.dma_sound {
                 if dma.is_stereo_channel_enabled(channel) {
                     let value = dma.value as i16;
@@ -328,8 +334,18 @@ impl SoundController {
                 }
             }
 
-            apply_bias(&mut dma_sample, self.sound_bias.bit_range(0..10) as i16);
-            *out_sample = dma_sample as i32 as f32;
+            // Mix PSG
+            let (enables, volume) = if channel == 0 {
+                (left_enables, self.left_volume)
+            } else {
+                (right_enables, self.right_volume)
+            };
+            let psg_sample = self.psg.sample(enables, volume);
+            let psg_scaled = (psg_sample as f32 * self.dmg_volume_ratio * 2.0) as i16;
+
+            let mut combined = dma_sample + psg_scaled;
+            apply_bias(&mut combined, self.sound_bias.bit_range(0..10) as i16);
+            *out_sample = combined as i32 as f32;
         }
 
         self.resampler.feed(&sample, &mut self.output_buffer);
@@ -350,7 +366,6 @@ impl SoundController {
     ) -> FutureEvent {
         match event {
             ApuEvent::Sample => self.on_sample(audio_device),
-            _ => unimplemented!("got {:?} event", event),
         }
     }
 }

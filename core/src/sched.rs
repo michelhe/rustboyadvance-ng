@@ -19,10 +19,6 @@ pub enum GpuEvent {
 #[repr(u32)]
 #[derive(Serialize, Deserialize, Debug, PartialOrd, PartialEq, Eq, Copy, Clone)]
 pub enum ApuEvent {
-    Psg1Generate,
-    Psg2Generate,
-    Psg3Generate,
-    Psg4Generate,
     Sample,
 }
 
@@ -242,20 +238,12 @@ mod test {
     }
 
     const BIT_GPU_VBLANKHDRAW: u32 = 1 << 0;
-    const BIT_APU_PSG1GENERATE: u32 = 1 << 1;
-    const BIT_APU_PSG2GENERATE: u32 = 1 << 2;
-    const BIT_APU_PSG3GENERATE: u32 = 1 << 3;
-    const BIT_APU_PSG4GENERATE: u32 = 1 << 4;
-    const BIT_APU_SAMPLE: u32 = 1 << 5;
+    const BIT_APU_SAMPLE: u32 = 1 << 1;
 
     #[inline]
     fn get_event_bit(e: EventType) -> u32 {
         match e {
             EventType::Gpu(GpuEvent::VBlankHDraw) => BIT_GPU_VBLANKHDRAW,
-            EventType::Apu(ApuEvent::Psg1Generate) => BIT_APU_PSG1GENERATE,
-            EventType::Apu(ApuEvent::Psg2Generate) => BIT_APU_PSG2GENERATE,
-            EventType::Apu(ApuEvent::Psg3Generate) => BIT_APU_PSG3GENERATE,
-            EventType::Apu(ApuEvent::Psg4Generate) => BIT_APU_PSG4GENERATE,
             EventType::Apu(ApuEvent::Sample) => BIT_APU_SAMPLE,
             _ => unimplemented!("unsupported event for this test"),
         }
@@ -287,20 +275,14 @@ mod test {
             .schedule((EventType::Gpu(GpuEvent::VBlankHDraw), 240));
         holder
             .sched
-            .schedule((EventType::Apu(ApuEvent::Psg1Generate), 60));
-        holder
-            .sched
             .schedule((EventType::Apu(ApuEvent::Sample), 512));
         holder
             .sched
-            .schedule((EventType::Apu(ApuEvent::Psg2Generate), 13));
-        holder
-            .sched
-            .schedule((EventType::Apu(ApuEvent::Psg4Generate), 72));
+            .schedule((EventType::DmaActivateChannel(0), 13));
 
         assert_eq!(
             sched.events.pop(),
-            Some(Event::new(EventType::Apu(ApuEvent::Psg2Generate), 13))
+            Some(Event::new(EventType::DmaActivateChannel(0), 13))
         );
     }
 
@@ -308,32 +290,13 @@ mod test {
     fn test_scheduler() {
         let mut holder = Holder::new();
 
-        // clone the sched so we get a reference that is not owned by the holder
-        // SAFETY: since the SharedScheduler is built upon an UnsafeCell instead of RefCell, we are sacrificing runtime safety checks for performance.
-        //  It is safe since the events iteration allows the EventHandler to modify the queue.
-
         let mut sched = holder.sched.clone();
         holder
             .sched
             .schedule((EventType::Gpu(GpuEvent::VBlankHDraw), 240));
         holder
             .sched
-            .schedule((EventType::Apu(ApuEvent::Psg1Generate), 60));
-        holder
-            .sched
             .schedule((EventType::Apu(ApuEvent::Sample), 512));
-        holder
-            .sched
-            .schedule((EventType::Apu(ApuEvent::Psg2Generate), 13));
-        holder
-            .sched
-            .schedule((EventType::Apu(ApuEvent::Psg4Generate), 72));
-
-        println!("all events");
-        for e in sched.events.iter() {
-            let typ = e.get_type();
-            println!("{:?}", typ);
-        }
 
         macro_rules! run_for {
             ($cycles:expr) => {
@@ -353,19 +316,10 @@ mod test {
 
         run_for!(100);
 
-        println!("{:?}", *sched);
-        assert!(holder.is_event_done(EventType::Apu(ApuEvent::Psg1Generate)));
-        assert!(holder.is_event_done(EventType::Apu(ApuEvent::Psg2Generate)));
-        assert!(holder.is_event_done(EventType::Apu(ApuEvent::Psg4Generate)));
         assert!(!holder.is_event_done(EventType::Apu(ApuEvent::Sample)));
         assert!(!holder.is_event_done(EventType::Gpu(GpuEvent::VBlankHDraw)));
 
-        run_for!(100);
-
-        assert!(!holder.is_event_done(EventType::Gpu(GpuEvent::VBlankHDraw)));
-        assert!(!holder.is_event_done(EventType::Apu(ApuEvent::Sample)));
-
-        run_for!(100);
+        run_for!(200);
 
         assert!(holder.is_event_done(EventType::Gpu(GpuEvent::VBlankHDraw)));
         assert!(!holder.is_event_done(EventType::Apu(ApuEvent::Sample)));
@@ -377,18 +331,5 @@ mod test {
         run_for!(1);
 
         assert!(holder.is_event_done(EventType::Apu(ApuEvent::Sample)));
-
-        println!("all events (holder)");
-        for e in holder.sched.events.iter() {
-            let typ = e.get_type();
-            println!("{:?}", typ);
-        }
-
-        println!("all events (cloned again)");
-        let sched_cloned = holder.sched.clone();
-        for e in sched_cloned.events.iter() {
-            let typ = e.get_type();
-            println!("{:?}", typ);
-        }
     }
 }
