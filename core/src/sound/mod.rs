@@ -16,7 +16,9 @@ use dsp::{CosineResampler, Resampler};
 mod psg;
 use psg::Psg;
 
-const DMG_RATIOS: [f32; 4] = [0.25, 0.5, 1.0, 0.0];
+/// PSG volume scaling table indexed by SOUNDCNT_H bits 0-1.
+/// Values: 25% → 1, 50% → 2, 100% → 4, prohibited → 0
+const PSG_VOLUME_TAB: [i32; 4] = [1, 2, 4, 0];
 const DMA_TIMERS: [usize; 2] = [0, 1];
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -76,7 +78,7 @@ pub struct SoundController {
     right_wave: bool,
     right_noise: bool,
 
-    dmg_volume_ratio: f32,
+    psg_volume_idx: usize,
 
     psg: Psg,
 
@@ -110,7 +112,7 @@ impl SoundController {
             right_sqr2: false,
             right_wave: false,
             right_noise: false,
-            dmg_volume_ratio: 0.0,
+            psg_volume_idx: 0,
             psg: Psg::default(),
             sound_bias: 0x200,
             sample_rate: 32_768f32,
@@ -138,10 +140,7 @@ impl SoundController {
             }
 
             REG_SOUNDCNT_H => {
-                DMG_RATIOS
-                    .iter()
-                    .position(|&f| f == self.dmg_volume_ratio)
-                    .expect("bad dmg_volume_ratio!") as u16
+                self.psg_volume_idx as u16
                     | cbit(2, self.dma_sound[0].volume_shift == 1)
                     | cbit(3, self.dma_sound[1].volume_shift == 1)
                     | cbit(8, self.dma_sound[0].enable_right)
@@ -220,7 +219,7 @@ impl SoundController {
             }
 
             REG_SOUNDCNT_H => {
-                self.dmg_volume_ratio = DMG_RATIOS[value.bit_range(0..2) as usize];
+                self.psg_volume_idx = value.bit_range(0..2) as usize;
                 self.dma_sound[0].volume_shift = value.bit(2) as i16;
                 self.dma_sound[1].volume_shift = value.bit(3) as i16;
                 self.dma_sound[0].enable_right = value.bit(8);
@@ -334,14 +333,16 @@ impl SoundController {
                 }
             }
 
-            // Mix PSG
-            let (enables, volume) = if channel == 0 {
+            // Mix PSG using NanoBoyAdvance-style integer formula:
+            // psg_sum * psg_vol_tab[ratio] * (master + 1) >> 5
+            let (enables, master) = if channel == 0 {
                 (left_enables, self.left_volume)
             } else {
                 (right_enables, self.right_volume)
             };
-            let psg_sample = self.psg.sample(enables, volume);
-            let psg_scaled = (psg_sample as f32 * self.dmg_volume_ratio * 2.0) as i16;
+            let psg_sum = self.psg.sample(enables) as i32;
+            let psg_vol = PSG_VOLUME_TAB[self.psg_volume_idx];
+            let psg_scaled = ((psg_sum * psg_vol * (master as i32 + 1)) >> 5) as i16;
 
             let mut combined = dma_sample + psg_scaled;
             apply_bias(&mut combined, self.sound_bias.bit_range(0..10) as i16);
@@ -449,7 +450,7 @@ mod tests {
             |sc| {
                 // SOUNDCNT_L: left_vol=7, right_vol=7, ch1 enabled on both
                 sc.handle_write(REG_SOUNDCNT_L, 0x1177); // bits 8,12 = ch1 L+R, vol=7
-                // SOUNDCNT_H: DMG ratio = 1.0 (value 2)
+                // SOUNDCNT_H: DMG ratio = 100% (index 2)
                 sc.handle_write(REG_SOUNDCNT_H, 0x0002);
                 // SOUND1CNT_H: vol=15, duty=50%
                 sc.handle_write(REG_SOUND1CNT_H, 0xF080);
