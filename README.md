@@ -27,8 +27,12 @@ WebAssembly Demo: https://michelhe.github.io/rustboyadvance-ng/ [![Deploy](https
 
 ![Pokemon Emerald](media/screenshot1.png)
 
+## Features
+* PSG audio — all 4 original Game Boy sound channels (2 square wave, 1 wave, 1 noise)
+* DMA sound channels A & B (FIFO)
+
 ## Emulation Todo:
-* CGB audio (4 wave generator channels)
+* ~~CGB audio (4 wave generator channels)~~ Done!
 
 # Build and usage (Desktop Application)
 
