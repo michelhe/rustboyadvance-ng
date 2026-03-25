@@ -221,6 +221,10 @@ pub struct PsgChannel1 {
     sweep: Sweep,
     envelope: Envelope,
     length: LengthCounter,
+    /// Raw last-written values for registers with write-only fields.
+    /// Needed so 8-bit write read-modify-write cycles don't lose data.
+    raw_duty_envelope: u16,
+    raw_freq_control: u16,
 }
 
 impl Default for PsgChannel1 {
@@ -234,6 +238,8 @@ impl Default for PsgChannel1 {
             sweep: Sweep::default(),
             envelope: Envelope::default(),
             length: LengthCounter::new(64),
+            raw_duty_envelope: 0,
+            raw_freq_control: 0,
         }
     }
 }
@@ -296,6 +302,7 @@ impl PsgChannel1 {
     }
 
     pub fn write_duty_envelope(&mut self, value: u16) {
+        self.raw_duty_envelope = value;
         self.length.counter = 64 - (value & 0x3f) as u16;
         self.duty = ((value >> 6) & 0x3) as u8;
         self.envelope.write(value >> 8);
@@ -305,14 +312,12 @@ impl PsgChannel1 {
     }
 
     pub fn read_duty_envelope(&self) -> u16 {
-        // Length is write-only; duty and envelope are readable
-        ((self.duty as u16) << 6)
-            | ((self.envelope.period as u16) << 8)
-            | ((self.envelope.direction as u16) << 11)
-            | ((self.envelope.initial_volume as u16) << 12)
+        self.raw_duty_envelope
     }
 
     pub fn write_freq_control(&mut self, value: u16) {
+        // Store raw but clear the trigger bit (it's a strobe, not latched)
+        self.raw_freq_control = value & !0x8000;
         self.frequency = value & 0x7ff;
         self.length.enabled = (value >> 14) & 1 != 0;
         if (value >> 15) & 1 != 0 {
@@ -321,8 +326,7 @@ impl PsgChannel1 {
     }
 
     pub fn read_freq_control(&self) -> u16 {
-        // Frequency is write-only; only length enable (bit 14) is readable
-        (self.length.enabled as u16) << 14
+        self.raw_freq_control
     }
 
     fn trigger(&mut self) {
@@ -352,6 +356,8 @@ pub struct PsgChannel2 {
     timer: i32,
     envelope: Envelope,
     length: LengthCounter,
+    raw_duty_envelope: u16,
+    raw_freq_control: u16,
 }
 
 impl Default for PsgChannel2 {
@@ -364,6 +370,8 @@ impl Default for PsgChannel2 {
             timer: 0,
             envelope: Envelope::default(),
             length: LengthCounter::new(64),
+            raw_duty_envelope: 0,
+            raw_freq_control: 0,
         }
     }
 }
@@ -406,6 +414,7 @@ impl PsgChannel2 {
     }
 
     pub fn write_duty_envelope(&mut self, value: u16) {
+        self.raw_duty_envelope = value;
         self.length.counter = 64 - (value & 0x3f) as u16;
         self.duty = ((value >> 6) & 0x3) as u8;
         self.envelope.write(value >> 8);
@@ -415,13 +424,11 @@ impl PsgChannel2 {
     }
 
     pub fn read_duty_envelope(&self) -> u16 {
-        ((self.duty as u16) << 6)
-            | ((self.envelope.period as u16) << 8)
-            | ((self.envelope.direction as u16) << 11)
-            | ((self.envelope.initial_volume as u16) << 12)
+        self.raw_duty_envelope
     }
 
     pub fn write_freq_control(&mut self, value: u16) {
+        self.raw_freq_control = value & !0x8000;
         self.frequency = value & 0x7ff;
         self.length.enabled = (value >> 14) & 1 != 0;
         if (value >> 15) & 1 != 0 {
@@ -430,7 +437,7 @@ impl PsgChannel2 {
     }
 
     pub fn read_freq_control(&self) -> u16 {
-        (self.length.enabled as u16) << 14
+        self.raw_freq_control
     }
 
     fn trigger(&mut self) {
@@ -464,6 +471,8 @@ pub struct PsgChannel3 {
     bank_mode: bool,
     /// Which bank is used for playback (0 or 1)
     bank_select: u8,
+    raw_length_volume: u16,
+    raw_freq_control: u16,
 }
 
 impl Default for PsgChannel3 {
@@ -480,6 +489,8 @@ impl Default for PsgChannel3 {
             wave_ram: [0; 32],
             bank_mode: false,
             bank_select: 0,
+            raw_length_volume: 0,
+            raw_freq_control: 0,
         }
     }
 }
@@ -560,17 +571,18 @@ impl PsgChannel3 {
     }
 
     pub fn write_length_volume(&mut self, value: u16) {
+        self.raw_length_volume = value;
         self.length.counter = 256 - (value & 0xff) as u16;
         self.volume_code = ((value >> 13) & 0x3) as u8;
         self.force_volume = (value >> 15) & 1 != 0;
     }
 
     pub fn read_length_volume(&self) -> u16 {
-        // Length is write-only
-        ((self.volume_code as u16) << 13) | ((self.force_volume as u16) << 15)
+        self.raw_length_volume
     }
 
     pub fn write_freq_control(&mut self, value: u16) {
+        self.raw_freq_control = value & !0x8000;
         self.frequency = value & 0x7ff;
         self.length.enabled = (value >> 14) & 1 != 0;
         if (value >> 15) & 1 != 0 {
@@ -579,7 +591,7 @@ impl PsgChannel3 {
     }
 
     pub fn read_freq_control(&self) -> u16 {
-        (self.length.enabled as u16) << 14
+        self.raw_freq_control
     }
 
     fn trigger(&mut self) {
@@ -638,6 +650,8 @@ pub struct PsgChannel4 {
     timer: i32,
     envelope: Envelope,
     length: LengthCounter,
+    raw_length_envelope: u16,
+    raw_freq_control: u16,
 }
 
 impl Default for PsgChannel4 {
@@ -651,6 +665,8 @@ impl Default for PsgChannel4 {
             timer: 0,
             envelope: Envelope::default(),
             length: LengthCounter::new(64),
+            raw_length_envelope: 0,
+            raw_freq_control: 0,
         }
     }
 }
@@ -706,6 +722,7 @@ impl PsgChannel4 {
     }
 
     pub fn write_length_envelope(&mut self, value: u16) {
+        self.raw_length_envelope = value;
         self.length.counter = 64 - (value & 0x3f) as u16;
         self.envelope.write(value >> 8);
         if !self.envelope.dac_enabled() {
@@ -714,13 +731,11 @@ impl PsgChannel4 {
     }
 
     pub fn read_length_envelope(&self) -> u16 {
-        // Length is write-only
-        ((self.envelope.period as u16) << 8)
-            | ((self.envelope.direction as u16) << 11)
-            | ((self.envelope.initial_volume as u16) << 12)
+        self.raw_length_envelope
     }
 
     pub fn write_freq_control(&mut self, value: u16) {
+        self.raw_freq_control = value & !0x8000;
         self.dividing_ratio = (value & 0x7) as u8;
         self.width_mode = (value >> 3) & 1 != 0;
         self.shift_clock = ((value >> 4) & 0xf) as u8;
@@ -731,10 +746,7 @@ impl PsgChannel4 {
     }
 
     pub fn read_freq_control(&self) -> u16 {
-        (self.dividing_ratio as u16)
-            | ((self.width_mode as u16) << 3)
-            | ((self.shift_clock as u16) << 4)
-            | ((self.length.enabled as u16) << 14)
+        self.raw_freq_control
     }
 
     fn trigger(&mut self) {
