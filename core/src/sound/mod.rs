@@ -16,9 +16,9 @@ use dsp::{CosineResampler, Resampler};
 mod psg;
 use psg::Psg;
 
-/// PSG volume scaling table indexed by SOUNDCNT_H bits 0-1.
-/// Values: 25% → 1, 50% → 2, 100% → 4, prohibited → 0
-const PSG_VOLUME_TAB: [i32; 4] = [1, 2, 4, 0];
+/// PSG right-shift values indexed by SOUNDCNT_H bits 0-1.
+/// Maps DMG ratio (25%/50%/100%/prohibited) to right-shift amount.
+const PSG_SHIFT: [i32; 4] = [4, 3, 2, 1];
 const DMA_TIMERS: [usize; 2] = [0, 1];
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -333,16 +333,16 @@ impl SoundController {
                 }
             }
 
-            // Mix PSG using NanoBoyAdvance-style integer formula:
-            // psg_sum * psg_vol_tab[ratio] * (master + 1) >> 5
+            // Mix PSG: unsigned sum, <<3, ×(master+1), >>(4-ratio)
             let (enables, master) = if channel == 0 {
                 (left_enables, self.left_volume)
             } else {
                 (right_enables, self.right_volume)
             };
             let psg_sum = self.psg.sample(enables) as i32;
-            let psg_vol = PSG_VOLUME_TAB[self.psg_volume_idx];
-            let psg_scaled = ((psg_sum * psg_vol * (master as i32 + 1)) >> 5) as i16;
+            let psg_shifted = psg_sum << 3;
+            let psg_scaled = ((psg_shifted * (master as i32 + 1))
+                >> PSG_SHIFT[self.psg_volume_idx]) as i16;
 
             let mut combined = dma_sample + psg_scaled;
             apply_bias(&mut combined, self.sound_bias.bit_range(0..10) as i16);

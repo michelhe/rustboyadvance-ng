@@ -258,11 +258,10 @@ impl PsgChannel1 {
         if !self.enabled {
             return 0;
         }
-        let vol = self.envelope.current_volume as i16 * 8;
         if DUTY_TABLE[self.duty as usize][self.duty_pos as usize] {
-            vol
+            self.envelope.current_volume as i16
         } else {
-            -vol
+            0
         }
     }
 
@@ -389,11 +388,10 @@ impl PsgChannel2 {
         if !self.enabled {
             return 0;
         }
-        let vol = self.envelope.current_volume as i16 * 8;
         if DUTY_TABLE[self.duty as usize][self.duty_pos as usize] {
-            vol
+            self.envelope.current_volume as i16
         } else {
-            -vol
+            0
         }
     }
 
@@ -530,15 +528,14 @@ impl PsgChannel3 {
             (nibble * 3) / 4
         } else {
             match self.volume_code {
-                0 => return 0, // muted
+                0 => 0,
                 1 => nibble,
                 2 => nibble >> 1,
                 3 => nibble >> 2,
                 _ => unreachable!(),
             }
         };
-        // Center around zero and scale to match square/noise channel range (±120)
-        (shifted as i16 * 2 - 15) * 8
+        shifted as i16
     }
 
     fn clock_length(&mut self) {
@@ -662,7 +659,7 @@ impl PsgChannel4 {
     fn period(&self) -> i32 {
         let r = self.dividing_ratio as i32;
         let divisor = if r == 0 { 8 } else { r * 16 };
-        divisor << (self.shift_clock as i32 + 1)
+        divisor << (self.shift_clock as i32 + 2)
     }
 
     fn tick(&mut self, cycles: u32) {
@@ -690,12 +687,11 @@ impl PsgChannel4 {
         if !self.enabled {
             return 0;
         }
-        let vol = self.envelope.current_volume as i16 * 8;
         // Output is inverted bit 0 of LFSR
         if self.lfsr & 1 == 0 {
-            vol
+            self.envelope.current_volume as i16
         } else {
-            -vol
+            0
         }
     }
 
@@ -793,7 +789,7 @@ impl Psg {
     }
 
     /// Get the raw mixed PSG sample for one stereo channel.
-    /// Returns the unscaled sum of enabled channels (range approx ±480).
+    /// Returns the unsigned sum of enabled channels (range 0-60).
     /// Master volume and DMG ratio scaling are applied by the caller.
     pub fn sample(&self, enable_flags: [bool; 4]) -> i16 {
         let mut sum: i16 = 0;
@@ -835,11 +831,11 @@ mod tests {
             .collect()
     }
 
-    /// Count sign transitions (positive↔negative) in a sample buffer.
+    /// Count transitions (from 0→vol or vol→0) in a sample buffer.
     fn count_transitions(samples: &[i16]) -> usize {
         samples
             .windows(2)
-            .filter(|w| (w[0] > 0) != (w[1] > 0))
+            .filter(|w| (w[0] == 0) != (w[1] == 0))
             .count()
     }
 
@@ -879,20 +875,18 @@ mod tests {
         // Collect enough samples for several cycles
         let samples = collect_ch1_samples(&mut ch, 256);
 
-        // With 50% duty and signed output, roughly half should be positive and half negative
-        let positive = samples.iter().filter(|&&s| s > 0).count();
-        let ratio = positive as f64 / samples.len() as f64;
+        // With 50% duty, roughly half should be nonzero
+        let nonzero = samples.iter().filter(|&&s| s > 0).count();
+        let ratio = nonzero as f64 / samples.len() as f64;
         assert!(
             (0.40..=0.60).contains(&ratio),
-            "50% duty should have ~50% positive samples, got {:.1}%",
+            "50% duty should have ~50% high samples, got {:.1}%",
             ratio * 100.0
         );
 
-        // Verify amplitude is correct (vol=15, ×8 = 120)
+        // Verify amplitude is correct (vol=15)
         let max_val = *samples.iter().max().unwrap();
-        let min_val = *samples.iter().min().unwrap();
-        assert_eq!(max_val, 120, "max sample should be vol*8=120");
-        assert_eq!(min_val, -120, "min sample should be -vol*8=-120");
+        assert_eq!(max_val, 15, "max sample should equal envelope volume");
     }
 
     #[test]
@@ -903,11 +897,11 @@ mod tests {
         ch.write_freq_control(0x8400); // trigger, freq=1024
 
         let samples = collect_ch1_samples(&mut ch, 512);
-        let positive = samples.iter().filter(|&&s| s > 0).count();
-        let ratio = positive as f64 / samples.len() as f64;
+        let nonzero = samples.iter().filter(|&&s| s > 0).count();
+        let ratio = nonzero as f64 / samples.len() as f64;
         assert!(
             (0.08..=0.20).contains(&ratio),
-            "12.5% duty should have ~12.5% positive samples, got {:.1}%",
+            "12.5% duty should have ~12.5% high samples, got {:.1}%",
             ratio * 100.0
         );
     }
@@ -1045,13 +1039,11 @@ mod tests {
             })
             .collect();
 
-        let has_positive = samples.iter().any(|&s| s > 0);
-        let has_negative = samples.iter().any(|&s| s < 0);
-        assert!(has_positive, "ch2 should produce positive samples");
-        assert!(has_negative, "ch2 should produce negative samples");
+        let has_nonzero = samples.iter().any(|&s| s > 0);
+        assert!(has_nonzero, "ch2 should produce nonzero samples");
 
         let max_val = *samples.iter().max().unwrap();
-        assert_eq!(max_val, 120, "ch2 max should be vol*8=120");
+        assert_eq!(max_val, 15);
     }
 
     // ─── Channel 3: Wave ────────────────────────────────────────
@@ -1092,12 +1084,10 @@ mod tests {
             })
             .collect();
 
-        let has_positive = samples.iter().any(|&s| s > 0);
-        let has_negative = samples.iter().any(|&s| s < 0);
-        assert!(has_positive, "wave channel should produce positive output");
-        assert!(has_negative, "wave channel should produce negative output");
+        let has_nonzero = samples.iter().any(|&s| s > 0);
+        assert!(has_nonzero, "wave channel should produce nonzero output");
 
-        // Check that we see a variety of values (not just two extremes)
+        // Check that we see a variety of values (not just 0 and max)
         let unique_values: std::collections::HashSet<i16> = samples.iter().cloned().collect();
         assert!(
             unique_values.len() > 2,
@@ -1150,13 +1140,13 @@ mod tests {
             })
             .collect();
 
-        let positive = samples.iter().filter(|&&s| s > 0).count();
-        let ratio = positive as f64 / samples.len() as f64;
+        let nonzero = samples.iter().filter(|&&s| s > 0).count();
+        let ratio = nonzero as f64 / samples.len() as f64;
 
-        // LFSR should produce roughly 50% positive/negative for 15-bit mode
+        // LFSR should produce roughly 50% high/low for 15-bit mode
         assert!(
             (0.30..=0.70).contains(&ratio),
-            "noise should be roughly 50/50 positive/negative, got {:.1}%",
+            "noise should be roughly 50/50, got {:.1}%",
             ratio * 100.0
         );
     }
@@ -1170,9 +1160,9 @@ mod tests {
 
         // 7-bit LFSR has period of 127 (2^7 - 1)
         // Collect enough samples to see the pattern repeat
-        // At div=0, shift=0: period = 8 << 1 = 16 cpu cycles per LFSR tick
-        // At 512 cycles/sample: 512/16 = 32 LFSR ticks per sample
-        // So 127 ticks takes about 4 samples. Collect plenty.
+        // At div=0, shift=0: period = 8 << 2 = 32 cpu cycles per LFSR tick
+        // At 512 cycles/sample: 512/32 = 16 LFSR ticks per sample
+        // So 127 ticks takes about 8 samples. Collect plenty.
         let samples: Vec<i16> = (0..256)
             .map(|_| {
                 ch.tick(512);
@@ -1180,8 +1170,8 @@ mod tests {
             })
             .collect();
 
-        let has_positive = samples.iter().any(|&s| s > 0);
-        assert!(has_positive, "7-bit noise should produce output");
+        let has_nonzero = samples.iter().any(|&s| s > 0);
+        assert!(has_nonzero, "7-bit noise should produce output");
     }
 
     // ─── Frame Sequencer ────────────────────────────────────────
@@ -1239,7 +1229,7 @@ mod tests {
 
         let all_enabled = [true, true, true, true];
 
-        // Tick and collect mixed samples (raw sum, no master volume scaling)
+        // Tick and collect mixed samples (raw unsigned sum)
         let samples: Vec<i16> = (0..256)
             .map(|_| {
                 psg.tick(512);
@@ -1248,19 +1238,14 @@ mod tests {
             .collect();
 
         let max_sample = *samples.iter().max().unwrap();
-        let min_sample = *samples.iter().min().unwrap();
         assert!(
             max_sample > 0,
-            "mixed output should have positive samples"
+            "mixed output should have nonzero samples"
         );
+        // Max possible: ch1(15) + ch2(10) = 25
         assert!(
-            min_sample < 0,
-            "mixed output should have negative samples"
-        );
-        // Max possible: ch1(120) + ch2(80) = 200
-        assert!(
-            max_sample <= 200,
-            "mixed output should not exceed sum of channel amplitudes, got {}",
+            max_sample <= 25,
+            "mixed output should not exceed sum of channel volumes, got {}",
             max_sample
         );
     }
@@ -1294,10 +1279,10 @@ mod tests {
         // Collect 320 samples = 10 full cycles
         let samples = collect_ch1_samples(&mut ch, 320);
 
-        // Count rising edges (negative→positive transitions) ≈ number of cycles
+        // Count rising edges (0→nonzero transitions) ≈ number of cycles
         let rising_edges = samples
             .windows(2)
-            .filter(|w| w[0] < 0 && w[1] > 0)
+            .filter(|w| w[0] == 0 && w[1] > 0)
             .count();
 
         // Expected: 10 cycles → 10 rising edges (±1 for boundary)
