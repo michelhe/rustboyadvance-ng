@@ -233,6 +233,19 @@ impl DmaController {
         self.pending_set = 0;
     }
 
+    pub fn read_16(&self, channel_id: usize, ofs: u32) -> u16 {
+        let ch = &self.channels[channel_id];
+        match ofs {
+            0 => ch.src as u16,
+            2 => (ch.src >> 16) as u16,
+            4 => ch.dst as u16,
+            6 => (ch.dst >> 16) as u16,
+            8 => ch.wc as u16,
+            10 => ch.ctrl.0,
+            _ => 0,
+        }
+    }
+
     pub fn write_16(&mut self, channel_id: usize, ofs: u32, value: u16, sched: &mut Scheduler) {
         match ofs {
             0 => self.channels[channel_id].write_src_low(value),
