@@ -166,8 +166,8 @@ impl SoundController {
 
             addr @ REG_WAVE_RAM..=0x0400_009F => {
                 let offset = (addr - REG_WAVE_RAM) as usize;
-                let lo = self.psg.channel3.read_wave_ram(offset * 2) as u16;
-                let hi = self.psg.channel3.read_wave_ram(offset * 2 + 1) as u16;
+                let lo = self.psg.channel3.read_wave_ram(offset) as u16;
+                let hi = self.psg.channel3.read_wave_ram(offset + 1) as u16;
                 lo | (hi << 8)
             }
 
@@ -250,8 +250,8 @@ impl SoundController {
 
             addr @ REG_WAVE_RAM..=0x0400_009F => {
                 let offset = (addr - REG_WAVE_RAM) as usize;
-                self.psg.channel3.write_wave_ram(offset * 2, (value & 0xff) as u8);
-                self.psg.channel3.write_wave_ram(offset * 2 + 1, ((value >> 8) & 0xff) as u8);
+                self.psg.channel3.write_wave_ram(offset, (value & 0xff) as u8);
+                self.psg.channel3.write_wave_ram(offset + 1, ((value >> 8) & 0xff) as u8);
             }
 
             REG_FIFO_A_L | REG_FIFO_A_H => {
@@ -521,7 +521,9 @@ mod tests {
                 sc.handle_write(REG_SOUNDCNT_L, 0x4477); // ch3 on both sides
                 sc.handle_write(REG_SOUNDCNT_H, 0x0002);
 
-                // Write wave RAM: sawtooth 0x01, 0x23, 0x45, ...
+                // SOUND3CNT_L: select bank 1 for writing (bit 6), DAC off for now
+                sc.handle_write(REG_SOUND3CNT_L, 0x0040);
+                // Write wave RAM: sawtooth pattern into bank 1
                 for i in 0..8u32 {
                     let addr = REG_WAVE_RAM + i * 2;
                     let lo = (i * 4) as u16;
@@ -529,7 +531,8 @@ mod tests {
                     sc.handle_write(addr, lo | (hi << 8));
                 }
 
-                // SOUND3CNT_L: DAC enable
+                // SOUND3CNT_L: select bank 0, DAC enable
+                // Playback reads from 1-bank_select = bank 1 (where we wrote)
                 sc.handle_write(REG_SOUND3CNT_L, 0x0080);
                 // SOUND3CNT_H: vol=100%
                 sc.handle_write(REG_SOUND3CNT_H, 0x2000);
@@ -585,6 +588,7 @@ mod tests {
         // Actually, the current code doesn't gate PSG on MSE in on_sample.
         // This test documents current behavior - PSG runs regardless of MSE.
         // (The GBA hardware does gate PSG on MSE, but that's a TODO)
-        let _ = samples;
+        let has_nonzero = samples.iter().any(|s| s[0] != 0);
+        assert!(has_nonzero, "PSG currently runs regardless of MSE flag");
     }
 }
