@@ -438,7 +438,7 @@ impl BusIO for Gpu {
             PAGE_VRAM => {
                 // complicated
                 let mut ofs = addr & ((VIDEO_RAM_SIZE as u32) - 1);
-                if ofs > 0x18000 {
+                if ofs >= 0x18000 {
                     ofs -= 0x8000;
                 }
                 self.vram.read_8(ofs)
@@ -454,7 +454,7 @@ impl BusIO for Gpu {
             PAGE_PALRAM => self.palette_ram.write_16(addr & 0x3fe, value),
             PAGE_VRAM => {
                 let mut ofs = addr & ((VIDEO_RAM_SIZE as u32) - 1);
-                if ofs > 0x18000 {
+                if ofs >= 0x18000 {
                     ofs -= 0x8000;
                 }
                 self.vram.write_16(ofs, value)
@@ -474,7 +474,7 @@ impl BusIO for Gpu {
             PAGE_PALRAM => self.palette_ram.write_16(addr & 0x3fe, expand_value(value)),
             PAGE_VRAM => {
                 let mut ofs = addr & ((VIDEO_RAM_SIZE as u32) - 1);
-                if ofs > 0x18000 {
+                if ofs >= 0x18000 {
                     ofs -= 0x8000;
                 }
                 if ofs < self.vram_obj_tiles_start {
