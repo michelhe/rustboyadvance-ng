@@ -97,7 +97,8 @@ fn arm_section(n: u32) -> &'static str {
         350..=399 => "single_transfer",
         400..=449 => "halfword_transfer",
         450..=499 => "data_swap",
-        _ => "block_transfer",
+        500..=u32::MAX => "block_transfer",
+        0 => "unknown",
     }
 }
 
@@ -107,14 +108,16 @@ fn thumb_section(n: u32) -> &'static str {
         50..=99 => "shifts",
         100..=149 => "arithmetic",
         150..=199 => "branches",
-        _ => "memory",
+        200..=u32::MAX => "memory",
+        0 => "unknown",
     }
 }
 
 fn memory_section(n: u32) -> &'static str {
     match n {
         1..=49 => "mirrors",
-        _ => "video_strb",
+        50..=u32::MAX => "video_strb",
+        0 => "unknown",
     }
 }
 
