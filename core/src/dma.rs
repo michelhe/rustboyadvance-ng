@@ -124,14 +124,14 @@ impl DmaChannel {
             _ => self.internal.count,
         };
 
-        if self.id == 3 && word_size == 2
-            && let BackupMedia::Eeprom(eeprom) = &mut sb.cartridge.backup
-        {
-            eeprom.on_dma3_transfer(
-                self.internal.src_addr,
-                self.internal.dst_addr,
-                count as usize,
-            )
+        if self.id == 3 && word_size == 2 {
+            if let BackupMedia::Eeprom(eeprom) = &mut sb.cartridge.backup {
+                eeprom.on_dma3_transfer(
+                    self.internal.src_addr,
+                    self.internal.dst_addr,
+                    count as usize,
+                )
+            }
         }
 
         let fifo_mode = self.fifo_mode;

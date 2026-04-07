@@ -344,16 +344,16 @@ impl GameBoyAdvance {
                 <= unsafe { self.scheduler.timestamp_of_next_event_unchecked() }
             {
                 self.single_step();
-                if CHECK_BREAKPOINTS
-                    && let Some(bp) = self.cpu.check_breakpoint()
-                {
-                    debug!("Arm7tdmi breakpoint hit 0x{:08x}", bp);
-                    self.scheduler.cancel_pending(EventType::RunLimitReached);
-                    let _ = self.handle_events();
-                    if let Some(debugger) = &mut self.debugger {
-                        debugger.notify_breakpoint(bp);
+                if CHECK_BREAKPOINTS {
+                    if let Some(bp) = self.cpu.check_breakpoint() {
+                        debug!("Arm7tdmi breakpoint hit 0x{:08x}", bp);
+                        self.scheduler.cancel_pending(EventType::RunLimitReached);
+                        let _ = self.handle_events();
+                        if let Some(debugger) = &mut self.debugger {
+                            debugger.notify_breakpoint(bp);
+                        }
+                        break 'running;
                     }
-                    break 'running;
                 }
             }
 
