@@ -483,7 +483,6 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
                         let v = if r != RB {
                             self.gpr[r]
                         } else if first {
-                            first = false;
                             addr
                         } else {
                             addr + (rlist.count_ones() - 1) * 4
@@ -491,6 +490,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
                         self.store_32(addr, v, access);
                         access = Seq;
                         addr += 4;
+                        first = false;
                     }
                     self.gpr[RB] = addr + align_preserve;
                 }

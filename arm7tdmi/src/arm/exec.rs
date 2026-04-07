@@ -131,8 +131,16 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
 
     fn transfer_spsr_mode(&mut self) {
         let spsr = self.spsr;
-        if self.cpsr.mode() != spsr.mode() {
-            self.change_mode(self.cpsr.mode(), spsr.mode());
+        // If SPSR has an invalid mode field (e.g., SYS/USR mode where SPSR is
+        // unpredictable and may be zero-initialised), skip the restore entirely.
+        // This matches the ARM7TDMI spec: the behaviour is UNPREDICTABLE in those
+        // modes, so a graceful no-op is acceptable.
+        let spsr_mode = match CpuMode::from_u32(spsr.get() & 0x1f) {
+            Some(m) => m,
+            None => return,
+        };
+        if self.cpsr.mode() != spsr_mode {
+            self.change_mode(self.cpsr.mode(), spsr_mode);
         }
         self.cpsr = spsr;
     }
@@ -223,21 +231,28 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
             }
         } else {
             let c = carry as u32;
-            Some(match opcode {
-                AND => op1 & op2,
-                EOR => op1 ^ op2,
-                SUB => op1.wrapping_sub(op2),
-                RSB => op2.wrapping_sub(op1),
-                ADD => op1.wrapping_add(op2),
-                ADC => op1.wrapping_add(op2).wrapping_add(c),
-                SBC => op1.wrapping_sub(op2.wrapping_add(1 - c)),
-                RSC => op2.wrapping_sub(op1.wrapping_add(1 - c)),
-                ORR => op1 | op2,
-                MOV => op2,
-                BIC => op1 & (!op2),
-                MVN => !op2,
-                _ => panic!("DataProcessing should be a PSR transfer"),
-            })
+            // TST/TEQ/CMP/CMN with s_flag=false is only reachable after the
+            // `rd == REG_PC && s_flag` block above called transfer_spsr_mode()
+            // and cleared s_flag. Those opcodes never write to Rd, so return None.
+            if opcode.is_setting_flags() {
+                None
+            } else {
+                Some(match opcode {
+                    AND => op1 & op2,
+                    EOR => op1 ^ op2,
+                    SUB => op1.wrapping_sub(op2),
+                    RSB => op2.wrapping_sub(op1),
+                    ADD => op1.wrapping_add(op2),
+                    ADC => op1.wrapping_add(op2).wrapping_add(c),
+                    SBC => op1.wrapping_sub(op2.wrapping_add(1 - c)),
+                    RSC => op2.wrapping_sub(op1.wrapping_add(1 - c)),
+                    ORR => op1 | op2,
+                    MOV => op2,
+                    BIC => op1 & (!op2),
+                    MVN => !op2,
+                    _ => unreachable!(),
+                })
+            }
         };
 
         let mut result = CpuAction::AdvancePC(Seq);
@@ -438,7 +453,16 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
                 ArmHalfwordTransferType::UnsignedHalfwords => {
                     self.store_aligned_16(addr, value as u16, NonSeq);
                 }
-                _ => panic!("invalid HS flags for L=0"),
+                // HS=10 (SignedByte) with L=0 is UNPREDICTABLE on ARM7TDMI.
+                // Treat as STRB as a reasonable fallback.
+                ArmHalfwordTransferType::SignedByte => {
+                    self.store_8(addr, value as u8, NonSeq);
+                }
+                // HS=11 (SignedHalfwords) with L=0 is UNPREDICTABLE on ARM7TDMI.
+                // Treat as STRH as a reasonable fallback.
+                ArmHalfwordTransferType::SignedHalfwords => {
+                    self.store_aligned_16(addr, value as u16, NonSeq);
+                }
             };
         }
 

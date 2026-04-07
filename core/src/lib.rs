@@ -41,6 +41,8 @@ pub use interrupt::Interrupt;
 pub use interrupt::SharedInterruptFlags;
 pub mod gba;
 pub use gba::GameBoyAdvance;
+#[cfg(test)]
+mod gba_tests;
 pub mod dma;
 pub mod gdb_support;
 pub mod keypad;
