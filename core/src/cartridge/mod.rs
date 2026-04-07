@@ -129,21 +129,20 @@ impl BusIO for Cartridge {
     }
 
     fn read_16(&mut self, addr: u32) -> u16 {
-        if is_gpio_access(addr) {
-            if let Some(gpio) = &self.gpio {
-                if !(gpio.is_readable()) {
-                    warn!("trying to read GPIO when reads are not allowed");
-                }
-                return gpio.read(addr & 0x1ff_ffff);
+        if is_gpio_access(addr)
+            && let Some(gpio) = &self.gpio
+        {
+            if !(gpio.is_readable()) {
+                warn!("trying to read GPIO when reads are not allowed");
             }
+            return gpio.read(addr & 0x1ff_ffff);
         }
 
         if addr & 0xff000000 == GAMEPAK_WS2_HI
             && (self.bytes.len() <= 16 * 1024 * 1024 || addr >= EEPROM_BASE_ADDR)
+            && let BackupMedia::Eeprom(spi) = &self.backup
         {
-            if let BackupMedia::Eeprom(spi) = &self.backup {
-                return spi.read_half(addr);
-            }
+            return spi.read_half(addr);
         }
         self.default_read_16(addr)
     }
@@ -160,19 +159,18 @@ impl BusIO for Cartridge {
     }
 
     fn write_16(&mut self, addr: u32, value: u16) {
-        if is_gpio_access(addr) {
-            if let Some(gpio) = &mut self.gpio {
-                gpio.write(addr & 0x1ff_ffff, value);
-                return;
-            }
+        if is_gpio_access(addr)
+            && let Some(gpio) = &mut self.gpio
+        {
+            gpio.write(addr & 0x1ff_ffff, value);
+            return;
         }
 
         if addr & 0xff000000 == GAMEPAK_WS2_HI
             && (self.bytes.len() <= 16 * 1024 * 1024 || addr >= EEPROM_BASE_ADDR)
+            && let BackupMedia::Eeprom(spi) = &mut self.backup
         {
-            if let BackupMedia::Eeprom(spi) = &mut self.backup {
-                return spi.write_half(addr, value);
-            }
+            return spi.write_half(addr, value);
         }
         self.default_write_16(addr, value);
     }
