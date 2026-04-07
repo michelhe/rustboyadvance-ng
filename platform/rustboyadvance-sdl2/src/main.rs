@@ -168,12 +168,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 LoadRom::Raw(data) => data.into_boxed_slice(),
                                 LoadRom::Elf { data, .. } => data.into_boxed_slice(),
                             };
-                            gba = Box::new(GameBoyAdvance::from_saved_state(
+                            *gba = GameBoyAdvance::from_saved_state(
                                 &save,
                                 bios_bin.clone(),
                                 rom,
                                 audio_interface,
-                            )?);
+                            )?;
                             info!("Restored!");
                         } else {
                             info!("Savestate not created, please create one by pressing F5");
