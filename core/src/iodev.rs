@@ -125,23 +125,47 @@ impl BusIO for IoDevices {
             REG_TM0CNT_L..=REG_TM3CNT_H => io.timers.handle_read(io_addr, &io.scheduler),
 
             SOUND_BASE..=SOUND_END => io.sound.handle_read(io_addr),
-            REG_DMA0CNT_H => io.dmac.channels[0].ctrl.0,
-            REG_DMA1CNT_H => io.dmac.channels[1].ctrl.0,
-            REG_DMA2CNT_H => io.dmac.channels[2].ctrl.0,
-            REG_DMA3CNT_H => io.dmac.channels[3].ctrl.0,
-            // Even though these registers are write only,
-            // some games may still try to read them.
-            // TODO: should this be treated as an open-bus read?
-            REG_DMA0CNT_L => 0,
-            REG_DMA1CNT_L => 0,
-            REG_DMA2CNT_L => 0,
-            REG_DMA3CNT_L => 0,
+            DMA_BASE..=REG_DMA3CNT_H => {
+                let ofs = io_addr - DMA_BASE;
+                let channel_id = (ofs / 12) as usize;
+                io.dmac.read_16(channel_id, ofs % 12)
+            }
 
             REG_WAITCNT => io.waitcnt.0,
 
             REG_POSTFLG => io.post_boot_flag as u16,
             REG_HALTCNT => 0,
             REG_KEYINPUT => io.keyinput,
+
+            REG_BG0HOFS => io.gpu.bg_hofs[0],
+            REG_BG0VOFS => io.gpu.bg_vofs[0],
+            REG_BG1HOFS => io.gpu.bg_hofs[1],
+            REG_BG1VOFS => io.gpu.bg_vofs[1],
+            REG_BG2HOFS => io.gpu.bg_hofs[2],
+            REG_BG2VOFS => io.gpu.bg_vofs[2],
+            REG_BG3HOFS => io.gpu.bg_hofs[3],
+            REG_BG3VOFS => io.gpu.bg_vofs[3],
+
+            REG_BG2PA => io.gpu.bg_aff[0].pa as u16,
+            REG_BG2PB => io.gpu.bg_aff[0].pb as u16,
+            REG_BG2PC => io.gpu.bg_aff[0].pc as u16,
+            REG_BG2PD => io.gpu.bg_aff[0].pd as u16,
+            REG_BG3PA => io.gpu.bg_aff[1].pa as u16,
+            REG_BG3PB => io.gpu.bg_aff[1].pb as u16,
+            REG_BG3PC => io.gpu.bg_aff[1].pc as u16,
+            REG_BG3PD => io.gpu.bg_aff[1].pd as u16,
+
+            REG_BG2X_L => io.gpu.bg_aff[0].x as u16,
+            REG_BG2X_H => (io.gpu.bg_aff[0].x >> 16) as u16,
+            REG_BG2Y_L => io.gpu.bg_aff[0].y as u16,
+            REG_BG2Y_H => (io.gpu.bg_aff[0].y >> 16) as u16,
+            REG_BG3X_L => io.gpu.bg_aff[1].x as u16,
+            REG_BG3X_H => (io.gpu.bg_aff[1].x >> 16) as u16,
+            REG_BG3Y_L => io.gpu.bg_aff[1].y as u16,
+            REG_BG3Y_H => (io.gpu.bg_aff[1].y >> 16) as u16,
+
+            REG_MOSAIC => io.gpu.mosaic.0,
+            REG_BLDY => io.gpu.bldy,
 
             x if DebugPort::is_debug_access(x) => io.debug.read(io_addr),
 
