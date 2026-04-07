@@ -32,11 +32,7 @@ lazy_static! {
         for game in games {
             let game_code = String::from(game["code"].as_str().unwrap());
             let force_rtc = game["rtc"].as_bool().unwrap_or(false);
-            let save_type = if let Some(save_type) = game["save_type"].as_str() {
-                Some(BackupType::from(save_type.to_string()))
-            } else {
-                None
-            };
+            let save_type = game["save_type"].as_str().map(|save_type| BackupType::from(save_type.to_string()));
 
             let game_overrride = GameOverride {
                 force_rtc,

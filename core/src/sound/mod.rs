@@ -134,7 +134,13 @@ impl SoundController {
     }
 
     pub fn handle_read(&self, io_addr: u32) -> u16 {
-        let value = match io_addr {
+        // println!(
+        //     "Read {} ({:08x}) = {:04x}",
+        //     io_reg_string(io_addr),
+        //     io_addr,
+        //     value
+        // );
+        match io_addr {
             REG_SOUNDCNT_X => cbit(7, self.mse),
             REG_SOUNDCNT_L => {
                 self.left_volume as u16
@@ -174,14 +180,7 @@ impl SoundController {
                 // );
                 0
             }
-        };
-        // println!(
-        //     "Read {} ({:08x}) = {:04x}",
-        //     io_reg_string(io_addr),
-        //     io_addr,
-        //     value
-        // );
-        value
+        }
     }
 
     pub fn handle_write(&mut self, io_addr: u32, value: u16) {

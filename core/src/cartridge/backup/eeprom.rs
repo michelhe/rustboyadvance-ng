@@ -275,8 +275,9 @@ impl EepromController {
     pub fn new(path: Option<PathBuf>) -> EepromController {
         let mut detect = true;
         let mut eeprom_type = EepromType::Eeprom512;
-        if let Some(path) = &path {
-            if let Ok(metadata) = fs::metadata(path) {
+        if let Some(path) = &path
+            && let Ok(metadata) = fs::metadata(path)
+        {
                 let human_size = bytesize::ByteSize::b(metadata.len());
                 let assumed_type = match metadata.len() {
                     512 => EepromType::Eeprom512,
@@ -290,7 +291,6 @@ impl EepromController {
                 );
                 eeprom_type = assumed_type;
             }
-        }
 
         let mut result = EepromController::new_with_type(path, eeprom_type);
         result.detect = detect;

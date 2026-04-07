@@ -37,7 +37,7 @@ impl Gpu {
             (256, 512) => bg_y / 256,
             (512, 512) => index2d!(u32, bg_x / 256, bg_y / 256, 2),
             _ => unreachable!(),
-        } as u32;
+        };
 
         let mut se_row = (bg_x / 8) % 32;
         let se_column = (bg_y / 8) % 32;

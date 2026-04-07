@@ -236,7 +236,7 @@ impl Gpu {
 
     #[inline(always)]
     pub fn get_palette_color(&mut self, index: u32, palette_bank: u32, offset: u32) -> Rgb15 {
-        if index == 0 || (palette_bank != 0 && index % 16 == 0) {
+        if index == 0 || (palette_bank != 0 && index.is_multiple_of(16)) {
             return Rgb15::TRANSPARENT;
         }
         let value = self
