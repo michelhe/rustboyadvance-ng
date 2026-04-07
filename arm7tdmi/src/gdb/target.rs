@@ -21,17 +21,17 @@ impl<I: MemoryGdbInterface> Target for Arm7tdmiCore<I> {
     type Arch = gdbstub_arch::arm::Armv4t;
 
     #[inline(always)]
-    fn base_ops(&mut self) -> BaseOps<Self::Arch, Self::Error> {
+    fn base_ops(&mut self) -> BaseOps<'_, Self::Arch, Self::Error> {
         BaseOps::SingleThread(self)
     }
 
     // opt-in to support for setting/removing breakpoints
     #[inline(always)]
-    fn support_breakpoints(&mut self) -> Option<BreakpointsOps<Self>> {
+    fn support_breakpoints(&mut self) -> Option<BreakpointsOps<'_, Self>> {
         Some(self)
     }
 
-    fn support_memory_map(&mut self) -> Option<target::ext::memory_map::MemoryMapOps<Self>> {
+    fn support_memory_map(&mut self) -> Option<target::ext::memory_map::MemoryMapOps<'_, Self>> {
         Some(self)
     }
 }
@@ -74,7 +74,7 @@ impl<I: MemoryGdbInterface> SingleThreadBase for Arm7tdmiCore<I> {
     // most targets will want to support at resumption as well...
 
     #[inline(always)]
-    fn support_resume(&mut self) -> Option<SingleThreadResumeOps<Self>> {
+    fn support_resume(&mut self) -> Option<SingleThreadResumeOps<'_, Self>> {
         Some(self)
     }
 }

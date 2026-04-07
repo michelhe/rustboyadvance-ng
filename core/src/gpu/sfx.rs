@@ -60,9 +60,9 @@ impl Gpu {
         };
 
         if !self.dispcnt.is_using_windows() {
-            for x in 0..DISPLAY_WIDTH {
+            for (x, pixel) in output.iter_mut().enumerate() {
                 let win = WindowInfo::new(WindowType::WinNone, WindowFlags::all());
-                output[x] = self
+                *pixel = self
                     .finalize_pixel(x, y, &win, &sorted_backgrounds, backdrop_color)
                     .to_rgb24();
             }

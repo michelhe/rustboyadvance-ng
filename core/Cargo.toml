@@ -3,6 +3,7 @@ name = "rustboyadvance-core"
 version = "0.1.0"
 authors = ["Michel Heily <michelheily@gmail.com>"]
 edition = "2024"
+rust-version = "1.88"
 
 [dependencies]
 arm7tdmi = { path = '../arm7tdmi' }
