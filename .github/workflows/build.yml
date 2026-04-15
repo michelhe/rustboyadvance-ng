@@ -96,9 +96,6 @@ jobs:
         path: target
         key: ${{ runner.os }}-android-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Setup Android NDK
-      run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> $GITHUB_ENV
-
     - name: Build APK
       working-directory: ./platform/android
       run: ./gradlew assembleRelease
