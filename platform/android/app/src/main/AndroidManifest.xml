@@ -1,13 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.mrmichel.rustdroid_emu">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-feature
         android:glEsVersion="0x00200000"
         android:required="true" />
 
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <application
         android:allowBackup="true"
@@ -30,20 +33,28 @@
                 android:resource="@xml/provider_paths" />
         </provider>
 
-        <activity android:name=".ui.snapshots.SnapshotPickerActivity" />
+        <activity
+            android:name=".ui.snapshots.SnapshotPickerActivity"
+            android:exported="false" />
         <activity
             android:name=".ui.snapshots.SnapshotListFragment"
-            android:label="@string/title_activity_snapshot" />
+            android:label="@string/title_activity_snapshot"
+            android:exported="false" />
         <activity
             android:name=".ui.library.RomListActivity"
-            android:label="@string/title_activity_rom_list" />
+            android:label="@string/title_activity_rom_list"
+            android:exported="false" />
         <activity
             android:name=".ui.EmulatorActivity"
-            android:label="@string/title_activity_emulator" />
+            android:label="@string/title_activity_emulator"
+            android:exported="false" />
         <activity
             android:name=".ui.SettingsActivity"
-            android:label="Settings" />
-        <activity android:name=".ui.SplashActivity">
+            android:label="Settings"
+            android:exported="false" />
+        <activity
+            android:name=".ui.SplashActivity"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
