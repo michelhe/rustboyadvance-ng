@@ -1,34 +1,35 @@
-FROM npetrovsky/docker-android-sdk-ndk
+FROM ubuntu:22.04
 
-# Update default packages
-RUN apt-get update
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Get Ubuntu packages
-RUN apt-get install -y \
+# Install base packages
+RUN apt-get update && apt-get install -y \
     build-essential \
-    curl
+    curl \
+    wget \
+    unzip \
+    openjdk-17-jdk \
+    && rm -rf /var/lib/apt/lists/*
 
-# Update new packages
-RUN apt-get update
+# Android SDK
+ENV ANDROID_SDK_ROOT=/opt/android-sdk
+RUN mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
 
-# Get Rust
+RUN wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip \
+    && unzip -q /tmp/cmdline-tools.zip -d $ANDROID_SDK_ROOT/cmdline-tools \
+    && mv $ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools $ANDROID_SDK_ROOT/cmdline-tools/latest \
+    && rm /tmp/cmdline-tools.zip
+
+ENV PATH="$PATH:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools"
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+
+RUN yes | sdkmanager --licenses && \
+    sdkmanager "platforms;android-36" "build-tools;35.0.0" "ndk;27.2.12479018"
+
+ENV ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018
+
+# Rust
 RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
+ENV PATH="$PATH:/root/.cargo/bin"
 
-RUN echo 'source $HOME/.cargo/env' >> $HOME/.bashrc
-
-RUN . $HOME/.cargo/env && rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android
-
-ENV NDK=$ANDROID_HOME/ndk-bundle
-
-RUN echo \
-        '[target.aarch64-linux-android]\n'\ 
-        'ar = "/opt/android-sdk-linux/ndk-bundle/toolchains/llvm/prebuilt/linux-x86_64/aarch64-linux-android/bin/ar "\n'\
-        'linker = "/opt/android-sdk-linux/ndk-bundle/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang"\n'\
-        \
-        '[target.armv7-linux-androideabi]\n'\
-        'ar = "/opt/android-sdk-linux/ndk-bundle/toolchains/llvm/prebuilt/linux-x86_64/arm-linux-androideabi/bin/ar "\n'\
-        'linker = "/opt/android-sdk-linux/ndk-bundle/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi26-clang"\n'\
-        \
-        '[target.i686-linux-android]\n'\
-        'ar = "/opt/android-sdk-linux/ndk-bundle/toolchains/llvm/prebuilt/linux-x86_64/i386-linux-android/bin/ar"\n'\
-        'linker = "/opt/android-sdk-linux/ndk-bundle/toolchains/llvm/prebuilt/linux-x86_64/bin/i686-linux-android26-clang"' > $HOME/.cargo/config
+RUN rustup target add aarch64-linux-android x86_64-linux-android
