@@ -37,10 +37,6 @@
             android:name=".ui.snapshots.SnapshotPickerActivity"
             android:exported="false" />
         <activity
-            android:name=".ui.snapshots.SnapshotListFragment"
-            android:label="@string/title_activity_snapshot"
-            android:exported="false" />
-        <activity
             android:name=".ui.library.RomListActivity"
             android:label="@string/title_activity_rom_list"
             android:exported="false" />
