@@ -101,36 +101,36 @@ public class RomListActivity extends AppCompatActivity {
 
         selectedEntry = entry;
 
-        switch (item.getItemId()) {
-            case R.id.action_play:
-                romManager.updateLastPlayed(entry.getId());
-                Util.startEmulator(this, this.bios, entry.getId());
-                this.itemAdapter.notifyDataSetChanged();
-                return true;
-            case R.id.action_delete:
-                romManager.deleteRomMetadata(itemAdapter.getItem(menuInfo.position));
-                return true;
-            case R.id.action_set_screenshot:
-                Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-                intent.setType("image/*");
-                intent.putExtra("romId", entry.getId());
-                startActivityForResult(intent, REQUEST_SET_IMAGE);
-                return true;
-            case R.id.action_export_save_file:
-                File backupFile = entry.getBackupFile();
-                try {
-                    Util.shareFile(this, backupFile, "Sending " + backupFile.getName());
-                } catch (FileNotFoundException e) {
-                    Util.showAlertDialog(this, e);
-                }
-                return true;
-            case R.id.action_import_save_file:
-                intent = new Intent(Intent.ACTION_GET_CONTENT);
-                intent.setType("*/*");
-                startActivityForResult(intent, REQUEST_IMPORT_SAVE);
-                return true;
-            default:
-                return super.onContextItemSelected(item);
+        int id = item.getItemId();
+        if (id == R.id.action_play) {
+            romManager.updateLastPlayed(entry.getId());
+            Util.startEmulator(this, this.bios, entry.getId());
+            this.itemAdapter.notifyDataSetChanged();
+            return true;
+        } else if (id == R.id.action_delete) {
+            romManager.deleteRomMetadata(itemAdapter.getItem(menuInfo.position));
+            return true;
+        } else if (id == R.id.action_set_screenshot) {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.setType("image/*");
+            intent.putExtra("romId", entry.getId());
+            startActivityForResult(intent, REQUEST_SET_IMAGE);
+            return true;
+        } else if (id == R.id.action_export_save_file) {
+            File backupFile = entry.getBackupFile();
+            try {
+                Util.shareFile(this, backupFile, "Sending " + backupFile.getName());
+            } catch (FileNotFoundException e) {
+                Util.showAlertDialog(this, e);
+            }
+            return true;
+        } else if (id == R.id.action_import_save_file) {
+            Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+            intent.setType("*/*");
+            startActivityForResult(intent, REQUEST_IMPORT_SAVE);
+            return true;
+        } else {
+            return super.onContextItemSelected(item);
         }
     }
 
@@ -143,19 +143,19 @@ public class RomListActivity extends AppCompatActivity {
 
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
-        switch (item.getItemId()) {
-            case R.id.action_import_rom:
-                doImportRom();
-                return true;
-            case R.id.action_import_directory:
-                doImportDirectory();
-                return true;
-            case R.id.action_settings:
-                Intent intent = new Intent(this, SettingsActivity.class);
-                startActivity(intent);
-                return true;
-            default:
-                return super.onOptionsItemSelected(item);
+        int id = item.getItemId();
+        if (id == R.id.action_import_rom) {
+            doImportRom();
+            return true;
+        } else if (id == R.id.action_import_directory) {
+            doImportDirectory();
+            return true;
+        } else if (id == R.id.action_settings) {
+            Intent intent = new Intent(this, SettingsActivity.class);
+            startActivity(intent);
+            return true;
+        } else {
+            return super.onOptionsItemSelected(item);
         }
     }
 
