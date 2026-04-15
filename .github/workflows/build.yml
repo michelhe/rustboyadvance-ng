@@ -96,15 +96,26 @@ jobs:
         path: target
         key: ${{ runner.os }}-android-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
+    - name: Decode keystore
+      run: |
+        if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ runner.temp }}/release.keystore
+        fi
+
     - name: Build APK
       working-directory: ./platform/android
       run: ./gradlew assembleRelease
+      env:
+        KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: rustdroid.apk
-        path: ./platform/android/app/build/outputs/apk/release/app-release-unsigned.apk
+        path: ./platform/android/app/build/outputs/apk/release/app-release.apk
 
   build-windows-64:
 
