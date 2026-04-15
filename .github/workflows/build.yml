@@ -6,6 +6,12 @@ on:
     branches:
       - master
 
+env:
+  ANDROID_NDK_VERSION: "27.2.12479018"
+
+permissions:
+  contents: read
+
 jobs:
   build-linux:
 
@@ -76,8 +82,8 @@ jobs:
 
     - name: Install Android NDK
       run: |
-        echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --install "ndk;27.2.12479018"
-        echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> $GITHUB_ENV
+        echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --install "ndk;${{ env.ANDROID_NDK_VERSION }}"
+        echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${{ env.ANDROID_NDK_VERSION }}" >> $GITHUB_ENV
 
     - name: Install Rust targets
       run: rustup target add aarch64-linux-android x86_64-linux-android

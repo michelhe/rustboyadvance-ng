@@ -1,9 +1,12 @@
 apply plugin: 'com.android.application'
 
+// NDK version must match the ANDROID_NDK_VERSION env variable in .github/workflows/build.yml
+def ndkVersionStr = "27.2.12479018"
+
 android {
     namespace "com.mrmichel.rustdroid_emu"
     compileSdkVersion 36
-    ndkVersion "27.2.12479018"
+    ndkVersion ndkVersionStr
     defaultConfig {
         applicationId "com.mrmichel.rustdroid_emu"
         minSdkVersion 21
