@@ -97,9 +97,7 @@ jobs:
         key: ${{ runner.os }}-android-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Setup Android NDK
-      run: |
-        $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "ndk;27.2.12479018"
-        echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> $GITHUB_ENV
+      run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_HOME" >> $GITHUB_ENV
 
     - name: Build APK
       working-directory: ./platform/android
