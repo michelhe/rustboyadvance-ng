@@ -75,37 +75,27 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
     @Override
     public boolean onTouch(View v, MotionEvent event) {
         Keypad.Key key = null;
-        switch (v.getId()) {
-            case R.id.bDpadUp:
-                key = Keypad.Key.Up;
-                break;
-            case R.id.bDpadDown:
-                key = Keypad.Key.Down;
-                break;
-            case R.id.bDpadLeft:
-                key = Keypad.Key.Left;
-                break;
-            case R.id.bDpadRight:
-                key = Keypad.Key.Right;
-                break;
-            case R.id.buttonA:
-                key = Keypad.Key.ButtonA;
-                break;
-            case R.id.buttonB:
-                key = Keypad.Key.ButtonB;
-                break;
-            case R.id.buttonL:
-                key = Keypad.Key.ButtonL;
-                break;
-            case R.id.buttonR:
-                key = Keypad.Key.ButtonR;
-                break;
-            case R.id.bStart:
-                key = Keypad.Key.Start;
-                break;
-            case R.id.bSelect:
-                key = Keypad.Key.Select;
-                break;
+        int vid = v.getId();
+        if (vid == R.id.bDpadUp) {
+            key = Keypad.Key.Up;
+        } else if (vid == R.id.bDpadDown) {
+            key = Keypad.Key.Down;
+        } else if (vid == R.id.bDpadLeft) {
+            key = Keypad.Key.Left;
+        } else if (vid == R.id.bDpadRight) {
+            key = Keypad.Key.Right;
+        } else if (vid == R.id.buttonA) {
+            key = Keypad.Key.ButtonA;
+        } else if (vid == R.id.buttonB) {
+            key = Keypad.Key.ButtonB;
+        } else if (vid == R.id.buttonL) {
+            key = Keypad.Key.ButtonL;
+        } else if (vid == R.id.buttonR) {
+            key = Keypad.Key.ButtonR;
+        } else if (vid == R.id.bStart) {
+            key = Keypad.Key.Start;
+        } else if (vid == R.id.bSelect) {
+            key = Keypad.Key.Select;
         }
         int action = event.getAction();
         if (key != null) {
@@ -409,25 +399,25 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
 
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
-        switch (item.getItemId()) {
-            case R.id.action_load_rom:
-                doLoadRom();
-                return true;
-            case R.id.action_view_snapshots:
-                doViewSnapshots();
-                return true;
-            case R.id.action_save_snapshot:
-                doSaveSnapshot();
-                return true;
-            case R.id.action_set_library_image:
-                doSaveScreenshotToLibrary();
-                return true;
-            case R.id.action_settings:
-                Intent intent = new Intent(this, SettingsActivity.class);
-                startActivity(intent);
-                return true;
-            default:
-                return super.onOptionsItemSelected(item);
+        int id = item.getItemId();
+        if (id == R.id.action_load_rom) {
+            doLoadRom();
+            return true;
+        } else if (id == R.id.action_view_snapshots) {
+            doViewSnapshots();
+            return true;
+        } else if (id == R.id.action_save_snapshot) {
+            doSaveSnapshot();
+            return true;
+        } else if (id == R.id.action_set_library_image) {
+            doSaveScreenshotToLibrary();
+            return true;
+        } else if (id == R.id.action_settings) {
+            Intent intent = new Intent(this, SettingsActivity.class);
+            startActivity(intent);
+            return true;
+        } else {
+            return super.onOptionsItemSelected(item);
         }
     }
 
