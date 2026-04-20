@@ -34,3 +34,24 @@ debugger = []
 # wrapper overhead from the hot path. Accuracy is preserved — the scheduler still
 # sees per-memory-access cycle advancement as it does today.
 cached_interp = []
+# Enables the Cranelift-based ARM→native-code dynarec. Extends cached_interp
+# with a codegen backend that compiles hot ARM data-processing instructions to
+# host machine code. Cranelift is a heavy dep, so gate strictly behind this
+# feature; the default build is unchanged.
+dynarec = ["cached_interp", "dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit", "dep:cranelift-native"]
+
+[dependencies.cranelift]
+version = "0.122"
+optional = true
+
+[dependencies.cranelift-module]
+version = "0.122"
+optional = true
+
+[dependencies.cranelift-jit]
+version = "0.122"
+optional = true
+
+[dependencies.cranelift-native]
+version = "0.122"
+optional = true

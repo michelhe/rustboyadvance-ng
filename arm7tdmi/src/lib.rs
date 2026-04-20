@@ -17,6 +17,8 @@ use thumb::ThumbInstruction;
 
 #[cfg(feature = "cached_interp")]
 pub mod cache;
+#[cfg(feature = "dynarec")]
+pub mod dynarec;
 pub mod cpu;
 pub use cpu::*;
 pub mod alu;
