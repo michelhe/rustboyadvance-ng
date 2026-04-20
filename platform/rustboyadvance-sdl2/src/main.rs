@@ -87,7 +87,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut renderer = video::init(&sdl_context)?;
-    let (audio_interface, mut _sdl_audio_device) = audio::create_audio_player(&sdl_context)?;
+    let (audio_interface, mut _sdl_audio_device) = audio::create_audio_player(&sdl_context);
     let rom_name = opts.rom_name();
 
     let bios_bin = load_bios(&opts.bios);
@@ -175,7 +175,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let save = read_bin_file(&opts.savestate_path())?;
                             info!("Restoring state from {:?}...", opts.savestate_path());
                             let (audio_interface, _sdl_audio_device_new) =
-                                audio::create_audio_player(&sdl_context)?;
+                                audio::create_audio_player(&sdl_context);
                             _sdl_audio_device = _sdl_audio_device_new;
                             let rom = match load_from_file(&opts.rom)? {
                                 LoadRom::Raw(data) => data.into_boxed_slice(),
