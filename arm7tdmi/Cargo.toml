@@ -28,3 +28,8 @@ bit = "0.1.1"
 
 [features]
 debugger = []
+# Enables a block-granular cached interpreter: decoded instructions and resolved
+# handler fn pointers are memoized by entry-PC, removing the LUT hash + single_step
+# wrapper overhead from the hot path. Accuracy is preserved — the scheduler still
+# sees per-memory-access cycle advancement as it does today.
+cached_interp = []
