@@ -550,6 +550,10 @@ impl DynarecCompiler {
                 self.module.declare_func_in_func(imports.load_32, builder.func);
             let store_32_ref =
                 self.module.declare_func_in_func(imports.store_32, builder.func);
+            let load_8_ref =
+                self.module.declare_func_in_func(imports.load_8, builder.func);
+            let store_8_ref =
+                self.module.declare_func_in_func(imports.store_8, builder.func);
 
             for item in &items {
                 match item {
@@ -564,6 +568,8 @@ impl DynarecCompiler {
                             cpu_ctx,
                             load_32_ref,
                             store_32_ref,
+                            load_8_ref,
+                            store_8_ref,
                             *mem,
                         );
                     }
@@ -594,11 +600,10 @@ impl DynarecCompiler {
         })
     }
 
-    /// Classify an ARM LDR / STR immediate (word size, pre indexed, no
-    /// writeback) opcode. Encoding:
+    /// Classify an ARM LDR / STR immediate opcode. Encoding:
     ///   cond[31:28] | 01[27:26] | 0[25=I] P U B W L [Rn] [Rd] imm12
-    /// Word loads/stores require B=0. Pre indexed P=1, positive offset U=1,
-    /// no writeback W=0. Only positive add offsets supported for now.
+    /// Required: pre indexed (P=1), no writeback (W=0), immediate form (I=0).
+    /// B=0 is word, B=1 is unsigned byte. U picks add vs subtract.
     fn decode_mem_immediate(insn: u32) -> Option<DecodedMem> {
         let cond_bits = (insn >> 28) & 0xf;
         if cond_bits == 0xF {
@@ -618,9 +623,8 @@ impl DynarecCompiler {
         let w = (insn >> 21) & 1 != 0;
         let l = (insn >> 20) & 1 != 0;
 
-        // Tight subset for the first pass: pre indexed, positive offset,
-        // word size, no writeback.
-        if !p || !u || b || w {
+        // Pre indexed, no writeback. U and B both accepted now.
+        if !p || w {
             return None;
         }
 
@@ -631,6 +635,8 @@ impl DynarecCompiler {
         Some(DecodedMem {
             cond: ArmCond::from_bits(cond_bits as u8),
             load: l,
+            byte: b,
+            add: u,
             rd,
             rn,
             offset: imm12,
@@ -873,14 +879,18 @@ struct DecodedBranch {
     offset24_signed: i32,
 }
 
-/// A decoded ARM single word LDR / STR immediate instruction (pre indexed,
-/// positive offset, no writeback). The dynarec emits this by calling into
-/// the bus trampolines at runtime.
+/// A decoded ARM LDR / STR immediate instruction. Pre indexed, no writeback,
+/// any offset sign, either word or byte size. The dynarec emits this by
+/// calling into the bus trampolines at runtime.
 #[derive(Clone, Copy, Debug)]
 struct DecodedMem {
     cond: ArmCond,
     /// true = LDR, false = STR
     load: bool,
+    /// true = byte, false = word.
+    byte: bool,
+    /// true = add offset to base, false = subtract.
+    add: bool,
     rd: i32,
     rn: i32,
     offset: u32,
@@ -1015,9 +1025,10 @@ fn emit_conditional_instr(
     builder.seal_block(merge);
 }
 
-/// Emit a conditionally executed LDR / STR immediate. Loads rn, adds the
-/// constant offset, then either calls the load_32 trampoline and stores the
-/// returned value into gpr[rd], or reads gpr[rd] and calls store_32.
+/// Emit a conditionally executed LDR / STR immediate. Loads rn, adjusts by
+/// the signed offset, then calls the right size trampoline (load_32 /
+/// store_32 for word, load_8 / store_8 for byte). For LDR the returned value
+/// is stored into gpr[rd]; for STR the value from gpr[rd] is passed out.
 fn emit_conditional_mem(
     builder: &mut FunctionBuilder,
     gpr_ptr: Value,
@@ -1025,10 +1036,16 @@ fn emit_conditional_mem(
     cpu_ctx: Value,
     load_32_ref: cranelift::codegen::ir::FuncRef,
     store_32_ref: cranelift::codegen::ir::FuncRef,
+    load_8_ref: cranelift::codegen::ir::FuncRef,
+    store_8_ref: cranelift::codegen::ir::FuncRef,
     dec: DecodedMem,
 ) {
     if dec.cond == ArmCond::Al {
-        emit_mem_body(builder, gpr_ptr, cpu_ctx, load_32_ref, store_32_ref, dec);
+        emit_mem_body(
+            builder, gpr_ptr, cpu_ctx,
+            load_32_ref, store_32_ref, load_8_ref, store_8_ref,
+            dec,
+        );
         return;
     }
 
@@ -1038,7 +1055,11 @@ fn emit_conditional_mem(
     builder.ins().brif(cond_result, body, &[], merge, &[]);
     builder.switch_to_block(body);
     builder.seal_block(body);
-    emit_mem_body(builder, gpr_ptr, cpu_ctx, load_32_ref, store_32_ref, dec);
+    emit_mem_body(
+        builder, gpr_ptr, cpu_ctx,
+        load_32_ref, store_32_ref, load_8_ref, store_8_ref,
+        dec,
+    );
     builder.ins().jump(merge, &[]);
     builder.switch_to_block(merge);
     builder.seal_block(merge);
@@ -1050,9 +1071,11 @@ fn emit_mem_body(
     cpu_ctx: Value,
     load_32_ref: cranelift::codegen::ir::FuncRef,
     store_32_ref: cranelift::codegen::ir::FuncRef,
+    load_8_ref: cranelift::codegen::ir::FuncRef,
+    store_8_ref: cranelift::codegen::ir::FuncRef,
     dec: DecodedMem,
 ) {
-    // addr = gpr[rn] + imm12
+    // addr = gpr[rn] +/- imm12  (U bit from encoding picks add vs sub).
     let rn_val = builder.ins().load(
         types::I32,
         MemFlags::trusted(),
@@ -1060,27 +1083,58 @@ fn emit_mem_body(
         Offset32::new(dec.rn * 4),
     );
     let offset = builder.ins().iconst(types::I32, dec.offset as i64);
-    let addr = builder.ins().iadd(rn_val, offset);
-
-    if dec.load {
-        // gpr[rd] = bus_load_32(cpu_ctx, addr)
-        let call = builder.ins().call(load_32_ref, &[cpu_ctx, addr]);
-        let loaded = builder.inst_results(call)[0];
-        builder.ins().store(
-            MemFlags::trusted(),
-            loaded,
-            gpr_ptr,
-            Offset32::new(dec.rd * 4),
-        );
+    let addr = if dec.add {
+        builder.ins().iadd(rn_val, offset)
     } else {
-        // bus_store_32(cpu_ctx, addr, gpr[rd])
-        let rd_val = builder.ins().load(
-            types::I32,
-            MemFlags::trusted(),
-            gpr_ptr,
-            Offset32::new(dec.rd * 4),
-        );
-        builder.ins().call(store_32_ref, &[cpu_ctx, addr, rd_val]);
+        builder.ins().isub(rn_val, offset)
+    };
+
+    match (dec.load, dec.byte) {
+        (true, false) => {
+            let call = builder.ins().call(load_32_ref, &[cpu_ctx, addr]);
+            let loaded = builder.inst_results(call)[0];
+            builder.ins().store(
+                MemFlags::trusted(),
+                loaded,
+                gpr_ptr,
+                Offset32::new(dec.rd * 4),
+            );
+        }
+        (true, true) => {
+            // LDRB returns u32 zero extended via the u32 sig on the
+            // trampoline. Mask to 8 bits on the trampoline side; here we
+            // just store what comes back.
+            let call = builder.ins().call(load_8_ref, &[cpu_ctx, addr]);
+            let loaded = builder.inst_results(call)[0];
+            let byte_only = builder.ins().band_imm(loaded, 0xff);
+            builder.ins().store(
+                MemFlags::trusted(),
+                byte_only,
+                gpr_ptr,
+                Offset32::new(dec.rd * 4),
+            );
+        }
+        (false, false) => {
+            let rd_val = builder.ins().load(
+                types::I32,
+                MemFlags::trusted(),
+                gpr_ptr,
+                Offset32::new(dec.rd * 4),
+            );
+            builder.ins().call(store_32_ref, &[cpu_ctx, addr, rd_val]);
+        }
+        (false, true) => {
+            let rd_val = builder.ins().load(
+                types::I32,
+                MemFlags::trusted(),
+                gpr_ptr,
+                Offset32::new(dec.rd * 4),
+            );
+            // STRB writes only the low byte. Trampoline is responsible for
+            // truncation; we mask here too so the contract is explicit.
+            let byte_val = builder.ins().band_imm(rd_val, 0xff);
+            builder.ins().call(store_8_ref, &[cpu_ctx, addr, byte_val]);
+        }
     }
 }
 
@@ -1918,36 +1972,114 @@ mod tests {
 
     #[test]
     fn decode_ldr_str_immediate_shapes() {
-        // LDR R1, [R0, #4]     ->  cond=AL(E), 01_0_1_1_0_0_1 (=0x59), Rn=0, Rd=1, imm12=4
-        //   E5_90_10_04
+        // LDR R1, [R0, #4]  ->  E5_90_10_04
         let ldr = 0xE590_1004u32;
         let d = DynarecCompiler::decode_mem_immediate(ldr).expect("LDR");
         assert_eq!(d.cond, ArmCond::Al);
         assert_eq!(d.load, true);
+        assert_eq!(d.byte, false);
+        assert_eq!(d.add, true);
         assert_eq!(d.rn, 0);
         assert_eq!(d.rd, 1);
         assert_eq!(d.offset, 4);
 
-        // STR R2, [R3, #0x20] -> cond=AL, 01_0_1_1_0_0_0 (=0x58), Rn=3, Rd=2, imm12=0x20
-        //   E5_83_20_20
+        // STR R2, [R3, #0x20]  ->  E5_83_20_20
         let str_ = 0xE583_2020u32;
         let d = DynarecCompiler::decode_mem_immediate(str_).expect("STR");
         assert_eq!(d.load, false);
+        assert_eq!(d.byte, false);
         assert_eq!(d.rn, 3);
         assert_eq!(d.rd, 2);
-        assert_eq!(d.offset, 0x20);
 
-        // LDRB should be rejected (B=1, outside the word subset).
+        // LDRB R1, [R0, #4]  B=1  ->  E5_D0_10_04
         let ldrb = 0xE5D0_1004u32;
-        assert!(DynarecCompiler::decode_mem_immediate(ldrb).is_none());
+        let d = DynarecCompiler::decode_mem_immediate(ldrb).expect("LDRB");
+        assert_eq!(d.load, true);
+        assert_eq!(d.byte, true);
+        assert_eq!(d.offset, 4);
 
-        // LDR with writeback (W=1) rejected.
+        // STRB R1, [R0, #4]  B=1,L=0  ->  E5_C0_10_04
+        let strb = 0xE5C0_1004u32;
+        let d = DynarecCompiler::decode_mem_immediate(strb).expect("STRB");
+        assert_eq!(d.load, false);
+        assert_eq!(d.byte, true);
+
+        // LDR with negative offset (U=0) accepted now.
+        //   E5_10_10_04
+        let ldr_neg = 0xE510_1004u32;
+        let d = DynarecCompiler::decode_mem_immediate(ldr_neg).expect("LDR -ve");
+        assert_eq!(d.add, false);
+        assert_eq!(d.offset, 4);
+
+        // Writeback (W=1) still rejected.
         let ldr_wb = 0xE5B0_1004u32;
         assert!(DynarecCompiler::decode_mem_immediate(ldr_wb).is_none());
 
-        // LDR with negative offset (U=0) rejected.
+        // Post indexed (P=0) still rejected.
+        let ldr_post = 0xE490_1004u32;
+        assert!(DynarecCompiler::decode_mem_immediate(ldr_post).is_none());
+    }
+
+    #[test]
+    fn compile_ldrb_reads_byte_zero_extended() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        unsafe {
+            let b = &mut *bus.bytes.get();
+            b[0x40] = 0xAB;
+        }
+        // LDRB R1, [R0, #0x40]
+        let ldrb = 0xE5D0_1040u32;
+        let func = compiler
+            .try_compile_mem_block(&[ldrb])
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[1] = 0xDEADBEEF;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr, &bus as *const TestBus as *mut u8);
+        assert_eq!(gpr[1], 0x0000_00ABu32, "LDRB zero extends");
+    }
+
+    #[test]
+    fn compile_strb_truncates_to_byte() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        // STRB R2, [R0, #0x50]
+        let strb = 0xE5C0_2050u32;
+        let func = compiler
+            .try_compile_mem_block(&[strb])
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[0] = 0;
+        gpr[2] = 0x1234_5678;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr, &bus as *const TestBus as *mut u8);
+        unsafe {
+            let b = &*bus.bytes.get();
+            assert_eq!(b[0x50], 0x78, "low byte only");
+            assert_eq!(b[0x51], 0, "neighbour untouched");
+        }
+    }
+
+    #[test]
+    fn compile_ldr_negative_offset() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        unsafe {
+            let b = &mut *bus.bytes.get();
+            b[0x60] = 0x01; b[0x61] = 0x02; b[0x62] = 0x03; b[0x63] = 0x04;
+        }
+        // LDR R1, [R0, #-4]  R0 starts at 0x64, addr = 0x60
+        //   E5_10_10_04
         let ldr_neg = 0xE510_1004u32;
-        assert!(DynarecCompiler::decode_mem_immediate(ldr_neg).is_none());
+        let func = compiler
+            .try_compile_mem_block(&[ldr_neg])
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[0] = 0x64;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr, &bus as *const TestBus as *mut u8);
+        assert_eq!(gpr[1], 0x0403_0201u32);
     }
 
     #[test]
