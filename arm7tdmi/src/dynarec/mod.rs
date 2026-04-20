@@ -69,7 +69,7 @@ impl DynarecCompiler {
     }
 
     /// Compile a sequence of supported ARM data-processing instructions
-    /// into native code. Supported shapes (all AL-condition, S=0):
+    /// into native code. Supported shapes (all with S=0):
     ///
     /// Immediate form (I=1):
     ///   - MOV Rd, #imm          op=1101
@@ -83,14 +83,17 @@ impl DynarecCompiler {
     ///   - ADD Rd, Rn, Rm
     ///   - SUB Rd, Rn, Rm
     ///
-    /// The returned function takes a pointer to the CPU's gpr array.
-    /// Returns `None` if any opcode is not one of the supported shapes —
-    /// the caller should then fall back to the interpreter replay path
-    /// for this block.
+    /// Every ARM condition code (EQ/NE/HS/LO/MI/PL/VS/VC/HI/LS/GE/LT/GT/LE/AL)
+    /// is supported; each instruction is wrapped in a runtime NZCV-flag
+    /// check that skips the body if the condition fails.
+    ///
+    /// The returned function takes a pointer to the CPU's gpr array AND the
+    /// current CPSR value (as a u32). Returns `None` if any opcode is not
+    /// one of the supported shapes.
     pub fn try_compile_imm_block(
         &mut self,
         opcodes: &[u32],
-    ) -> Option<extern "C" fn(*mut u32)> {
+    ) -> Option<extern "C" fn(*mut u32, u32)> {
         // Validate every opcode up front so we don't create a half-defined
         // function we then have to tear down.
         for &insn in opcodes {
@@ -101,7 +104,8 @@ impl DynarecCompiler {
 
         let ptr_type = self.module.isa().pointer_type();
         let mut sig = self.module.make_signature();
-        sig.params.push(AbiParam::new(ptr_type));
+        sig.params.push(AbiParam::new(ptr_type));      // gpr_ptr
+        sig.params.push(AbiParam::new(types::I32));    // cpsr
 
         self.next_id += 1;
         let name = format!("dynarec_imm_block_{}", self.next_id);
@@ -120,10 +124,11 @@ impl DynarecCompiler {
             builder.seal_block(entry);
 
             let gpr_ptr = builder.block_params(entry)[0];
+            let cpsr = builder.block_params(entry)[1];
 
             for &insn in opcodes {
                 let dec = Self::decode_supported_dp(insn).expect("pre-validated");
-                emit_data_processing_imm(&mut builder, gpr_ptr, dec);
+                emit_conditional_instr(&mut builder, gpr_ptr, cpsr, dec);
             }
 
             builder.ins().return_(&[]);
@@ -141,7 +146,7 @@ impl DynarecCompiler {
         let code = self.module.get_finalized_function(func_id);
         // SAFETY: declared signature matches the transmute target.
         Some(unsafe {
-            std::mem::transmute::<*const u8, extern "C" fn(*mut u32)>(code)
+            std::mem::transmute::<*const u8, extern "C" fn(*mut u32, u32)>(code)
         })
     }
 
@@ -149,10 +154,12 @@ impl DynarecCompiler {
     /// (immediate or register with no shift). Returns the decoded fields
     /// needed for codegen, or None for any unsupported encoding.
     fn decode_supported_dp(insn: u32) -> Option<DecodedDp> {
-        let cond = (insn >> 28) & 0xf;
-        if cond != 0xE {
+        let cond_bits = (insn >> 28) & 0xf;
+        // NV (0xF) is reserved / invalid in ARMv4; skip.
+        if cond_bits == 0xF {
             return None;
         }
+        let cond = ArmCond::from_bits(cond_bits as u8);
         let class = (insn >> 20) & 0xff;
         // Data-processing bits [27:26] = 0b00, S=0 (class bit 0).
         // Immediate form has bit 5 (of class) = 1 (= insn bit 25 = I).
@@ -195,7 +202,7 @@ impl DynarecCompiler {
             Operand2::Reg(rm)
         };
 
-        Some(DecodedDp { op, rd, rn, operand2 })
+        Some(DecodedDp { cond, op, rd, rn, operand2 })
     }
 
     /// Compile a stub function that reads `gpr[1]` and writes it into
@@ -282,10 +289,127 @@ enum Operand2 {
 
 #[derive(Clone, Copy, Debug)]
 struct DecodedDp {
+    cond: ArmCond,
     op: DpOp,
     rd: i32,
     rn: i32,
     operand2: Operand2,
+}
+
+/// ARM condition-code mnemonics. Evaluated against the NZCV bits of CPSR
+/// before each instruction body runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ArmCond {
+    Eq, Ne, Hs, Lo, Mi, Pl, Vs, Vc,
+    Hi, Ls, Ge, Lt, Gt, Le, Al,
+}
+
+impl ArmCond {
+    fn from_bits(bits: u8) -> Self {
+        use ArmCond::*;
+        match bits & 0xf {
+            0x0 => Eq, 0x1 => Ne, 0x2 => Hs, 0x3 => Lo,
+            0x4 => Mi, 0x5 => Pl, 0x6 => Vs, 0x7 => Vc,
+            0x8 => Hi, 0x9 => Ls, 0xA => Ge, 0xB => Lt,
+            0xC => Gt, 0xD => Le, 0xE => Al,
+            _ => Al, // 0xF handled upstream
+        }
+    }
+}
+
+/// Emit Cranelift IR that evaluates an ARM condition code against the CPSR
+/// value in `cpsr` and returns a `bool` (i8 in IR) that's true when the
+/// condition passes.
+fn emit_cond_check(
+    builder: &mut FunctionBuilder,
+    cpsr: Value,
+    cond: ArmCond,
+) -> Value {
+    // Flag bit positions in CPSR: N=31, Z=30, C=29, V=28.
+    let one = builder.ins().iconst(types::I32, 1);
+    let n = {
+        let shifted = builder.ins().ushr_imm(cpsr, 31);
+        builder.ins().band(shifted, one)
+    };
+    let z = {
+        let shifted = builder.ins().ushr_imm(cpsr, 30);
+        builder.ins().band(shifted, one)
+    };
+    let c = {
+        let shifted = builder.ins().ushr_imm(cpsr, 29);
+        builder.ins().band(shifted, one)
+    };
+    let v = {
+        let shifted = builder.ins().ushr_imm(cpsr, 28);
+        builder.ins().band(shifted, one)
+    };
+    let zero = builder.ins().iconst(types::I32, 0);
+
+    let true_val = builder.ins().iconst(types::I8, 1);
+
+    match cond {
+        ArmCond::Al => true_val,
+        ArmCond::Eq => builder.ins().icmp(IntCC::NotEqual, z, zero),
+        ArmCond::Ne => builder.ins().icmp(IntCC::Equal, z, zero),
+        ArmCond::Hs => builder.ins().icmp(IntCC::NotEqual, c, zero),
+        ArmCond::Lo => builder.ins().icmp(IntCC::Equal, c, zero),
+        ArmCond::Mi => builder.ins().icmp(IntCC::NotEqual, n, zero),
+        ArmCond::Pl => builder.ins().icmp(IntCC::Equal, n, zero),
+        ArmCond::Vs => builder.ins().icmp(IntCC::NotEqual, v, zero),
+        ArmCond::Vc => builder.ins().icmp(IntCC::Equal, v, zero),
+        ArmCond::Hi => {
+            // C=1 && Z=0
+            let c_set = builder.ins().icmp(IntCC::NotEqual, c, zero);
+            let z_clear = builder.ins().icmp(IntCC::Equal, z, zero);
+            builder.ins().band(c_set, z_clear)
+        }
+        ArmCond::Ls => {
+            // C=0 || Z=1
+            let c_clear = builder.ins().icmp(IntCC::Equal, c, zero);
+            let z_set = builder.ins().icmp(IntCC::NotEqual, z, zero);
+            builder.ins().bor(c_clear, z_set)
+        }
+        ArmCond::Ge => builder.ins().icmp(IntCC::Equal, n, v),
+        ArmCond::Lt => builder.ins().icmp(IntCC::NotEqual, n, v),
+        ArmCond::Gt => {
+            // Z=0 && N==V
+            let z_clear = builder.ins().icmp(IntCC::Equal, z, zero);
+            let nv_eq = builder.ins().icmp(IntCC::Equal, n, v);
+            builder.ins().band(z_clear, nv_eq)
+        }
+        ArmCond::Le => {
+            // Z=1 || N!=V
+            let z_set = builder.ins().icmp(IntCC::NotEqual, z, zero);
+            let nv_ne = builder.ins().icmp(IntCC::NotEqual, n, v);
+            builder.ins().bor(z_set, nv_ne)
+        }
+    }
+}
+
+/// Emit a conditionally-executed data-processing instruction. For AL cond
+/// this is the same as emit_data_processing_imm; for any other cond we
+/// wrap the body in a brif/skip pattern.
+fn emit_conditional_instr(
+    builder: &mut FunctionBuilder,
+    gpr_ptr: Value,
+    cpsr: Value,
+    dec: DecodedDp,
+) {
+    if dec.cond == ArmCond::Al {
+        emit_data_processing_imm(builder, gpr_ptr, dec);
+        return;
+    }
+
+    let cond_result = emit_cond_check(builder, cpsr, dec.cond);
+    let body = builder.create_block();
+    let merge = builder.create_block();
+    builder.ins().brif(cond_result, body, &[], merge, &[]);
+    builder.switch_to_block(body);
+    builder.seal_block(body);
+    emit_data_processing_imm(builder, gpr_ptr, dec);
+    builder.ins().jump(merge, &[]);
+    builder.switch_to_block(merge);
+    builder.seal_block(merge);
 }
 
 /// Emit Cranelift IR for a single decoded data-processing instruction
@@ -385,7 +509,8 @@ mod tests {
             .try_compile_imm_block(opcodes)
             .expect("dynarec should support these opcodes");
         let mut dyn_gpr = initial_gpr;
-        func(dyn_gpr.as_mut_ptr());
+        // AL condition on every instr → cpsr value doesn't matter, pass 0.
+        func(dyn_gpr.as_mut_ptr(), 0);
 
         assert_eq!(
             dyn_gpr, interp_gpr,
@@ -465,7 +590,7 @@ mod tests {
         for v in gpr.iter_mut() {
             *v = 0xFFFF_FFFF;
         }
-        func(gpr.as_mut_ptr());
+        func(gpr.as_mut_ptr(), 0);
         assert_eq!(gpr[0], 1);
         assert_eq!(gpr[1], 2);
         assert_eq!(gpr[2], 255);
@@ -492,7 +617,7 @@ mod tests {
             .expect("should compile");
 
         let mut gpr = [0u32; 15];
-        func(gpr.as_mut_ptr());
+        func(gpr.as_mut_ptr(), 0);
         assert_eq!(gpr[0], 10);
         assert_eq!(gpr[1], 20);
         assert_eq!(gpr[2], 30);
@@ -524,7 +649,7 @@ mod tests {
         let func = compiler.try_compile_imm_block(&block).expect("should compile");
 
         let mut gpr = [0u32; 15];
-        func(gpr.as_mut_ptr());
+        func(gpr.as_mut_ptr(), 0);
         assert_eq!(gpr[0], 10);
         assert_eq!(gpr[1], 15);
         assert_eq!(gpr[2], 12);
@@ -538,9 +663,49 @@ mod tests {
         let block = [0xE590_0000u32];
         assert!(compiler.try_compile_imm_block(&block).is_none());
 
-        // Block with a non-AL condition — rejected.
-        let block = [0x03A0_0001u32]; // MOVEQ R0, #1
+        // NV (0xF) condition is reserved in ARMv4 and should be rejected.
+        let block = [0xF3A0_0001u32];
         assert!(compiler.try_compile_imm_block(&block).is_none());
+    }
+
+    #[test]
+    fn moveq_with_z_flag_set_writes_register() {
+        let mut compiler = DynarecCompiler::new();
+        // MOVEQ R0, #42    →  03A0_002A
+        let block = [0x03A0_002Au32];
+        let func = compiler
+            .try_compile_imm_block(&block)
+            .expect("MOVEQ is supported");
+
+        // CPSR with Z=1 → condition passes → write happens
+        let mut gpr = [0u32; 15];
+        func(gpr.as_mut_ptr(), 1 << 30);
+        assert_eq!(gpr[0], 42);
+
+        // CPSR with Z=0 → condition fails → gpr unchanged
+        let mut gpr = [7u32; 15];
+        func(gpr.as_mut_ptr(), 0);
+        assert_eq!(gpr[0], 7);
+    }
+
+    #[test]
+    fn movne_complements_moveq() {
+        let mut compiler = DynarecCompiler::new();
+        // MOVNE R0, #99     →  13A0_0063
+        let block = [0x13A0_0063u32];
+        let func = compiler
+            .try_compile_imm_block(&block)
+            .expect("MOVNE is supported");
+
+        // CPSR with Z=0 (not equal) → write happens
+        let mut gpr = [0u32; 15];
+        func(gpr.as_mut_ptr(), 0);
+        assert_eq!(gpr[0], 99);
+
+        // CPSR with Z=1 → condition fails → no write
+        let mut gpr = [3u32; 15];
+        func(gpr.as_mut_ptr(), 1 << 30);
+        assert_eq!(gpr[0], 3);
     }
 
     #[test]
@@ -552,7 +717,7 @@ mod tests {
         let func = compiler.try_compile_imm_block(&block).expect("should compile");
 
         let mut gpr = [0u32; 15];
-        func(gpr.as_mut_ptr());
+        func(gpr.as_mut_ptr(), 0);
         assert_eq!(gpr[3], 0xFF00_0000);
     }
 
