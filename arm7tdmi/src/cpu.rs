@@ -473,6 +473,149 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
         self.pipeline[1]
     }
 
+    /// Cached-interpreter entry point. Equivalent to `step()` but executes a
+    /// whole cached block per call instead of a single instruction.
+    ///
+    /// On a cache miss at the current PC, run one pipeline step at a time
+    /// (identical to `step()` except it also records the resolved handler and
+    /// the raw instruction word into the block cache). The recording stops at
+    /// the first pipeline flush or after 64 recorded instructions.
+    ///
+    /// On a cache hit, replay the recorded handlers directly, skipping the
+    /// hash+LUT lookup per instruction and the `single_step()` wrapper checks
+    /// that the outer loop does today.
+    ///
+    /// Accuracy: per-instruction memory accesses still go through the bus and
+    /// advance the scheduler exactly as before. Scheduler events still fire
+    /// between `step_block` calls in the outer loop; worst-case overshoot per
+    /// block is bounded by the 64-instruction record cap.
+    #[cfg(feature = "cached_interp")]
+    #[inline]
+    pub fn step_block(&mut self) {
+        let thumb = matches!(self.cpsr.state(), CpuState::THUMB);
+        let key = super::cache::BlockKey::new(self.pc, thumb);
+
+        if let Some(block) = self.block_cache.get(key) {
+            self.replay_cached_block(&block, thumb);
+        } else {
+            self.block_cache.begin_record(key);
+            self.record_new_block(thumb);
+            self.block_cache.finish_record();
+        }
+    }
+
+    #[cfg(feature = "cached_interp")]
+    fn replay_cached_block(&mut self, block: &super::cache::Block<I>, entry_thumb: bool) {
+        use super::cache::DecodedInstr;
+
+        for instr in &block.instrs {
+            // If the CPU state flipped ARM<->Thumb since block entry, the rest
+            // of this block no longer matches; bail and let the next step_block
+            // call re-resolve or re-record.
+            if matches!(self.cpsr.state(), CpuState::THUMB) != entry_thumb {
+                return;
+            }
+
+            match *instr {
+                DecodedInstr::Arm { handler, .. } => {
+                    let pc = self.pc & !3;
+                    let fetched_now = self.load_32(pc, self.next_fetch_access);
+                    let insn = self.pipeline[0];
+                    self.pipeline[0] = self.pipeline[1];
+                    self.pipeline[1] = fetched_now;
+                    let cond = ArmCond::from_u8(insn.bit_range(28..32) as u8)
+                        .unwrap_or_else(|| unsafe { std::hint::unreachable_unchecked() });
+                    if cond != ArmCond::AL && !self.check_arm_cond(cond) {
+                        self.advance_arm();
+                        self.next_fetch_access = MemoryAccess::NonSeq;
+                        continue;
+                    }
+                    match handler(self, insn) {
+                        CpuAction::AdvancePC(access) => {
+                            self.next_fetch_access = access;
+                            self.advance_arm();
+                        }
+                        CpuAction::PipelineFlushed => return,
+                    }
+                }
+                DecodedInstr::Thumb { handler, .. } => {
+                    let pc = self.pc & !1;
+                    let fetched_now = self.load_16(pc, self.next_fetch_access);
+                    let insn = self.pipeline[0];
+                    self.pipeline[0] = self.pipeline[1];
+                    self.pipeline[1] = fetched_now as u32;
+                    match handler(self, insn as u16) {
+                        CpuAction::AdvancePC(access) => {
+                            self.advance_thumb();
+                            self.next_fetch_access = access;
+                        }
+                        CpuAction::PipelineFlushed => return,
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "cached_interp")]
+    fn record_new_block(&mut self, entry_thumb: bool) {
+        use super::cache::DecodedInstr;
+
+        // The 64-cap here must match the cap in BlockCache::record_instr; going
+        // past it would just silently drop recordings. Both need to change
+        // together if the limit is tuned.
+        for _ in 0..64 {
+            if matches!(self.cpsr.state(), CpuState::THUMB) != entry_thumb {
+                return;
+            }
+
+            if entry_thumb {
+                let pc = self.pc & !1;
+                let fetched_now = self.load_16(pc, self.next_fetch_access);
+                let insn = self.pipeline[0];
+                self.pipeline[0] = self.pipeline[1];
+                self.pipeline[1] = fetched_now as u32;
+                let handler = Self::THUMB_LUT[(insn >> 6) as usize].handler_fn;
+                self.block_cache.record_instr(DecodedInstr::Thumb {
+                    raw: insn as u16,
+                    handler,
+                });
+                match handler(self, insn as u16) {
+                    CpuAction::AdvancePC(access) => {
+                        self.advance_thumb();
+                        self.next_fetch_access = access;
+                    }
+                    CpuAction::PipelineFlushed => return,
+                }
+            } else {
+                let pc = self.pc & !3;
+                let fetched_now = self.load_32(pc, self.next_fetch_access);
+                let insn = self.pipeline[0];
+                self.pipeline[0] = self.pipeline[1];
+                self.pipeline[1] = fetched_now;
+                let hash = (((insn >> 16) & 0xff0) | ((insn >> 4) & 0xf)) as usize;
+                let handler = Self::ARM_LUT[hash].handler_fn;
+                self.block_cache.record_instr(DecodedInstr::Arm {
+                    raw: insn,
+                    handler,
+                });
+                let cond = ArmCond::from_u8(insn.bit_range(28..32) as u8)
+                    .unwrap_or_else(|| unsafe { std::hint::unreachable_unchecked() });
+                if cond != ArmCond::AL && !self.check_arm_cond(cond) {
+                    self.advance_arm();
+                    self.next_fetch_access = MemoryAccess::NonSeq;
+                    continue;
+                }
+                match handler(self, insn) {
+                    CpuAction::AdvancePC(access) => {
+                        self.next_fetch_access = access;
+                        self.advance_arm();
+                    }
+                    CpuAction::PipelineFlushed => return,
+                }
+            }
+        }
+    }
+
     /// Perform a pipeline step
     /// If an instruction was executed in this step, return it.
     #[inline]

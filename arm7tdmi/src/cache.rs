@@ -23,6 +23,7 @@
 //!     writable memory regions (see `SysBus::write_*`).
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::cpu::{Arm7tdmiCore, CpuAction};
 use crate::memory::MemoryInterface;
@@ -33,6 +34,7 @@ use crate::memory::MemoryInterface;
 /// so we encode the mode in an enum. A uniform `u32`-argument handler would
 /// require trampolines; this enum costs one jump-table branch per instruction
 /// but keeps the handlers untouched.
+#[derive(Clone, Copy)]
 pub enum DecodedInstr<I: MemoryInterface> {
     Arm {
         raw: u32,
@@ -71,10 +73,14 @@ impl<I: MemoryInterface> Block<I> {
 
 /// Per-CPU block cache.
 ///
+/// Blocks are held behind `Rc` so the executor can clone a handle at block
+/// entry and then safely call handlers that may mutate memory (and therefore
+/// invalidate the cache) without dangling references.
+///
 /// Empty in the default build — the struct and all its methods compile to
 /// no-ops unless the `cached_interp` feature is on.
 pub struct BlockCache<I: MemoryInterface> {
-    blocks: HashMap<BlockKey, Block<I>>,
+    blocks: HashMap<BlockKey, Rc<Block<I>>>,
     /// Block currently being recorded. `None` when not in a recording pass.
     recording: Option<(BlockKey, Block<I>)>,
 }
@@ -94,8 +100,8 @@ impl<I: MemoryInterface> BlockCache<I> {
     }
 
     #[inline]
-    pub fn get(&self, key: BlockKey) -> Option<&Block<I>> {
-        self.blocks.get(&key)
+    pub fn get(&self, key: BlockKey) -> Option<Rc<Block<I>>> {
+        self.blocks.get(&key).cloned()
     }
 
     /// Called on any RAM write to invalidate cached blocks. This is the coarse
@@ -133,7 +139,7 @@ impl<I: MemoryInterface> BlockCache<I> {
         if let Some((key, block)) = self.recording.take()
             && !block.instrs.is_empty()
         {
-            self.blocks.insert(key, block);
+            self.blocks.insert(key, Rc::new(block));
         }
     }
 
@@ -149,5 +155,11 @@ impl<I: MemoryInterface> BlockCache<I> {
     #[inline]
     pub fn is_recording(&self) -> bool {
         self.recording.is_some()
+    }
+
+    #[allow(dead_code)]
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.blocks.len()
     }
 }
