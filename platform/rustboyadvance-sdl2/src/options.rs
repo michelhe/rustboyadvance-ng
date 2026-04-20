@@ -40,6 +40,13 @@ pub struct Options {
     #[arg(long, default_value = "autodetect", value_enum)]
     pub save_type: Option<BackupType>,
 
+    /// Record keypad input changes to this path for later replay. Every
+    /// change to the keypad bitmask is written with the current emulated
+    /// cycle count, producing a deterministic input trace the benchmark
+    /// harness can replay against any CPU build.
+    #[arg(long = "record-input", value_name = "PATH")]
+    pub record_input: Option<PathBuf>,
+
     #[cfg(feature = "debugger")]
     #[arg(long, default_value = None)]
     pub script_file: Option<String>,

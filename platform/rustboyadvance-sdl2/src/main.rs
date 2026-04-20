@@ -17,6 +17,7 @@ use flexi_logger::*;
 mod audio;
 mod input;
 mod options;
+mod recorder;
 mod video;
 
 use rustboyadvance_core::prelude::*;
@@ -117,6 +118,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if opts.gdbserver {
         gba.start_gdbserver(opts.gdbserver_port);
     }
+
+    // Input recorder: created lazily if --record-input was passed. We record
+    // the initial keypad state at cycle 0 so the replayer starts from an
+    // identical snapshot regardless of the host's SDL event timing.
+    let mut recorder = match &opts.record_input {
+        Some(path) => {
+            info!("Recording keypad input to {:?}", path);
+            Some(recorder::Recorder::create(path, *gba.get_key_state())?)
+        }
+        None => None,
+    };
 
     let mut vsync = true;
     let mut fps_counter = FpsCounter::default();
@@ -219,6 +231,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 _ => {}
             }
+        }
+
+        // Snapshot the keypad after all SDL events have been applied; if
+        // anything changed, record the edge. Doing this once per frame
+        // (rather than per-event) coalesces bursts of events into a single
+        // observation, which is what the replayer sees anyway.
+        if let Some(rec) = &mut recorder {
+            let _ = rec.observe(gba.cycles(), *gba.get_key_state());
         }
 
         if gba.is_debugger_attached() {

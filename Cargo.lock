@@ -1133,6 +1133,7 @@ dependencies = [
 name = "fps_bench"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "rustboyadvance-core",
  "rustboyadvance-utils",
 ]
