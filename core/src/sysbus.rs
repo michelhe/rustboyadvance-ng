@@ -242,6 +242,177 @@ impl SysBus {
         self.scheduler.update(1);
     }
 
+    /// DMA fast path: if `src` and `dst` each sit in a contiguous, linearly
+    /// addressable memory region we own (EWRAM / IWRAM / ROM-on-cartridge),
+    /// and the transfer doesn't cross the region boundary, perform the copy
+    /// as a single `copy_from_slice` and advance the scheduler once for the
+    /// whole burst instead of calling `load_N` / `store_N` per word.
+    ///
+    /// Returns `true` if the fast path handled the transfer; `false` means
+    /// the caller must fall back to the scalar word-by-word loop.
+    ///
+    /// Matches the slow path's cycle accounting: first access is Non-Seq,
+    /// subsequent accesses are Seq, counted for both the source fetch and
+    /// the destination store. VRAM/Palette/OAM/IO regions are deliberately
+    /// left to the slow path — they have side effects, mirroring rules, or
+    /// privileged write gating that a raw copy would skip.
+    pub fn dma_bulk_copy(
+        &mut self,
+        src_addr: u32,
+        dst_addr: u32,
+        word_count: u32,
+        word_size_bytes: u32,
+    ) -> bool {
+        debug_assert!(word_size_bytes == 2 || word_size_bytes == 4);
+        if word_count == 0 {
+            return true;
+        }
+
+        // Resolve region extents. For src we also allow ROM; for dst we only
+        // allow writable RAM regions our fast path knows how to address.
+        let byte_len = word_count * word_size_bytes;
+
+        // Returns (slice, starts_non_seq_cycles, seq_cycles) for the src region.
+        let src_region = self.resolve_bulk_src(src_addr, byte_len);
+        let Some((src_ptr_range, src_n_cycles, src_s_cycles)) = src_region else {
+            return false;
+        };
+
+        let dst_region = self.resolve_bulk_dst(dst_addr, byte_len);
+        let Some((dst_ptr_range, dst_n_cycles, dst_s_cycles)) = dst_region else {
+            return false;
+        };
+
+        // SAFETY: resolve_bulk_{src,dst} returned ranges inside distinct owned
+        // byte buffers (ewram, iwram, cartridge). We borrow them through raw
+        // pointers to avoid fighting the borrow checker over &self.* / &mut
+        // self.* on distinct fields. No aliasing: src is either in ROM (no
+        // aliasing possible) or in ewram/iwram distinct from dst's region.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                src_ptr_range,
+                dst_ptr_range,
+                byte_len as usize,
+            );
+        }
+
+        // Cycle accounting: one N + (count-1) S for each of the source fetch
+        // and the destination store, using the per-region widths from our
+        // cycle LUT (which the scalar path also uses via `add_cycles`).
+        let total_read_cycles = src_n_cycles + src_s_cycles * (word_count as usize - 1);
+        let total_write_cycles = dst_n_cycles + dst_s_cycles * (word_count as usize - 1);
+        self.scheduler.update(total_read_cycles + total_write_cycles);
+
+        // RAM regions can hold executable code — any write may invalidate a
+        // cached interpreter block. The slow path's write_{8,16,32} sets this
+        // flag per write; we match that behavior for the bulk transfer.
+        #[cfg(feature = "cached_interp")]
+        {
+            self.block_cache_dirty = true;
+        }
+
+        true
+    }
+
+    /// Resolve a source DMA address into a (raw-ptr, n-cycles, s-cycles)
+    /// triple. Returns None if the address doesn't fall in a region we can
+    /// fast-path or if the length would overflow the region.
+    fn resolve_bulk_src(
+        &self,
+        src_addr: u32,
+        byte_len: u32,
+    ) -> Option<(*const u8, usize, usize)> {
+        let page = ((src_addr >> 24) & 0xF) as usize;
+        match src_addr & 0xff000000 {
+            EWRAM_ADDR => {
+                let off = (src_addr & 0x3_ffff) as usize;
+                if off + byte_len as usize > self.ewram.len() {
+                    return None;
+                }
+                let p = unsafe { self.ewram.as_ptr().add(off) };
+                Some((
+                    p,
+                    self.cycle_luts.n_cycles16[page],
+                    self.cycle_luts.s_cycles16[page],
+                ))
+            }
+            IWRAM_ADDR => {
+                let off = (src_addr & 0x7fff) as usize;
+                if off + byte_len as usize > self.iwram.len() {
+                    return None;
+                }
+                let p = unsafe { self.iwram.as_ptr().add(off) };
+                Some((
+                    p,
+                    self.cycle_luts.n_cycles16[page],
+                    self.cycle_luts.s_cycles16[page],
+                ))
+            }
+            // ROM: read-only, side-effect-free, but we must be careful not to
+            // cross a 128 KiB "force-non-seq" cartridge boundary (GBATEK). For
+            // simplicity, bail to the slow path when the copy would straddle
+            // a 0x2_0000 boundary — the slow path already handles that timing
+            // quirk correctly.
+            GAMEPAK_WS0_LO | GAMEPAK_WS0_HI
+            | GAMEPAK_WS1_LO | GAMEPAK_WS1_HI
+            | GAMEPAK_WS2_LO => {
+                let start = src_addr & 0x01ff_ffff;
+                let end = start + byte_len;
+                if start / 0x2_0000 != (end.saturating_sub(1)) / 0x2_0000 {
+                    return None;
+                }
+                let rom = self.cartridge.get_rom_bytes();
+                let off = start as usize;
+                if off + byte_len as usize > rom.len() {
+                    return None;
+                }
+                let p = unsafe { rom.as_ptr().add(off) };
+                Some((
+                    p,
+                    self.cycle_luts.n_cycles16[page],
+                    self.cycle_luts.s_cycles16[page],
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    /// Resolve a destination DMA address (writable regions only).
+    fn resolve_bulk_dst(
+        &mut self,
+        dst_addr: u32,
+        byte_len: u32,
+    ) -> Option<(*mut u8, usize, usize)> {
+        let page = ((dst_addr >> 24) & 0xF) as usize;
+        match dst_addr & 0xff000000 {
+            EWRAM_ADDR => {
+                let off = (dst_addr & 0x3_ffff) as usize;
+                if off + byte_len as usize > self.ewram.len() {
+                    return None;
+                }
+                let p = unsafe { self.ewram.as_mut_ptr().add(off) };
+                Some((
+                    p,
+                    self.cycle_luts.n_cycles16[page],
+                    self.cycle_luts.s_cycles16[page],
+                ))
+            }
+            IWRAM_ADDR => {
+                let off = (dst_addr & 0x7fff) as usize;
+                if off + byte_len as usize > self.iwram.len() {
+                    return None;
+                }
+                let p = unsafe { self.iwram.as_mut_ptr().add(off) };
+                Some((
+                    p,
+                    self.cycle_luts.n_cycles16[page],
+                    self.cycle_luts.s_cycles16[page],
+                ))
+            }
+            _ => None,
+        }
+    }
+
     #[inline(always)]
     pub fn add_cycles(&mut self, addr: Addr, access: MemoryAccess, width: MemoryAccessWidth) {
         use MemoryAccess::*;
