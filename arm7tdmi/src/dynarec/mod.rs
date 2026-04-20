@@ -68,18 +68,25 @@ impl DynarecCompiler {
         }
     }
 
-    /// Compile a sequence of supported ARM data-processing-immediate
-    /// instructions into native code. Supported shapes (all with AL
-    /// condition, I=1, S=0):
+    /// Compile a sequence of supported ARM data-processing instructions
+    /// into native code. Supported shapes (all AL-condition, S=0):
+    ///
+    /// Immediate form (I=1):
     ///   - MOV Rd, #imm          op=1101
     ///   - MVN Rd, #imm          op=1111
     ///   - ADD Rd, Rn, #imm      op=0100
     ///   - SUB Rd, Rn, #imm      op=0010
     ///
+    /// Register form (I=0, no shift, no shift-by-register):
+    ///   - MOV Rd, Rm
+    ///   - MVN Rd, Rm
+    ///   - ADD Rd, Rn, Rm
+    ///   - SUB Rd, Rn, Rm
+    ///
     /// The returned function takes a pointer to the CPU's gpr array.
-    /// Returns an error (`None`) if any opcode is not one of the
-    /// supported shapes — the caller should then fall back to the
-    /// interpreter replay path for this block.
+    /// Returns `None` if any opcode is not one of the supported shapes —
+    /// the caller should then fall back to the interpreter replay path
+    /// for this block.
     pub fn try_compile_imm_block(
         &mut self,
         opcodes: &[u32],
@@ -87,7 +94,7 @@ impl DynarecCompiler {
         // Validate every opcode up front so we don't create a half-defined
         // function we then have to tear down.
         for &insn in opcodes {
-            if Self::decode_supported_imm(insn).is_none() {
+            if Self::decode_supported_dp(insn).is_none() {
                 return None;
             }
         }
@@ -115,7 +122,7 @@ impl DynarecCompiler {
             let gpr_ptr = builder.block_params(entry)[0];
 
             for &insn in opcodes {
-                let dec = Self::decode_supported_imm(insn).expect("pre-validated");
+                let dec = Self::decode_supported_dp(insn).expect("pre-validated");
                 emit_data_processing_imm(&mut builder, gpr_ptr, dec);
             }
 
@@ -138,29 +145,28 @@ impl DynarecCompiler {
         })
     }
 
-    /// Classify an ARM opcode as one of the supported immediate shapes,
-    /// returning the decoded fields needed for codegen.
-    fn decode_supported_imm(insn: u32) -> Option<DecodedDpImm> {
+    /// Classify an ARM opcode as one of the supported data-processing shapes
+    /// (immediate or register with no shift). Returns the decoded fields
+    /// needed for codegen, or None for any unsupported encoding.
+    fn decode_supported_dp(insn: u32) -> Option<DecodedDp> {
         let cond = (insn >> 28) & 0xf;
         if cond != 0xE {
-            // Only AL for now; non-AL needs a conditional emit path.
             return None;
         }
         let class = (insn >> 20) & 0xff;
-        // class bits [7:5] are insn[27:25] which must be 0b001 for the
-        // immediate data-processing form, and class bit 0 is insn[20] = S
-        // which must be 0 (we haven't implemented flag updates yet).
-        // Mask 0b1110_0001, expected 0b0010_0000.
-        if (class & 0b1110_0001) != 0b0010_0000 {
+        // Data-processing bits [27:26] = 0b00, S=0 (class bit 0).
+        // Immediate form has bit 5 (of class) = 1 (= insn bit 25 = I).
+        // Register form has I = 0.
+        if (class & 0b1100_0001) != 0b0000_0000 {
             return None;
         }
-        // Opcode is bits [24:21] of the instruction = bits [4:1] of class.
+        let i_bit = (class >> 5) & 1;
         let op = (class >> 1) & 0xf;
         let op = match op {
-            0b1101 => DpImmOp::Mov,
-            0b1111 => DpImmOp::Mvn,
-            0b0100 => DpImmOp::Add,
-            0b0010 => DpImmOp::Sub,
+            0b1101 => DpOp::Mov,
+            0b1111 => DpOp::Mvn,
+            0b0100 => DpOp::Add,
+            0b0010 => DpOp::Sub,
             _ => return None,
         };
         let rn = ((insn >> 16) & 0xf) as i32;
@@ -168,10 +174,28 @@ impl DynarecCompiler {
         if !(0..15).contains(&rd) || !(0..15).contains(&rn) {
             return None;
         }
-        let imm8 = insn & 0xff;
-        let rot = ((insn >> 8) & 0xf) * 2;
-        let imm = imm8.rotate_right(rot);
-        Some(DecodedDpImm { op, rd, rn, imm })
+
+        let operand2 = if i_bit == 1 {
+            // Immediate form: 8-bit value rotated right by 2 × rot4.
+            let imm8 = insn & 0xff;
+            let rot = ((insn >> 8) & 0xf) * 2;
+            Operand2::Imm(imm8.rotate_right(rot))
+        } else {
+            // Register form: require no shift (shift_imm=0, shift_type=00)
+            // and bit 4 = 0 (distinguishes from shift-by-register, which
+            // has different timing and pipeline semantics).
+            let shift_field = (insn >> 4) & 0xff;
+            if shift_field != 0 {
+                return None;
+            }
+            let rm = (insn & 0xf) as i32;
+            if !(0..15).contains(&rm) {
+                return None;
+            }
+            Operand2::Reg(rm)
+        };
+
+        Some(DecodedDp { op, rd, rn, operand2 })
     }
 
     /// Compile a stub function that reads `gpr[1]` and writes it into
@@ -242,52 +266,70 @@ impl Default for DynarecCompiler {
 /// Subset of ARM data-processing opcodes the dynarec can currently emit.
 /// Extend when adding support for more shapes.
 #[derive(Clone, Copy, Debug)]
-enum DpImmOp {
+enum DpOp {
     Mov,
     Mvn,
     Add,
     Sub,
 }
 
+/// The second operand of a data-processing instruction.
 #[derive(Clone, Copy, Debug)]
-struct DecodedDpImm {
-    op: DpImmOp,
-    rd: i32,
-    rn: i32,
-    imm: u32,
+enum Operand2 {
+    Imm(u32),
+    Reg(i32),
 }
 
-/// Emit Cranelift IR for a single decoded DpImm instruction operating on
-/// the `gpr` array at `gpr_ptr`. Effects gpr[rd] = f(gpr[rn], imm).
+#[derive(Clone, Copy, Debug)]
+struct DecodedDp {
+    op: DpOp,
+    rd: i32,
+    rn: i32,
+    operand2: Operand2,
+}
+
+/// Emit Cranelift IR for a single decoded data-processing instruction
+/// operating on the `gpr` array at `gpr_ptr`. Effect: gpr[rd] = f(gpr[rn], op2).
 fn emit_data_processing_imm(
     builder: &mut FunctionBuilder,
     gpr_ptr: Value,
-    dec: DecodedDpImm,
+    dec: DecodedDp,
 ) {
-    let imm_ir = builder.ins().iconst(types::I32, dec.imm as i64);
+    // Materialize operand2 (either a constant or a register load).
+    let op2 = match dec.operand2 {
+        Operand2::Imm(v) => builder.ins().iconst(types::I32, v as i64),
+        Operand2::Reg(rm) => builder.ins().load(
+            types::I32,
+            MemFlags::trusted(),
+            gpr_ptr,
+            Offset32::new(rm * 4),
+        ),
+    };
+
     let result = match dec.op {
-        DpImmOp::Mov => imm_ir,
-        DpImmOp::Mvn => {
-            // ~imm is a compile-time constant; emit directly.
-            builder.ins().iconst(types::I32, (!dec.imm) as i64)
+        DpOp::Mov => op2,
+        DpOp::Mvn => {
+            // ~op2. For the imm-form we could fold at compile time; the
+            // bnot IR op is trivial either way, so keep it uniform.
+            builder.ins().bnot(op2)
         }
-        DpImmOp::Add => {
+        DpOp::Add => {
             let rn = builder.ins().load(
                 types::I32,
                 MemFlags::trusted(),
                 gpr_ptr,
                 Offset32::new(dec.rn * 4),
             );
-            builder.ins().iadd(rn, imm_ir)
+            builder.ins().iadd(rn, op2)
         }
-        DpImmOp::Sub => {
+        DpOp::Sub => {
             let rn = builder.ins().load(
                 types::I32,
                 MemFlags::trusted(),
                 gpr_ptr,
                 Offset32::new(dec.rn * 4),
             );
-            builder.ins().isub(rn, imm_ir)
+            builder.ins().isub(rn, op2)
         }
     };
     builder
@@ -334,6 +376,40 @@ mod tests {
         assert_eq!(gpr[2], 255);
         // Unchanged registers keep their poison.
         assert_eq!(gpr[3], 0xFFFF_FFFF);
+    }
+
+    #[test]
+    fn compile_register_form_add() {
+        let mut compiler = DynarecCompiler::new();
+        // Block:
+        //   MOV R0, #10         E3A0_000A
+        //   MOV R1, #20         E3A0_1014
+        //   ADD R2, R0, R1      E080_2001   (register-form, no shift)
+        //   SUB R3, R1, R0      E041_3000   (register-form, no shift)
+        let block = [
+            0xE3A0_000Au32,
+            0xE3A0_1014u32,
+            0xE080_2001u32,
+            0xE041_3000u32,
+        ];
+        let func = compiler
+            .try_compile_imm_block(&block)
+            .expect("should compile");
+
+        let mut gpr = [0u32; 15];
+        func(gpr.as_mut_ptr());
+        assert_eq!(gpr[0], 10);
+        assert_eq!(gpr[1], 20);
+        assert_eq!(gpr[2], 30);
+        assert_eq!(gpr[3], 10);
+    }
+
+    #[test]
+    fn reject_register_form_with_shift() {
+        let mut compiler = DynarecCompiler::new();
+        // ADD R0, R1, R2, LSL #1 — shift nonzero, should not compile yet.
+        let block = [0xE081_0082u32];
+        assert!(compiler.try_compile_imm_block(&block).is_none());
     }
 
     #[test]
