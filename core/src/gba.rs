@@ -300,6 +300,9 @@ impl GameBoyAdvance {
         if self.io_devs.intc.irq_pending() {
             self.cpu_interrupt();
         }
+        #[cfg(feature = "cached_interp")]
+        self.cpu.step_block();
+        #[cfg(not(feature = "cached_interp"))]
         self.cpu.step();
     }
 
