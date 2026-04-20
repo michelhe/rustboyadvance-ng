@@ -147,6 +147,7 @@ impl Gpu {
     }
 
     #[must_use]
+    #[inline]
     fn finalize_pixel(
         &mut self,
         x: usize,
@@ -158,22 +159,26 @@ impl Gpu {
         // The backdrop layer is the default
         let backdrop_layer = RenderLayer::backdrop(backdrop_color);
 
-        // Backgrounds are already sorted
-        // lets start by taking the first 2 backgrounds that have an opaque pixel at x
-        let mut it = backgrounds
-            .iter()
-            .filter(|i| !self.bg_line[**i][x].is_transparent())
-            .take(2);
-
-        let mut top_layer = it.next().map_or(backdrop_layer, |bg| {
-            RenderLayer::background(*bg, self.bg_line[*bg][x], self.bgcnt[*bg].priority)
-        });
-
-        let mut bot_layer = it.next().map_or(backdrop_layer, |bg| {
-            RenderLayer::background(*bg, self.bg_line[*bg][x], self.bgcnt[*bg].priority)
-        });
-
-        drop(it);
+        // Hot path: walk the already-priority-sorted `backgrounds` slice and
+        // pick the first two non-transparent layers. Explicit loop instead of
+        // filter().take(2) so the compiler can unroll it over a fixed upper
+        // bound of 4 BGs and avoid per-pixel closure setup.
+        let mut top_layer = backdrop_layer;
+        let mut bot_layer = backdrop_layer;
+        let mut found = 0u32;
+        for &bg in backgrounds {
+            let px = self.bg_line[bg][x];
+            if !px.is_transparent() {
+                let layer = RenderLayer::background(bg, px, self.bgcnt[bg].priority);
+                if found == 0 {
+                    top_layer = layer;
+                    found = 1;
+                } else {
+                    bot_layer = layer;
+                    break;
+                }
+            }
+        }
 
         // Now that backgrounds are taken care of, we need to check if there is an object pixel that takes priority of one of the layers
         let obj_entry = self.obj_buffer_get(x, y);
