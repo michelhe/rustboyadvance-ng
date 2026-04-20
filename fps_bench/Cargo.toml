@@ -2,8 +2,9 @@
 name = "fps_bench"
 version = "0.1.0"
 authors = ["Michel Heily <michelheily@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 rustboyadvance-core = {path = "../core/"}
 rustboyadvance-utils = {path = "../utils/"}
+clap = { version = "4", features = ["derive"] }

@@ -218,6 +218,15 @@ impl GameBoyAdvance {
         &mut self.sysbus.io.keyinput
     }
 
+    /// Emulated-cycle count since power-on. Advances monotonically with each
+    /// memory access. Used by the input record/replay harness to time inputs
+    /// to the emulator's own clock (deterministic across hosts) rather than
+    /// wall time (which varies with interpreter speed).
+    #[inline]
+    pub fn cycles(&self) -> usize {
+        self.scheduler.timestamp()
+    }
+
     /// Advance the emulation for one frame worth of time
     pub fn frame(&mut self) {
         static mut OVERSHOOT: usize = 0;
