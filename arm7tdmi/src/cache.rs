@@ -77,18 +77,40 @@ impl<I: MemoryInterface> Block<I> {
 /// entry and then safely call handlers that may mutate memory (and therefore
 /// invalidate the cache) without dangling references.
 ///
+/// The cache is split into two maps keyed by entry-PC region:
+///   * `rom_blocks` — blocks whose first instruction lives in BIOS or ROM.
+///     These addresses are read-only on a real GBA (and by this emulator's
+///     SysBus, which treats writes to BIOS/ROM as no-ops), so no write can
+///     invalidate them. Keeping them warm across RAM writes is the main win
+///     on games like pokeemerald that hammer IWRAM for state updates.
+///   * `ram_blocks` — blocks starting in EWRAM or IWRAM. Flushed whenever
+///     any RAM write happens, since self-modifying code (rare but legal)
+///     could have overwritten a cached instruction.
+///
 /// Empty in the default build — the struct and all its methods compile to
 /// no-ops unless the `cached_interp` feature is on.
 pub struct BlockCache<I: MemoryInterface> {
-    blocks: HashMap<BlockKey, Rc<Block<I>>>,
+    rom_blocks: HashMap<BlockKey, Rc<Block<I>>>,
+    ram_blocks: HashMap<BlockKey, Rc<Block<I>>>,
     /// Block currently being recorded. `None` when not in a recording pass.
     recording: Option<(BlockKey, Block<I>)>,
+}
+
+/// Classify a guest PC by memory region for the block-cache split.
+/// See GBA memory map in resources/gbatek: BIOS is 0x0000_0000-0x0000_3FFF,
+/// ROM (WS0/1/2) at 0x0800_0000-0x0DFF_FFFF.
+#[inline]
+fn is_rom_address(pc: u32) -> bool {
+    let top = pc & 0xff00_0000;
+    // BIOS range (top byte 0x00) or any cartridge wait-state region.
+    top == 0x0000_0000 || (0x0800_0000..=0x0d00_0000).contains(&top)
 }
 
 impl<I: MemoryInterface> Default for BlockCache<I> {
     fn default() -> Self {
         BlockCache {
-            blocks: HashMap::with_capacity(1024),
+            rom_blocks: HashMap::with_capacity(2048),
+            ram_blocks: HashMap::with_capacity(256),
             recording: None,
         }
     }
@@ -101,15 +123,35 @@ impl<I: MemoryInterface> BlockCache<I> {
 
     #[inline]
     pub fn get(&self, key: BlockKey) -> Option<Rc<Block<I>>> {
-        self.blocks.get(&key).cloned()
+        let pc = key.0 & !1;
+        if is_rom_address(pc) {
+            self.rom_blocks.get(&key).cloned()
+        } else {
+            self.ram_blocks.get(&key).cloned()
+        }
     }
 
-    /// Called on any RAM write to invalidate cached blocks. This is the coarse
-    /// first-pass policy: flush everything. A finer per-page scheme can slot in
-    /// here later without changing callers.
+    /// Called on any RAM write to invalidate RAM-region blocks. ROM-region
+    /// blocks are left alone — no write can reach that memory anyway.
     #[inline]
     pub fn flush(&mut self) {
-        self.blocks.clear();
+        self.ram_blocks.clear();
+        // If we happen to be mid-recording a RAM-region block, drop it too.
+        // ROM recordings stay valid.
+        if let Some((key, _)) = &self.recording
+            && !is_rom_address(key.0 & !1)
+        {
+            self.recording = None;
+        }
+    }
+
+    /// Flush everything (ROM and RAM). Used only by diagnostics/tests; normal
+    /// invalidation goes through `flush()` which preserves ROM entries.
+    #[allow(dead_code)]
+    #[inline]
+    pub fn flush_all(&mut self) {
+        self.rom_blocks.clear();
+        self.ram_blocks.clear();
         self.recording = None;
     }
 
@@ -132,14 +174,20 @@ impl<I: MemoryInterface> BlockCache<I> {
         }
     }
 
-    /// Finish the current recording and insert it into the cache. Called on
-    /// pipeline flush or when the block length cap is reached.
+    /// Finish the current recording and insert it into the appropriate cache
+    /// half based on the block's entry region. Called on pipeline flush or
+    /// when the block length cap is reached.
     #[inline]
     pub fn finish_record(&mut self) {
         if let Some((key, block)) = self.recording.take()
             && !block.instrs.is_empty()
         {
-            self.blocks.insert(key, Rc::new(block));
+            let pc = key.0 & !1;
+            if is_rom_address(pc) {
+                self.rom_blocks.insert(key, Rc::new(block));
+            } else {
+                self.ram_blocks.insert(key, Rc::new(block));
+            }
         }
     }
 
@@ -160,6 +208,6 @@ impl<I: MemoryInterface> BlockCache<I> {
     #[allow(dead_code)]
     #[inline]
     pub fn len(&self) -> usize {
-        self.blocks.len()
+        self.rom_blocks.len() + self.ram_blocks.len()
     }
 }
