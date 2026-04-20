@@ -110,6 +110,7 @@ fn is_gpio_access(addr: u32) -> bool {
 }
 
 impl BusIO for Cartridge {
+    #[inline]
     fn read_8(&mut self, addr: Addr) -> u8 {
         let offset = (addr & 0x01ff_ffff) as usize;
         match addr & 0xff000000 {
@@ -128,6 +129,7 @@ impl BusIO for Cartridge {
         }
     }
 
+    #[inline]
     fn read_16(&mut self, addr: u32) -> u16 {
         if is_gpio_access(addr)
             && let Some(gpio) = &self.gpio
@@ -145,6 +147,36 @@ impl BusIO for Cartridge {
             return spi.read_half(addr);
         }
         self.default_read_16(addr)
+    }
+
+    /// Override the default trait impl (which does two read_16 calls) with
+    /// a single 4-byte read. The hot path is CPU code fetch from plain ROM:
+    /// no GPIO (only at 0xC4/C6/C8), no EEPROM (only near end of large ROMs).
+    /// Checking once up front and then reading 4 bytes directly saves a
+    /// second trip through read_16's branches per fetched instruction.
+    #[inline]
+    fn read_32(&mut self, addr: Addr) -> u32 {
+        let offset = (addr & 0x01ff_ffff) as usize;
+        // Fast path: in-bounds, not GPIO, not EEPROM territory → direct u32.
+        let may_be_eeprom = addr & 0xff000000 == GAMEPAK_WS2_HI
+            && (self.bytes.len() <= 16 * 1024 * 1024 || addr >= EEPROM_BASE_ADDR);
+        if !is_gpio_access(addr)
+            && !is_gpio_access(addr + 2)
+            && !may_be_eeprom
+            && offset + 4 <= self.size
+        {
+            // SAFETY: offset+4 <= self.size, so the 4-byte read is in-bounds.
+            return unsafe {
+                u32::from_le_bytes([
+                    *self.bytes.get_unchecked(offset),
+                    *self.bytes.get_unchecked(offset + 1),
+                    *self.bytes.get_unchecked(offset + 2),
+                    *self.bytes.get_unchecked(offset + 3),
+                ])
+            };
+        }
+        // Slow path: fall back to default behavior (two read_16 calls).
+        self.read_16(addr) as u32 | ((self.read_16(addr + 2) as u32) << 16)
     }
 
     fn write_8(&mut self, addr: u32, value: u8) {
