@@ -19,13 +19,17 @@
 //! record's cycle as the stop timestamp.
 
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::Write;
 use std::path::Path;
 
 pub const MAGIC: &[u8; 8] = b"RBAREC01";
 
+/// Writes directly to the file — intentionally *not* wrapped in a BufWriter,
+/// because keypad-edge events are sparse (a few per second at most) and we
+/// want every edge on disk immediately. A hard kill of the SDL process
+/// should still leave a complete, replayable recording behind.
 pub struct Recorder {
-    file: BufWriter<File>,
+    file: File,
     last_state: u16,
 }
 
@@ -35,9 +39,8 @@ impl Recorder {
     /// from a consistent keypad state regardless of what the game's own
     /// initialization code does.
     pub fn create(path: &Path, initial_state: u16) -> std::io::Result<Self> {
-        let mut file = BufWriter::new(File::create(path)?);
+        let mut file = File::create(path)?;
         file.write_all(MAGIC)?;
-        // Initial record — start at cycle 0.
         Self::write_record(&mut file, 0, initial_state)?;
         Ok(Recorder { file, last_state: initial_state })
     }
@@ -53,23 +56,9 @@ impl Recorder {
         Ok(())
     }
 
-    /// Flush the underlying writer. Called at recorder drop to make sure the
-    /// buffered events are on disk even if the process exits abruptly.
-    #[allow(dead_code)] // public helper; Drop already flushes but callers can force it earlier
-    pub fn flush(&mut self) -> std::io::Result<()> {
-        self.file.flush()
-    }
-
-    fn write_record(w: &mut BufWriter<File>, cycles: u64, state: u16) -> std::io::Result<()> {
+    fn write_record(w: &mut File, cycles: u64, state: u16) -> std::io::Result<()> {
         w.write_all(&cycles.to_le_bytes())?;
         w.write_all(&state.to_le_bytes())?;
         Ok(())
-    }
-}
-
-impl Drop for Recorder {
-    fn drop(&mut self) {
-        // Best-effort flush so the benchmark replayer sees the full trace.
-        let _ = self.file.flush();
     }
 }

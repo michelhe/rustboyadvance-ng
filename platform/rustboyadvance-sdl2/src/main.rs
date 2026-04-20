@@ -149,6 +149,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     scancode: Some(scancode),
                     ..
                 } => match scancode {
+                    Scancode::Escape => break 'running,
                     #[cfg(feature = "debugger")]
                     Scancode::F1 => {
                         let mut debugger = Debugger::new();
