@@ -515,29 +515,40 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
     fn replay_cached_block(&mut self, block: &super::cache::Block<I>, entry_thumb: bool) {
         use super::cache::DecodedInstr;
 
+        // Always run the first instruction before checking abort conditions —
+        // that guarantees forward progress even when (for example) an IRQ is
+        // pending but CPU has IRQs disabled, so cpu_interrupt() is a no-op and
+        // would otherwise loop us forever between the outer run() while and
+        // step_block's early return.
+        let mut first = true;
+
         for instr in &block.instrs {
-            // If the CPU state flipped ARM<->Thumb since block entry, the rest
-            // of this block no longer matches; bail and let the next step_block
-            // call re-resolve or re-record.
-            if matches!(self.cpsr.state(), CpuState::THUMB) != entry_thumb {
-                return;
-            }
+            if !first {
+                // If the CPU state flipped ARM<->Thumb since block entry, the
+                // rest of this block no longer matches; bail and let the next
+                // step_block call re-resolve or re-record.
+                if matches!(self.cpsr.state(), CpuState::THUMB) != entry_thumb {
+                    return;
+                }
 
-            // If an earlier instr in this block wrote to RAM, remaining cached
-            // handlers were resolved from potentially stale memory. Bail and
-            // flush so the next step_block starts fresh.
-            if self.bus.take_block_cache_dirty() {
-                self.block_cache.flush();
-                return;
-            }
+                // If an earlier instr in this block wrote to RAM, remaining
+                // cached handlers were resolved from potentially stale memory.
+                // Bail; the split cache's flush() keeps ROM blocks warm and
+                // only drops the RAM half.
+                if self.bus.take_block_cache_dirty() {
+                    self.block_cache.flush();
+                    return;
+                }
 
-            // Yield to the outer loop if an IRQ became pending or DMA became
-            // active inside this block — both are conditions the non-cached
-            // path handles at per-instruction granularity via single_step()
-            // and cpu_step().
-            if self.bus.cached_block_should_abort() {
-                return;
+                // Yield to the outer loop at the same granularity the non-cached
+                // path does (pending IRQ, newly active DMA, halt, or scheduler
+                // overshoot). Checked from the second iteration onwards so the
+                // first instruction always runs.
+                if self.bus.cached_block_should_abort() {
+                    return;
+                }
             }
+            first = false;
 
             match *instr {
                 DecodedInstr::Arm { raw: expected, handler } => {
@@ -595,29 +606,30 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
     fn record_new_block(&mut self, entry_thumb: bool) {
         use super::cache::DecodedInstr;
 
+        // Same forward-progress requirement as replay: always record+execute
+        // the first instruction before considering abort conditions.
+        let mut first = true;
+
         // The 64-cap here must match the cap in BlockCache::record_instr; going
         // past it would just silently drop recordings. Both need to change
         // together if the limit is tuned.
         for _ in 0..64 {
-            if matches!(self.cpsr.state(), CpuState::THUMB) != entry_thumb {
-                return;
-            }
+            if !first {
+                if matches!(self.cpsr.state(), CpuState::THUMB) != entry_thumb {
+                    return;
+                }
 
-            // Same concern as replay: if the previous iteration's handler wrote
-            // to RAM, that write could have invalidated a region our block is
-            // currently decoding from. Abort the recording; the next step_block
-            // will see the dirty flag and start fresh.
-            if self.bus.take_block_cache_dirty() {
-                self.block_cache.abort_record();
-                self.block_cache.flush();
-                return;
-            }
+                if self.bus.take_block_cache_dirty() {
+                    self.block_cache.abort_record();
+                    self.block_cache.flush();
+                    return;
+                }
 
-            // See replay: bail out if IRQ/DMA need handling, at the same
-            // per-instruction granularity the non-cached path uses.
-            if self.bus.cached_block_should_abort() {
-                return;
+                if self.bus.cached_block_should_abort() {
+                    return;
+                }
             }
+            first = false;
 
             if entry_thumb {
                 let pc = self.pc & !1;
