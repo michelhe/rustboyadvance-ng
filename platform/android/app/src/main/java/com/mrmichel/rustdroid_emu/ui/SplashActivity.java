@@ -1,23 +1,18 @@
 package com.mrmichel.rustdroid_emu.ui;
 
-import android.Manifest;
 import android.app.ActivityManager;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.ConfigurationInfo;
-import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Toast;
 
-import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
 
 import com.mrmichel.rustdroid_emu.R;
 import com.mrmichel.rustdroid_emu.ui.library.RomListActivity;
@@ -31,30 +26,12 @@ import java.io.InputStream;
 public class SplashActivity extends AppCompatActivity {
 
     private static final String TAG = "SplashActivity";
-    private static final int REQUEST_PERMISSION_CODE = 55;
     private static final int BIOS_REQUEST_CODE = 66;
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQUEST_PERMISSION_CODE) {
-            if (permissions.length == 1 && permissions[0].equals(Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
-                if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    initCacheBios();
-                } else {
-                    Toast.makeText(this, "WRITE_EXTERNAL_STORAGE not granted, need to quit", Toast.LENGTH_LONG).show();
-                    this.finishAffinity();
-                }
-            }
-        }
-    }
 
     private void checkOpenGLES20() {
         ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
         ConfigurationInfo configurationInfo = am.getDeviceConfigurationInfo();
-        if (configurationInfo.reqGlEsVersion >= 0x20000) {
-            // Supported
-        } else {
+        if (configurationInfo.reqGlEsVersion < 0x20000) {
             new AlertDialog.Builder(this)
                     .setTitle("OpenGLES 2")
                     .setMessage("Your device doesn't support GLES20. reqGLEsVersion = " + configurationInfo.reqGlEsVersion)
@@ -75,20 +52,9 @@ public class SplashActivity extends AppCompatActivity {
 
         checkOpenGLES20();
 
-        if (ContextCompat.checkSelfPermission(this,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED) {
-
-            // No explanation needed; request the permission
-            ActivityCompat.requestPermissions(this
-                    ,
-                    new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE},
-                    REQUEST_PERMISSION_CODE);
-        } else {
-            // Permission has already been granted
-            initCacheBios();
-
-        }
+        // BIOS/ROM I/O goes through app-private storage (openFileInput/Output) and SAF
+        // (ACTION_OPEN_DOCUMENT) — neither needs WRITE_/READ_EXTERNAL_STORAGE on modern Android.
+        initCacheBios();
     }
 
     private void cacheBiosInAppFiles(byte[] bios) throws IOException {
