@@ -37,13 +37,14 @@ fi
 
 echo "[measure-device] $LABEL: sampling $SECONDS_TO_SAMPLE seconds..." >&2
 "$ADB" logcat -c
-samples_raw="$("$ADB" logcat -v brief -s RustdroidFps:I -T "${SECONDS_TO_SAMPLE}s" &
-  pid=$!
-  sleep "$SECONDS_TO_SAMPLE"
-  kill "$pid" 2>/dev/null || true
-  wait 2>/dev/null || true)"
+sleep "$SECONDS_TO_SAMPLE"
+# The FPS lines come out under tag "EmulatorBindings" rather than the
+# RustdroidFps target the rust-side info! call requests, because the
+# android_log backend rewrites the tag to the crate name. Grep anything
+# with "FPS N" to be resilient to that.
+samples_raw="$("$ADB" logcat -d -v brief 2>/dev/null | grep 'FPS [0-9]')"
 
-# Lines look like: "I/RustdroidFps( 1234): FPS 923"
+# Lines look like: "I/EmulatorBindings(1234): <unknown>: FPS 923"
 fps_list="$(echo "$samples_raw" | sed -n 's/.*FPS \([0-9]\+\).*/\1/p')"
 if [[ -z "$fps_list" ]]; then
   echo "[measure-device] no FPS lines captured — is the JNI build logging? (target=RustdroidFps)" >&2
