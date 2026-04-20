@@ -68,25 +68,36 @@ impl DynarecCompiler {
         }
     }
 
-    /// Compile a real ARM `MOV Rd, #imm` instruction sequence into native
-    /// code. Each entry in `opcodes` is a 32-bit ARM instruction word that
-    /// MUST be a `MOV Rd, #imm` with the `AL` condition (encoded with
-    /// `op=0b1101 (MOV)`, `I=1` so operand2 is a rotated 8-bit immediate).
+    /// Compile a sequence of supported ARM data-processing-immediate
+    /// instructions into native code. Supported shapes (all with AL
+    /// condition, I=1, S=0):
+    ///   - MOV Rd, #imm          op=1101
+    ///   - MVN Rd, #imm          op=1111
+    ///   - ADD Rd, Rn, #imm      op=0100
+    ///   - SUB Rd, Rn, #imm      op=0010
     ///
-    /// The returned function takes a pointer to the CPU's `gpr` array (15
-    /// x u32 = r0..r14, PC not included) and applies each decoded MOV to
-    /// the array in sequence. Unknown encodings panic during compilation.
-    ///
-    /// This is a narrow vertical slice used to prove the ARM→Cranelift IR
-    /// lowering path end-to-end. Real blocks have conditional ops, memory
-    /// accesses, branches; those come incrementally in later commits.
-    pub fn compile_mov_imm_block(&mut self, opcodes: &[u32]) -> extern "C" fn(*mut u32) {
+    /// The returned function takes a pointer to the CPU's gpr array.
+    /// Returns an error (`None`) if any opcode is not one of the
+    /// supported shapes — the caller should then fall back to the
+    /// interpreter replay path for this block.
+    pub fn try_compile_imm_block(
+        &mut self,
+        opcodes: &[u32],
+    ) -> Option<extern "C" fn(*mut u32)> {
+        // Validate every opcode up front so we don't create a half-defined
+        // function we then have to tear down.
+        for &insn in opcodes {
+            if Self::decode_supported_imm(insn).is_none() {
+                return None;
+            }
+        }
+
         let ptr_type = self.module.isa().pointer_type();
         let mut sig = self.module.make_signature();
         sig.params.push(AbiParam::new(ptr_type));
 
         self.next_id += 1;
-        let name = format!("dynarec_mov_imm_block_{}", self.next_id);
+        let name = format!("dynarec_imm_block_{}", self.next_id);
         let func_id = self
             .module
             .declare_function(&name, Linkage::Local, &sig)
@@ -104,32 +115,8 @@ impl DynarecCompiler {
             let gpr_ptr = builder.block_params(entry)[0];
 
             for &insn in opcodes {
-                // Decode MOV Rd, #imm (ARM data processing, op=0b1101, I=1).
-                // Bits 27..20 = 0b0011_1010 for `MOV AL imm` when S=0,
-                // = 0b0011_1011 when S=1. We don't implement S-bit yet.
-                let cond = (insn >> 28) & 0xf;
-                let class = (insn >> 20) & 0xff;
-                assert_eq!(cond, 0xE, "dynarec: only AL condition supported");
-                assert_eq!(
-                    class & 0b1111_1110,
-                    0b0011_1010,
-                    "dynarec: expected MOV Rd, #imm (AL, no S-bit)"
-                );
-                let rd = ((insn >> 12) & 0xf) as i32;
-                assert!((0..15).contains(&rd), "dynarec: invalid Rd={}", rd);
-                // Operand 2: 8-bit immediate rotated right by 2*rot_imm.
-                let imm8 = insn & 0xff;
-                let rot = ((insn >> 8) & 0xf) * 2;
-                let value = imm8.rotate_right(rot);
-
-                // Emit: *(gpr_ptr + rd*4) = value
-                let val_ir = builder.ins().iconst(types::I32, value as i64);
-                builder.ins().store(
-                    MemFlags::trusted(),
-                    val_ir,
-                    gpr_ptr,
-                    Offset32::new(rd * 4),
-                );
+                let dec = Self::decode_supported_imm(insn).expect("pre-validated");
+                emit_data_processing_imm(&mut builder, gpr_ptr, dec);
             }
 
             builder.ins().return_(&[]);
@@ -145,7 +132,46 @@ impl DynarecCompiler {
             .expect("finalize_definitions failed");
 
         let code = self.module.get_finalized_function(func_id);
-        unsafe { std::mem::transmute::<*const u8, extern "C" fn(*mut u32)>(code) }
+        // SAFETY: declared signature matches the transmute target.
+        Some(unsafe {
+            std::mem::transmute::<*const u8, extern "C" fn(*mut u32)>(code)
+        })
+    }
+
+    /// Classify an ARM opcode as one of the supported immediate shapes,
+    /// returning the decoded fields needed for codegen.
+    fn decode_supported_imm(insn: u32) -> Option<DecodedDpImm> {
+        let cond = (insn >> 28) & 0xf;
+        if cond != 0xE {
+            // Only AL for now; non-AL needs a conditional emit path.
+            return None;
+        }
+        let class = (insn >> 20) & 0xff;
+        // class bits [7:5] are insn[27:25] which must be 0b001 for the
+        // immediate data-processing form, and class bit 0 is insn[20] = S
+        // which must be 0 (we haven't implemented flag updates yet).
+        // Mask 0b1110_0001, expected 0b0010_0000.
+        if (class & 0b1110_0001) != 0b0010_0000 {
+            return None;
+        }
+        // Opcode is bits [24:21] of the instruction = bits [4:1] of class.
+        let op = (class >> 1) & 0xf;
+        let op = match op {
+            0b1101 => DpImmOp::Mov,
+            0b1111 => DpImmOp::Mvn,
+            0b0100 => DpImmOp::Add,
+            0b0010 => DpImmOp::Sub,
+            _ => return None,
+        };
+        let rn = ((insn >> 16) & 0xf) as i32;
+        let rd = ((insn >> 12) & 0xf) as i32;
+        if !(0..15).contains(&rd) || !(0..15).contains(&rn) {
+            return None;
+        }
+        let imm8 = insn & 0xff;
+        let rot = ((insn >> 8) & 0xf) * 2;
+        let imm = imm8.rotate_right(rot);
+        Some(DecodedDpImm { op, rd, rn, imm })
     }
 
     /// Compile a stub function that reads `gpr[1]` and writes it into
@@ -213,6 +239,62 @@ impl Default for DynarecCompiler {
     }
 }
 
+/// Subset of ARM data-processing opcodes the dynarec can currently emit.
+/// Extend when adding support for more shapes.
+#[derive(Clone, Copy, Debug)]
+enum DpImmOp {
+    Mov,
+    Mvn,
+    Add,
+    Sub,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DecodedDpImm {
+    op: DpImmOp,
+    rd: i32,
+    rn: i32,
+    imm: u32,
+}
+
+/// Emit Cranelift IR for a single decoded DpImm instruction operating on
+/// the `gpr` array at `gpr_ptr`. Effects gpr[rd] = f(gpr[rn], imm).
+fn emit_data_processing_imm(
+    builder: &mut FunctionBuilder,
+    gpr_ptr: Value,
+    dec: DecodedDpImm,
+) {
+    let imm_ir = builder.ins().iconst(types::I32, dec.imm as i64);
+    let result = match dec.op {
+        DpImmOp::Mov => imm_ir,
+        DpImmOp::Mvn => {
+            // ~imm is a compile-time constant; emit directly.
+            builder.ins().iconst(types::I32, (!dec.imm) as i64)
+        }
+        DpImmOp::Add => {
+            let rn = builder.ins().load(
+                types::I32,
+                MemFlags::trusted(),
+                gpr_ptr,
+                Offset32::new(dec.rn * 4),
+            );
+            builder.ins().iadd(rn, imm_ir)
+        }
+        DpImmOp::Sub => {
+            let rn = builder.ins().load(
+                types::I32,
+                MemFlags::trusted(),
+                gpr_ptr,
+                Offset32::new(dec.rn * 4),
+            );
+            builder.ins().isub(rn, imm_ir)
+        }
+    };
+    builder
+        .ins()
+        .store(MemFlags::trusted(), result, gpr_ptr, Offset32::new(dec.rd * 4));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,7 +321,7 @@ mod tests {
         //   E3A0_1002  MOV R1, #2
         //   E3A0_20FF  MOV R2, #255
         let block = [0xE3A0_0001u32, 0xE3A0_1002u32, 0xE3A0_20FFu32];
-        let func = compiler.compile_mov_imm_block(&block);
+        let func = compiler.try_compile_imm_block(&block).expect("should compile");
 
         let mut gpr = [0u32; 15];
         // Pre-poison to prove the writes actually happen.
@@ -255,12 +337,48 @@ mod tests {
     }
 
     #[test]
+    fn compile_add_sub_mvn_mixed() {
+        let mut compiler = DynarecCompiler::new();
+        // Block:
+        //   MOV R0, #10         E3A0_000A
+        //   ADD R1, R0, #5      E280_1005
+        //   SUB R2, R1, #3      E241_2003
+        //   MVN R3, #0          E3E0_3000   (result = 0xFFFF_FFFF)
+        let block = [
+            0xE3A0_000Au32,
+            0xE280_1005u32,
+            0xE241_2003u32,
+            0xE3E0_3000u32,
+        ];
+        let func = compiler.try_compile_imm_block(&block).expect("should compile");
+
+        let mut gpr = [0u32; 15];
+        func(gpr.as_mut_ptr());
+        assert_eq!(gpr[0], 10);
+        assert_eq!(gpr[1], 15);
+        assert_eq!(gpr[2], 12);
+        assert_eq!(gpr[3], 0xFFFF_FFFF);
+    }
+
+    #[test]
+    fn reject_unsupported_opcode_returns_none() {
+        let mut compiler = DynarecCompiler::new();
+        // An LDR opcode (not data-processing-immediate). Should be rejected.
+        let block = [0xE590_0000u32];
+        assert!(compiler.try_compile_imm_block(&block).is_none());
+
+        // Block with a non-AL condition — rejected.
+        let block = [0x03A0_0001u32]; // MOVEQ R0, #1
+        assert!(compiler.try_compile_imm_block(&block).is_none());
+    }
+
+    #[test]
     fn compile_mov_imm_with_rotation() {
         let mut compiler = DynarecCompiler::new();
         // MOV R3, #0xFF000000 encodes as E3A0_34FF:
         //   imm8 = 0xFF, rot = 4 → rotate right 8 bits → 0xFF000000
         let block = [0xE3A0_34FFu32];
-        let func = compiler.compile_mov_imm_block(&block);
+        let func = compiler.try_compile_imm_block(&block).expect("should compile");
 
         let mut gpr = [0u32; 15];
         func(gpr.as_mut_ptr());
