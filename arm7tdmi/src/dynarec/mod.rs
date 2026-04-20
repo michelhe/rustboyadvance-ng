@@ -644,6 +644,7 @@ impl DynarecCompiler {
     }
 
     /// Compile a block of Thumb 16 bit opcodes. Supports:
+    ///   - format 1: LSL/LSR/ASR Rd, Rs, #imm5 (with shifter carry)
     ///   - format 2: ADD/SUB Rd, Rs, Rn/imm3
     ///   - format 3: MOV/CMP/ADD/SUB Rd, #imm8
     ///   - format 4 logical subset: AND/EOR/ORR/BIC/MVN/TST/CMP/CMN Rd, Rs
@@ -668,13 +669,19 @@ impl DynarecCompiler {
     ) -> Option<extern "C" fn(*mut u32, *mut u32)> {
         // Each opcode must classify as one of the supported formats.
         enum ThumbItem {
+            F1(DecodedThumb1),
             F2(DecodedThumb2),
             F3(DecodedThumb3),
             F4(DecodedThumb4),
         }
         let mut items: Vec<ThumbItem> = Vec::with_capacity(opcodes.len());
         for &op in opcodes {
-            if let Some(d) = Self::decode_thumb_format2(op) {
+            // Format 1 has to be tried before format 2 because 00011xx... is
+            // format 2 but 000xx... otherwise is format 1. decode_thumb_format1
+            // explicitly rejects the format 2 bit pattern.
+            if let Some(d) = Self::decode_thumb_format1(op) {
+                items.push(ThumbItem::F1(d));
+            } else if let Some(d) = Self::decode_thumb_format2(op) {
                 items.push(ThumbItem::F2(d));
             } else if let Some(d) = Self::decode_thumb_format3(op) {
                 items.push(ThumbItem::F3(d));
@@ -716,6 +723,7 @@ impl DynarecCompiler {
 
             for item in &items {
                 match item {
+                    ThumbItem::F1(d) => emit_thumb_format1(&mut builder, gpr_ptr, cpsr_var, *d),
                     ThumbItem::F2(d) => emit_thumb_format2(&mut builder, gpr_ptr, cpsr_var, *d),
                     ThumbItem::F3(d) => emit_thumb_format3(&mut builder, gpr_ptr, cpsr_var, *d),
                     ThumbItem::F4(d) => emit_thumb_format4_logical(&mut builder, gpr_ptr, cpsr_var, *d),
@@ -742,6 +750,33 @@ impl DynarecCompiler {
         Some(unsafe {
             std::mem::transmute::<*const u8, extern "C" fn(*mut u32, *mut u32)>(code)
         })
+    }
+
+    /// Classify a Thumb 16 bit opcode as format 1 (LSL/LSR/ASR Rd, Rs,
+    /// #imm5). Encoding:
+    ///   000_oo_iiiii_sss_ddd
+    ///     oo = 00 LSL, 01 LSR, 10 ASR  (11 is format 2 add/sub, rejected)
+    ///     imm5 = iiiii
+    ///     Rs = sss, Rd = ddd
+    fn decode_thumb_format1(op: u16) -> Option<DecodedThumb1> {
+        if (op >> 13) & 0b111 != 0b000 {
+            return None;
+        }
+        let oo = (op >> 11) & 0b11;
+        if oo == 0b11 {
+            // That's format 2.
+            return None;
+        }
+        let imm5 = ((op >> 6) & 0b11111) as u32;
+        let rs = ((op >> 3) & 0b111) as i32;
+        let rd = (op & 0b111) as i32;
+        let kind = match oo {
+            0b00 => ShiftKind::Lsl,
+            0b01 => ShiftKind::Lsr,
+            0b10 => ShiftKind::Asr,
+            _ => unreachable!(),
+        };
+        Some(DecodedThumb1 { kind, imm5, rs, rd })
     }
 
     /// Classify a Thumb 16 bit opcode as one of the format 4 logical
@@ -1095,6 +1130,20 @@ struct DecodedThumb4 {
     rs: i32,
 }
 
+/// ARM shifter operation kind. Only the three Thumb format 1 variants
+/// for now. Format 4 reg shifts (LSL/LSR/ASR/ROR with register amount)
+/// would extend this.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ShiftKind { Lsl, Lsr, Asr }
+
+#[derive(Clone, Copy, Debug)]
+struct DecodedThumb1 {
+    kind: ShiftKind,
+    imm5: u32,
+    rs: i32,
+    rd: i32,
+}
+
 /// A decoded ARM LDR / STR immediate instruction. Pre indexed, no writeback,
 /// any offset sign, either word or byte size. The dynarec emits this by
 /// calling into the bus trampolines at runtime.
@@ -1239,6 +1288,114 @@ fn emit_conditional_instr(
     builder.ins().jump(merge, &[]);
     builder.switch_to_block(merge);
     builder.seal_block(merge);
+}
+
+/// Emit a Thumb format 1 shift by immediate (LSL/LSR/ASR Rd, Rs, #imm5).
+/// Writes N, Z, and C (shifter carry) to CPSR. Preserves V.
+///
+/// ARM7TDMI barrel shifter special cases:
+///   LSL #0:  result = Rs, C preserved
+///   LSR #0:  decoded as LSR #32 -> result = 0,  C = bit 31 of Rs
+///   ASR #0:  decoded as ASR #32 -> result = Rs arith shift by 31 (all sign
+///            bits), C = bit 31 of Rs
+///   LSL #n (1..31): result = Rs << n,     C = bit (32-n) of Rs
+///   LSR #n (1..31): result = Rs >> n,     C = bit (n-1) of Rs
+///   ASR #n (1..31): result = (i32)Rs >> n, C = bit (n-1) of Rs
+fn emit_thumb_format1(
+    builder: &mut FunctionBuilder,
+    gpr_ptr: Value,
+    cpsr_var: Variable,
+    dec: DecodedThumb1,
+) {
+    let rs_val = builder.ins().load(
+        types::I32,
+        MemFlags::trusted(),
+        gpr_ptr,
+        Offset32::new(dec.rs * 4),
+    );
+
+    // Precompute result and shifter-out C bit at codegen time by folding
+    // the constant imm5 into specific instruction sequences. This avoids
+    // runtime branching on the shift amount.
+    let one = builder.ins().iconst(types::I32, 1);
+    let preserve_c = {
+        // Current C bit from cpsr_var, shifted down to bit 0.
+        let cpsr = builder.use_var(cpsr_var);
+        let shifted = builder.ins().ushr_imm(cpsr, 29);
+        builder.ins().band(shifted, one)
+    };
+
+    let (result, new_c) = match (dec.kind, dec.imm5) {
+        (ShiftKind::Lsl, 0) => {
+            // LSL #0: no shift, C preserved.
+            (rs_val, preserve_c)
+        }
+        (ShiftKind::Lsl, n) => {
+            // result = Rs << n ; C = bit (32 - n) of Rs
+            let r = builder.ins().ishl_imm(rs_val, n as i64);
+            let c_shift = 32 - n as i64;
+            let c_raw = builder.ins().ushr_imm(rs_val, c_shift);
+            let c = builder.ins().band(c_raw, one);
+            (r, c)
+        }
+        (ShiftKind::Lsr, 0) => {
+            // LSR #0 means LSR #32: result = 0, C = bit 31 of Rs.
+            let r = builder.ins().iconst(types::I32, 0);
+            let c_raw = builder.ins().ushr_imm(rs_val, 31);
+            let c = builder.ins().band(c_raw, one);
+            (r, c)
+        }
+        (ShiftKind::Lsr, n) => {
+            let r = builder.ins().ushr_imm(rs_val, n as i64);
+            let c_raw = builder.ins().ushr_imm(rs_val, (n - 1) as i64);
+            let c = builder.ins().band(c_raw, one);
+            (r, c)
+        }
+        (ShiftKind::Asr, 0) => {
+            // ASR #0 means ASR #32: result = all sign bits, C = bit 31.
+            let r = builder.ins().sshr_imm(rs_val, 31);
+            let c_raw = builder.ins().ushr_imm(rs_val, 31);
+            let c = builder.ins().band(c_raw, one);
+            (r, c)
+        }
+        (ShiftKind::Asr, n) => {
+            let r = builder.ins().sshr_imm(rs_val, n as i64);
+            let c_raw = builder.ins().ushr_imm(rs_val, (n - 1) as i64);
+            let c = builder.ins().band(c_raw, one);
+            (r, c)
+        }
+    };
+
+    builder.ins().store(
+        MemFlags::trusted(),
+        result,
+        gpr_ptr,
+        Offset32::new(dec.rd * 4),
+    );
+
+    // N, Z from result. C is new_c. V preserved.
+    let zero = builder.ins().iconst(types::I32, 0);
+    let n = builder.ins().ushr_imm(result, 31);
+    let z_bool = builder.ins().icmp(IntCC::Equal, result, zero);
+    let z = builder.ins().uextend(types::I32, z_bool);
+    let v = {
+        let cpsr = builder.use_var(cpsr_var);
+        let shifted = builder.ins().ushr_imm(cpsr, 28);
+        builder.ins().band(shifted, one)
+    };
+
+    let cpsr = builder.use_var(cpsr_var);
+    let mask = builder.ins().iconst(types::I32, 0x0fff_ffff);
+    let cleared = builder.ins().band(cpsr, mask);
+    let n_shifted = builder.ins().ishl_imm(n, 31);
+    let z_shifted = builder.ins().ishl_imm(z, 30);
+    let c_shifted = builder.ins().ishl_imm(new_c, 29);
+    let v_shifted = builder.ins().ishl_imm(v, 28);
+    let nz = builder.ins().bor(n_shifted, z_shifted);
+    let cv = builder.ins().bor(c_shifted, v_shifted);
+    let flags = builder.ins().bor(nz, cv);
+    let new_cpsr = builder.ins().bor(cleared, flags);
+    builder.def_var(cpsr_var, new_cpsr);
 }
 
 /// Emit a Thumb format 4 logical / compare op. All mnemonics in this
@@ -2596,6 +2753,136 @@ mod tests {
         func(gpr.as_mut_ptr(), &mut cpsr);
         assert_eq!(gpr[0], 0);
         assert_ne!(cpsr & (1 << 30), 0, "Z should be set");
+    }
+
+    // --- Thumb format 1 (LSL/LSR/ASR Rd, Rs, #imm5) ---
+
+    #[test]
+    fn decode_thumb_format1_shapes() {
+        // LSL R0, R1, #3  -> 000_00_00011_001_000 = 0b0000_0000_1100_1000 = 0x00C8
+        let d = DynarecCompiler::decode_thumb_format1(0x00C8).expect("LSL");
+        assert_eq!(d.kind, ShiftKind::Lsl);
+        assert_eq!(d.imm5, 3);
+        assert_eq!(d.rs, 1);
+        assert_eq!(d.rd, 0);
+
+        // LSR R2, R3, #5  -> 000_01_00101_011_010 = 0b0000_1001_0101_1010 = 0x095A
+        let d = DynarecCompiler::decode_thumb_format1(0x095A).expect("LSR");
+        assert_eq!(d.kind, ShiftKind::Lsr);
+        assert_eq!(d.imm5, 5);
+
+        // ASR R5, R6, #8  -> 000_10_01000_110_101 = 0b0001_0010_0011_0101 = 0x1235
+        let d = DynarecCompiler::decode_thumb_format1(0x1235).expect("ASR");
+        assert_eq!(d.kind, ShiftKind::Asr);
+        assert_eq!(d.imm5, 8);
+
+        // oo = 11 (format 2) must be rejected by format 1 decoder.
+        assert!(DynarecCompiler::decode_thumb_format1(0x1800).is_none());
+
+        // Not Thumb format 1 (top 3 bits != 000).
+        assert!(DynarecCompiler::decode_thumb_format1(0x2000).is_none()); // fmt 3
+        assert!(DynarecCompiler::decode_thumb_format1(0x4000).is_none()); // fmt 4
+    }
+
+    #[test]
+    fn compile_lsl_imm_regular() {
+        let mut compiler = DynarecCompiler::new();
+        // LSL R0, R1, #3
+        let func = compiler
+            .try_compile_thumb_block(&[0x00C8])
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[1] = 0x0000_0005;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[0], 5 << 3);
+        // C = bit (32-3) = bit 29 of 5 = 0.
+        assert_eq!(cpsr & (1 << 29), 0);
+    }
+
+    #[test]
+    fn compile_lsl_zero_preserves_c() {
+        let mut compiler = DynarecCompiler::new();
+        // LSL R0, R1, #0  -> no shift, C preserved.
+        let func = compiler
+            .try_compile_thumb_block(&[0x0008])
+            .unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[1] = 0xDEAD_BEEF;
+        let mut cpsr: u32 = 1 << 29; // Set C = 1 on input.
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[0], 0xDEAD_BEEF);
+        assert_ne!(cpsr & (1 << 29), 0, "C preserved on LSL #0");
+    }
+
+    #[test]
+    fn compile_lsl_imm_shifts_out_carry() {
+        let mut compiler = DynarecCompiler::new();
+        // LSL R0, R1, #1 -> R0 = R1 << 1, C = bit 31 of R1.
+        let func = compiler
+            .try_compile_thumb_block(&[0x0048])
+            .unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[1] = 0x8000_0001;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[0], 0x0000_0002);
+        assert_ne!(cpsr & (1 << 29), 0, "C from shifted out top bit");
+    }
+
+    #[test]
+    fn compile_lsr_zero_is_lsr_32() {
+        let mut compiler = DynarecCompiler::new();
+        // LSR R0, R1, #0 -> LSR #32: result = 0, C = bit 31 of R1.
+        let func = compiler
+            .try_compile_thumb_block(&[0x0808])
+            .unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[1] = 0x8000_0000;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[0], 0);
+        assert_ne!(cpsr & (1 << 29), 0, "C = bit 31 of Rs");
+        assert_ne!(cpsr & (1 << 30), 0, "Z set when result == 0");
+    }
+
+    #[test]
+    fn compile_asr_preserves_sign() {
+        let mut compiler = DynarecCompiler::new();
+        // ASR R0, R1, #4 -> arithmetic right shift.
+        let func = compiler
+            .try_compile_thumb_block(&[0x1108])
+            .unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[1] = 0x8000_0000u32;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[0], 0xF800_0000u32, "ASR sign extends");
+        assert_ne!(cpsr & (1 << 31), 0, "N set (result top bit)");
+    }
+
+    #[test]
+    fn compile_asr_zero_is_asr_32() {
+        let mut compiler = DynarecCompiler::new();
+        // ASR R0, R1, #0 -> ASR #32: result = all sign bits of Rs.
+        let func = compiler
+            .try_compile_thumb_block(&[0x1008])
+            .unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[1] = 0x8000_0000u32;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[0], 0xFFFF_FFFFu32, "all ones when sign bit set");
+
+        gpr[1] = 0x0000_0001u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[0], 0, "all zeros when sign bit clear");
     }
 
     // --- Thumb format 4 logical subset ---
