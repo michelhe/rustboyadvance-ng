@@ -165,6 +165,207 @@ impl DynarecCompiler {
         })
     }
 
+    /// Variant of `try_compile_imm_block` that accepts an optional trailing
+    /// ARM B / BL as a block terminator. The returned function writes the
+    /// new PC value (already adjusted to the ARM branch's PC+8+offset<<2
+    /// semantics) into `*pc_out` and returns 1 iff the branch was taken,
+    /// otherwise returns 0 and leaves `*pc_out` untouched.
+    ///
+    /// `entry_pc` is the address of the first instruction in `opcodes` as
+    /// the ARM pipeline sees it (i.e. the pc the interpreter would be at
+    /// while decoding the first instr, which equals the instruction's own
+    /// address plus 8 per ARM pipeline convention). We fold that into the
+    /// generated code so the runtime doesn't need to know where the block
+    /// lived.
+    ///
+    /// Returns None if any instruction other than the optional trailing B/BL
+    /// isn't a supported DP shape, or if a B/BL shows up anywhere other
+    /// than the last slot.
+    pub fn try_compile_block_with_branch(
+        &mut self,
+        opcodes: &[u32],
+        entry_pc: u32,
+    ) -> Option<extern "C" fn(*mut u32, *mut u32, *mut u32) -> u32> {
+        if opcodes.is_empty() {
+            return None;
+        }
+
+        // Branch may only appear as the last instruction.
+        let (body_opcodes, tail) = opcodes.split_at(opcodes.len() - 1);
+        let tail_insn = tail[0];
+
+        // First: every body instruction must be a DP shape we can emit.
+        for &insn in body_opcodes {
+            if Self::decode_supported_dp(insn).is_none() {
+                return None;
+            }
+            if Self::decode_branch(insn).is_some() {
+                // B/BL found mid block; reject until we know how to handle
+                // mid block early return vs scheduler interleaving cleanly.
+                return None;
+            }
+        }
+
+        // The tail can be either a DP shape (no branch) OR a B/BL.
+        let tail_is_dp = Self::decode_supported_dp(tail_insn).is_some();
+        let tail_is_branch = Self::decode_branch(tail_insn);
+        if !tail_is_dp && tail_is_branch.is_none() {
+            return None;
+        }
+
+        let ptr_type = self.module.isa().pointer_type();
+        let mut sig = self.module.make_signature();
+        sig.params.push(AbiParam::new(ptr_type)); // gpr_ptr
+        sig.params.push(AbiParam::new(ptr_type)); // cpsr_ptr
+        sig.params.push(AbiParam::new(ptr_type)); // pc_out
+        sig.returns.push(AbiParam::new(types::I32));
+
+        self.next_id += 1;
+        let name = format!("dynarec_branch_block_{}", self.next_id);
+        let func_id = self
+            .module
+            .declare_function(&name, Linkage::Local, &sig)
+            .expect("declare_function failed");
+        self.ctx.func.signature = sig;
+
+        {
+            let mut builder =
+                FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+            let entry = builder.create_block();
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            builder.seal_block(entry);
+
+            let gpr_ptr = builder.block_params(entry)[0];
+            let cpsr_ptr = builder.block_params(entry)[1];
+            let pc_out = builder.block_params(entry)[2];
+
+            let cpsr_var = builder.declare_var(types::I32);
+            let cpsr_initial =
+                builder.ins().load(types::I32, MemFlags::trusted(), cpsr_ptr, 0);
+            builder.def_var(cpsr_var, cpsr_initial);
+
+            // Pre-compute the entry pc of each instruction as if the ARM
+            // pipeline were live. The first body instr is at entry_pc-8 from
+            // the branch's perspective (since ARM PC during execute is
+            // current_instr+8). For the tail branch we use entry_pc + 8 +
+            // (body_len * 4), matching how the interpreter would have
+            // advanced pc by the time B itself executes.
+            let body_len = body_opcodes.len() as u32;
+
+            for (i, &insn) in body_opcodes.iter().enumerate() {
+                let dec = Self::decode_supported_dp(insn).expect("pre-validated");
+                // Reject MOV/etc to R15 in compiled path: that would flush
+                // the pipeline and we don't model it yet.
+                if dec.rd == 15 || (matches!(dec.operand2, Operand2::Reg(15))) {
+                    return None;
+                }
+                let _ = i;
+                emit_conditional_instr(&mut builder, gpr_ptr, cpsr_var, dec);
+            }
+
+            // Fall through vs branch-taken return path.
+            let took_branch_var = builder.declare_var(types::I32);
+            let zero = builder.ins().iconst(types::I32, 0);
+            builder.def_var(took_branch_var, zero);
+
+            if let Some(br) = tail_is_branch {
+                // pc of the B instruction itself, in linear layout from block
+                // entry.
+                let branch_insn_pc = entry_pc.wrapping_add(body_len.wrapping_mul(4));
+                // ARM B semantics: new_pc = (pc_of_B + 8) + sign_extend(imm24) * 4.
+                let target = branch_insn_pc
+                    .wrapping_add(8)
+                    .wrapping_add((br.offset24_signed as i32 * 4) as u32);
+
+                let cond_pass = emit_cond_check(&mut builder, cpsr_var, br.cond);
+                let taken = builder.create_block();
+                let not_taken = builder.create_block();
+                builder.ins().brif(cond_pass, taken, &[], not_taken, &[]);
+
+                builder.switch_to_block(taken);
+                builder.seal_block(taken);
+                // If BL, write LR = pc_of_B + 4.
+                if br.link {
+                    let lr_val = builder
+                        .ins()
+                        .iconst(types::I32, (branch_insn_pc.wrapping_add(4)) as i64);
+                    builder.ins().store(
+                        MemFlags::trusted(),
+                        lr_val,
+                        gpr_ptr,
+                        Offset32::new(14 * 4),
+                    );
+                }
+                let target_val = builder.ins().iconst(types::I32, target as i64);
+                builder.ins().store(MemFlags::trusted(), target_val, pc_out, 0);
+                let one = builder.ins().iconst(types::I32, 1);
+                builder.def_var(took_branch_var, one);
+                builder.ins().jump(not_taken, &[]);
+
+                builder.switch_to_block(not_taken);
+                builder.seal_block(not_taken);
+            } else {
+                // Trailing DP instruction, same as body.
+                let dec = Self::decode_supported_dp(tail_insn).expect("pre-validated");
+                if dec.rd == 15 || matches!(dec.operand2, Operand2::Reg(15)) {
+                    return None;
+                }
+                emit_conditional_instr(&mut builder, gpr_ptr, cpsr_var, dec);
+            }
+
+            let cpsr_final = builder.use_var(cpsr_var);
+            builder
+                .ins()
+                .store(MemFlags::trusted(), cpsr_final, cpsr_ptr, 0);
+
+            let ret_val = builder.use_var(took_branch_var);
+            builder.ins().return_(&[ret_val]);
+            builder.finalize();
+        }
+
+        self.module
+            .define_function(func_id, &mut self.ctx)
+            .expect("define_function failed");
+        self.module.clear_context(&mut self.ctx);
+        self.module
+            .finalize_definitions()
+            .expect("finalize_definitions failed");
+
+        let code = self.module.get_finalized_function(func_id);
+        Some(unsafe {
+            std::mem::transmute::<
+                *const u8,
+                extern "C" fn(*mut u32, *mut u32, *mut u32) -> u32,
+            >(code)
+        })
+    }
+
+    /// Classify an ARM opcode as B or BL. Returns None for everything else.
+    /// Encoding (ARMv4):
+    ///   cond[31:28] | 101L[27:24] | imm24[23:0]
+    /// L=0 -> B, L=1 -> BL. imm24 is a signed 24-bit value; the effective
+    /// offset is sign_extend(imm24) << 2, added to PC+8.
+    fn decode_branch(insn: u32) -> Option<DecodedBranch> {
+        let cond_bits = (insn >> 28) & 0xf;
+        if cond_bits == 0xF {
+            return None;
+        }
+        // Top 7 bits of the non-cond field must be 0b1010xxx (B) or 0b1011xxx (BL).
+        if (insn >> 25) & 0b111 != 0b101 {
+            return None;
+        }
+        let link = ((insn >> 24) & 1) != 0;
+        // Sign-extend the 24 bit immediate into i32.
+        let raw = insn & 0x00ff_ffff;
+        let signed = ((raw as i32) << 8) >> 8; // arithmetic shift to sign-extend
+        Some(DecodedBranch {
+            cond: ArmCond::from_bits(cond_bits as u8),
+            link,
+            offset24_signed: signed,
+        })
+    }
+
     /// Classify an ARM opcode as one of the supported data-processing shapes
     /// (immediate or register with no shift). Returns the decoded fields
     /// needed for codegen, or None for any unsupported encoding.
@@ -315,6 +516,15 @@ impl DpOp {
 enum Operand2 {
     Imm(u32),
     Reg(i32),
+}
+
+/// A decoded ARM B or BL instruction. `offset24_signed` is the raw 24 bit
+/// immediate sign extended to i32 (not yet shifted by 2).
+#[derive(Clone, Copy, Debug)]
+struct DecodedBranch {
+    cond: ArmCond,
+    link: bool,
+    offset24_signed: i32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1066,5 +1276,151 @@ mod tests {
 
         assert_eq!(gpr_a[0], 11);
         assert_eq!(gpr_b[0], 22);
+    }
+
+    #[test]
+    fn decode_unconditional_b_forward() {
+        // B #+8 (skip the next instruction). ARM encoding:
+        //   cond=AL, opcode 1010, imm24 = 0 means target = pc+8+0 = pc+8.
+        // E.g. "EA FF FF FE" is B -8 (infinite loop); for a +8 jump use
+        // imm24 = 0.
+        //   EA 00 00 00  = B pc+8 (= next+4, i.e. skip one instr)
+        let insn = 0xEA00_0000u32;
+        let dec = DynarecCompiler::decode_branch(insn)
+            .expect("should be a branch");
+        assert_eq!(dec.cond, ArmCond::Al);
+        assert_eq!(dec.link, false);
+        assert_eq!(dec.offset24_signed, 0);
+
+        // BL #-8  cond=AL, opcode 1011, imm24 = 0x_FF_FF_FE (sign-ext'd to
+        // -2), target = pc+8 + (-2)*4 = pc.
+        let insn = 0xEBFF_FFFEu32;
+        let dec = DynarecCompiler::decode_branch(insn)
+            .expect("should be a branch");
+        assert_eq!(dec.link, true);
+        assert_eq!(dec.offset24_signed, -2);
+    }
+
+    #[test]
+    fn decode_branch_rejects_non_branch() {
+        // MOV R0, #5 isn't a branch.
+        assert!(DynarecCompiler::decode_branch(0xE3A0_0005u32).is_none());
+        // NV (0xF) cond reserved / never-taken, reject.
+        assert!(DynarecCompiler::decode_branch(0xFA00_0000u32).is_none());
+    }
+
+    #[test]
+    fn compile_b_forward_taken() {
+        // Block: MOV R0, #1; B +8. Both always taken (AL cond).
+        let mut compiler = DynarecCompiler::new();
+        let mov = 0xE3A0_0001u32;        // MOV R0, #1
+        let b_plus8 = 0xEA00_0000u32;    // B +8 (target pc+8 from branch site)
+        let entry_pc: u32 = 0x0800_1000;
+        let func = compiler
+            .try_compile_block_with_branch(&[mov, b_plus8], entry_pc)
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        let mut cpsr = 0u32;
+        let mut pc_out: u32 = 0xDEAD_BEEF;
+        let taken = func(gpr.as_mut_ptr(), &mut cpsr, &mut pc_out);
+
+        assert_eq!(gpr[0], 1, "MOV ran");
+        assert_eq!(taken, 1, "branch should report taken");
+        // B at entry_pc+4. Target = (entry_pc+4) + 8 + 0 = entry_pc + 12.
+        assert_eq!(pc_out, entry_pc.wrapping_add(12));
+    }
+
+    #[test]
+    fn compile_bl_sets_lr() {
+        // BL +8 -> LR = pc_of_BL + 4, target = pc_of_BL + 8.
+        let mut compiler = DynarecCompiler::new();
+        let bl = 0xEB00_0000u32;
+        let entry_pc: u32 = 0x0800_2000;
+        let func = compiler
+            .try_compile_block_with_branch(&[bl], entry_pc)
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        let mut cpsr = 0u32;
+        let mut pc_out = 0u32;
+        let taken = func(gpr.as_mut_ptr(), &mut cpsr, &mut pc_out);
+
+        assert_eq!(taken, 1);
+        assert_eq!(gpr[14], entry_pc.wrapping_add(4), "LR = PC_of_BL + 4");
+        assert_eq!(pc_out, entry_pc.wrapping_add(8));
+    }
+
+    #[test]
+    fn compile_conditional_branch_not_taken() {
+        // BEQ +8 with Z=0 (not equal) -> branch not taken, block falls
+        // through.
+        let mut compiler = DynarecCompiler::new();
+        let beq = 0x0A00_0000u32; // cond=EQ, B opcode, imm24=0
+        let func = compiler
+            .try_compile_block_with_branch(&[beq], 0x0800_3000)
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        let mut cpsr = 0u32; // Z=0
+        let mut pc_out: u32 = 0xBADD_F00D;
+        let taken = func(gpr.as_mut_ptr(), &mut cpsr, &mut pc_out);
+
+        assert_eq!(taken, 0, "BEQ should not fire when Z=0");
+        // pc_out must be left alone.
+        assert_eq!(pc_out, 0xBADD_F00D);
+    }
+
+    #[test]
+    fn compile_conditional_branch_taken_when_z_set() {
+        let mut compiler = DynarecCompiler::new();
+        let beq = 0x0A00_0000u32;
+        let entry_pc: u32 = 0x0800_4000;
+        let func = compiler
+            .try_compile_block_with_branch(&[beq], entry_pc)
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        let mut cpsr: u32 = 1 << 30; // Z=1
+        let mut pc_out = 0u32;
+        let taken = func(gpr.as_mut_ptr(), &mut cpsr, &mut pc_out);
+
+        assert_eq!(taken, 1);
+        assert_eq!(pc_out, entry_pc.wrapping_add(8));
+    }
+
+    #[test]
+    fn branch_body_rejects_unsupported_midblock() {
+        // Body contains an unsupported opcode (LDR): should be None.
+        let ldr_placeholder = 0xE5101000u32; // LDR R1, [R0]
+        let b = 0xEA00_0000u32;
+        let mut compiler = DynarecCompiler::new();
+        assert!(
+            compiler
+                .try_compile_block_with_branch(&[ldr_placeholder, b], 0)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn branch_block_with_dp_tail_also_works() {
+        // When the block has no terminal B/BL, the compiled fn should just
+        // run the DP instructions and return 0 (no branch taken).
+        let mut compiler = DynarecCompiler::new();
+        let mov0 = 0xE3A0_0005u32;
+        let mov1 = 0xE3A0_100Au32;
+        let func = compiler
+            .try_compile_block_with_branch(&[mov0, mov1], 0x800_5000)
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        let mut cpsr = 0u32;
+        let mut pc_out: u32 = 0xC0FF_EE00;
+        let taken = func(gpr.as_mut_ptr(), &mut cpsr, &mut pc_out);
+
+        assert_eq!(taken, 0);
+        assert_eq!(pc_out, 0xC0FF_EE00, "no branch, pc_out untouched");
+        assert_eq!(gpr[0], 5);
+        assert_eq!(gpr[1], 10);
     }
 }
