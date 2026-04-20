@@ -32,7 +32,28 @@
 use cranelift::codegen::ir::immediates::Offset32;
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{Linkage, Module};
+use cranelift_module::{FuncId, Linkage, Module};
+
+/// Rust side trampoline signatures the dynarec calls into for memory ops.
+/// The opaque *mut u8 is a "cpu ctx" pointer; whoever constructs the
+/// DynarecCompiler supplies trampolines that interpret that pointer the
+/// right way for their CPU type. A typical trampoline would cast the
+/// pointer to `*mut Arm7tdmiCore<MyBus>` and forward to `cpu.load_32`.
+pub type BusLoad32Fn = unsafe extern "C" fn(*mut u8, u32) -> u32;
+pub type BusStore32Fn = unsafe extern "C" fn(*mut u8, u32, u32);
+pub type BusLoad8Fn = unsafe extern "C" fn(*mut u8, u32) -> u32;
+pub type BusStore8Fn = unsafe extern "C" fn(*mut u8, u32, u32);
+
+/// Optional set of bus trampolines. When None the dynarec will refuse to
+/// compile anything that needs memory access (returns None from compile
+/// paths). When set, compiled blocks can call into these at runtime.
+#[derive(Clone, Copy)]
+pub struct BusTrampolines {
+    pub load_32: BusLoad32Fn,
+    pub store_32: BusStore32Fn,
+    pub load_8: BusLoad8Fn,
+    pub store_8: BusStore8Fn,
+}
 
 /// Handle to a Cranelift JIT module. One per CPU instance; freed on CPU drop.
 ///
@@ -43,10 +64,35 @@ pub struct DynarecCompiler {
     builder_context: FunctionBuilderContext,
     ctx: codegen::Context,
     next_id: u64,
+    /// Resolved imports for the bus trampolines. Only populated when the
+    /// compiler was built with `new_with_bus`. The FuncId values are stable
+    /// for the lifetime of this compiler and can be re-referenced in every
+    /// compiled function via `module.declare_func_in_func`.
+    bus_imports: Option<BusImports>,
+}
+
+/// Imported function handles registered with the JITModule for the bus
+/// trampolines. `declare_func_in_func` re uses these across blocks.
+#[derive(Clone, Copy)]
+struct BusImports {
+    load_32: FuncId,
+    store_32: FuncId,
+    load_8: FuncId,
+    store_8: FuncId,
 }
 
 impl DynarecCompiler {
     pub fn new() -> Self {
+        Self::build(None)
+    }
+
+    /// Build a dynarec compiler wired to a set of bus trampolines. Needed
+    /// before any LDR/STR compilation can succeed.
+    pub fn new_with_bus(bus: BusTrampolines) -> Self {
+        Self::build(Some(bus))
+    }
+
+    fn build(bus: Option<BusTrampolines>) -> Self {
         let isa_builder = cranelift_native::builder()
             .expect("host architecture not supported by Cranelift");
         let flag_builder = settings::builder();
@@ -55,17 +101,76 @@ impl DynarecCompiler {
             .finish(flags)
             .expect("failed to build Cranelift ISA for host");
 
-        let jit_builder =
+        let mut jit_builder =
             JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
-        let module = JITModule::new(jit_builder);
+
+        // If the caller passed trampolines, register them as JIT symbols so
+        // declare_function(Linkage::Import, ...) can resolve to the real
+        // rust side fn pointers at link time.
+        if let Some(b) = bus {
+            jit_builder.symbol("rba_bus_load_32",  b.load_32  as *const u8);
+            jit_builder.symbol("rba_bus_store_32", b.store_32 as *const u8);
+            jit_builder.symbol("rba_bus_load_8",   b.load_8   as *const u8);
+            jit_builder.symbol("rba_bus_store_8",  b.store_8  as *const u8);
+        }
+
+        let mut module = JITModule::new(jit_builder);
         let ctx = module.make_context();
+
+        let bus_imports = bus.map(|_| {
+            let ptr_ty = module.isa().pointer_type();
+            // load_32: extern "C" fn(*mut u8, u32) -> u32
+            let mut sig_load_32 = module.make_signature();
+            sig_load_32.params.push(AbiParam::new(ptr_ty));
+            sig_load_32.params.push(AbiParam::new(types::I32));
+            sig_load_32.returns.push(AbiParam::new(types::I32));
+            let load_32 = module
+                .declare_function("rba_bus_load_32", Linkage::Import, &sig_load_32)
+                .expect("declare load_32 failed");
+
+            // store_32: extern "C" fn(*mut u8, u32, u32)
+            let mut sig_store_32 = module.make_signature();
+            sig_store_32.params.push(AbiParam::new(ptr_ty));
+            sig_store_32.params.push(AbiParam::new(types::I32));
+            sig_store_32.params.push(AbiParam::new(types::I32));
+            let store_32 = module
+                .declare_function("rba_bus_store_32", Linkage::Import, &sig_store_32)
+                .expect("declare store_32 failed");
+
+            // load_8: extern "C" fn(*mut u8, u32) -> u32 (zero extended)
+            let mut sig_load_8 = module.make_signature();
+            sig_load_8.params.push(AbiParam::new(ptr_ty));
+            sig_load_8.params.push(AbiParam::new(types::I32));
+            sig_load_8.returns.push(AbiParam::new(types::I32));
+            let load_8 = module
+                .declare_function("rba_bus_load_8", Linkage::Import, &sig_load_8)
+                .expect("declare load_8 failed");
+
+            // store_8: extern "C" fn(*mut u8, u32, u32)
+            let mut sig_store_8 = module.make_signature();
+            sig_store_8.params.push(AbiParam::new(ptr_ty));
+            sig_store_8.params.push(AbiParam::new(types::I32));
+            sig_store_8.params.push(AbiParam::new(types::I32));
+            let store_8 = module
+                .declare_function("rba_bus_store_8", Linkage::Import, &sig_store_8)
+                .expect("declare store_8 failed");
+
+            BusImports { load_32, store_32, load_8, store_8 }
+        });
 
         DynarecCompiler {
             module,
             builder_context: FunctionBuilderContext::new(),
             ctx,
             next_id: 0,
+            bus_imports,
         }
+    }
+
+    /// True if this compiler was built with bus trampolines wired up, and
+    /// therefore can compile memory ops.
+    pub fn has_bus(&self) -> bool {
+        self.bus_imports.is_some()
     }
 
     /// Compile a sequence of supported ARM data-processing instructions
@@ -364,6 +469,81 @@ impl DynarecCompiler {
             link,
             offset24_signed: signed,
         })
+    }
+
+    /// End to end smoke test for the bus trampoline plumbing. Builds a tiny
+    /// function with signature
+    ///     extern "C" fn(gpr_ptr: *mut u32, cpu_ctx: *mut u8, addr: u32)
+    /// that calls the registered rba_bus_load_32 with (cpu_ctx, addr) and
+    /// stores the returned value into gpr[0]. Lets a unit test verify the
+    /// Rust -> Cranelift -> Rust callback round trip works without needing
+    /// the full LDR decoder landed yet.
+    ///
+    /// Panics if this compiler was not built with `new_with_bus`.
+    pub fn compile_bus_load_32_stub(
+        &mut self,
+    ) -> extern "C" fn(*mut u32, *mut u8, u32) {
+        let imports = self
+            .bus_imports
+            .expect("compile_bus_load_32_stub requires new_with_bus()");
+
+        let ptr_type = self.module.isa().pointer_type();
+        let mut sig = self.module.make_signature();
+        sig.params.push(AbiParam::new(ptr_type));   // gpr_ptr
+        sig.params.push(AbiParam::new(ptr_type));   // cpu_ctx
+        sig.params.push(AbiParam::new(types::I32)); // addr
+
+        self.next_id += 1;
+        let name = format!("dynarec_bus_stub_{}", self.next_id);
+        let func_id = self
+            .module
+            .declare_function(&name, Linkage::Local, &sig)
+            .expect("declare_function failed");
+        self.ctx.func.signature = sig;
+
+        {
+            let mut builder =
+                FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+            let entry = builder.create_block();
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            builder.seal_block(entry);
+
+            let gpr_ptr = builder.block_params(entry)[0];
+            let cpu_ctx = builder.block_params(entry)[1];
+            let addr = builder.block_params(entry)[2];
+
+            // Reference the import inside this function so we can call it.
+            let callee = self
+                .module
+                .declare_func_in_func(imports.load_32, builder.func);
+            let call = builder.ins().call(callee, &[cpu_ctx, addr]);
+            let loaded = builder.inst_results(call)[0];
+
+            // gpr[0] = loaded
+            builder
+                .ins()
+                .store(MemFlags::trusted(), loaded, gpr_ptr, Offset32::new(0));
+
+            builder.ins().return_(&[]);
+            builder.finalize();
+        }
+
+        self.module
+            .define_function(func_id, &mut self.ctx)
+            .expect("define_function failed");
+        self.module.clear_context(&mut self.ctx);
+        self.module
+            .finalize_definitions()
+            .expect("finalize_definitions failed");
+
+        let code = self.module.get_finalized_function(func_id);
+        unsafe {
+            std::mem::transmute::<
+                *const u8,
+                extern "C" fn(*mut u32, *mut u8, u32),
+            >(code)
+        }
     }
 
     /// Classify an ARM opcode as one of the supported data-processing shapes
@@ -1400,6 +1580,83 @@ mod tests {
                 .try_compile_block_with_branch(&[ldr_placeholder, b], 0)
                 .is_none()
         );
+    }
+
+    // --- Bus trampoline plumbing ---
+    //
+    // These tests exercise the Rust -> Cranelift -> Rust round trip used by
+    // the upcoming LDR/STR codegen without decoding any ARM memory ops yet.
+    // They depend on a test-only trampoline pair plus a tiny 256 byte fake
+    // memory buffer.
+
+    use std::cell::UnsafeCell;
+
+    /// Fake memory used by the bus trampoline tests. `UnsafeCell` so the
+    /// `extern "C"` callbacks can mutate it through a raw pointer without
+    /// tripping the borrow checker. Safe in tests because each test runs
+    /// single threaded and constructs its own buffer.
+    struct TestBus {
+        bytes: UnsafeCell<[u8; 256]>,
+    }
+
+    unsafe extern "C" fn test_load_32(ctx: *mut u8, addr: u32) -> u32 {
+        let bus = &*(ctx as *const TestBus);
+        let bytes = &*bus.bytes.get();
+        let a = addr as usize & 0xFC;
+        u32::from_le_bytes([bytes[a], bytes[a + 1], bytes[a + 2], bytes[a + 3]])
+    }
+    unsafe extern "C" fn test_store_32(ctx: *mut u8, addr: u32, val: u32) {
+        let bus = &*(ctx as *const TestBus);
+        let bytes = &mut *bus.bytes.get();
+        let a = addr as usize & 0xFC;
+        let v = val.to_le_bytes();
+        bytes[a] = v[0]; bytes[a + 1] = v[1]; bytes[a + 2] = v[2]; bytes[a + 3] = v[3];
+    }
+    unsafe extern "C" fn test_load_8(ctx: *mut u8, addr: u32) -> u32 {
+        let bus = &*(ctx as *const TestBus);
+        let bytes = &*bus.bytes.get();
+        bytes[addr as usize & 0xFF] as u32
+    }
+    unsafe extern "C" fn test_store_8(ctx: *mut u8, addr: u32, val: u32) {
+        let bus = &*(ctx as *const TestBus);
+        let bytes = &mut *bus.bytes.get();
+        bytes[addr as usize & 0xFF] = val as u8;
+    }
+
+    fn test_trampolines() -> BusTrampolines {
+        BusTrampolines {
+            load_32: test_load_32,
+            store_32: test_store_32,
+            load_8: test_load_8,
+            store_8: test_store_8,
+        }
+    }
+
+    #[test]
+    fn bus_stub_round_trip_load_32() {
+        let bus = TestBus { bytes: UnsafeCell::new([0u8; 256]) };
+        // Seed a known value at offset 0x10.
+        unsafe {
+            let bytes = &mut *bus.bytes.get();
+            bytes[0x10] = 0x11;
+            bytes[0x11] = 0x22;
+            bytes[0x12] = 0x33;
+            bytes[0x13] = 0x44;
+        }
+
+        let mut compiler = DynarecCompiler::new_with_bus(test_trampolines());
+        assert!(compiler.has_bus());
+        let stub = compiler.compile_bus_load_32_stub();
+
+        let mut gpr = [0u32; 15];
+        stub(gpr.as_mut_ptr(), &bus as *const TestBus as *mut u8, 0x10);
+        assert_eq!(gpr[0], 0x44332211, "round trip through bus trampoline");
+    }
+
+    #[test]
+    fn plain_compiler_has_no_bus() {
+        let c = DynarecCompiler::new();
+        assert!(!c.has_bus());
     }
 
     #[test]
