@@ -195,6 +195,7 @@ dependencies = [
  "num",
  "num-traits",
  "rustboyadvance-utils",
+ "rustc-hash",
  "serde",
  "simple_logger",
 ]

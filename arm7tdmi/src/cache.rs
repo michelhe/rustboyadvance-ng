@@ -22,8 +22,9 @@
 //!   * Self-modifying code is handled by flushing the cache on any write to
 //!     writable memory regions (see `SysBus::write_*`).
 
-use std::collections::HashMap;
 use std::rc::Rc;
+
+use rustc_hash::FxHashMap;
 
 use crate::cpu::{Arm7tdmiCore, CpuAction};
 use crate::memory::MemoryInterface;
@@ -90,8 +91,8 @@ impl<I: MemoryInterface> Block<I> {
 /// Empty in the default build — the struct and all its methods compile to
 /// no-ops unless the `cached_interp` feature is on.
 pub struct BlockCache<I: MemoryInterface> {
-    rom_blocks: HashMap<BlockKey, Rc<Block<I>>>,
-    ram_blocks: HashMap<BlockKey, Rc<Block<I>>>,
+    rom_blocks: FxHashMap<BlockKey, Rc<Block<I>>>,
+    ram_blocks: FxHashMap<BlockKey, Rc<Block<I>>>,
     /// Block currently being recorded. `None` when not in a recording pass.
     recording: Option<(BlockKey, Block<I>)>,
 }
@@ -109,8 +110,8 @@ fn is_rom_address(pc: u32) -> bool {
 impl<I: MemoryInterface> Default for BlockCache<I> {
     fn default() -> Self {
         BlockCache {
-            rom_blocks: HashMap::with_capacity(2048),
-            ram_blocks: HashMap::with_capacity(256),
+            rom_blocks: FxHashMap::with_capacity_and_hasher(2048, Default::default()),
+            ram_blocks: FxHashMap::with_capacity_and_hasher(256, Default::default()),
             recording: None,
         }
     }
