@@ -8,3 +8,8 @@ edition = "2021"
 rustboyadvance-core = {path = "../core/"}
 rustboyadvance-utils = {path = "../utils/"}
 clap = { version = "4", features = ["derive"] }
+
+[features]
+# Pass-through so `cargo run -p fps_bench --features cached_interp <args>`
+# exercises the cached-interpreter path in the core crate.
+cached_interp = ["rustboyadvance-core/cached_interp"]

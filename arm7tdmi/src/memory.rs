@@ -85,6 +85,25 @@ pub trait MemoryInterface {
     fn take_block_cache_dirty(&mut self) -> bool {
         false
     }
+
+    /// Cached interpreter support: must the cached block abort right now so
+    /// the outer run loop can regain control?
+    ///
+    /// Returns true when either:
+    ///   * An IRQ is pending (same check the non-cached `cpu_step` runs
+    ///     before every instruction; an IE/IF write inside a block could
+    ///     have raised this).
+    ///   * A DMA channel just became active (non-cached single_step hands
+    ///     the bus over to the DMA engine via `get_bus_master()` the next
+    ///     tick; cached blocks must yield at the same granularity).
+    ///
+    /// Default is always `false`, matching bus implementations that never
+    /// raise interrupts or start DMA (e.g. the arm7tdmi-only `SimpleMemory`).
+    #[cfg(feature = "cached_interp")]
+    #[inline]
+    fn cached_block_should_abort(&self) -> bool {
+        false
+    }
 }
 
 impl<I: MemoryInterface> MemoryInterface for Arm7tdmiCore<I> {
@@ -126,6 +145,12 @@ impl<I: MemoryInterface> MemoryInterface for Arm7tdmiCore<I> {
     #[inline]
     fn take_block_cache_dirty(&mut self) -> bool {
         self.bus.take_block_cache_dirty()
+    }
+
+    #[cfg(feature = "cached_interp")]
+    #[inline]
+    fn cached_block_should_abort(&self) -> bool {
+        self.bus.cached_block_should_abort()
     }
 }
 
