@@ -1,6 +1,6 @@
 use rustboyadvance_core::prelude::*;
+use rustboyadvance_utils::FpsCounter;
 use rustboyadvance_utils::audio::SampleConsumer;
-// use rustboyadvance_core::util::FpsCounter;
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
@@ -281,7 +281,7 @@ impl EmulatorContext {
 
         info!("starting main emulation loop");
 
-        // let mut fps_counter = FpsCounter::default();
+        let mut fps_counter = FpsCounter::default();
 
         'running: loop {
             let emustate = *self.emustate.lock().unwrap();
@@ -314,9 +314,11 @@ impl EmulatorContext {
                 .send(AudioThreadCommand::RenderAudio)
                 .unwrap();
 
-            // if let Some(fps) = fps_counter.tick() {
-            //     info!("FPS {}", fps);
-            // }
+            // Emit one log line per second with the measured FPS. Use the
+            // LCD tag so `adb logcat -s RustdroidFps` filters cleanly.
+            if let Some(fps) = fps_counter.tick() {
+                info!(target: "RustdroidFps", "FPS {}", fps);
+            }
 
             if vsync {
                 let time_passed = start_time.elapsed();
