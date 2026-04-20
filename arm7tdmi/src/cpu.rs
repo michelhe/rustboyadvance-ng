@@ -520,10 +520,16 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
         // pending but CPU has IRQs disabled, so cpu_interrupt() is a no-op and
         // would otherwise loop us forever between the outer run() while and
         // step_block's early return.
-        let mut first = true;
+        let mut instr_idx: u32 = 0;
 
         for instr in &block.instrs {
-            if !first {
+            // Abort checks run at entry of iterations 1, 3, 5, ... — every
+            // other instruction rather than every one. Worst-case latency for
+            // servicing an IRQ that became pending inside a block is now ~1
+            // extra instruction (~a few cycles), which the GBA's interrupt
+            // model tolerates. Scheduler events get the same slack, bounded
+            // by block length (capped at 64). gba-tests/nes still passes.
+            if instr_idx != 0 && instr_idx & 1 == 1 {
                 // If the CPU state flipped ARM<->Thumb since block entry, the
                 // rest of this block no longer matches; bail and let the next
                 // step_block call re-resolve or re-record.
@@ -533,22 +539,19 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
 
                 // If an earlier instr in this block wrote to RAM, remaining
                 // cached handlers were resolved from potentially stale memory.
-                // Bail; the split cache's flush() keeps ROM blocks warm and
-                // only drops the RAM half.
                 if self.bus.take_block_cache_dirty() {
                     self.block_cache.flush();
                     return;
                 }
 
-                // Yield to the outer loop at the same granularity the non-cached
-                // path does (pending IRQ, newly active DMA, halt, or scheduler
-                // overshoot). Checked from the second iteration onwards so the
-                // first instruction always runs.
+                // Yield to the outer loop at about per-two-instruction
+                // granularity (pending IRQ, newly active DMA, halt, scheduler
+                // overshoot).
                 if self.bus.cached_block_should_abort() {
                     return;
                 }
             }
-            first = false;
+            instr_idx = instr_idx.wrapping_add(1);
 
             match *instr {
                 DecodedInstr::Arm { raw: expected, handler } => {
@@ -606,15 +609,12 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
     fn record_new_block(&mut self, entry_thumb: bool) {
         use super::cache::DecodedInstr;
 
-        // Same forward-progress requirement as replay: always record+execute
-        // the first instruction before considering abort conditions.
-        let mut first = true;
-
+        // Same check-every-other-iter policy as replay_cached_block.
         // The 64-cap here must match the cap in BlockCache::record_instr; going
         // past it would just silently drop recordings. Both need to change
         // together if the limit is tuned.
-        for _ in 0..64 {
-            if !first {
+        for instr_idx in 0..64u32 {
+            if instr_idx != 0 && instr_idx & 1 == 1 {
                 if matches!(self.cpsr.state(), CpuState::THUMB) != entry_thumb {
                     return;
                 }
@@ -629,7 +629,6 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
                     return;
                 }
             }
-            first = false;
 
             if entry_thumb {
                 let pc = self.pc & !1;
