@@ -583,6 +583,23 @@ impl MemoryInterface for SysBus {
     fn take_block_cache_dirty(&mut self) -> bool {
         std::mem::replace(&mut self.block_cache_dirty, false)
     }
+
+    #[cfg(feature = "cached_interp")]
+    #[inline]
+    fn cached_block_should_abort(&self) -> bool {
+        // Matches everything that gba.rs::single_step()/cpu_step()/run() would
+        // react to between instructions in the non-cached path:
+        //   - pending IRQ
+        //   - newly active DMA channel
+        //   - CPU entering Halt via HALTCNT
+        //   - scheduler advanced past its next event (the outer `run` while
+        //     loop bails on this condition to let `handle_events` process
+        //     pending hardware events before the next instruction runs)
+        self.io.intc.irq_pending()
+            || self.io.dmac.is_active()
+            || !matches!(self.io.haltcnt, crate::iodev::HaltState::Running)
+            || self.scheduler.has_events_due()
+    }
 }
 
 impl DmaNotifer for SysBus {

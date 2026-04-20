@@ -523,13 +523,35 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
                 return;
             }
 
+            // If an earlier instr in this block wrote to RAM, remaining cached
+            // handlers were resolved from potentially stale memory. Bail and
+            // flush so the next step_block starts fresh.
+            if self.bus.take_block_cache_dirty() {
+                self.block_cache.flush();
+                return;
+            }
+
+            // Yield to the outer loop if an IRQ became pending or DMA became
+            // active inside this block — both are conditions the non-cached
+            // path handles at per-instruction granularity via single_step()
+            // and cpu_step().
+            if self.bus.cached_block_should_abort() {
+                return;
+            }
+
             match *instr {
-                DecodedInstr::Arm { handler, .. } => {
+                DecodedInstr::Arm { raw: expected, handler } => {
                     let pc = self.pc & !3;
                     let fetched_now = self.load_32(pc, self.next_fetch_access);
                     let insn = self.pipeline[0];
                     self.pipeline[0] = self.pipeline[1];
                     self.pipeline[1] = fetched_now;
+                    debug_assert_eq!(
+                        insn, expected,
+                        "cached-block ARM instr mismatch at pc={:#x}: \
+                         cached={:#010x} actual={:#010x}",
+                        pc.wrapping_sub(8), expected, insn,
+                    );
                     let cond = ArmCond::from_u8(insn.bit_range(28..32) as u8)
                         .unwrap_or_else(|| unsafe { std::hint::unreachable_unchecked() });
                     if cond != ArmCond::AL && !self.check_arm_cond(cond) {
@@ -545,12 +567,18 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
                         CpuAction::PipelineFlushed => return,
                     }
                 }
-                DecodedInstr::Thumb { handler, .. } => {
+                DecodedInstr::Thumb { raw: expected, handler } => {
                     let pc = self.pc & !1;
                     let fetched_now = self.load_16(pc, self.next_fetch_access);
                     let insn = self.pipeline[0];
                     self.pipeline[0] = self.pipeline[1];
                     self.pipeline[1] = fetched_now as u32;
+                    debug_assert_eq!(
+                        insn as u16, expected,
+                        "cached-block Thumb instr mismatch at pc={:#x}: \
+                         cached={:#06x} actual={:#06x}",
+                        pc.wrapping_sub(4), expected, insn as u16,
+                    );
                     match handler(self, insn as u16) {
                         CpuAction::AdvancePC(access) => {
                             self.advance_thumb();
@@ -572,6 +600,22 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
         // together if the limit is tuned.
         for _ in 0..64 {
             if matches!(self.cpsr.state(), CpuState::THUMB) != entry_thumb {
+                return;
+            }
+
+            // Same concern as replay: if the previous iteration's handler wrote
+            // to RAM, that write could have invalidated a region our block is
+            // currently decoding from. Abort the recording; the next step_block
+            // will see the dirty flag and start fresh.
+            if self.bus.take_block_cache_dirty() {
+                self.block_cache.abort_record();
+                self.block_cache.flush();
+                return;
+            }
+
+            // See replay: bail out if IRQ/DMA need handling, at the same
+            // per-instruction granularity the non-cached path uses.
+            if self.bus.cached_block_should_abort() {
                 return;
             }
 

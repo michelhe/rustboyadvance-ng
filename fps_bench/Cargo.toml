@@ -7,3 +7,8 @@ edition = "2018"
 [dependencies]
 rustboyadvance-core = {path = "../core/"}
 rustboyadvance-utils = {path = "../utils/"}
+
+[features]
+# Pass-through so `cargo run -p fps_bench --features cached_interp <args>`
+# exercises the cached-interpreter path in the core crate.
+cached_interp = ["rustboyadvance-core/cached_interp"]
