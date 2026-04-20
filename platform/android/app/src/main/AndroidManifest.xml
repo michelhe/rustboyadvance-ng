@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.mrmichel.rustdroid_emu">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-feature
         android:glEsVersion="0x00200000"
@@ -43,7 +42,9 @@
         <activity
             android:name=".ui.SettingsActivity"
             android:label="Settings" />
-        <activity android:name=".ui.SplashActivity">
+        <activity
+            android:name=".ui.SplashActivity"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

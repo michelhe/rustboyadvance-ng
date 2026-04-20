@@ -1,12 +1,14 @@
 apply plugin: 'com.android.application'
+apply plugin: 'org.mozilla.rust-android-gradle.rust-android'
 
 android {
-    compileSdkVersion 29
-    buildToolsVersion "29.0.3"
+    namespace 'com.mrmichel.rustdroid_emu'
+    compileSdk 35
+    ndkVersion '27.1.12297006'
     defaultConfig {
         applicationId "com.mrmichel.rustdroid_emu"
-        minSdkVersion 21
-        targetSdkVersion 26
+        minSdk 21
+        targetSdk 34
         versionCode 1
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -17,9 +19,11 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
 }
-
-apply plugin: 'org.mozilla.rust-android-gradle.rust-android'
 
 cargo {
     prebuiltToolchains = true
@@ -28,8 +32,9 @@ cargo {
     module = "../../../platform/rustboyadvance-jni"
     targetDirectory = '../../../target'
     libname = "rustboyadvance_jni"
-    targets = ['x86', 'arm64']
+    targets = ['x86_64', 'arm64']
     apiLevel = 21
+    pythonCommand = 'python3'
 }
 
 afterEvaluate {
@@ -40,20 +45,23 @@ afterEvaluate {
             productFlavor += "${it.name.capitalize()}"
         }
         def buildType = "${variant.buildType.name.capitalize()}"
-        tasks["generate${productFlavor}${buildType}Assets"].dependsOn(tasks["cargoBuild"])
+        def mergeJni = tasks.findByName("merge${productFlavor}${buildType}JniLibFolders")
+        if (mergeJni != null) {
+            mergeJni.dependsOn(tasks["cargoBuild"])
+        }
     }
 }
+
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
-    implementation 'androidx.appcompat:appcompat:1.0.2'
-    implementation 'androidx.constraintlayout:constraintlayout:1.1.3'
-    implementation 'androidx.lifecycle:lifecycle-extensions:2.2.0'
-    implementation 'com.google.android.material:material:1.1.0'
-    implementation "androidx.documentfile:documentfile:1.0.1"
-    implementation 'androidx.preference:preference:1.1.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.documentfile:documentfile:1.0.1'
+    implementation 'androidx.preference:preference:1.2.1'
     implementation 'androidx.legacy:legacy-support-v4:1.0.0'
-    implementation 'commons-io:commons-io:2.6'
-    testImplementation 'junit:junit:4.12'
-    androidTestImplementation 'androidx.test.ext:junit:1.1.0'
-    androidTestImplementation 'androidx.test.espresso:espresso-core:3.1.1'
+    implementation 'commons-io:commons-io:2.14.0'
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }

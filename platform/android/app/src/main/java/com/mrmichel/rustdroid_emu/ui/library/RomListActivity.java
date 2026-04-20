@@ -236,8 +236,11 @@ public class RomListActivity extends AppCompatActivity {
 
             }
 
-            this.itemAdapter.notifyDataSetChanged();
-            mGridView.setAdapter(new RomListItemAdapter(this, romManager.getAllRomMetaData()));
+            // The click listener in onCreate captures the `itemAdapter` field, so we must
+            // rebind the field (not just call setAdapter) or taps will read from the old
+            // empty adapter and throw IndexOutOfBoundsException.
+            this.itemAdapter = new RomListItemAdapter(this, romManager.getAllRomMetaData());
+            mGridView.setAdapter(this.itemAdapter);
             mGridView.invalidate();
 
         } else {

@@ -75,20 +75,9 @@ public class SplashActivity extends AppCompatActivity {
 
         checkOpenGLES20();
 
-        if (ContextCompat.checkSelfPermission(this,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED) {
-
-            // No explanation needed; request the permission
-            ActivityCompat.requestPermissions(this
-                    ,
-                    new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE},
-                    REQUEST_PERMISSION_CODE);
-        } else {
-            // Permission has already been granted
-            initCacheBios();
-
-        }
+        // BIOS/ROM I/O goes through app-private storage (openFileInput/Output) and SAF
+        // (ACTION_OPEN_DOCUMENT) — neither needs WRITE_/READ_EXTERNAL_STORAGE on modern Android.
+        initCacheBios();
     }
 
     private void cacheBiosInAppFiles(byte[] bios) throws IOException {
