@@ -423,6 +423,9 @@ impl SysBus {
         }
     }
 
+    // Kept inline(always) so that load_{8,16,32}'s cycle accounting can
+    // propagate directly into the CPU's per instruction fetch instead of
+    // going through a regular call.
     #[inline(always)]
     pub fn add_cycles(&mut self, addr: Addr, access: MemoryAccess, width: MemoryAccessWidth) {
         use MemoryAccess::*;
@@ -489,7 +492,7 @@ impl SysBus {
 
 /// Todo - implement bound checks for EWRAM/IWRAM
 impl BusIO for SysBus {
-    #[inline]
+    #[inline(always)]
     fn read_32(&mut self, addr: Addr) -> u32 {
         match addr & 0xff000000 {
             BIOS_ADDR => {

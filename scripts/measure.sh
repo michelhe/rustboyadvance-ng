@@ -22,6 +22,7 @@ LOOPS="${LOOPS:-1}"
 FEATURES="${FEATURES:-}"
 LABEL=""
 REV=""
+USE_PGO=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -30,6 +31,9 @@ while [[ $# -gt 0 ]]; do
     --runs) RUNS="$2"; shift 2 ;;
     --loops) LOOPS="$2"; shift 2 ;;
     --features) FEATURES="$2"; shift 2 ;;
+    # Measure the PGO-built binary produced by scripts/build_pgo.sh at
+    # target/x86_64-unknown-linux-gnu/release/fps_bench. Skips cargo build.
+    --pgo) USE_PGO=1; shift ;;
     *) echo "unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -44,14 +48,23 @@ if [[ -n "$REV" ]]; then
 fi
 [[ -z "$LABEL" ]] && LABEL="$(git rev-parse --short HEAD)"
 
-build_args=(--release -p fps_bench)
-[[ -n "$FEATURES" ]] && build_args+=(--features "$FEATURES")
-
-echo "[measure] building (cwd=$workdir features='$FEATURES')..." >&2
-(cd "$workdir" && cargo build --quiet "${build_args[@]}") >&2
-
-bin="$workdir/target/release/fps_bench"
-[[ -x "$bin" ]] || { echo "missing binary $bin" >&2; exit 1; }
+if [[ $USE_PGO -eq 1 ]]; then
+  bin="$workdir/target/x86_64-unknown-linux-gnu/release/fps_bench"
+  [[ -x "$bin" ]] || {
+    echo "PGO binary missing at $bin" >&2
+    echo "run scripts/build_pgo.sh first" >&2
+    exit 1
+  }
+  [[ -z "$LABEL" ]] && LABEL="$(git rev-parse --short HEAD)-pgo"
+  echo "[measure] using PGO binary at $bin" >&2
+else
+  build_args=(--release -p fps_bench)
+  [[ -n "$FEATURES" ]] && build_args+=(--features "$FEATURES")
+  echo "[measure] building (cwd=$workdir features='$FEATURES')..." >&2
+  (cd "$workdir" && cargo build --quiet "${build_args[@]}") >&2
+  bin="$workdir/target/release/fps_bench"
+  [[ -x "$bin" ]] || { echo "missing binary $bin" >&2; exit 1; }
+fi
 
 # Resolve paths from repo root so --rev worktrees still find ROM/BIOS.
 abs() { case "$1" in /*) echo "$1" ;; *) echo "$PWD/$1" ;; esac; }
