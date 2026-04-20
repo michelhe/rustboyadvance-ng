@@ -93,7 +93,6 @@ pub struct DebuggerState {
     pub trace_exceptions: bool,
 }
 
-#[derive(Clone)]
 pub struct Arm7tdmiCore<I: MemoryInterface> {
     pub pc: u32,
     pub bus: Shared<I>,
@@ -113,6 +112,35 @@ pub struct Arm7tdmiCore<I: MemoryInterface> {
     /// Deprecated in-house debugger state
     #[cfg(feature = "debugger")]
     pub dbg: DebuggerState,
+
+    /// Block cache for the cached interpreter. Only populated when the
+    /// `cached_interp` feature is on; zero-sized otherwise.
+    #[cfg(feature = "cached_interp")]
+    pub block_cache: super::cache::BlockCache<I>,
+}
+
+// BlockCache holds handler function pointers keyed by entry-PC; cloning a CPU
+// with a populated cache would share those fn pointers (cheap), but the cache
+// is a transient runtime optimization and we'd rather not clone it by accident.
+// Implement Clone manually so we can reset the cache on clone.
+impl<I: MemoryInterface> Clone for Arm7tdmiCore<I> {
+    fn clone(&self) -> Self {
+        Arm7tdmiCore {
+            pc: self.pc,
+            bus: self.bus.clone(),
+            next_fetch_access: self.next_fetch_access,
+            pipeline: self.pipeline,
+            gpr: self.gpr,
+            cpsr: self.cpsr,
+            spsr: self.spsr,
+            banks: self.banks.clone(),
+            breakpoints: self.breakpoints.clone(),
+            #[cfg(feature = "debugger")]
+            dbg: self.dbg.clone(),
+            #[cfg(feature = "cached_interp")]
+            block_cache: super::cache::BlockCache::new(),
+        }
+    }
 }
 
 impl<I: MemoryInterface> Arm7tdmiCore<I> {
@@ -132,6 +160,9 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
 
             #[cfg(feature = "debugger")]
             dbg: DebuggerState::default(),
+
+            #[cfg(feature = "cached_interp")]
+            block_cache: super::cache::BlockCache::new(),
         }
     }
 
@@ -157,6 +188,9 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
             // savestate does not keep debugger related information, so just reinitialize to default
             #[cfg(feature = "debugger")]
             dbg: DebuggerState::default(),
+
+            #[cfg(feature = "cached_interp")]
+            block_cache: super::cache::BlockCache::new(),
         }
     }
 

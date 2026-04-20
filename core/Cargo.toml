@@ -60,3 +60,5 @@ harness = false
 default = []
 elf_support = []
 debugger = ["nom", "rustyline", "fuzzy-matcher", "elf_support", "goblin", "arm7tdmi/debugger"]
+# See arm7tdmi/Cargo.toml for the feature description.
+cached_interp = ["arm7tdmi/cached_interp"]
