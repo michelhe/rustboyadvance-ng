@@ -17,11 +17,13 @@ impl Rgb15 {
     pub const WHITE: Rgb15 = Rgb15(0x7fff);
     pub const TRANSPARENT: Rgb15 = Rgb15(0x8000);
 
+    #[inline(always)]
     #[must_use]
     pub fn to_rgb24(&self) -> u32 {
         ((self.r() as u32) << 19) | ((self.g() as u32) << 11) | ((self.b() as u32) << 3)
     }
 
+    #[inline(always)]
     pub fn from_rgb(r: u16, g: u16, b: u16) -> Rgb15 {
         let mut c = Rgb15(0);
         c.set_r(r);
@@ -30,10 +32,12 @@ impl Rgb15 {
         c
     }
 
+    #[inline(always)]
     pub fn get_rgb(&self) -> (u16, u16, u16) {
         (self.r(), self.g(), self.b())
     }
 
+    #[inline(always)]
     pub fn is_transparent(&self) -> bool {
         self.0 == 0x8000
     }
