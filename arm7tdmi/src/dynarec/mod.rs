@@ -341,6 +341,101 @@ fn emit_data_processing_imm(
 mod tests {
     use super::*;
 
+    /// Differential-execution test: run the same ARM opcode sequence through
+    /// the scalar interpreter and through the dynarec, assert the resulting
+    /// register file matches. Catches any divergence introduced when we
+    /// add new opcode shapes.
+    fn differential(opcodes: &[u32], initial_gpr: [u32; 15]) {
+        use crate::cpu::{Arm7tdmiCore, CpuAction};
+        use crate::memory::MemoryAccess;
+        use rustboyadvance_utils::Shared;
+
+        // Build a SimpleMemory program from the opcodes, starting at PC 0.
+        let mut program = Vec::with_capacity(opcodes.len() * 4);
+        for op in opcodes {
+            program.extend_from_slice(&op.to_le_bytes());
+        }
+
+        // --- Interpreter run ---
+        let mut mem = crate::SimpleMemory::new(1024);
+        mem.load_program(&program);
+        let mem_shared = Shared::new(mem);
+        let mut cpu = Arm7tdmiCore::new(mem_shared);
+        cpu.gpr = initial_gpr;
+        // Drive each opcode through step_arm_exec directly — avoids the
+        // pipeline dance, which isn't the point of this test.
+        for &op in opcodes {
+            // The handler reads operands from gpr; ignore the returned
+            // CpuAction since none of our supported shapes flush the
+            // pipeline.
+            let _: CpuAction = {
+                let hash = (((op >> 16) & 0xff0) | ((op >> 4) & 0xf)) as usize;
+                let arm_info = &Arm7tdmiCore::<crate::SimpleMemory>::ARM_LUT[hash];
+                (arm_info.handler_fn)(&mut cpu, op)
+            };
+            // We intentionally skip next_fetch_access updates — SimpleMemory
+            // doesn't do timing anyway.
+            let _ = MemoryAccess::NonSeq;
+        }
+        let interp_gpr = cpu.gpr;
+
+        // --- Dynarec run ---
+        let mut compiler = DynarecCompiler::new();
+        let func = compiler
+            .try_compile_imm_block(opcodes)
+            .expect("dynarec should support these opcodes");
+        let mut dyn_gpr = initial_gpr;
+        func(dyn_gpr.as_mut_ptr());
+
+        assert_eq!(
+            dyn_gpr, interp_gpr,
+            "dynarec and interpreter diverged on block {:x?}",
+            opcodes
+        );
+    }
+
+    #[test]
+    fn differential_mov_imm_sequence() {
+        // Three MOVs with different Rd, different immediates.
+        let block = [0xE3A0_0001u32, 0xE3A0_1002u32, 0xE3A0_20FFu32];
+        differential(&block, [0; 15]);
+    }
+
+    #[test]
+    fn differential_arithmetic_chain() {
+        // MOV R0, #10; ADD R1, R0, #5; SUB R2, R1, #3; MVN R3, #0
+        let block = [
+            0xE3A0_000Au32,
+            0xE280_1005u32,
+            0xE241_2003u32,
+            0xE3E0_3000u32,
+        ];
+        differential(&block, [0; 15]);
+    }
+
+    #[test]
+    fn differential_register_form_chain() {
+        // MOV R0, #10; MOV R1, #20; ADD R2, R0, R1; SUB R3, R1, R0
+        let block = [
+            0xE3A0_000Au32,
+            0xE3A0_1014u32,
+            0xE080_2001u32,
+            0xE041_3000u32,
+        ];
+        differential(&block, [0; 15]);
+    }
+
+    #[test]
+    fn differential_nonzero_initial_state() {
+        // ADD R2, R0, R1 with gpr[0]=100, gpr[1]=50 → gpr[2]=150
+        let block = [0xE080_2001u32];
+        let mut initial = [0u32; 15];
+        initial[0] = 100;
+        initial[1] = 50;
+        differential(&block, initial);
+    }
+
+
     #[test]
     fn compile_and_run_mov_stub() {
         let mut compiler = DynarecCompiler::new();
