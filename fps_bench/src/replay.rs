@@ -82,4 +82,10 @@ impl Replayer {
     pub fn exhausted(&self) -> bool {
         self.cursor >= self.events.len()
     }
+
+    /// Move the cursor back to the start so the recording can be replayed
+    /// again against a shifted cycle base (see fps_bench `--loops`).
+    pub fn rewind(&mut self) {
+        self.cursor = 0;
+    }
 }
