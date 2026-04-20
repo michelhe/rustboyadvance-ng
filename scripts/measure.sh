@@ -63,26 +63,47 @@ for p in "$BIOS_ABS" "$ROM_ABS" "$REPLAY_ABS"; do
   [[ -f "$p" ]] || { echo "missing: $p" >&2; exit 1; }
 done
 
-# Older builds (pre-fps_bench --loops) don't accept the flag. Detect and fall
-# back so we can still bench the --rev master baseline from this script.
+# Older builds (pre-fps_bench --replay/--loops) don't accept those flags.
+# Detect and fall back to idle-mode sampling with a fixed wall-time cap,
+# so we can still baseline the master rev from the same script.
 supports_loops=0
-if "$bin" --help 2>/dev/null | grep -q -- '--loops'; then supports_loops=1; fi
+supports_replay=0
+if "$bin" --help 2>/dev/null | grep -q -- '--loops';  then supports_loops=1;  fi
+if "$bin" --help 2>/dev/null | grep -q -- '--replay'; then supports_replay=1; fi
+# Idle-mode wall-clock cap (master fallback). ~30s keeps noise reasonable.
+IDLE_SECONDS="${IDLE_SECONDS:-30}"
 
 samples=()
-if [[ $supports_loops -eq 1 ]]; then
+if [[ $supports_replay -eq 1 && $supports_loops -eq 1 ]]; then
   echo "[measure] $LABEL: $RUNS runs x $LOOPS loops/run against $REPLAY_ABS" >&2
-else
+elif [[ $supports_replay -eq 1 ]]; then
   echo "[measure] $LABEL: $RUNS runs (binary has no --loops; single pass) against $REPLAY_ABS" >&2
+else
+  echo "[measure] $LABEL: $RUNS runs (binary has no --replay; idle-mode, ${IDLE_SECONDS}s each)" >&2
 fi
 for i in $(seq 1 "$RUNS"); do
-  if [[ $supports_loops -eq 1 ]]; then
+  if [[ $supports_replay -eq 1 && $supports_loops -eq 1 ]]; then
     line="$("$bin" "$BIOS_ABS" "$ROM_ABS" --replay "$REPLAY_ABS" --loops "$LOOPS" 2>/dev/null | tail -n 1)"
-  else
+    fps="$(echo "$line" | sed -n 's/.* \([0-9.]*\) avg fps.*/\1/p')"
+  elif [[ $supports_replay -eq 1 ]]; then
     line="$("$bin" "$BIOS_ABS" "$ROM_ABS" --replay "$REPLAY_ABS" 2>/dev/null | tail -n 1)"
+    fps="$(echo "$line" | sed -n 's/.* \([0-9.]*\) avg fps.*/\1/p')"
+  else
+    # Idle fallback: sample "FPS: N" per-second lines for IDLE_SECONDS,
+    # kill the binary, take the average of everything after the first line
+    # (which is warm-up) to match how replay-mode weights samples.
+    # `timeout` returns non-zero when it fires; mask it so pipefail
+    # doesn't nuke the whole script.
+    set +e
+    out="$(timeout --preserve-status "${IDLE_SECONDS}s" "$bin" "$BIOS_ABS" "$ROM_ABS" 2>/dev/null | grep '^FPS: ' | awk '{print $2}')"
+    set -e
+    [[ -z "$out" ]] && { echo "no FPS lines from idle binary" >&2; exit 1; }
+    # Drop the first sample (warm-up).
+    trimmed="$(echo "$out" | tail -n +2)"
+    [[ -z "$trimmed" ]] && trimmed="$out"
+    fps="$(echo "$trimmed" | awk '{s+=$1; n++} END {printf "%.1f", s/n}')"
   fi
-  # "replay done: N frames in T s wall, FPS avg fps (C emulated cycles)"
-  fps="$(echo "$line" | sed -n 's/.* \([0-9.]*\) avg fps.*/\1/p')"
-  [[ -z "$fps" ]] && { echo "no fps parsed from: $line" >&2; exit 1; }
+  [[ -z "$fps" ]] && { echo "no fps parsed" >&2; exit 1; }
   printf '  run %d: %s\n' "$i" "$fps" >&2
   samples+=("$fps")
 done
