@@ -643,8 +643,10 @@ impl DynarecCompiler {
         })
     }
 
-    /// Compile a block of Thumb 16 bit opcodes. Supports Thumb format 2
-    /// (ADD/SUB Rd, Rs, Rn/imm3) and format 3 (MOV/CMP/ADD/SUB Rd, #imm8):
+    /// Compile a block of Thumb 16 bit opcodes. Supports:
+    ///   - format 2: ADD/SUB Rd, Rs, Rn/imm3
+    ///   - format 3: MOV/CMP/ADD/SUB Rd, #imm8
+    ///   - format 4 logical subset: AND/EOR/ORR/BIC/MVN/TST/CMP/CMN Rd, Rs
     ///
     ///   001_oo_ddd_iiiiiiii
     ///     oo = 00 MOV, 01 CMP, 10 ADD, 11 SUB
@@ -664,14 +666,20 @@ impl DynarecCompiler {
         &mut self,
         opcodes: &[u16],
     ) -> Option<extern "C" fn(*mut u32, *mut u32)> {
-        // Each opcode must classify as either format 2 or format 3.
-        enum ThumbItem { F2(DecodedThumb2), F3(DecodedThumb3) }
+        // Each opcode must classify as one of the supported formats.
+        enum ThumbItem {
+            F2(DecodedThumb2),
+            F3(DecodedThumb3),
+            F4(DecodedThumb4),
+        }
         let mut items: Vec<ThumbItem> = Vec::with_capacity(opcodes.len());
         for &op in opcodes {
             if let Some(d) = Self::decode_thumb_format2(op) {
                 items.push(ThumbItem::F2(d));
             } else if let Some(d) = Self::decode_thumb_format3(op) {
                 items.push(ThumbItem::F3(d));
+            } else if let Some(d) = Self::decode_thumb_format4_logical(op) {
+                items.push(ThumbItem::F4(d));
             } else {
                 return None;
             }
@@ -710,6 +718,7 @@ impl DynarecCompiler {
                 match item {
                     ThumbItem::F2(d) => emit_thumb_format2(&mut builder, gpr_ptr, cpsr_var, *d),
                     ThumbItem::F3(d) => emit_thumb_format3(&mut builder, gpr_ptr, cpsr_var, *d),
+                    ThumbItem::F4(d) => emit_thumb_format4_logical(&mut builder, gpr_ptr, cpsr_var, *d),
                 }
             }
 
@@ -733,6 +742,36 @@ impl DynarecCompiler {
         Some(unsafe {
             std::mem::transmute::<*const u8, extern "C" fn(*mut u32, *mut u32)>(code)
         })
+    }
+
+    /// Classify a Thumb 16 bit opcode as one of the format 4 logical
+    /// subset: AND/EOR/ORR/BIC/MVN/TST/CMP/CMN Rd, Rs. Encoding:
+    ///   010000_oooo_sss_ddd
+    /// Only the logical / compare mnemonics are handled here. Shift ops
+    /// (LSL/LSR/ASR/ROR) need barrel shifter carry handling, ADC/SBC need
+    /// carry in, NEG needs signed negation semantics, MUL is its own
+    /// timing. Those are all rejected for now.
+    fn decode_thumb_format4_logical(op: u16) -> Option<DecodedThumb4> {
+        if (op >> 10) & 0b111111 != 0b010000 {
+            return None;
+        }
+        let op_bits = (op >> 6) & 0xf;
+        let rs = ((op >> 3) & 0b111) as i32;
+        let rd = (op & 0b111) as i32;
+        let mnemonic = match op_bits {
+            0b0000 => Thumb4Op::And,
+            0b0001 => Thumb4Op::Eor,
+            0b1000 => Thumb4Op::Tst,
+            0b1010 => Thumb4Op::Cmp,
+            0b1011 => Thumb4Op::Cmn,
+            0b1100 => Thumb4Op::Orr,
+            0b1110 => Thumb4Op::Bic,
+            0b1111 => Thumb4Op::Mvn,
+            // Unsupported: 0010 LSL, 0011 LSR, 0100 ASR, 0101 ADC,
+            // 0110 SBC, 0111 ROR, 1001 NEG, 1101 MUL.
+            _ => return None,
+        };
+        Some(DecodedThumb4 { op: mnemonic, rd, rs })
     }
 
     /// Classify a Thumb 16 bit opcode as format 2 (ADD/SUB Rd, Rs, Rn
@@ -1045,6 +1084,17 @@ struct DecodedThumb2 {
     operand: Thumb2Operand,
 }
 
+/// Thumb format 4 logical subset mnemonic.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Thumb4Op { And, Eor, Orr, Bic, Mvn, Tst, Cmp, Cmn }
+
+#[derive(Clone, Copy, Debug)]
+struct DecodedThumb4 {
+    op: Thumb4Op,
+    rd: i32,
+    rs: i32,
+}
+
 /// A decoded ARM LDR / STR immediate instruction. Pre indexed, no writeback,
 /// any offset sign, either word or byte size. The dynarec emits this by
 /// calling into the bus trampolines at runtime.
@@ -1189,6 +1239,68 @@ fn emit_conditional_instr(
     builder.ins().jump(merge, &[]);
     builder.switch_to_block(merge);
     builder.seal_block(merge);
+}
+
+/// Emit a Thumb format 4 logical / compare op. All mnemonics in this
+/// subset update NZ flags. AND/EOR/ORR/BIC/MVN writeback to Rd; TST/CMP/CMN
+/// do not. C and V behave like the equivalent ARM DP S bit path:
+/// preserved for logical, computed for CMP/CMN.
+fn emit_thumb_format4_logical(
+    builder: &mut FunctionBuilder,
+    gpr_ptr: Value,
+    cpsr_var: Variable,
+    dec: DecodedThumb4,
+) {
+    let rd_val = builder.ins().load(
+        types::I32,
+        MemFlags::trusted(),
+        gpr_ptr,
+        Offset32::new(dec.rd * 4),
+    );
+    let rs_val = builder.ins().load(
+        types::I32,
+        MemFlags::trusted(),
+        gpr_ptr,
+        Offset32::new(dec.rs * 4),
+    );
+
+    let (result, dp_equivalent, writeback) = match dec.op {
+        Thumb4Op::And => (builder.ins().band(rd_val, rs_val), DpOp::Tst, true),
+        Thumb4Op::Eor => (builder.ins().bxor(rd_val, rs_val), DpOp::Teq, true),
+        Thumb4Op::Orr => {
+            // ARM ORR flag semantics == TST (logical, N/Z from result,
+            // preserve C/V). The Tst branch of emit_flag_update reads the
+            // existing cpsr C/V and leaves them. Same goes for EOR vs TEQ.
+            let r = builder.ins().bor(rd_val, rs_val);
+            (r, DpOp::Tst, true)
+        }
+        Thumb4Op::Bic => {
+            // Rd = Rd & ~Rs
+            let not_rs = builder.ins().bnot(rs_val);
+            let r = builder.ins().band(rd_val, not_rs);
+            (r, DpOp::Tst, true)
+        }
+        Thumb4Op::Mvn => {
+            // Rd = ~Rs  (Rd value ignored as source).
+            let r = builder.ins().bnot(rs_val);
+            (r, DpOp::Mov, true)
+        }
+        Thumb4Op::Tst => (builder.ins().band(rd_val, rs_val), DpOp::Tst, false),
+        Thumb4Op::Cmp => (builder.ins().isub(rd_val, rs_val), DpOp::Cmp, false),
+        Thumb4Op::Cmn => (builder.ins().iadd(rd_val, rs_val), DpOp::Cmn, false),
+    };
+
+    if writeback {
+        builder.ins().store(
+            MemFlags::trusted(),
+            result,
+            gpr_ptr,
+            Offset32::new(dec.rd * 4),
+        );
+    }
+
+    let new_cpsr = emit_flag_update(builder, cpsr_var, dp_equivalent, rd_val, rs_val, result);
+    builder.def_var(cpsr_var, new_cpsr);
 }
 
 /// Emit a Thumb format 2 add/sub. Always updates full NZCV (Thumb
@@ -2415,10 +2527,11 @@ mod tests {
     }
 
     #[test]
-    fn compile_thumb_reject_non_format3() {
+    fn compile_thumb_reject_unsupported() {
         let mut compiler = DynarecCompiler::new();
-        // 0x4000 is Thumb format 4 (AND R0, R0) - not format 2 or 3.
-        assert!(compiler.try_compile_thumb_block(&[0x4000]).is_none());
+        // 0x4400 is Thumb format 5 (ADD Hi reg) - not in any currently
+        // supported shape.
+        assert!(compiler.try_compile_thumb_block(&[0x4400]).is_none());
     }
 
     // --- Thumb format 2 (ADD/SUB Rd, Rs, Rn|imm3) ---
@@ -2483,6 +2596,104 @@ mod tests {
         func(gpr.as_mut_ptr(), &mut cpsr);
         assert_eq!(gpr[0], 0);
         assert_ne!(cpsr & (1 << 30), 0, "Z should be set");
+    }
+
+    // --- Thumb format 4 logical subset ---
+
+    #[test]
+    fn decode_thumb_format4_logical_shapes() {
+        // AND R0, R1 -> 010000_0000_001_000 = 0b0100_0000_0000_1000 = 0x4008
+        let d = DynarecCompiler::decode_thumb_format4_logical(0x4008).expect("AND");
+        assert_eq!(d.op, Thumb4Op::And);
+        assert_eq!(d.rd, 0);
+        assert_eq!(d.rs, 1);
+
+        // ORR R2, R3 -> 010000_1100_011_010 = 0x431A
+        let d = DynarecCompiler::decode_thumb_format4_logical(0x431A).expect("ORR");
+        assert_eq!(d.op, Thumb4Op::Orr);
+        assert_eq!(d.rs, 3);
+        assert_eq!(d.rd, 2);
+
+        // TST R4, R5 -> 010000_1000_101_100 = 0x422C
+        let d = DynarecCompiler::decode_thumb_format4_logical(0x422C).expect("TST");
+        assert_eq!(d.op, Thumb4Op::Tst);
+
+        // CMP R6, R7 -> 010000_1010_111_110 = 0x42BE
+        let d = DynarecCompiler::decode_thumb_format4_logical(0x42BE).expect("CMP");
+        assert_eq!(d.op, Thumb4Op::Cmp);
+
+        // MVN R1, R2 -> 010000_1111_010_001 = 0x43D1
+        let d = DynarecCompiler::decode_thumb_format4_logical(0x43D1).expect("MVN");
+        assert_eq!(d.op, Thumb4Op::Mvn);
+
+        // LSL R0, R1 -> 010000_0010_001_000 = 0x4088  (unsupported)
+        assert!(DynarecCompiler::decode_thumb_format4_logical(0x4088).is_none());
+        // MUL R0, R1 -> 010000_1101_001_000 = 0x4348  (unsupported)
+        assert!(DynarecCompiler::decode_thumb_format4_logical(0x4348).is_none());
+
+        // Not format 4 (top 6 bits != 010000)
+        assert!(DynarecCompiler::decode_thumb_format4_logical(0x2000).is_none());
+    }
+
+    #[test]
+    fn compile_thumb_and_orr_eor_bic() {
+        let mut compiler = DynarecCompiler::new();
+        // AND R0, R1 ; ORR R2, R3 ; EOR R4, R5 ; BIC R6, R7
+        let and = 0x4008u16; // 010000_0000_001_000
+        let orr = 0x431Au16; // 010000_1100_011_010
+        let eor = 0x406Cu16; // 010000_0001_101_100
+        let bic = 0x43BEu16; // 010000_1110_111_110
+        let func = compiler
+            .try_compile_thumb_block(&[and, orr, eor, bic])
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[0] = 0xF0F0_F0F0; gpr[1] = 0x0FF0_0FF0;
+        gpr[2] = 0x0000_0001; gpr[3] = 0x0000_0010;
+        gpr[4] = 0xAAAA_AAAA; gpr[5] = 0x5555_5555;
+        gpr[6] = 0xFFFF_FFFF; gpr[7] = 0x0F0F_0F0F;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[0], 0xF0F0_F0F0 & 0x0FF0_0FF0, "AND R0, R1");
+        assert_eq!(gpr[2], 0x0000_0001 | 0x0000_0010, "ORR R2, R3");
+        assert_eq!(gpr[4], 0xAAAA_AAAA ^ 0x5555_5555, "EOR R4, R5");
+        assert_eq!(gpr[6], 0xFFFF_FFFF & !0x0F0F_0F0F, "BIC R6, R7");
+    }
+
+    #[test]
+    fn compile_thumb_mvn_complements() {
+        let mut compiler = DynarecCompiler::new();
+        // MVN R1, R2
+        let mvn = 0x43D1u16;
+        let func = compiler.try_compile_thumb_block(&[mvn]).unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[2] = 0x1234_5678;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[1], !0x1234_5678u32);
+        // Top bit set -> N should be set.
+        assert_ne!(cpsr & (1 << 31), 0, "N set on negative result");
+    }
+
+    #[test]
+    fn compile_thumb_tst_cmp_cmn_no_writeback() {
+        let mut compiler = DynarecCompiler::new();
+        // TST R4, R5 ; CMP R4, R5 ; CMN R4, R5
+        let tst = 0x422Cu16;
+        let cmp = 0x42ACu16; // 010000_1010_101_100 = 0x42AC
+        let cmn = 0x42ECu16; // 010000_1011_101_100 = 0x42EC
+        let func = compiler
+            .try_compile_thumb_block(&[tst, cmp, cmn])
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[4] = 0xDEAD_BEEF;
+        gpr[5] = 0x1111_1111;
+        let before = gpr;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr, before, "TST/CMP/CMN never writeback");
     }
 
     #[test]
