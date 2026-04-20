@@ -69,33 +69,32 @@ impl DynarecCompiler {
     }
 
     /// Compile a sequence of supported ARM data-processing instructions
-    /// into native code. Supported shapes (all with S=0):
+    /// into native code. Supported shapes:
     ///
-    /// Immediate form (I=1):
-    ///   - MOV Rd, #imm          op=1101
-    ///   - MVN Rd, #imm          op=1111
-    ///   - ADD Rd, Rn, #imm      op=0100
-    ///   - SUB Rd, Rn, #imm      op=0010
+    /// Writeback (S=0 or S=1):
+    ///   - MOV Rd, op2    op=1101    writes Rd = op2
+    ///   - MVN Rd, op2    op=1111    writes Rd = !op2
+    ///   - ADD Rd, Rn,op2 op=0100    writes Rd = Rn+op2
+    ///   - SUB Rd, Rn,op2 op=0010    writes Rd = Rn-op2
     ///
-    /// Register form (I=0, no shift, no shift-by-register):
-    ///   - MOV Rd, Rm
-    ///   - MVN Rd, Rm
-    ///   - ADD Rd, Rn, Rm
-    ///   - SUB Rd, Rn, Rm
+    /// Compare-only (S=1 mandatory, no writeback):
+    ///   - CMP Rn, op2    op=1010    flags from Rn-op2
+    ///   - CMN Rn, op2    op=1011    flags from Rn+op2
+    ///   - TST Rn, op2    op=1000    flags from Rn&op2
+    ///   - TEQ Rn, op2    op=1001    flags from Rn^op2
     ///
-    /// Every ARM condition code (EQ/NE/HS/LO/MI/PL/VS/VC/HI/LS/GE/LT/GT/LE/AL)
-    /// is supported; each instruction is wrapped in a runtime NZCV-flag
-    /// check that skips the body if the condition fails.
+    /// operand2 is either an immediate (I=1) or a register with no shift.
+    /// All 14 ARM condition codes (EQ/NE/HS/LO/MI/PL/VS/VC/HI/LS/GE/LT/GT/LE/AL)
+    /// are supported via runtime CPSR.NZCV check.
     ///
-    /// The returned function takes a pointer to the CPU's gpr array AND the
-    /// current CPSR value (as a u32). Returns `None` if any opcode is not
-    /// one of the supported shapes.
+    /// For S=1 / compare-only instructions, the dynarec computes and writes
+    /// back N, Z, C, V to the caller-owned CPSR word at `cpsr_ptr`.
+    ///
+    /// Returns `None` if any opcode is not one of the supported shapes.
     pub fn try_compile_imm_block(
         &mut self,
         opcodes: &[u32],
-    ) -> Option<extern "C" fn(*mut u32, u32)> {
-        // Validate every opcode up front so we don't create a half-defined
-        // function we then have to tear down.
+    ) -> Option<extern "C" fn(*mut u32, *mut u32)> {
         for &insn in opcodes {
             if Self::decode_supported_dp(insn).is_none() {
                 return None;
@@ -104,8 +103,8 @@ impl DynarecCompiler {
 
         let ptr_type = self.module.isa().pointer_type();
         let mut sig = self.module.make_signature();
-        sig.params.push(AbiParam::new(ptr_type));      // gpr_ptr
-        sig.params.push(AbiParam::new(types::I32));    // cpsr
+        sig.params.push(AbiParam::new(ptr_type));   // gpr_ptr
+        sig.params.push(AbiParam::new(ptr_type));   // cpsr_ptr
 
         self.next_id += 1;
         let name = format!("dynarec_imm_block_{}", self.next_id);
@@ -124,12 +123,28 @@ impl DynarecCompiler {
             builder.seal_block(entry);
 
             let gpr_ptr = builder.block_params(entry)[0];
-            let cpsr = builder.block_params(entry)[1];
+            let cpsr_ptr = builder.block_params(entry)[1];
+
+            // Load CPSR into a mutable variable at function entry. Cond
+            // checks read from it; S-bit / compare ops write back to it.
+            // Storing once at function exit.
+            let cpsr_var = builder.declare_var(types::I32);
+            let cpsr_initial =
+                builder
+                    .ins()
+                    .load(types::I32, MemFlags::trusted(), cpsr_ptr, 0);
+            builder.def_var(cpsr_var, cpsr_initial);
 
             for &insn in opcodes {
                 let dec = Self::decode_supported_dp(insn).expect("pre-validated");
-                emit_conditional_instr(&mut builder, gpr_ptr, cpsr, dec);
+                emit_conditional_instr(&mut builder, gpr_ptr, cpsr_var, dec);
             }
+
+            // Flush CPSR back out.
+            let cpsr_final = builder.use_var(cpsr_var);
+            builder
+                .ins()
+                .store(MemFlags::trusted(), cpsr_final, cpsr_ptr, 0);
 
             builder.ins().return_(&[]);
             builder.finalize();
@@ -146,7 +161,7 @@ impl DynarecCompiler {
         let code = self.module.get_finalized_function(func_id);
         // SAFETY: declared signature matches the transmute target.
         Some(unsafe {
-            std::mem::transmute::<*const u8, extern "C" fn(*mut u32, u32)>(code)
+            std::mem::transmute::<*const u8, extern "C" fn(*mut u32, *mut u32)>(code)
         })
     }
 
@@ -161,19 +176,24 @@ impl DynarecCompiler {
         }
         let cond = ArmCond::from_bits(cond_bits as u8);
         let class = (insn >> 20) & 0xff;
-        // Data-processing bits [27:26] = 0b00, S=0 (class bit 0).
+        // Data-processing bits [27:26] = 0b00.
         // Immediate form has bit 5 (of class) = 1 (= insn bit 25 = I).
         // Register form has I = 0.
-        if (class & 0b1100_0001) != 0b0000_0000 {
+        if (class & 0b1100_0000) != 0b0000_0000 {
             return None;
         }
         let i_bit = (class >> 5) & 1;
-        let op = (class >> 1) & 0xf;
-        let op = match op {
+        let s_bit = (class & 1) != 0;
+        let op_raw = (class >> 1) & 0xf;
+        let op = match op_raw {
             0b1101 => DpOp::Mov,
             0b1111 => DpOp::Mvn,
             0b0100 => DpOp::Add,
             0b0010 => DpOp::Sub,
+            0b1010 if s_bit => DpOp::Cmp,
+            0b1011 if s_bit => DpOp::Cmn,
+            0b1000 if s_bit => DpOp::Tst,
+            0b1001 if s_bit => DpOp::Teq,
             _ => return None,
         };
         let rn = ((insn >> 16) & 0xf) as i32;
@@ -202,7 +222,7 @@ impl DynarecCompiler {
             Operand2::Reg(rm)
         };
 
-        Some(DecodedDp { cond, op, rd, rn, operand2 })
+        Some(DecodedDp { cond, op, rd, rn, operand2, s: s_bit })
     }
 
     /// Compile a stub function that reads `gpr[1]` and writes it into
@@ -271,13 +291,23 @@ impl Default for DynarecCompiler {
 }
 
 /// Subset of ARM data-processing opcodes the dynarec can currently emit.
-/// Extend when adding support for more shapes.
-#[derive(Clone, Copy, Debug)]
+/// Cmp/Cmn/Tst/Teq are compare-only (no Rd writeback, S=1 mandatory).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DpOp {
     Mov,
     Mvn,
     Add,
     Sub,
+    Cmp,
+    Cmn,
+    Tst,
+    Teq,
+}
+
+impl DpOp {
+    fn is_compare_only(self) -> bool {
+        matches!(self, DpOp::Cmp | DpOp::Cmn | DpOp::Tst | DpOp::Teq)
+    }
 }
 
 /// The second operand of a data-processing instruction.
@@ -294,6 +324,9 @@ struct DecodedDp {
     rd: i32,
     rn: i32,
     operand2: Operand2,
+    /// Update CPSR.NZCV after executing this instruction. Compare-only ops
+    /// (CMP/CMN/TST/TEQ) always have s=true.
+    s: bool,
 }
 
 /// ARM condition-code mnemonics. Evaluated against the NZCV bits of CPSR
@@ -318,13 +351,14 @@ impl ArmCond {
 }
 
 /// Emit Cranelift IR that evaluates an ARM condition code against the CPSR
-/// value in `cpsr` and returns a `bool` (i8 in IR) that's true when the
-/// condition passes.
+/// variable and returns a `bool` (i8 in IR) that's true when the condition
+/// passes.
 fn emit_cond_check(
     builder: &mut FunctionBuilder,
-    cpsr: Value,
+    cpsr_var: Variable,
     cond: ArmCond,
 ) -> Value {
+    let cpsr = builder.use_var(cpsr_var);
     // Flag bit positions in CPSR: N=31, Z=30, C=29, V=28.
     let one = builder.ins().iconst(types::I32, 1);
     let n = {
@@ -392,34 +426,37 @@ fn emit_cond_check(
 fn emit_conditional_instr(
     builder: &mut FunctionBuilder,
     gpr_ptr: Value,
-    cpsr: Value,
+    cpsr_var: Variable,
     dec: DecodedDp,
 ) {
     if dec.cond == ArmCond::Al {
-        emit_data_processing_imm(builder, gpr_ptr, dec);
+        emit_data_processing_imm(builder, gpr_ptr, cpsr_var, dec);
         return;
     }
 
-    let cond_result = emit_cond_check(builder, cpsr, dec.cond);
+    let cond_result = emit_cond_check(builder, cpsr_var, dec.cond);
     let body = builder.create_block();
     let merge = builder.create_block();
     builder.ins().brif(cond_result, body, &[], merge, &[]);
     builder.switch_to_block(body);
     builder.seal_block(body);
-    emit_data_processing_imm(builder, gpr_ptr, dec);
+    emit_data_processing_imm(builder, gpr_ptr, cpsr_var, dec);
     builder.ins().jump(merge, &[]);
     builder.switch_to_block(merge);
     builder.seal_block(merge);
 }
 
-/// Emit Cranelift IR for a single decoded data-processing instruction
-/// operating on the `gpr` array at `gpr_ptr`. Effect: gpr[rd] = f(gpr[rn], op2).
+/// Emit Cranelift IR for a single decoded data-processing instruction.
+/// - Loads operand2 and (if applicable) rn from the gpr array.
+/// - Computes the result.
+/// - Writes the result back to gpr[rd] unless the op is compare-only.
+/// - If S=1, updates the caller's cpsr variable with new NZCV flags.
 fn emit_data_processing_imm(
     builder: &mut FunctionBuilder,
     gpr_ptr: Value,
+    cpsr_var: Variable,
     dec: DecodedDp,
 ) {
-    // Materialize operand2 (either a constant or a register load).
     let op2 = match dec.operand2 {
         Operand2::Imm(v) => builder.ins().iconst(types::I32, v as i64),
         Operand2::Reg(rm) => builder.ins().load(
@@ -430,35 +467,125 @@ fn emit_data_processing_imm(
         ),
     };
 
+    // rn is only meaningful for ops other than MOV/MVN; loading it
+    // unconditionally is safe (register file access is cheap, LLVM will
+    // remove dead loads) but not worth the cycle if we can skip.
+    let need_rn = !matches!(dec.op, DpOp::Mov | DpOp::Mvn);
+    let rn = if need_rn {
+        builder.ins().load(
+            types::I32,
+            MemFlags::trusted(),
+            gpr_ptr,
+            Offset32::new(dec.rn * 4),
+        )
+    } else {
+        // Placeholder — unused.
+        builder.ins().iconst(types::I32, 0)
+    };
+
     let result = match dec.op {
         DpOp::Mov => op2,
-        DpOp::Mvn => {
-            // ~op2. For the imm-form we could fold at compile time; the
-            // bnot IR op is trivial either way, so keep it uniform.
-            builder.ins().bnot(op2)
+        DpOp::Mvn => builder.ins().bnot(op2),
+        DpOp::Add | DpOp::Cmn => builder.ins().iadd(rn, op2),
+        DpOp::Sub | DpOp::Cmp => builder.ins().isub(rn, op2),
+        DpOp::Tst => builder.ins().band(rn, op2),
+        DpOp::Teq => builder.ins().bxor(rn, op2),
+    };
+
+    // Writeback (unless compare-only).
+    if !dec.op.is_compare_only() {
+        builder.ins().store(
+            MemFlags::trusted(),
+            result,
+            gpr_ptr,
+            Offset32::new(dec.rd * 4),
+        );
+    }
+
+    // Flag update.
+    if dec.s {
+        let new_cpsr = emit_flag_update(builder, cpsr_var, dec.op, rn, op2, result);
+        builder.def_var(cpsr_var, new_cpsr);
+    }
+}
+
+/// Produce a new CPSR value with N/Z/C/V updated per the ARM rules for the
+/// given opcode.
+fn emit_flag_update(
+    builder: &mut FunctionBuilder,
+    cpsr_var: Variable,
+    op: DpOp,
+    rn: Value,
+    op2: Value,
+    result: Value,
+) -> Value {
+    let zero = builder.ins().iconst(types::I32, 0);
+    let one = builder.ins().iconst(types::I32, 1);
+
+    // N = result >> 31.
+    let n = builder.ins().ushr_imm(result, 31);
+
+    // Z = (result == 0) ? 1 : 0.
+    let z_bool = builder.ins().icmp(IntCC::Equal, result, zero);
+    let z = builder.ins().uextend(types::I32, z_bool);
+
+    // C and V depend on op:
+    //   ADD/CMN: C = unsigned carry-out; V = signed overflow.
+    //   SUB/CMP: C = NOT borrow; V = signed overflow.
+    //   Logical (TST/TEQ/MOV/MVN with S=1): C unchanged (we preserve
+    //     the previous C bit), V unchanged.
+    let (c, v) = match op {
+        DpOp::Add | DpOp::Cmn => {
+            // C: result < rn (unsigned) → carry out
+            let c_bool = builder.ins().icmp(IntCC::UnsignedLessThan, result, rn);
+            let c = builder.ins().uextend(types::I32, c_bool);
+            // V: (~(rn ^ op2) & (rn ^ result)) >> 31
+            let xor_ab = builder.ins().bxor(rn, op2);
+            let nxor_ab = builder.ins().bnot(xor_ab);
+            let xor_ar = builder.ins().bxor(rn, result);
+            let v_bits = builder.ins().band(nxor_ab, xor_ar);
+            let v = builder.ins().ushr_imm(v_bits, 31);
+            (c, v)
         }
-        DpOp::Add => {
-            let rn = builder.ins().load(
-                types::I32,
-                MemFlags::trusted(),
-                gpr_ptr,
-                Offset32::new(dec.rn * 4),
-            );
-            builder.ins().iadd(rn, op2)
+        DpOp::Sub | DpOp::Cmp => {
+            // C: rn >= op2 (unsigned) → not-borrow
+            let c_bool = builder.ins().icmp(IntCC::UnsignedGreaterThanOrEqual, rn, op2);
+            let c = builder.ins().uextend(types::I32, c_bool);
+            // V: ((rn ^ op2) & (rn ^ result)) >> 31
+            let xor_ab = builder.ins().bxor(rn, op2);
+            let xor_ar = builder.ins().bxor(rn, result);
+            let v_bits = builder.ins().band(xor_ab, xor_ar);
+            let v = builder.ins().ushr_imm(v_bits, 31);
+            (c, v)
         }
-        DpOp::Sub => {
-            let rn = builder.ins().load(
-                types::I32,
-                MemFlags::trusted(),
-                gpr_ptr,
-                Offset32::new(dec.rn * 4),
-            );
-            builder.ins().isub(rn, op2)
+        DpOp::Mov | DpOp::Mvn | DpOp::Tst | DpOp::Teq => {
+            // Logical ops preserve C and V (no shifter carry is computed
+            // for the simple imm/reg-no-shift shapes we support yet).
+            let cpsr = builder.use_var(cpsr_var);
+            let c = {
+                let shifted = builder.ins().ushr_imm(cpsr, 29);
+                builder.ins().band(shifted, one)
+            };
+            let v = {
+                let shifted = builder.ins().ushr_imm(cpsr, 28);
+                builder.ins().band(shifted, one)
+            };
+            (c, v)
         }
     };
-    builder
-        .ins()
-        .store(MemFlags::trusted(), result, gpr_ptr, Offset32::new(dec.rd * 4));
+
+    // Merge new NZCV into CPSR (bits 31/30/29/28), preserving the others.
+    let cpsr = builder.use_var(cpsr_var);
+    let mask = builder.ins().iconst(types::I32, 0x0fff_ffff); // clear top 4 bits
+    let cleared = builder.ins().band(cpsr, mask);
+    let n_shifted = builder.ins().ishl_imm(n, 31);
+    let z_shifted = builder.ins().ishl_imm(z, 30);
+    let c_shifted = builder.ins().ishl_imm(c, 29);
+    let v_shifted = builder.ins().ishl_imm(v, 28);
+    let nz = builder.ins().bor(n_shifted, z_shifted);
+    let cv = builder.ins().bor(c_shifted, v_shifted);
+    let flags = builder.ins().bor(nz, cv);
+    builder.ins().bor(cleared, flags)
 }
 
 #[cfg(test)]
@@ -509,8 +636,10 @@ mod tests {
             .try_compile_imm_block(opcodes)
             .expect("dynarec should support these opcodes");
         let mut dyn_gpr = initial_gpr;
-        // AL condition on every instr → cpsr value doesn't matter, pass 0.
-        func(dyn_gpr.as_mut_ptr(), 0);
+        // AL condition on every instr → cpsr value doesn't matter. For S=1
+        // ops it will get written back to this buffer.
+        let mut dyn_cpsr = 0u32;
+        func(dyn_gpr.as_mut_ptr(), &mut dyn_cpsr);
 
         assert_eq!(
             dyn_gpr, interp_gpr,
@@ -590,7 +719,7 @@ mod tests {
         for v in gpr.iter_mut() {
             *v = 0xFFFF_FFFF;
         }
-        func(gpr.as_mut_ptr(), 0);
+        { let mut cpsr = 0u32; func(gpr.as_mut_ptr(), &mut cpsr); }
         assert_eq!(gpr[0], 1);
         assert_eq!(gpr[1], 2);
         assert_eq!(gpr[2], 255);
@@ -617,7 +746,7 @@ mod tests {
             .expect("should compile");
 
         let mut gpr = [0u32; 15];
-        func(gpr.as_mut_ptr(), 0);
+        { let mut cpsr = 0u32; func(gpr.as_mut_ptr(), &mut cpsr); }
         assert_eq!(gpr[0], 10);
         assert_eq!(gpr[1], 20);
         assert_eq!(gpr[2], 30);
@@ -649,7 +778,7 @@ mod tests {
         let func = compiler.try_compile_imm_block(&block).expect("should compile");
 
         let mut gpr = [0u32; 15];
-        func(gpr.as_mut_ptr(), 0);
+        { let mut cpsr = 0u32; func(gpr.as_mut_ptr(), &mut cpsr); }
         assert_eq!(gpr[0], 10);
         assert_eq!(gpr[1], 15);
         assert_eq!(gpr[2], 12);
@@ -669,6 +798,94 @@ mod tests {
     }
 
     #[test]
+    fn cmp_sets_zero_flag() {
+        let mut compiler = DynarecCompiler::new();
+        // CMP R0, #5    E350_0005
+        let block = [0xE350_0005u32];
+        let func = compiler.try_compile_imm_block(&block).expect("CMP supported");
+
+        // R0 == 5 → Z=1, N=0, C=1 (no borrow), V=0
+        let mut gpr = [0u32; 15];
+        gpr[0] = 5;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!((cpsr >> 30) & 1, 1, "Z should be set for equal");
+        assert_eq!((cpsr >> 31) & 1, 0, "N should be clear");
+        assert_eq!((cpsr >> 29) & 1, 1, "C should be set (no borrow)");
+        assert_eq!((cpsr >> 28) & 1, 0, "V should be clear");
+        assert_eq!(gpr[0], 5, "CMP must not write Rd");
+    }
+
+    #[test]
+    fn cmp_sets_negative_flag() {
+        let mut compiler = DynarecCompiler::new();
+        // CMP R0, #5   R0=3 → result = -2, N=1, Z=0, C=0 (borrow)
+        let block = [0xE350_0005u32];
+        let func = compiler.try_compile_imm_block(&block).expect("CMP supported");
+
+        let mut gpr = [0u32; 15];
+        gpr[0] = 3;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!((cpsr >> 31) & 1, 1, "N should be set");
+        assert_eq!((cpsr >> 30) & 1, 0, "Z should be clear");
+        assert_eq!((cpsr >> 29) & 1, 0, "C should be clear (borrow)");
+    }
+
+    #[test]
+    fn tst_sets_zero_on_no_overlap() {
+        let mut compiler = DynarecCompiler::new();
+        // TST R0, #0x0F   E310_000F
+        let block = [0xE310_000Fu32];
+        let func = compiler.try_compile_imm_block(&block).expect("TST supported");
+
+        // R0 = 0xF0 → R0 AND 0x0F = 0 → Z=1
+        let mut gpr = [0u32; 15];
+        gpr[0] = 0xF0;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!((cpsr >> 30) & 1, 1);
+        assert_eq!(gpr[0], 0xF0, "TST must not write Rd");
+
+        // R0 = 0xF1 → AND = 1 → Z=0, N=0
+        let mut gpr = [0u32; 15];
+        gpr[0] = 0xF1;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!((cpsr >> 30) & 1, 0);
+        assert_eq!((cpsr >> 31) & 1, 0);
+    }
+
+    #[test]
+    fn adds_sets_all_flags_correctly() {
+        let mut compiler = DynarecCompiler::new();
+        // ADDS R0, R0, #1   E290_0001
+        let block = [0xE290_0001u32];
+        let func = compiler.try_compile_imm_block(&block).expect("ADDS supported");
+
+        // 0xFFFF_FFFF + 1 = 0 → Z=1, C=1 (carry), N=0, V=0
+        let mut gpr = [0u32; 15];
+        gpr[0] = 0xFFFF_FFFF;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[0], 0);
+        assert_eq!((cpsr >> 30) & 1, 1, "Z");
+        assert_eq!((cpsr >> 29) & 1, 1, "C");
+        assert_eq!((cpsr >> 31) & 1, 0, "N");
+        assert_eq!((cpsr >> 28) & 1, 0, "V");
+
+        // 0x7FFF_FFFF + 1 = 0x8000_0000 → N=1, V=1 (signed overflow)
+        let mut gpr = [0u32; 15];
+        gpr[0] = 0x7FFF_FFFF;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[0], 0x8000_0000);
+        assert_eq!((cpsr >> 31) & 1, 1, "N");
+        assert_eq!((cpsr >> 28) & 1, 1, "V");
+        assert_eq!((cpsr >> 29) & 1, 0, "C");
+    }
+
+    #[test]
     fn moveq_with_z_flag_set_writes_register() {
         let mut compiler = DynarecCompiler::new();
         // MOVEQ R0, #42    →  03A0_002A
@@ -679,12 +896,14 @@ mod tests {
 
         // CPSR with Z=1 → condition passes → write happens
         let mut gpr = [0u32; 15];
-        func(gpr.as_mut_ptr(), 1 << 30);
+        let mut cpsr: u32 = 1 << 30;
+        func(gpr.as_mut_ptr(), &mut cpsr);
         assert_eq!(gpr[0], 42);
 
         // CPSR with Z=0 → condition fails → gpr unchanged
         let mut gpr = [7u32; 15];
-        func(gpr.as_mut_ptr(), 0);
+        let mut cpsr: u32 = 0;
+        func(gpr.as_mut_ptr(), &mut cpsr);
         assert_eq!(gpr[0], 7);
     }
 
@@ -699,12 +918,14 @@ mod tests {
 
         // CPSR with Z=0 (not equal) → write happens
         let mut gpr = [0u32; 15];
-        func(gpr.as_mut_ptr(), 0);
+        let mut cpsr: u32 = 0;
+        func(gpr.as_mut_ptr(), &mut cpsr);
         assert_eq!(gpr[0], 99);
 
         // CPSR with Z=1 → condition fails → no write
         let mut gpr = [3u32; 15];
-        func(gpr.as_mut_ptr(), 1 << 30);
+        let mut cpsr: u32 = 1 << 30;
+        func(gpr.as_mut_ptr(), &mut cpsr);
         assert_eq!(gpr[0], 3);
     }
 
@@ -717,7 +938,7 @@ mod tests {
         let func = compiler.try_compile_imm_block(&block).expect("should compile");
 
         let mut gpr = [0u32; 15];
-        func(gpr.as_mut_ptr(), 0);
+        { let mut cpsr = 0u32; func(gpr.as_mut_ptr(), &mut cpsr); }
         assert_eq!(gpr[3], 0xFF00_0000);
     }
 
