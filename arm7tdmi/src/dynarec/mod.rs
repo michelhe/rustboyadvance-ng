@@ -648,6 +648,114 @@ mod tests {
         );
     }
 
+    /// Same idea as `differential` but also compares the CPSR NZCV bits
+    /// after execution, so we catch flag-computation bugs in the S-bit /
+    /// compare-only paths.
+    fn differential_with_flags(opcodes: &[u32], initial_gpr: [u32; 15], initial_cpsr: u32) {
+        use crate::cpu::Arm7tdmiCore;
+        use rustboyadvance_utils::Shared;
+
+        let mut program = Vec::with_capacity(opcodes.len() * 4);
+        for op in opcodes {
+            program.extend_from_slice(&op.to_le_bytes());
+        }
+
+        // --- Interpreter run ---
+        let mut mem = crate::SimpleMemory::new(1024);
+        mem.load_program(&program);
+        let mem_shared = Shared::new(mem);
+        let mut cpu = Arm7tdmiCore::new(mem_shared);
+        cpu.gpr = initial_gpr;
+        // Overwrite CPSR with the test's desired initial flag state.
+        cpu.cpsr = crate::psr::RegPSR::new(initial_cpsr);
+        for &op in opcodes {
+            let hash = (((op >> 16) & 0xff0) | ((op >> 4) & 0xf)) as usize;
+            let arm_info = &Arm7tdmiCore::<crate::SimpleMemory>::ARM_LUT[hash];
+            let _ = (arm_info.handler_fn)(&mut cpu, op);
+        }
+        let interp_gpr = cpu.gpr;
+        let interp_cpsr = cpu.cpsr.get() & 0xF000_0000; // compare NZCV only
+
+        // --- Dynarec run ---
+        let mut compiler = DynarecCompiler::new();
+        let func = compiler
+            .try_compile_imm_block(opcodes)
+            .expect("dynarec should support these opcodes");
+        let mut dyn_gpr = initial_gpr;
+        let mut dyn_cpsr = initial_cpsr;
+        func(dyn_gpr.as_mut_ptr(), &mut dyn_cpsr);
+        let dyn_cpsr_flags = dyn_cpsr & 0xF000_0000;
+
+        assert_eq!(
+            dyn_gpr, interp_gpr,
+            "gpr diverged on {:x?}\ninterp={:?}\ndynrec={:?}",
+            opcodes, interp_gpr, dyn_gpr
+        );
+        assert_eq!(
+            dyn_cpsr_flags, interp_cpsr,
+            "NZCV diverged on {:x?}: interp={:#010x} dynarec={:#010x}",
+            opcodes, interp_cpsr, dyn_cpsr_flags
+        );
+    }
+
+    #[test]
+    fn differential_cmp_various() {
+        // CMP R0, #5 with R0 = {3, 5, 10, 0, 0xFFFFFFFF, 0x80000000}
+        let block = [0xE350_0005u32];
+        for &r0 in &[3u32, 5, 10, 0, 0xFFFFFFFFu32, 0x80000000u32] {
+            let mut gpr = [0u32; 15];
+            gpr[0] = r0;
+            differential_with_flags(&block, gpr, 0);
+        }
+    }
+
+    #[test]
+    fn differential_adds_overflow_cases() {
+        // ADDS R0, R0, #1 at interesting boundary values.
+        let block = [0xE290_0001u32];
+        for &r0 in &[
+            0u32,
+            1,
+            0x7FFF_FFFF, // signed overflow
+            0xFFFF_FFFF, // unsigned overflow/wrap
+            0x8000_0000,
+            0xFFFF_FFFE,
+        ] {
+            let mut gpr = [0u32; 15];
+            gpr[0] = r0;
+            differential_with_flags(&block, gpr, 0);
+        }
+    }
+
+    #[test]
+    fn differential_subs_borrow_cases() {
+        // SUBS R0, R0, #1
+        let block = [0xE250_0001u32];
+        for &r0 in &[
+            0u32,
+            1,
+            0x8000_0000, // signed overflow via subtract
+            0x7FFF_FFFF,
+            0xFFFF_FFFF,
+        ] {
+            let mut gpr = [0u32; 15];
+            gpr[0] = r0;
+            differential_with_flags(&block, gpr, 0);
+        }
+    }
+
+    #[test]
+    fn differential_tst_teq() {
+        // TST R0, #0xFF; TEQ R0, #0xFF
+        for opcode in &[0xE310_00FFu32, 0xE330_00FFu32] {
+            for &r0 in &[0u32, 1, 0xFF, 0x100, 0xFFFF_FFFF, 0x8000_0000] {
+                let mut gpr = [0u32; 15];
+                gpr[0] = r0;
+                differential_with_flags(&[*opcode], gpr, 0);
+            }
+        }
+    }
+
     #[test]
     fn differential_mov_imm_sequence() {
         // Three MOVs with different Rd, different immediates.
