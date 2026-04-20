@@ -275,18 +275,18 @@ impl GameBoyAdvance {
         //TODO
     }
 
-    #[inline]
+    #[inline(always)]
     fn dma_step(&mut self) {
         self.io_devs.dmac.perform_work(&mut self.sysbus);
     }
 
-    #[inline]
+    #[inline(always)]
     fn cpu_interrupt(&mut self) {
         self.cpu.irq();
         self.io_devs.haltcnt = HaltState::Running; // Clear out from low power mode
     }
 
-    #[inline]
+    #[inline(always)]
     fn cpu_step(&mut self) {
         if self.io_devs.intc.irq_pending() {
             self.cpu_interrupt();
@@ -294,7 +294,7 @@ impl GameBoyAdvance {
         self.cpu.step();
     }
 
-    #[inline]
+    #[inline(always)]
     fn get_bus_master(&mut self) -> Option<BusMaster> {
         match (self.io_devs.dmac.is_active(), self.io_devs.haltcnt) {
             (true, _) => Some(BusMaster::Dma),
@@ -303,7 +303,7 @@ impl GameBoyAdvance {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn single_step(&mut self) {
         // 3 Options:
         // 1. DMA is active - thus CPU is blocked

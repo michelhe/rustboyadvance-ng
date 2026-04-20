@@ -259,6 +259,7 @@ impl DmaController {
         }
     }
 
+    #[inline(always)]
     pub fn is_active(&self) -> bool {
         self.pending_set != 0
     }
