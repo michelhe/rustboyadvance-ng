@@ -326,11 +326,11 @@ impl Gpu {
         // self.mosaic_sfx();
     }
 
-    /// Clears the gpu obj buffer
+    /// Clears the gpu obj buffer. Called once per frame at VBlank; the
+    /// buffer is ~300 KiB so the inner write needs to be hot. `slice::fill`
+    /// lowers to a straightforward broadcast-store loop that LLVM vectorizes.
     pub fn obj_buffer_reset(&mut self) {
-        for x in self.obj_buffer.iter_mut() {
-            *x = Default::default();
-        }
+        self.obj_buffer.fill(Default::default());
     }
 
     pub fn get_frame_buffer(&self) -> &[u32] {
