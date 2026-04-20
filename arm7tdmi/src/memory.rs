@@ -74,6 +74,17 @@ pub trait MemoryInterface {
     fn store_32(&mut self, addr: u32, value: u32, access: MemoryAccess);
 
     fn idle_cycle(&mut self);
+
+    /// Cached interpreter support: check-and-clear a "RAM was written" flag.
+    /// Returning true tells the cached interpreter that its block cache may
+    /// contain now-stale entries and should be flushed. The default impl is
+    /// always-clean, so bus implementations that never emit SMC-capable writes
+    /// don't need to override this.
+    #[cfg(feature = "cached_interp")]
+    #[inline]
+    fn take_block_cache_dirty(&mut self) -> bool {
+        false
+    }
 }
 
 impl<I: MemoryInterface> MemoryInterface for Arm7tdmiCore<I> {
@@ -109,6 +120,12 @@ impl<I: MemoryInterface> MemoryInterface for Arm7tdmiCore<I> {
     #[inline]
     fn idle_cycle(&mut self) {
         self.bus.idle_cycle();
+    }
+
+    #[cfg(feature = "cached_interp")]
+    #[inline]
+    fn take_block_cache_dirty(&mut self) -> bool {
+        self.bus.take_block_cache_dirty()
     }
 }
 
