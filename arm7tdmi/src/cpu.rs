@@ -492,6 +492,13 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
     #[cfg(feature = "cached_interp")]
     #[inline]
     pub fn step_block(&mut self) {
+        // If any RAM write happened since the last block started, blow the
+        // whole cache. Coarse but cheap and correct; a finer per-page scheme
+        // slots in here later without changing any caller.
+        if self.bus.take_block_cache_dirty() {
+            self.block_cache.flush();
+        }
+
         let thumb = matches!(self.cpsr.state(), CpuState::THUMB);
         let key = super::cache::BlockKey::new(self.pc, thumb);
 
