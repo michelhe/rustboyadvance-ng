@@ -643,8 +643,8 @@ impl DynarecCompiler {
         })
     }
 
-    /// Compile a block of Thumb 16 bit opcodes. Currently supports Thumb
-    /// format 3 only:
+    /// Compile a block of Thumb 16 bit opcodes. Supports Thumb format 2
+    /// (ADD/SUB Rd, Rs, Rn/imm3) and format 3 (MOV/CMP/ADD/SUB Rd, #imm8):
     ///
     ///   001_oo_ddd_iiiiiiii
     ///     oo = 00 MOV, 01 CMP, 10 ADD, 11 SUB
@@ -664,10 +664,18 @@ impl DynarecCompiler {
         &mut self,
         opcodes: &[u16],
     ) -> Option<extern "C" fn(*mut u32, *mut u32)> {
-        let decoded: Vec<DecodedThumb3> = opcodes
-            .iter()
-            .map(|&op| Self::decode_thumb_format3(op))
-            .collect::<Option<Vec<_>>>()?;
+        // Each opcode must classify as either format 2 or format 3.
+        enum ThumbItem { F2(DecodedThumb2), F3(DecodedThumb3) }
+        let mut items: Vec<ThumbItem> = Vec::with_capacity(opcodes.len());
+        for &op in opcodes {
+            if let Some(d) = Self::decode_thumb_format2(op) {
+                items.push(ThumbItem::F2(d));
+            } else if let Some(d) = Self::decode_thumb_format3(op) {
+                items.push(ThumbItem::F3(d));
+            } else {
+                return None;
+            }
+        }
 
         let ptr_type = self.module.isa().pointer_type();
         let mut sig = self.module.make_signature();
@@ -698,8 +706,11 @@ impl DynarecCompiler {
                 builder.ins().load(types::I32, MemFlags::trusted(), cpsr_ptr, 0);
             builder.def_var(cpsr_var, cpsr_initial);
 
-            for dec in &decoded {
-                emit_thumb_format3(&mut builder, gpr_ptr, cpsr_var, *dec);
+            for item in &items {
+                match item {
+                    ThumbItem::F2(d) => emit_thumb_format2(&mut builder, gpr_ptr, cpsr_var, *d),
+                    ThumbItem::F3(d) => emit_thumb_format3(&mut builder, gpr_ptr, cpsr_var, *d),
+                }
             }
 
             let cpsr_final = builder.use_var(cpsr_var);
@@ -721,6 +732,34 @@ impl DynarecCompiler {
         let code = self.module.get_finalized_function(func_id);
         Some(unsafe {
             std::mem::transmute::<*const u8, extern "C" fn(*mut u32, *mut u32)>(code)
+        })
+    }
+
+    /// Classify a Thumb 16 bit opcode as format 2 (ADD/SUB Rd, Rs, Rn
+    /// OR ADD/SUB Rd, Rs, #imm3). Encoding:
+    ///   00011_I_Op_nnn_sss_ddd
+    ///     I = 0 register (Rn = nnn), 1 immediate (imm3 = nnn)
+    ///     Op = 0 ADD, 1 SUB
+    ///     Rs = sss, Rd = ddd
+    fn decode_thumb_format2(op: u16) -> Option<DecodedThumb2> {
+        if (op >> 11) & 0b11111 != 0b00011 {
+            return None;
+        }
+        let imm_form = (op >> 10) & 1 != 0;
+        let sub = (op >> 9) & 1 != 0;
+        let rn_or_imm = ((op >> 6) & 0b111) as u32;
+        let rs = ((op >> 3) & 0b111) as i32;
+        let rd = (op & 0b111) as i32;
+        let operand = if imm_form {
+            Thumb2Operand::Imm3(rn_or_imm)
+        } else {
+            Thumb2Operand::Reg(rn_or_imm as i32)
+        };
+        Some(DecodedThumb2 {
+            sub,
+            rd,
+            rs,
+            operand,
         })
     }
 
@@ -990,6 +1029,22 @@ struct DecodedThumb3 {
     imm8: u32,
 }
 
+/// Thumb format 2: ADD/SUB Rd, Rs, (Rn | #imm3). operand picks between
+/// a register source or a 3 bit immediate.
+#[derive(Clone, Copy, Debug)]
+enum Thumb2Operand {
+    Reg(i32),
+    Imm3(u32),
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DecodedThumb2 {
+    sub: bool, // false = ADD, true = SUB
+    rd: i32,
+    rs: i32,
+    operand: Thumb2Operand,
+}
+
 /// A decoded ARM LDR / STR immediate instruction. Pre indexed, no writeback,
 /// any offset sign, either word or byte size. The dynarec emits this by
 /// calling into the bus trampolines at runtime.
@@ -1134,6 +1189,44 @@ fn emit_conditional_instr(
     builder.ins().jump(merge, &[]);
     builder.switch_to_block(merge);
     builder.seal_block(merge);
+}
+
+/// Emit a Thumb format 2 add/sub. Always updates full NZCV (Thumb
+/// ADD/SUB behave like ARM DP with S=1 always in ARMv4 outside IT blocks).
+fn emit_thumb_format2(
+    builder: &mut FunctionBuilder,
+    gpr_ptr: Value,
+    cpsr_var: Variable,
+    dec: DecodedThumb2,
+) {
+    let rs_val = builder.ins().load(
+        types::I32,
+        MemFlags::trusted(),
+        gpr_ptr,
+        Offset32::new(dec.rs * 4),
+    );
+    let rhs = match dec.operand {
+        Thumb2Operand::Imm3(v) => builder.ins().iconst(types::I32, v as i64),
+        Thumb2Operand::Reg(rn) => builder.ins().load(
+            types::I32,
+            MemFlags::trusted(),
+            gpr_ptr,
+            Offset32::new(rn * 4),
+        ),
+    };
+    let (result, dp_equivalent) = if dec.sub {
+        (builder.ins().isub(rs_val, rhs), DpOp::Sub)
+    } else {
+        (builder.ins().iadd(rs_val, rhs), DpOp::Add)
+    };
+    builder.ins().store(
+        MemFlags::trusted(),
+        result,
+        gpr_ptr,
+        Offset32::new(dec.rd * 4),
+    );
+    let new_cpsr = emit_flag_update(builder, cpsr_var, dp_equivalent, rs_val, rhs, result);
+    builder.def_var(cpsr_var, new_cpsr);
 }
 
 /// Emit a Thumb format 3 immediate8 instruction. Always updates NZCV.
@@ -2324,8 +2417,92 @@ mod tests {
     #[test]
     fn compile_thumb_reject_non_format3() {
         let mut compiler = DynarecCompiler::new();
-        // 0x4000 is Thumb format 4 (AND R0, R0) - not format 3.
+        // 0x4000 is Thumb format 4 (AND R0, R0) - not format 2 or 3.
         assert!(compiler.try_compile_thumb_block(&[0x4000]).is_none());
+    }
+
+    // --- Thumb format 2 (ADD/SUB Rd, Rs, Rn|imm3) ---
+
+    #[test]
+    fn decode_thumb_format2_shapes() {
+        // ADD R0, R1, R2  -> 00011_0_0_010_001_000 = 0b0001_1000_1000_1000 = 0x1888
+        let d = DynarecCompiler::decode_thumb_format2(0x1888).expect("ADD reg");
+        assert_eq!(d.sub, false);
+        assert_eq!(d.rd, 0);
+        assert_eq!(d.rs, 1);
+        matches!(d.operand, Thumb2Operand::Reg(2));
+
+        // SUB R3, R4, R5 -> 00011_0_1_101_100_011 = 0b0001_1011_0110_0011 = 0x1B63
+        let d = DynarecCompiler::decode_thumb_format2(0x1B63).expect("SUB reg");
+        assert_eq!(d.sub, true);
+        assert_eq!(d.rd, 3);
+        assert_eq!(d.rs, 4);
+        matches!(d.operand, Thumb2Operand::Reg(5));
+
+        // ADD R0, R1, #7 -> 00011_1_0_111_001_000 = 0b0001_1101_1100_1000 = 0x1DC8
+        let d = DynarecCompiler::decode_thumb_format2(0x1DC8).expect("ADD imm3");
+        assert_eq!(d.sub, false);
+        matches!(d.operand, Thumb2Operand::Imm3(7));
+
+        // SUB R2, R2, #1 -> 00011_1_1_001_010_010 = 0b0001_1111_0101_0010 = 0x1F52
+        let d = DynarecCompiler::decode_thumb_format2(0x1F52).expect("SUB imm3");
+        assert_eq!(d.sub, true);
+        matches!(d.operand, Thumb2Operand::Imm3(1));
+
+        // Not format 2 (top 5 bits != 00011)
+        assert!(DynarecCompiler::decode_thumb_format2(0x2000).is_none()); // format 3
+        assert!(DynarecCompiler::decode_thumb_format2(0x4000).is_none()); // format 4
+    }
+
+    #[test]
+    fn compile_thumb_add_reg() {
+        let mut compiler = DynarecCompiler::new();
+        // ADD R0, R1, R2
+        let add_reg = 0x1888u16;
+        let func = compiler.try_compile_thumb_block(&[add_reg]).unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[1] = 10;
+        gpr[2] = 20;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[0], 30);
+        assert_eq!(cpsr & (1 << 30), 0);  // Z clear
+    }
+
+    #[test]
+    fn compile_thumb_sub_imm3_sets_z_on_zero() {
+        let mut compiler = DynarecCompiler::new();
+        // SUB R0, R0, #3 where R0 = 3
+        let sub = 0x1EC0u16; // 00011_11_011_000_000 = 0b0001_1110_1100_0000 = 0x1EC0
+        let func = compiler.try_compile_thumb_block(&[sub]).unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[0] = 3;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[0], 0);
+        assert_ne!(cpsr & (1 << 30), 0, "Z should be set");
+    }
+
+    #[test]
+    fn compile_thumb_mix_format2_and_3() {
+        let mut compiler = DynarecCompiler::new();
+        // MOV R1, #5; MOV R2, #3; ADD R0, R1, R2; SUB R0, R0, #1
+        let mov_r1_5  = 0x2105u16;                    // fmt 3
+        let mov_r2_3  = 0x2203u16;                    // fmt 3
+        let add_r0_r1_r2 = 0x1888u16;                 // fmt 2 reg
+        let sub_r0_r0_1  = 0x1E40u16;                 // fmt 2 imm3: 00011_11_001_000_000 = 0x1E40
+        let func = compiler
+            .try_compile_thumb_block(&[mov_r1_5, mov_r2_3, add_r0_r1_r2, sub_r0_r0_1])
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[0], 7);
+        assert_eq!(gpr[1], 5);
+        assert_eq!(gpr[2], 3);
     }
 
     #[test]
