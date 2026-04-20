@@ -471,6 +471,172 @@ impl DynarecCompiler {
         })
     }
 
+    /// Compile a block that mixes supported data processing shapes with ARM
+    /// LDR / STR immediate (word size, pre indexed, no writeback). Calls
+    /// into the bus trampolines the compiler was built with.
+    ///
+    /// Signature:
+    ///   extern "C" fn(
+    ///     gpr_ptr: *mut u32,
+    ///     cpsr_ptr: *mut u32,
+    ///     cpu_ctx: *mut u8,   // opaque context passed through to trampolines
+    ///   )
+    ///
+    /// Returns None if the compiler was built without bus trampolines, or if
+    /// any opcode isn't a supported DP or mem shape.
+    pub fn try_compile_mem_block(
+        &mut self,
+        opcodes: &[u32],
+    ) -> Option<extern "C" fn(*mut u32, *mut u32, *mut u8)> {
+        let imports = self.bus_imports?;
+
+        // Classify each instr as DP or Mem. Reject early if anything is
+        // unsupported so we don't half emit.
+        enum BlockItem {
+            Dp(DecodedDp),
+            Mem(DecodedMem),
+        }
+        let mut items = Vec::with_capacity(opcodes.len());
+        for &insn in opcodes {
+            if let Some(m) = Self::decode_mem_immediate(insn) {
+                // PC relative loads aren't emitted yet; reject.
+                if m.rn == 15 || m.rd == 15 {
+                    return None;
+                }
+                items.push(BlockItem::Mem(m));
+            } else if let Some(d) = Self::decode_supported_dp(insn) {
+                if d.rd == 15 || matches!(d.operand2, Operand2::Reg(15)) {
+                    return None;
+                }
+                items.push(BlockItem::Dp(d));
+            } else {
+                return None;
+            }
+        }
+
+        let ptr_type = self.module.isa().pointer_type();
+        let mut sig = self.module.make_signature();
+        sig.params.push(AbiParam::new(ptr_type)); // gpr_ptr
+        sig.params.push(AbiParam::new(ptr_type)); // cpsr_ptr
+        sig.params.push(AbiParam::new(ptr_type)); // cpu_ctx
+
+        self.next_id += 1;
+        let name = format!("dynarec_mem_block_{}", self.next_id);
+        let func_id = self
+            .module
+            .declare_function(&name, Linkage::Local, &sig)
+            .expect("declare_function failed");
+        self.ctx.func.signature = sig;
+
+        {
+            let mut builder =
+                FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+            let entry = builder.create_block();
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            builder.seal_block(entry);
+
+            let gpr_ptr = builder.block_params(entry)[0];
+            let cpsr_ptr = builder.block_params(entry)[1];
+            let cpu_ctx = builder.block_params(entry)[2];
+
+            let cpsr_var = builder.declare_var(types::I32);
+            let cpsr_initial =
+                builder.ins().load(types::I32, MemFlags::trusted(), cpsr_ptr, 0);
+            builder.def_var(cpsr_var, cpsr_initial);
+
+            // Reference imports once in this function.
+            let load_32_ref =
+                self.module.declare_func_in_func(imports.load_32, builder.func);
+            let store_32_ref =
+                self.module.declare_func_in_func(imports.store_32, builder.func);
+
+            for item in &items {
+                match item {
+                    BlockItem::Dp(dec) => {
+                        emit_conditional_instr(&mut builder, gpr_ptr, cpsr_var, *dec);
+                    }
+                    BlockItem::Mem(mem) => {
+                        emit_conditional_mem(
+                            &mut builder,
+                            gpr_ptr,
+                            cpsr_var,
+                            cpu_ctx,
+                            load_32_ref,
+                            store_32_ref,
+                            *mem,
+                        );
+                    }
+                }
+            }
+
+            let cpsr_final = builder.use_var(cpsr_var);
+            builder
+                .ins()
+                .store(MemFlags::trusted(), cpsr_final, cpsr_ptr, 0);
+            builder.ins().return_(&[]);
+            builder.finalize();
+        }
+
+        self.module
+            .define_function(func_id, &mut self.ctx)
+            .expect("define_function failed");
+        self.module.clear_context(&mut self.ctx);
+        self.module
+            .finalize_definitions()
+            .expect("finalize_definitions failed");
+
+        let code = self.module.get_finalized_function(func_id);
+        Some(unsafe {
+            std::mem::transmute::<*const u8, extern "C" fn(*mut u32, *mut u32, *mut u8)>(
+                code,
+            )
+        })
+    }
+
+    /// Classify an ARM LDR / STR immediate (word size, pre indexed, no
+    /// writeback) opcode. Encoding:
+    ///   cond[31:28] | 01[27:26] | 0[25=I] P U B W L [Rn] [Rd] imm12
+    /// Word loads/stores require B=0. Pre indexed P=1, positive offset U=1,
+    /// no writeback W=0. Only positive add offsets supported for now.
+    fn decode_mem_immediate(insn: u32) -> Option<DecodedMem> {
+        let cond_bits = (insn >> 28) & 0xf;
+        if cond_bits == 0xF {
+            return None;
+        }
+        // Bits [27:26] must be 01 for load/store single.
+        if (insn >> 26) & 0b11 != 0b01 {
+            return None;
+        }
+        // I must be 0 (immediate form, not register). Bit 25.
+        if (insn >> 25) & 1 != 0 {
+            return None;
+        }
+        let p = (insn >> 24) & 1 != 0;
+        let u = (insn >> 23) & 1 != 0;
+        let b = (insn >> 22) & 1 != 0;
+        let w = (insn >> 21) & 1 != 0;
+        let l = (insn >> 20) & 1 != 0;
+
+        // Tight subset for the first pass: pre indexed, positive offset,
+        // word size, no writeback.
+        if !p || !u || b || w {
+            return None;
+        }
+
+        let rn = ((insn >> 16) & 0xf) as i32;
+        let rd = ((insn >> 12) & 0xf) as i32;
+        let imm12 = insn & 0xfff;
+
+        Some(DecodedMem {
+            cond: ArmCond::from_bits(cond_bits as u8),
+            load: l,
+            rd,
+            rn,
+            offset: imm12,
+        })
+    }
+
     /// End to end smoke test for the bus trampoline plumbing. Builds a tiny
     /// function with signature
     ///     extern "C" fn(gpr_ptr: *mut u32, cpu_ctx: *mut u8, addr: u32)
@@ -707,6 +873,19 @@ struct DecodedBranch {
     offset24_signed: i32,
 }
 
+/// A decoded ARM single word LDR / STR immediate instruction (pre indexed,
+/// positive offset, no writeback). The dynarec emits this by calling into
+/// the bus trampolines at runtime.
+#[derive(Clone, Copy, Debug)]
+struct DecodedMem {
+    cond: ArmCond,
+    /// true = LDR, false = STR
+    load: bool,
+    rd: i32,
+    rn: i32,
+    offset: u32,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct DecodedDp {
     cond: ArmCond,
@@ -834,6 +1013,75 @@ fn emit_conditional_instr(
     builder.ins().jump(merge, &[]);
     builder.switch_to_block(merge);
     builder.seal_block(merge);
+}
+
+/// Emit a conditionally executed LDR / STR immediate. Loads rn, adds the
+/// constant offset, then either calls the load_32 trampoline and stores the
+/// returned value into gpr[rd], or reads gpr[rd] and calls store_32.
+fn emit_conditional_mem(
+    builder: &mut FunctionBuilder,
+    gpr_ptr: Value,
+    cpsr_var: Variable,
+    cpu_ctx: Value,
+    load_32_ref: cranelift::codegen::ir::FuncRef,
+    store_32_ref: cranelift::codegen::ir::FuncRef,
+    dec: DecodedMem,
+) {
+    if dec.cond == ArmCond::Al {
+        emit_mem_body(builder, gpr_ptr, cpu_ctx, load_32_ref, store_32_ref, dec);
+        return;
+    }
+
+    let cond_result = emit_cond_check(builder, cpsr_var, dec.cond);
+    let body = builder.create_block();
+    let merge = builder.create_block();
+    builder.ins().brif(cond_result, body, &[], merge, &[]);
+    builder.switch_to_block(body);
+    builder.seal_block(body);
+    emit_mem_body(builder, gpr_ptr, cpu_ctx, load_32_ref, store_32_ref, dec);
+    builder.ins().jump(merge, &[]);
+    builder.switch_to_block(merge);
+    builder.seal_block(merge);
+}
+
+fn emit_mem_body(
+    builder: &mut FunctionBuilder,
+    gpr_ptr: Value,
+    cpu_ctx: Value,
+    load_32_ref: cranelift::codegen::ir::FuncRef,
+    store_32_ref: cranelift::codegen::ir::FuncRef,
+    dec: DecodedMem,
+) {
+    // addr = gpr[rn] + imm12
+    let rn_val = builder.ins().load(
+        types::I32,
+        MemFlags::trusted(),
+        gpr_ptr,
+        Offset32::new(dec.rn * 4),
+    );
+    let offset = builder.ins().iconst(types::I32, dec.offset as i64);
+    let addr = builder.ins().iadd(rn_val, offset);
+
+    if dec.load {
+        // gpr[rd] = bus_load_32(cpu_ctx, addr)
+        let call = builder.ins().call(load_32_ref, &[cpu_ctx, addr]);
+        let loaded = builder.inst_results(call)[0];
+        builder.ins().store(
+            MemFlags::trusted(),
+            loaded,
+            gpr_ptr,
+            Offset32::new(dec.rd * 4),
+        );
+    } else {
+        // bus_store_32(cpu_ctx, addr, gpr[rd])
+        let rd_val = builder.ins().load(
+            types::I32,
+            MemFlags::trusted(),
+            gpr_ptr,
+            Offset32::new(dec.rd * 4),
+        );
+        builder.ins().call(store_32_ref, &[cpu_ctx, addr, rd_val]);
+    }
 }
 
 /// Emit Cranelift IR for a single decoded data-processing instruction.
@@ -1657,6 +1905,158 @@ mod tests {
     fn plain_compiler_has_no_bus() {
         let c = DynarecCompiler::new();
         assert!(!c.has_bus());
+    }
+
+    // --- ARM LDR / STR immediate codegen ---
+
+    fn new_bus_and_compiler() -> (TestBus, DynarecCompiler) {
+        (
+            TestBus { bytes: UnsafeCell::new([0u8; 256]) },
+            DynarecCompiler::new_with_bus(test_trampolines()),
+        )
+    }
+
+    #[test]
+    fn decode_ldr_str_immediate_shapes() {
+        // LDR R1, [R0, #4]     ->  cond=AL(E), 01_0_1_1_0_0_1 (=0x59), Rn=0, Rd=1, imm12=4
+        //   E5_90_10_04
+        let ldr = 0xE590_1004u32;
+        let d = DynarecCompiler::decode_mem_immediate(ldr).expect("LDR");
+        assert_eq!(d.cond, ArmCond::Al);
+        assert_eq!(d.load, true);
+        assert_eq!(d.rn, 0);
+        assert_eq!(d.rd, 1);
+        assert_eq!(d.offset, 4);
+
+        // STR R2, [R3, #0x20] -> cond=AL, 01_0_1_1_0_0_0 (=0x58), Rn=3, Rd=2, imm12=0x20
+        //   E5_83_20_20
+        let str_ = 0xE583_2020u32;
+        let d = DynarecCompiler::decode_mem_immediate(str_).expect("STR");
+        assert_eq!(d.load, false);
+        assert_eq!(d.rn, 3);
+        assert_eq!(d.rd, 2);
+        assert_eq!(d.offset, 0x20);
+
+        // LDRB should be rejected (B=1, outside the word subset).
+        let ldrb = 0xE5D0_1004u32;
+        assert!(DynarecCompiler::decode_mem_immediate(ldrb).is_none());
+
+        // LDR with writeback (W=1) rejected.
+        let ldr_wb = 0xE5B0_1004u32;
+        assert!(DynarecCompiler::decode_mem_immediate(ldr_wb).is_none());
+
+        // LDR with negative offset (U=0) rejected.
+        let ldr_neg = 0xE510_1004u32;
+        assert!(DynarecCompiler::decode_mem_immediate(ldr_neg).is_none());
+    }
+
+    #[test]
+    fn compile_ldr_single() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        // Seed memory at offset 0x20.
+        unsafe {
+            let b = &mut *bus.bytes.get();
+            b[0x20] = 0xAA; b[0x21] = 0xBB; b[0x22] = 0xCC; b[0x23] = 0xDD;
+        }
+
+        // LDR R1, [R0, #0x20]
+        let ldr = 0xE590_1020u32;
+        let func = compiler
+            .try_compile_mem_block(&[ldr])
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[0] = 0; // base = 0
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr, &bus as *const TestBus as *mut u8);
+        assert_eq!(gpr[1], 0xDDCC_BBAA);
+    }
+
+    #[test]
+    fn compile_str_then_ldr_roundtrip() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+
+        // MOV R2, #0x55 (... actually use the imm that encodes simply)
+        // We'll set R2 and R3 via gpr initial state and just emit the mem ops.
+        // STR R2, [R0, #0x10];  LDR R3, [R0, #0x10]
+        let str_ = 0xE580_2010u32;
+        let ldr = 0xE590_3010u32;
+        let func = compiler
+            .try_compile_mem_block(&[str_, ldr])
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[0] = 0;
+        gpr[2] = 0x1234_5678;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr, &bus as *const TestBus as *mut u8);
+        assert_eq!(gpr[3], 0x1234_5678, "STR then LDR should round trip");
+        // And the byte layout in the buffer should be little endian.
+        unsafe {
+            let b = &*bus.bytes.get();
+            assert_eq!(b[0x10], 0x78);
+            assert_eq!(b[0x11], 0x56);
+            assert_eq!(b[0x12], 0x34);
+            assert_eq!(b[0x13], 0x12);
+        }
+    }
+
+    #[test]
+    fn compile_mixed_dp_and_mem() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        // MOV R2, #0x42;  STR R2, [R0, #4];  LDR R3, [R0, #4];  ADD R4, R3, #1
+        let mov  = 0xE3A0_2042u32;
+        let str_ = 0xE580_2004u32;
+        let ldr  = 0xE590_3004u32;
+        let add  = 0xE283_4001u32;
+        let func = compiler
+            .try_compile_mem_block(&[mov, str_, ldr, add])
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[0] = 0;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr, &bus as *const TestBus as *mut u8);
+        assert_eq!(gpr[2], 0x42);
+        assert_eq!(gpr[3], 0x42);
+        assert_eq!(gpr[4], 0x43);
+    }
+
+    #[test]
+    fn compile_mem_requires_bus() {
+        let mut compiler = DynarecCompiler::new();  // no bus
+        let ldr = 0xE590_1020u32;
+        assert!(compiler.try_compile_mem_block(&[ldr]).is_none());
+    }
+
+    #[test]
+    fn compile_ldr_conditional_not_taken() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        unsafe {
+            let b = &mut *bus.bytes.get();
+            b[0] = 0x11; b[1] = 0x22; b[2] = 0x33; b[3] = 0x44;
+        }
+        // LDREQ R1, [R0, #0]
+        //   cond=EQ (0x0), rest same as LDR pattern above.
+        //   0_590_1000 = 0x0590_1000
+        let ldreq = 0x0590_1000u32;
+        let func = compiler
+            .try_compile_mem_block(&[ldreq])
+            .expect("compiles");
+
+        // Z=0 -> not taken -> gpr[1] stays 0
+        let mut gpr = [0u32; 15];
+        gpr[1] = 0xDEAD_BEEF;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr, &bus as *const TestBus as *mut u8);
+        assert_eq!(gpr[1], 0xDEAD_BEEF, "EQ not taken, no load");
+
+        // Z=1 -> taken
+        let mut gpr = [0u32; 15];
+        gpr[0] = 0;
+        let mut cpsr: u32 = 1 << 30;
+        func(gpr.as_mut_ptr(), &mut cpsr, &bus as *const TestBus as *mut u8);
+        assert_eq!(gpr[1], 0x4433_2211);
     }
 
     #[test]
