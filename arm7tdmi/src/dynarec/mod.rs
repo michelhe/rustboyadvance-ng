@@ -643,6 +643,106 @@ impl DynarecCompiler {
         })
     }
 
+    /// Compile a block of Thumb 16 bit opcodes. Currently supports Thumb
+    /// format 3 only:
+    ///
+    ///   001_oo_ddd_iiiiiiii
+    ///     oo = 00 MOV, 01 CMP, 10 ADD, 11 SUB
+    ///     Rd = ddd
+    ///     imm8 = low byte
+    ///
+    /// All four mnemonics update CPSR.NZCV unconditionally (Thumb has no
+    /// per instruction cond field outside IT blocks, which ARMv4 doesn't
+    /// have anyway). CMP does not writeback. MOV just sets N and Z; ADD
+    /// and SUB update full NZCV. The compiled fn signature matches the ARM
+    /// DP one so the caller logic is the same:
+    ///
+    ///   extern "C" fn(*mut u32 gpr, *mut u32 cpsr)
+    ///
+    /// Returns None for any unsupported encoding.
+    pub fn try_compile_thumb_block(
+        &mut self,
+        opcodes: &[u16],
+    ) -> Option<extern "C" fn(*mut u32, *mut u32)> {
+        let decoded: Vec<DecodedThumb3> = opcodes
+            .iter()
+            .map(|&op| Self::decode_thumb_format3(op))
+            .collect::<Option<Vec<_>>>()?;
+
+        let ptr_type = self.module.isa().pointer_type();
+        let mut sig = self.module.make_signature();
+        sig.params.push(AbiParam::new(ptr_type));
+        sig.params.push(AbiParam::new(ptr_type));
+
+        self.next_id += 1;
+        let name = format!("dynarec_thumb_block_{}", self.next_id);
+        let func_id = self
+            .module
+            .declare_function(&name, Linkage::Local, &sig)
+            .expect("declare_function failed");
+        self.ctx.func.signature = sig;
+
+        {
+            let mut builder =
+                FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+            let entry = builder.create_block();
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            builder.seal_block(entry);
+
+            let gpr_ptr = builder.block_params(entry)[0];
+            let cpsr_ptr = builder.block_params(entry)[1];
+
+            let cpsr_var = builder.declare_var(types::I32);
+            let cpsr_initial =
+                builder.ins().load(types::I32, MemFlags::trusted(), cpsr_ptr, 0);
+            builder.def_var(cpsr_var, cpsr_initial);
+
+            for dec in &decoded {
+                emit_thumb_format3(&mut builder, gpr_ptr, cpsr_var, *dec);
+            }
+
+            let cpsr_final = builder.use_var(cpsr_var);
+            builder
+                .ins()
+                .store(MemFlags::trusted(), cpsr_final, cpsr_ptr, 0);
+            builder.ins().return_(&[]);
+            builder.finalize();
+        }
+
+        self.module
+            .define_function(func_id, &mut self.ctx)
+            .expect("define_function failed");
+        self.module.clear_context(&mut self.ctx);
+        self.module
+            .finalize_definitions()
+            .expect("finalize_definitions failed");
+
+        let code = self.module.get_finalized_function(func_id);
+        Some(unsafe {
+            std::mem::transmute::<*const u8, extern "C" fn(*mut u32, *mut u32)>(code)
+        })
+    }
+
+    /// Classify a Thumb 16 bit opcode as format 3 (MOV/CMP/ADD/SUB Rd,
+    /// #imm8). Top 3 bits of the opcode must be 0b001.
+    fn decode_thumb_format3(op: u16) -> Option<DecodedThumb3> {
+        if (op >> 13) & 0b111 != 0b001 {
+            return None;
+        }
+        let oo = (op >> 11) & 0b11;
+        let rd = ((op >> 8) & 0b111) as i32;
+        let imm8 = (op & 0xff) as u32;
+        let mnemonic = match oo {
+            0b00 => Thumb3Op::Mov,
+            0b01 => Thumb3Op::Cmp,
+            0b10 => Thumb3Op::Add,
+            0b11 => Thumb3Op::Sub,
+            _ => unreachable!(),
+        };
+        Some(DecodedThumb3 { op: mnemonic, rd, imm8 })
+    }
+
     /// End to end smoke test for the bus trampoline plumbing. Builds a tiny
     /// function with signature
     ///     extern "C" fn(gpr_ptr: *mut u32, cpu_ctx: *mut u8, addr: u32)
@@ -879,6 +979,17 @@ struct DecodedBranch {
     offset24_signed: i32,
 }
 
+/// Thumb format 3 mnemonic: MOV / CMP / ADD / SUB Rd, #imm8.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Thumb3Op { Mov, Cmp, Add, Sub }
+
+#[derive(Clone, Copy, Debug)]
+struct DecodedThumb3 {
+    op: Thumb3Op,
+    rd: i32,
+    imm8: u32,
+}
+
 /// A decoded ARM LDR / STR immediate instruction. Pre indexed, no writeback,
 /// any offset sign, either word or byte size. The dynarec emits this by
 /// calling into the bus trampolines at runtime.
@@ -1023,6 +1134,62 @@ fn emit_conditional_instr(
     builder.ins().jump(merge, &[]);
     builder.switch_to_block(merge);
     builder.seal_block(merge);
+}
+
+/// Emit a Thumb format 3 immediate8 instruction. Always updates NZCV.
+/// MOV: Rd = imm8, sets N=0 (imm8 < 0x80 always clears top bit),
+///      Z=(imm8==0), preserves C and V.
+/// CMP: flags from Rd - imm8. No writeback.
+/// ADD: Rd = Rd + imm8. Full NZCV.
+/// SUB: Rd = Rd - imm8. Full NZCV.
+fn emit_thumb_format3(
+    builder: &mut FunctionBuilder,
+    gpr_ptr: Value,
+    cpsr_var: Variable,
+    dec: DecodedThumb3,
+) {
+    let imm8 = builder.ins().iconst(types::I32, dec.imm8 as i64);
+    let rd_val = builder.ins().load(
+        types::I32,
+        MemFlags::trusted(),
+        gpr_ptr,
+        Offset32::new(dec.rd * 4),
+    );
+
+    let (result, dp_equivalent, writeback) = match dec.op {
+        Thumb3Op::Mov => (imm8, DpOp::Mov, true),
+        Thumb3Op::Cmp => {
+            let r = builder.ins().isub(rd_val, imm8);
+            (r, DpOp::Cmp, false)
+        }
+        Thumb3Op::Add => {
+            let r = builder.ins().iadd(rd_val, imm8);
+            (r, DpOp::Add, true)
+        }
+        Thumb3Op::Sub => {
+            let r = builder.ins().isub(rd_val, imm8);
+            (r, DpOp::Sub, true)
+        }
+    };
+
+    if writeback {
+        builder.ins().store(
+            MemFlags::trusted(),
+            result,
+            gpr_ptr,
+            Offset32::new(dec.rd * 4),
+        );
+    }
+
+    // Flag update mirrors the ARM DP S bit path. For Thumb MOV imm8 the
+    // DpOp::Mov branch of emit_flag_update preserves C and V which matches
+    // ARMv4 Thumb semantics. ADD/SUB/CMP compute the right NZCV in that
+    // same function.
+    // Use the pre writeback rd value as the "rn" operand for flag calc.
+    // For MOV imm8, rn is unused by the flag path (DpOp::Mov only reads
+    // result for N/Z).
+    let new_cpsr = emit_flag_update(builder, cpsr_var, dp_equivalent, rd_val, imm8, result);
+    builder.def_var(cpsr_var, new_cpsr);
 }
 
 /// Emit a conditionally executed LDR / STR immediate. Loads rn, adjusts by
@@ -2059,6 +2226,106 @@ mod tests {
             assert_eq!(b[0x50], 0x78, "low byte only");
             assert_eq!(b[0x51], 0, "neighbour untouched");
         }
+    }
+
+    // --- Thumb format 3 (MOV/CMP/ADD/SUB Rd, #imm8) ---
+
+    #[test]
+    fn decode_thumb_format3_shapes() {
+        // MOV R0, #0x42  -> 0010 0 000 0100 0010 = 0x2042
+        let d = DynarecCompiler::decode_thumb_format3(0x2042).expect("MOV");
+        assert_eq!(d.op, Thumb3Op::Mov);
+        assert_eq!(d.rd, 0);
+        assert_eq!(d.imm8, 0x42);
+
+        // CMP R3, #0x10 -> 0010 1 011 0001 0000 = 0x2B10
+        let d = DynarecCompiler::decode_thumb_format3(0x2B10).expect("CMP");
+        assert_eq!(d.op, Thumb3Op::Cmp);
+        assert_eq!(d.rd, 3);
+        assert_eq!(d.imm8, 0x10);
+
+        // ADD R5, #1 -> 0011 0 101 0000 0001 = 0x3501
+        let d = DynarecCompiler::decode_thumb_format3(0x3501).expect("ADD");
+        assert_eq!(d.op, Thumb3Op::Add);
+        assert_eq!(d.rd, 5);
+
+        // SUB R1, #5 -> 0011 1 001 0000 0101 = 0x3905
+        let d = DynarecCompiler::decode_thumb_format3(0x3905).expect("SUB");
+        assert_eq!(d.op, Thumb3Op::Sub);
+
+        // Not format 3 (top 3 bits != 001)
+        assert!(DynarecCompiler::decode_thumb_format3(0x4000).is_none());
+        assert!(DynarecCompiler::decode_thumb_format3(0xE000).is_none());
+    }
+
+    #[test]
+    fn compile_thumb_mov_imm8() {
+        let mut compiler = DynarecCompiler::new();
+        let mov_r1_42 = 0x2142u16; // MOV R1, #0x42
+        let func = compiler
+            .try_compile_thumb_block(&[mov_r1_42])
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[1], 0x42);
+        // Z flag clear (result nonzero), N clear.
+        assert_eq!(cpsr & (1 << 30), 0);
+        assert_eq!(cpsr & (1 << 31), 0);
+    }
+
+    #[test]
+    fn compile_thumb_mov_imm8_zero_sets_z() {
+        let mut compiler = DynarecCompiler::new();
+        let mov_r2_0 = 0x2200u16;
+        let func = compiler.try_compile_thumb_block(&[mov_r2_0]).unwrap();
+
+        let mut gpr = [0u32; 15];
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[2], 0);
+        assert_ne!(cpsr & (1 << 30), 0, "Z set for 0");
+    }
+
+    #[test]
+    fn compile_thumb_cmp_sets_flags_no_writeback() {
+        let mut compiler = DynarecCompiler::new();
+        // CMP R0, #5
+        let cmp = 0x2805u16;
+        let func = compiler.try_compile_thumb_block(&[cmp]).unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[0] = 5;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[0], 5, "CMP must not writeback");
+        assert_ne!(cpsr & (1 << 30), 0, "Z should be set (5 - 5 == 0)");
+    }
+
+    #[test]
+    fn compile_thumb_add_sub_sequence() {
+        let mut compiler = DynarecCompiler::new();
+        // MOV R0, #10; ADD R0, #5; SUB R0, #3
+        let mov = 0x200Au16;
+        let add = 0x3005u16;
+        let sub = 0x3803u16;
+        let func = compiler.try_compile_thumb_block(&[mov, add, sub]).unwrap();
+
+        let mut gpr = [0u32; 15];
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[0], 12);
+        // Result nonzero, nonnegative -> Z=0, N=0.
+        assert_eq!(cpsr & (1 << 30), 0);
+        assert_eq!(cpsr & (1 << 31), 0);
+    }
+
+    #[test]
+    fn compile_thumb_reject_non_format3() {
+        let mut compiler = DynarecCompiler::new();
+        // 0x4000 is Thumb format 4 (AND R0, R0) - not format 3.
+        assert!(compiler.try_compile_thumb_block(&[0x4000]).is_none());
     }
 
     #[test]
