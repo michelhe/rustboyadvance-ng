@@ -648,6 +648,9 @@ impl DynarecCompiler {
     ///   - format 2: ADD/SUB Rd, Rs, Rn/imm3
     ///   - format 3: MOV/CMP/ADD/SUB Rd, #imm8
     ///   - format 4 logical subset: AND/EOR/ORR/BIC/MVN/TST/CMP/CMN Rd, Rs
+    ///   - format 5 non-branch: ADD/CMP/MOV Hi registers (no flag updates
+    ///     on ADD/MOV, CMP still sets flags). BX deferred to the branch
+    ///     block path.
     ///
     ///   001_oo_ddd_iiiiiiii
     ///     oo = 00 MOV, 01 CMP, 10 ADD, 11 SUB
@@ -673,6 +676,7 @@ impl DynarecCompiler {
             F2(DecodedThumb2),
             F3(DecodedThumb3),
             F4(DecodedThumb4),
+            F5(DecodedThumb5),
         }
         let mut items: Vec<ThumbItem> = Vec::with_capacity(opcodes.len());
         for &op in opcodes {
@@ -687,6 +691,8 @@ impl DynarecCompiler {
                 items.push(ThumbItem::F3(d));
             } else if let Some(d) = Self::decode_thumb_format4_logical(op) {
                 items.push(ThumbItem::F4(d));
+            } else if let Some(d) = Self::decode_thumb_format5_non_branch(op) {
+                items.push(ThumbItem::F5(d));
             } else {
                 return None;
             }
@@ -727,6 +733,7 @@ impl DynarecCompiler {
                     ThumbItem::F2(d) => emit_thumb_format2(&mut builder, gpr_ptr, cpsr_var, *d),
                     ThumbItem::F3(d) => emit_thumb_format3(&mut builder, gpr_ptr, cpsr_var, *d),
                     ThumbItem::F4(d) => emit_thumb_format4_logical(&mut builder, gpr_ptr, cpsr_var, *d),
+                    ThumbItem::F5(d) => emit_thumb_format5_non_branch(&mut builder, gpr_ptr, cpsr_var, *d),
                 }
             }
 
@@ -750,6 +757,49 @@ impl DynarecCompiler {
         Some(unsafe {
             std::mem::transmute::<*const u8, extern "C" fn(*mut u32, *mut u32)>(code)
         })
+    }
+
+    /// Classify a Thumb 16 bit opcode as format 5 (Hi register op),
+    /// non-branch mnemonics only. Encoding:
+    ///   010001_oo_H1_H2_sss_ddd
+    ///     oo = 00 ADD, 01 CMP, 10 MOV, 11 BX
+    ///     H1 selects Rd in upper bank (R8-R15), H2 same for Rs.
+    ///     Full reg index = (H1<<3) | ddd  (and similarly H2|sss).
+    ///
+    /// Rejected here (return None):
+    ///   - oo=11 (BX). Deferred to try_compile_block_with_branch.
+    ///   - Any reg index = 15 (PC). Handling PC as source would need pc
+    ///     folding; as dest it would flush the pipeline. Either way not
+    ///     in the straight line compile path.
+    ///   - oo=00/01/10 with both H1=0 and H2=0. That encoding is
+    ///     UNPREDICTABLE per the ARM spec; bail to the interpreter.
+    fn decode_thumb_format5_non_branch(op: u16) -> Option<DecodedThumb5> {
+        if (op >> 10) & 0b111111 != 0b010001 {
+            return None;
+        }
+        let oo = (op >> 8) & 0b11;
+        if oo == 0b11 {
+            return None; // BX handled elsewhere
+        }
+        let h1 = (op >> 7) & 1;
+        let h2 = (op >> 6) & 1;
+        if h1 == 0 && h2 == 0 {
+            return None; // UNPREDICTABLE per spec
+        }
+        let rd_raw = op & 0b111;
+        let rs_raw = (op >> 3) & 0b111;
+        let rd = (rd_raw | (h1 << 3)) as i32;
+        let rs = (rs_raw | (h2 << 3)) as i32;
+        if rd == 15 || rs == 15 {
+            return None;
+        }
+        let mnemonic = match oo {
+            0b00 => Thumb5Op::Add,
+            0b01 => Thumb5Op::Cmp,
+            0b10 => Thumb5Op::Mov,
+            _ => unreachable!(),
+        };
+        Some(DecodedThumb5 { op: mnemonic, rd, rs })
     }
 
     /// Classify a Thumb 16 bit opcode as format 1 (LSL/LSR/ASR Rd, Rs,
@@ -1130,6 +1180,18 @@ struct DecodedThumb4 {
     rs: i32,
 }
 
+/// Thumb format 5 (Hi register) mnemonic, non-branch. ADD/MOV don't
+/// update flags in this form; CMP does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Thumb5Op { Add, Cmp, Mov }
+
+#[derive(Clone, Copy, Debug)]
+struct DecodedThumb5 {
+    op: Thumb5Op,
+    rd: i32,
+    rs: i32,
+}
+
 /// ARM shifter operation kind. Only the three Thumb format 1 variants
 /// for now. Format 4 reg shifts (LSL/LSR/ASR/ROR with register amount)
 /// would extend this.
@@ -1288,6 +1350,58 @@ fn emit_conditional_instr(
     builder.ins().jump(merge, &[]);
     builder.switch_to_block(merge);
     builder.seal_block(merge);
+}
+
+/// Emit a Thumb format 5 non-branch op (ADD/CMP/MOV with Hi registers).
+/// ADD and MOV do not update flags in this form. CMP updates N/Z/C/V
+/// just like CMP in format 4 / ARM DP S bit.
+fn emit_thumb_format5_non_branch(
+    builder: &mut FunctionBuilder,
+    gpr_ptr: Value,
+    cpsr_var: Variable,
+    dec: DecodedThumb5,
+) {
+    let rd_val = builder.ins().load(
+        types::I32,
+        MemFlags::trusted(),
+        gpr_ptr,
+        Offset32::new(dec.rd * 4),
+    );
+    let rs_val = builder.ins().load(
+        types::I32,
+        MemFlags::trusted(),
+        gpr_ptr,
+        Offset32::new(dec.rs * 4),
+    );
+
+    match dec.op {
+        Thumb5Op::Mov => {
+            // Rd = Rs, no flag update.
+            builder.ins().store(
+                MemFlags::trusted(),
+                rs_val,
+                gpr_ptr,
+                Offset32::new(dec.rd * 4),
+            );
+        }
+        Thumb5Op::Add => {
+            // Rd = Rd + Rs, no flag update.
+            let result = builder.ins().iadd(rd_val, rs_val);
+            builder.ins().store(
+                MemFlags::trusted(),
+                result,
+                gpr_ptr,
+                Offset32::new(dec.rd * 4),
+            );
+        }
+        Thumb5Op::Cmp => {
+            // flags from Rd - Rs, no writeback. Reuse the ARM DP S bit
+            // path via emit_flag_update with DpOp::Cmp.
+            let result = builder.ins().isub(rd_val, rs_val);
+            let new_cpsr = emit_flag_update(builder, cpsr_var, DpOp::Cmp, rd_val, rs_val, result);
+            builder.def_var(cpsr_var, new_cpsr);
+        }
+    }
 }
 
 /// Emit a Thumb format 1 shift by immediate (LSL/LSR/ASR Rd, Rs, #imm5).
@@ -2753,6 +2867,87 @@ mod tests {
         func(gpr.as_mut_ptr(), &mut cpsr);
         assert_eq!(gpr[0], 0);
         assert_ne!(cpsr & (1 << 30), 0, "Z should be set");
+    }
+
+    // --- Thumb format 5 (ADD/CMP/MOV Hi) ---
+
+    #[test]
+    fn decode_thumb_format5_shapes() {
+        // ADD R8, R0, R1  (H1=1, H2=0, Rd=0, Rs=1)
+        //   010001_00_10_001_000 = 0b0100_0100_1000_1000 = 0x4488
+        let d = DynarecCompiler::decode_thumb_format5_non_branch(0x4488).expect("ADD Hi");
+        assert_eq!(d.op, Thumb5Op::Add);
+        assert_eq!(d.rd, 8);
+        assert_eq!(d.rs, 1);
+
+        // MOV R9, R0  (H1=1, H2=0, op=10)
+        //   010001_10_10_000_001 = 0b0100_0110_1000_0001 = 0x4681
+        let d = DynarecCompiler::decode_thumb_format5_non_branch(0x4681).expect("MOV Hi");
+        assert_eq!(d.op, Thumb5Op::Mov);
+        assert_eq!(d.rd, 9);
+        assert_eq!(d.rs, 0);
+
+        // CMP R10, R11  (H1=1, H2=1, op=01)
+        //   010001_01_11_011_010 = 0b0100_0101_1101_1010 = 0x45DA
+        let d = DynarecCompiler::decode_thumb_format5_non_branch(0x45DA).expect("CMP Hi");
+        assert_eq!(d.op, Thumb5Op::Cmp);
+        assert_eq!(d.rd, 10);
+        assert_eq!(d.rs, 11);
+
+        // BX encoding (oo=11) must reject here.
+        //   010001_11_00_001_000 = 0b0100_0111_0000_1000 = 0x4708  BX R1
+        assert!(DynarecCompiler::decode_thumb_format5_non_branch(0x4708).is_none());
+
+        // H1=0, H2=0, op=ADD is UNPREDICTABLE -> reject.
+        //   010001_00_00_001_000 = 0b0100_0100_0000_1000 = 0x4408
+        assert!(DynarecCompiler::decode_thumb_format5_non_branch(0x4408).is_none());
+
+        // PC (R15) source or dest -> reject.
+        //   ADD R15, R0  010001_00_10_000_111 = 0x4487  (Rd=7, H1=1 -> 15)
+        assert!(DynarecCompiler::decode_thumb_format5_non_branch(0x4487).is_none());
+    }
+
+    #[test]
+    fn compile_thumb_format5_add_mov_no_flag_update() {
+        let mut compiler = DynarecCompiler::new();
+        // ADD R8, R1  (H1=1)  -> R8 += R1
+        //   010001_00_10_001_000 = 0x4488
+        // MOV R9, R2  (H1=1)
+        //   010001_10_10_010_001 = 0b0100_0110_1001_0001 = 0x4691
+        let add = 0x4488u16;
+        let mov = 0x4691u16;
+        let func = compiler
+            .try_compile_thumb_block(&[add, mov])
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[1] = 5;
+        gpr[2] = 42;
+        gpr[8] = 10;
+        let mut cpsr: u32 = (1 << 30) | (1 << 31); // Z=1, N=1 pre-set
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[8], 15);
+        assert_eq!(gpr[9], 42);
+        // ADD/MOV in format 5 don't set flags -> N and Z stay where they were.
+        assert_ne!(cpsr & (1 << 30), 0, "Z preserved");
+        assert_ne!(cpsr & (1 << 31), 0, "N preserved");
+    }
+
+    #[test]
+    fn compile_thumb_format5_cmp_sets_flags_no_writeback() {
+        let mut compiler = DynarecCompiler::new();
+        // CMP R10, R11  -> 0x45DA
+        let cmp = 0x45DAu16;
+        let func = compiler.try_compile_thumb_block(&[cmp]).unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[10] = 7;
+        gpr[11] = 7;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr);
+        assert_eq!(gpr[10], 7);
+        assert_eq!(gpr[11], 7);
+        assert_ne!(cpsr & (1 << 30), 0, "Z set on equal");
     }
 
     // --- Thumb format 1 (LSL/LSR/ASR Rd, Rs, #imm5) ---
