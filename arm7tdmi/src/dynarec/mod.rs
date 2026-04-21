@@ -70,6 +70,55 @@ pub mod trampolines {
         cpu.store_8(addr, value as u8, MemoryAccess::NonSeq);
     }
 
+    /// Pay the scheduler cycles for N Thumb instruction fetches at the
+    /// start of a compiled block, and update the CPU's pipeline[0/1] +
+    /// next_fetch_access + pc so post-block state matches what the
+    /// interpreter would have produced after running N iterations of
+    /// replay_cached_block's Thumb loop.
+    ///
+    /// first_fetch_pc is the address of the FIRST fetch the interpreter
+    /// would have done, which equals (block_start_addr + 4) in Thumb
+    /// per the pipeline-head convention. The fetch at iteration k lands
+    /// at first_fetch_pc + 2*(k-1).
+    ///
+    /// Pipeline semantics after this call match iter-N-exit in the
+    /// interpreter:
+    ///   - pipeline[0] = fetched value at iter N-1 (for count >= 2) or
+    ///     the old pipeline[1] (for count == 1)
+    ///   - pipeline[1] = fetched value at iter N
+    ///   - next_fetch_access = Seq
+    ///   - pc = first_fetch_pc + 2*count
+    ///
+    /// The first fetch uses whatever access mode the CPU had on entry
+    /// (typically Seq mid-run, NonSeq right after a pipeline flush);
+    /// subsequent fetches are all Seq, matching the interpreter.
+    pub unsafe extern "C" fn thumb_fetch_n<I: MemoryInterface>(
+        ctx: *mut u8,
+        first_fetch_pc: u32,
+        count: u32,
+    ) {
+        if count == 0 {
+            return;
+        }
+        let cpu = unsafe { &mut *(ctx as *mut Arm7tdmiCore<I>) };
+        let mut access = cpu.next_fetch_access;
+        let mut prev_fetched: u32 = cpu.pipeline[1];
+        let mut last_fetched: u32 = 0;
+        for i in 0..count {
+            let pc = first_fetch_pc.wrapping_add(2 * i);
+            let val = cpu.load_16(pc, access) as u32;
+            access = MemoryAccess::Seq;
+            if i > 0 {
+                prev_fetched = last_fetched;
+            }
+            last_fetched = val;
+        }
+        cpu.pipeline[0] = prev_fetched;
+        cpu.pipeline[1] = last_fetched;
+        cpu.next_fetch_access = MemoryAccess::Seq;
+        cpu.pc = first_fetch_pc.wrapping_add(2 * count);
+    }
+
     /// Fill a `BusTrampolines` with pointers to the generic trampolines
     /// monomorphized for `I`. Call once at compiler construction time and
     /// hand the returned struct to `DynarecCompiler::new_with_bus`.
@@ -3969,6 +4018,85 @@ mod tests {
     }
 
     // --- Generic trampolines for real CPU ---
+
+    #[test]
+    fn thumb_fetch_n_trampoline_matches_interpreter_fetch_sequence() {
+        use crate::SimpleMemory;
+        use crate::cpu::Arm7tdmiCore;
+        use crate::memory::{MemoryAccess, MemoryInterface};
+        use rustboyadvance_utils::Shared;
+
+        // Lay out four Thumb instructions in memory at addresses 0, 2, 4, 6.
+        let mut mem = SimpleMemory::new(256);
+        let program = vec![
+            0x11u8, 0x22,   // word at 0
+            0x33, 0x44,     // word at 2
+            0x55, 0x66,     // word at 4
+            0x77, 0x88,     // word at 6
+        ];
+        mem.load_program(&program);
+        let m = Shared::new(mem);
+        let mut cpu = Arm7tdmiCore::new(m.clone());
+
+        // Simulate block entry state: pipeline[0] already holds the first
+        // instruction (0x2211), pipeline[1] holds the second (0x4433),
+        // pc points at the third instruction (0x0004 = A_addr + 4 for
+        // A_addr = 0).
+        cpu.pipeline[0] = 0x2211;
+        cpu.pipeline[1] = 0x4433;
+        cpu.pc = 4;
+        cpu.next_fetch_access = MemoryAccess::Seq;
+
+        // Run a compiled block of count = 2 instructions.
+        // first_fetch_pc = A_addr + 4 = 4 (same as current pc).
+        unsafe {
+            super::trampolines::thumb_fetch_n::<SimpleMemory>(
+                &mut cpu as *mut _ as *mut u8,
+                4,
+                2,
+            );
+        }
+
+        // After two iterations of the interpreter loop:
+        //   pipeline[0] = fetched at iter 1 = mem[4] = 0x6655
+        //   pipeline[1] = fetched at iter 2 = mem[6] = 0x8877
+        //   pc = first_fetch_pc + 2*count = 4 + 4 = 8
+        assert_eq!(cpu.pipeline[0], 0x6655);
+        assert_eq!(cpu.pipeline[1], 0x8877);
+        assert_eq!(cpu.pc, 8);
+        assert!(matches!(cpu.next_fetch_access, MemoryAccess::Seq));
+    }
+
+    #[test]
+    fn thumb_fetch_n_with_count_one_preserves_old_pipeline_1() {
+        use crate::SimpleMemory;
+        use crate::cpu::Arm7tdmiCore;
+        use crate::memory::{MemoryAccess, MemoryInterface};
+        use rustboyadvance_utils::Shared;
+
+        let mut mem = SimpleMemory::new(256);
+        mem.load_program(&vec![0x11, 0x22, 0x33, 0x44]);
+        let m = Shared::new(mem);
+        let mut cpu = Arm7tdmiCore::new(m.clone());
+
+        cpu.pipeline[0] = 0xAAAA;
+        cpu.pipeline[1] = 0xBBBB;
+        cpu.pc = 0;
+        cpu.next_fetch_access = MemoryAccess::Seq;
+
+        unsafe {
+            super::trampolines::thumb_fetch_n::<SimpleMemory>(
+                &mut cpu as *mut _ as *mut u8,
+                0,
+                1,
+            );
+        }
+
+        // For count=1: pipeline[0] takes the OLD pipeline[1] value,
+        // pipeline[1] takes the one newly fetched word (from pc=0).
+        assert_eq!(cpu.pipeline[0], 0xBBBB, "old pipeline[1] shifted down");
+        assert_eq!(cpu.pipeline[1], 0x2211, "freshly fetched low word at addr 0");
+    }
 
     #[test]
     fn trampolines_for_simple_memory_round_trip() {
