@@ -401,14 +401,18 @@ impl EmulatorContext {
         const TURBO_FRAME_SKIP: u32 = 4;
         let mut turbo_frame_idx: u32 = 0;
 
-        // Per second per phase timing buckets. Tells us where the JNI
-        // emulation loop actually spends time, so we can target the real
-        // bottleneck instead of guessing. Dumped alongside each per second
-        // FPS log line and reset on dump.
+        // Per second per phase timing buckets, gated behind debug_assertions
+        // so release builds don't pay the 5 Instant::now per frame cost.
+        // Release FPS logging remains, just without the phase breakdown.
+        #[cfg(debug_assertions)]
         let mut t_keypad_us: u64 = 0;
+        #[cfg(debug_assertions)]
         let mut t_frame_us: u64 = 0;
+        #[cfg(debug_assertions)]
         let mut t_render_us: u64 = 0;
+        #[cfg(debug_assertions)]
         let mut t_audio_us: u64 = 0;
+        #[cfg(debug_assertions)]
         let mut t_other_us: u64 = 0;
 
         'running: loop {
@@ -430,19 +434,14 @@ impl EmulatorContext {
             let start_time = Instant::now();
             // check key state: live from the Java keypad unless a replay
             // session is active, in which case the replay file overrides.
+            #[cfg(debug_assertions)]
             let t0 = Instant::now();
             let live_state = self.keypad.get_key_state(env);
             let gba_cycles = self.gba.cycles() as u64;
             let effective_state = {
                 let mut replayer = self.replayer.lock().unwrap();
                 if let Some(r) = replayer.as_mut() {
-                    let s = r.apply_due(gba_cycles);
-                    if r.exhausted() && gba_cycles >= r.events.last().map(|e| e.0).unwrap_or(0) {
-                        // Playback done; leave the replayer in place for
-                        // idempotent stop, but the emu can keep running
-                        // with the last-held state.
-                    }
-                    s
+                    r.apply_due(gba_cycles)
                 } else {
                     live_state
                 }
@@ -452,10 +451,12 @@ impl EmulatorContext {
             if let Some(rec) = self.recorder.lock().unwrap().as_mut() {
                 let _ = rec.observe(gba_cycles, effective_state);
             }
+            #[cfg(debug_assertions)]
             let t1 = Instant::now();
 
             // run frame
             self.gba.frame();
+            #[cfg(debug_assertions)]
             let t2 = Instant::now();
 
             // render video (skip N-1 of every N frames in turbo)
@@ -468,33 +469,41 @@ impl EmulatorContext {
             if should_render {
                 self.render_video(env);
             }
+            #[cfg(debug_assertions)]
             let t3 = Instant::now();
 
             // request audio worker to render the audio now
             audio_thread_tx
                 .send(AudioThreadCommand::RenderAudio)
                 .unwrap();
+            #[cfg(debug_assertions)]
             let t4 = Instant::now();
 
-            t_keypad_us += (t1 - t0).as_micros() as u64;
-            t_frame_us  += (t2 - t1).as_micros() as u64;
-            t_render_us += (t3 - t2).as_micros() as u64;
-            t_audio_us  += (t4 - t3).as_micros() as u64;
-            t_other_us  += (t0 - start_time).as_micros() as u64; // typically tiny
+            #[cfg(debug_assertions)]
+            {
+                t_keypad_us += (t1 - t0).as_micros() as u64;
+                t_frame_us  += (t2 - t1).as_micros() as u64;
+                t_render_us += (t3 - t2).as_micros() as u64;
+                t_audio_us  += (t4 - t3).as_micros() as u64;
+                t_other_us  += (t0 - start_time).as_micros() as u64;
+            }
 
-            // Emit one log line per second with the measured FPS + phase
-            // timings so we can see where the per frame time actually goes.
             if let Some(fps) = fps_counter.tick() {
-                info!(
-                    target: "RustdroidFps",
-                    "FPS {} keypad={}us frame={}us render={}us audio={}us other={}us",
-                    fps, t_keypad_us, t_frame_us, t_render_us, t_audio_us, t_other_us
-                );
-                t_keypad_us = 0;
-                t_frame_us = 0;
-                t_render_us = 0;
-                t_audio_us = 0;
-                t_other_us = 0;
+                #[cfg(debug_assertions)]
+                {
+                    info!(
+                        target: "RustdroidFps",
+                        "FPS {} keypad={}us frame={}us render={}us audio={}us other={}us",
+                        fps, t_keypad_us, t_frame_us, t_render_us, t_audio_us, t_other_us
+                    );
+                    t_keypad_us = 0;
+                    t_frame_us = 0;
+                    t_render_us = 0;
+                    t_audio_us = 0;
+                    t_other_us = 0;
+                }
+                #[cfg(not(debug_assertions))]
+                info!(target: "RustdroidFps", "FPS {}", fps);
             }
 
             if vsync {
