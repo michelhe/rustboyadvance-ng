@@ -283,10 +283,18 @@ impl EmulatorContext {
 
         let mut fps_counter = FpsCounter::default();
 
+        // Turbo mode frame skip: in turbo, render only every Nth emulated
+        // frame back to Java. The rest skip the renderFrame JNI round trip
+        // entirely. The user still sees smooth (fast) motion and the emu
+        // runs a lot faster because the 240 * 160 u32 IntArray copy
+        // through JNI is a big chunk of per frame cost.
+        const TURBO_FRAME_SKIP: u32 = 4;
+        let mut turbo_frame_idx: u32 = 0;
+
         'running: loop {
             let emustate = *self.emustate.lock().unwrap();
 
-            let vsync = match emustate {
+            let (vsync, turbo) = match emustate {
                 EmulationState::Initial => unsafe { std::hint::unreachable_unchecked() },
                 EmulationState::Stopped => unsafe { std::hint::unreachable_unchecked() },
                 EmulationState::Pausing => {
@@ -296,7 +304,7 @@ impl EmulatorContext {
                 }
                 EmulationState::Paused => continue,
                 EmulationState::Stopping => break 'running,
-                EmulationState::Running(turbo) => !turbo,
+                EmulationState::Running(turbo) => (!turbo, turbo),
             };
 
             let start_time = Instant::now();
@@ -306,8 +314,16 @@ impl EmulatorContext {
             // run frame
             self.gba.frame();
 
-            // render video
-            self.render_video(env);
+            // render video (skip N-1 of every N frames in turbo)
+            let should_render = if turbo {
+                turbo_frame_idx = turbo_frame_idx.wrapping_add(1);
+                turbo_frame_idx.is_multiple_of(TURBO_FRAME_SKIP)
+            } else {
+                true
+            };
+            if should_render {
+                self.render_video(env);
+            }
 
             // request audio worker to render the audio now
             audio_thread_tx
