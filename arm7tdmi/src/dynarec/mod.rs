@@ -43,6 +43,20 @@ pub type BusLoad32Fn = unsafe extern "C" fn(*mut u8, u32) -> u32;
 pub type BusStore32Fn = unsafe extern "C" fn(*mut u8, u32, u32);
 pub type BusLoad8Fn = unsafe extern "C" fn(*mut u8, u32) -> u32;
 pub type BusStore8Fn = unsafe extern "C" fn(*mut u8, u32, u32);
+/// Like load_32/load_8 but additionally pays the +1I "internal" cycle
+/// that scalar LDR / LDRB / LDRH all charge after the data fetch.
+/// Used by codegen for *data* loads (LDR family) so cycle accounting
+/// stays parity-correct with the interpreter; instruction fetches
+/// (`thumb_fetch_n`) deliberately don't pay +1I.
+pub type BusLoadIdle32Fn = unsafe extern "C" fn(*mut u8, u32) -> u32;
+pub type BusLoadIdle8Fn = unsafe extern "C" fn(*mut u8, u32) -> u32;
+/// Forces `cpu.next_fetch_access = NonSeq`. Called from compiled blocks
+/// right before return when the LAST emitted instruction is a STORE
+/// (or any other shape that would have returned `CpuAction::AdvancePC(NonSeq)`
+/// in the interpreter), so the very next post-block fetch in the cached
+/// interpreter loop pays NonSeq cycles like it would have under scalar
+/// dispatch.
+pub type BusSetNextFetchNonSeqFn = unsafe extern "C" fn(*mut u8);
 /// Pay scheduler cycles for N Thumb fetches and update CPU pipeline/pc.
 /// Called once at each compiled Thumb block's entry so cycle accounting
 /// stays parity-correct with the interpreter.
@@ -72,6 +86,38 @@ pub mod trampolines {
     pub unsafe extern "C" fn store_8<I: MemoryInterface>(ctx: *mut u8, addr: u32, value: u32) {
         let cpu = unsafe { &mut *(ctx as *mut Arm7tdmiCore<I>) };
         cpu.store_8(addr, value as u8, MemoryAccess::NonSeq);
+    }
+
+    /// LDR data-load trampoline: load_32 + the "+1I" idle cycle every
+    /// scalar LDR / LDRH / LDRB charges after the data access.
+    pub unsafe extern "C" fn load_with_idle_32<I: MemoryInterface>(
+        ctx: *mut u8,
+        addr: u32,
+    ) -> u32 {
+        let cpu = unsafe { &mut *(ctx as *mut Arm7tdmiCore<I>) };
+        let v = cpu.load_32(addr, MemoryAccess::NonSeq);
+        cpu.idle_cycle();
+        v
+    }
+    pub unsafe extern "C" fn load_with_idle_8<I: MemoryInterface>(
+        ctx: *mut u8,
+        addr: u32,
+    ) -> u32 {
+        let cpu = unsafe { &mut *(ctx as *mut Arm7tdmiCore<I>) };
+        let v = cpu.load_8(addr, MemoryAccess::NonSeq) as u32;
+        cpu.idle_cycle();
+        v
+    }
+
+    /// Force the CPU's `next_fetch_access` to NonSeq. Called from
+    /// compiled blocks just before return when the last emitted
+    /// instruction is a STORE — scalar dispatch would have set
+    /// next_fetch_access via `CpuAction::AdvancePC(NonSeq)`, this
+    /// trampoline mirrors that for the cached-interp loop's fetch
+    /// after the compiled block returns.
+    pub unsafe extern "C" fn set_next_fetch_nonseq<I: MemoryInterface>(ctx: *mut u8) {
+        let cpu = unsafe { &mut *(ctx as *mut Arm7tdmiCore<I>) };
+        cpu.next_fetch_access = MemoryAccess::NonSeq;
     }
 
     /// Pay the scheduler cycles for N Thumb instruction fetches at the
@@ -132,6 +178,9 @@ pub mod trampolines {
             store_32: store_32::<I>,
             load_8: load_8::<I>,
             store_8: store_8::<I>,
+            load_with_idle_32: load_with_idle_32::<I>,
+            load_with_idle_8: load_with_idle_8::<I>,
+            set_next_fetch_nonseq: set_next_fetch_nonseq::<I>,
             thumb_fetch_n: thumb_fetch_n::<I>,
         }
     }
@@ -146,6 +195,11 @@ pub struct BusTrampolines {
     pub store_32: BusStore32Fn,
     pub load_8: BusLoad8Fn,
     pub store_8: BusStore8Fn,
+    /// Data-load with implicit +1I idle cycle (LDR/LDRH/LDRB family).
+    pub load_with_idle_32: BusLoadIdle32Fn,
+    pub load_with_idle_8: BusLoadIdle8Fn,
+    /// Force `cpu.next_fetch_access = NonSeq` for post-block-store fixup.
+    pub set_next_fetch_nonseq: BusSetNextFetchNonSeqFn,
     pub thumb_fetch_n: BusThumbFetchNFn,
 }
 
@@ -173,6 +227,9 @@ struct BusImports {
     store_32: FuncId,
     load_8: FuncId,
     store_8: FuncId,
+    load_with_idle_32: FuncId,
+    load_with_idle_8: FuncId,
+    set_next_fetch_nonseq: FuncId,
     thumb_fetch_n: FuncId,
 }
 
@@ -203,11 +260,14 @@ impl DynarecCompiler {
         // declare_function(Linkage::Import, ...) can resolve to the real
         // rust side fn pointers at link time.
         if let Some(b) = bus {
-            jit_builder.symbol("rba_bus_load_32",       b.load_32       as *const u8);
-            jit_builder.symbol("rba_bus_store_32",      b.store_32      as *const u8);
-            jit_builder.symbol("rba_bus_load_8",        b.load_8        as *const u8);
-            jit_builder.symbol("rba_bus_store_8",       b.store_8       as *const u8);
-            jit_builder.symbol("rba_thumb_fetch_n",     b.thumb_fetch_n as *const u8);
+            jit_builder.symbol("rba_bus_load_32",            b.load_32              as *const u8);
+            jit_builder.symbol("rba_bus_store_32",           b.store_32             as *const u8);
+            jit_builder.symbol("rba_bus_load_8",             b.load_8               as *const u8);
+            jit_builder.symbol("rba_bus_store_8",            b.store_8              as *const u8);
+            jit_builder.symbol("rba_bus_load_with_idle_32",  b.load_with_idle_32    as *const u8);
+            jit_builder.symbol("rba_bus_load_with_idle_8",   b.load_with_idle_8     as *const u8);
+            jit_builder.symbol("rba_set_next_fetch_nonseq",  b.set_next_fetch_nonseq as *const u8);
+            jit_builder.symbol("rba_thumb_fetch_n",          b.thumb_fetch_n        as *const u8);
         }
 
         let mut module = JITModule::new(jit_builder);
@@ -251,6 +311,31 @@ impl DynarecCompiler {
                 .declare_function("rba_bus_store_8", Linkage::Import, &sig_store_8)
                 .expect("declare store_8 failed");
 
+            // load_with_idle_32: same signature as load_32; charges +1I post-load.
+            let mut sig_load_idle_32 = module.make_signature();
+            sig_load_idle_32.params.push(AbiParam::new(ptr_ty));
+            sig_load_idle_32.params.push(AbiParam::new(types::I32));
+            sig_load_idle_32.returns.push(AbiParam::new(types::I32));
+            let load_with_idle_32 = module
+                .declare_function("rba_bus_load_with_idle_32", Linkage::Import, &sig_load_idle_32)
+                .expect("declare load_with_idle_32 failed");
+
+            // load_with_idle_8: same signature as load_8; charges +1I post-load.
+            let mut sig_load_idle_8 = module.make_signature();
+            sig_load_idle_8.params.push(AbiParam::new(ptr_ty));
+            sig_load_idle_8.params.push(AbiParam::new(types::I32));
+            sig_load_idle_8.returns.push(AbiParam::new(types::I32));
+            let load_with_idle_8 = module
+                .declare_function("rba_bus_load_with_idle_8", Linkage::Import, &sig_load_idle_8)
+                .expect("declare load_with_idle_8 failed");
+
+            // set_next_fetch_nonseq: extern "C" fn(*mut u8)
+            let mut sig_nonseq = module.make_signature();
+            sig_nonseq.params.push(AbiParam::new(ptr_ty));
+            let set_next_fetch_nonseq = module
+                .declare_function("rba_set_next_fetch_nonseq", Linkage::Import, &sig_nonseq)
+                .expect("declare set_next_fetch_nonseq failed");
+
             // thumb_fetch_n: extern "C" fn(*mut u8, u32, u32)
             let mut sig_fetch_n = module.make_signature();
             sig_fetch_n.params.push(AbiParam::new(ptr_ty));
@@ -260,7 +345,16 @@ impl DynarecCompiler {
                 .declare_function("rba_thumb_fetch_n", Linkage::Import, &sig_fetch_n)
                 .expect("declare thumb_fetch_n failed");
 
-            BusImports { load_32, store_32, load_8, store_8, thumb_fetch_n }
+            BusImports {
+                load_32,
+                store_32,
+                load_8,
+                store_8,
+                load_with_idle_32,
+                load_with_idle_8,
+                set_next_fetch_nonseq,
+                thumb_fetch_n,
+            }
         });
 
         DynarecCompiler {
@@ -651,12 +745,12 @@ impl DynarecCompiler {
             builder.def_var(cpsr_var, cpsr_initial);
 
             // Reference imports once in this function.
-            let load_32_ref =
-                self.module.declare_func_in_func(imports.load_32, builder.func);
+            let load_idle_32_ref =
+                self.module.declare_func_in_func(imports.load_with_idle_32, builder.func);
             let store_32_ref =
                 self.module.declare_func_in_func(imports.store_32, builder.func);
-            let load_8_ref =
-                self.module.declare_func_in_func(imports.load_8, builder.func);
+            let load_idle_8_ref =
+                self.module.declare_func_in_func(imports.load_with_idle_8, builder.func);
             let store_8_ref =
                 self.module.declare_func_in_func(imports.store_8, builder.func);
 
@@ -671,9 +765,9 @@ impl DynarecCompiler {
                             gpr_ptr,
                             cpsr_var,
                             cpu_ctx,
-                            load_32_ref,
+                            load_idle_32_ref,
                             store_32_ref,
-                            load_8_ref,
+                            load_idle_8_ref,
                             store_8_ref,
                             *mem,
                         );
@@ -938,12 +1032,19 @@ impl DynarecCompiler {
                 builder.ins().load(types::I32, MemFlags::trusted(), cpsr_ptr, 0);
             builder.def_var(cpsr_var, cpsr_initial);
 
+            // load_32: plain no-idle variant used by PUSH/POP codegen
+            // (format 14) where scalar charges +1I once at the end of
+            // the whole multi-load, not per-register.
             let load_32_ref =
                 self.module.declare_func_in_func(imports.load_32, builder.func);
+            // load_with_idle_*: used by single-LDR codegen (formats 9, 11,
+            // and the ARM mem path) where scalar charges +1I per LDR.
+            let load_idle_32_ref =
+                self.module.declare_func_in_func(imports.load_with_idle_32, builder.func);
+            let load_idle_8_ref =
+                self.module.declare_func_in_func(imports.load_with_idle_8, builder.func);
             let store_32_ref =
                 self.module.declare_func_in_func(imports.store_32, builder.func);
-            let load_8_ref =
-                self.module.declare_func_in_func(imports.load_8, builder.func);
             let store_8_ref =
                 self.module.declare_func_in_func(imports.store_8, builder.func);
 
@@ -956,12 +1057,12 @@ impl DynarecCompiler {
                     MemItem::F5(d) => emit_thumb_format5_non_branch(&mut builder, gpr_ptr, cpsr_var, *d),
                     MemItem::F9(d) => emit_thumb_format9(
                         &mut builder, gpr_ptr, cpu_ctx,
-                        load_32_ref, store_32_ref, load_8_ref, store_8_ref,
+                        load_idle_32_ref, store_32_ref, load_idle_8_ref, store_8_ref,
                         *d,
                     ),
                     MemItem::F11(d) => emit_thumb_format11(
                         &mut builder, gpr_ptr, cpu_ctx,
-                        load_32_ref, store_32_ref,
+                        load_idle_32_ref, store_32_ref,
                         *d,
                     ),
                     MemItem::F14(d) => emit_thumb_format14(
@@ -970,6 +1071,28 @@ impl DynarecCompiler {
                         *d,
                     ),
                 }
+            }
+            // Track if the last emitted instruction is a STORE (any of
+            // the F9/F11/F14 store shapes) or a halfword load with
+            // NonSeq follow up. Scalar STR returns
+            // `CpuAction::AdvancePC(NonSeq)` which sets next_fetch_access
+            // to NonSeq for the post-block fetch in the cached-interp
+            // loop; mirror that here.
+            let last_is_nonseq_advance = matches!(
+                items.last(),
+                Some(MemItem::F9(d)) if !d.load
+            ) || matches!(
+                items.last(),
+                Some(MemItem::F11(d)) if !d.load
+            ) || matches!(
+                items.last(),
+                Some(MemItem::F14(d)) if d.push
+            );
+            if last_is_nonseq_advance {
+                let nonseq_ref = self
+                    .module
+                    .declare_func_in_func(imports.set_next_fetch_nonseq, builder.func);
+                builder.ins().call(nonseq_ref, &[cpu_ctx]);
             }
 
             let cpsr_final = builder.use_var(cpsr_var);
@@ -1393,12 +1516,16 @@ impl DynarecCompiler {
                 builder.ins().load(types::I32, MemFlags::trusted(), cpsr_ptr, 0);
             builder.def_var(cpsr_var, cpsr_initial);
 
+            // load_32: plain no-idle variant for PUSH/POP (format 14).
             let load_32_ref =
                 self.module.declare_func_in_func(imports.load_32, builder.func);
+            // load_with_idle_*: per-LDR +1I variants for formats 9/11.
+            let load_idle_32_ref =
+                self.module.declare_func_in_func(imports.load_with_idle_32, builder.func);
+            let load_idle_8_ref =
+                self.module.declare_func_in_func(imports.load_with_idle_8, builder.func);
             let store_32_ref =
                 self.module.declare_func_in_func(imports.store_32, builder.func);
-            let load_8_ref =
-                self.module.declare_func_in_func(imports.load_8, builder.func);
             let store_8_ref =
                 self.module.declare_func_in_func(imports.store_8, builder.func);
             let fetch_n_ref =
@@ -1426,11 +1553,11 @@ impl DynarecCompiler {
                     Body::F5(d) => emit_thumb_format5_non_branch(builder, gpr_ptr, cpsr_var, *d),
                     Body::F9(d) => emit_thumb_format9(
                         builder, gpr_ptr, cpu_ctx,
-                        load_32_ref, store_32_ref, load_8_ref, store_8_ref, *d,
+                        load_idle_32_ref, store_32_ref, load_idle_8_ref, store_8_ref, *d,
                     ),
                     Body::F11(d) => emit_thumb_format11(
                         builder, gpr_ptr, cpu_ctx,
-                        load_32_ref, store_32_ref, *d,
+                        load_idle_32_ref, store_32_ref, *d,
                     ),
                     Body::F14(d) => emit_thumb_format14(
                         builder, gpr_ptr, cpu_ctx,
@@ -2454,11 +2581,16 @@ fn emit_thumb_format14(
 
 /// Emit a Thumb format 11 SP relative LDR/STR (word). Base register is
 /// hardcoded to R13 (SP) in the encoding.
+///
+/// LDR uses the *_with_idle trampoline to charge the +1I scalar adds
+/// after every LDR. STR uses the plain store_32; scalar STR doesn't
+/// add an internal cycle (its NonSeq next-fetch effect is handled by
+/// the per-block last-instruction fixup).
 fn emit_thumb_format11(
     builder: &mut FunctionBuilder,
     gpr_ptr: Value,
     cpu_ctx: Value,
-    load_32_ref: cranelift::codegen::ir::FuncRef,
+    load_idle_32_ref: cranelift::codegen::ir::FuncRef,
     store_32_ref: cranelift::codegen::ir::FuncRef,
     dec: DecodedThumb11,
 ) {
@@ -2471,7 +2603,7 @@ fn emit_thumb_format11(
     let offset = builder.ins().iconst(types::I32, dec.offset as i64);
     let addr = builder.ins().iadd(sp, offset);
     if dec.load {
-        let call = builder.ins().call(load_32_ref, &[cpu_ctx, addr]);
+        let call = builder.ins().call(load_idle_32_ref, &[cpu_ctx, addr]);
         let v = builder.inst_results(call)[0];
         builder.ins().store(MemFlags::trusted(), v, gpr_ptr, Offset32::new(dec.rd * 4));
     } else {
@@ -2483,15 +2615,17 @@ fn emit_thumb_format11(
 }
 
 /// Emit a Thumb format 9 LDR/STR immediate offset. addr = gpr[rs] + offset.
-/// Word form uses load_32/store_32 trampolines; byte form uses load_8/store_8
-/// with zero extension (LDRB) or low-byte truncation (STRB).
+/// Word form uses load_with_idle_32/store_32 trampolines; byte form uses
+/// load_with_idle_8/store_8 with zero extension (LDRB) or low-byte
+/// truncation (STRB). The "_with_idle" load trampolines charge +1I per
+/// LDR/LDRB to match the scalar `idle_cycle()` after each data fetch.
 fn emit_thumb_format9(
     builder: &mut FunctionBuilder,
     gpr_ptr: Value,
     cpu_ctx: Value,
-    load_32_ref: cranelift::codegen::ir::FuncRef,
+    load_idle_32_ref: cranelift::codegen::ir::FuncRef,
     store_32_ref: cranelift::codegen::ir::FuncRef,
-    load_8_ref: cranelift::codegen::ir::FuncRef,
+    load_idle_8_ref: cranelift::codegen::ir::FuncRef,
     store_8_ref: cranelift::codegen::ir::FuncRef,
     dec: DecodedThumb9,
 ) {
@@ -2506,12 +2640,12 @@ fn emit_thumb_format9(
 
     match (dec.load, dec.byte) {
         (true, false) => {
-            let call = builder.ins().call(load_32_ref, &[cpu_ctx, addr]);
+            let call = builder.ins().call(load_idle_32_ref, &[cpu_ctx, addr]);
             let v = builder.inst_results(call)[0];
             builder.ins().store(MemFlags::trusted(), v, gpr_ptr, Offset32::new(dec.rd * 4));
         }
         (true, true) => {
-            let call = builder.ins().call(load_8_ref, &[cpu_ctx, addr]);
+            let call = builder.ins().call(load_idle_8_ref, &[cpu_ctx, addr]);
             let v = builder.inst_results(call)[0];
             let zero_ext = builder.ins().band_imm(v, 0xff);
             builder.ins().store(MemFlags::trusted(), zero_ext, gpr_ptr, Offset32::new(dec.rd * 4));
@@ -2857,16 +2991,16 @@ fn emit_conditional_mem(
     gpr_ptr: Value,
     cpsr_var: Variable,
     cpu_ctx: Value,
-    load_32_ref: cranelift::codegen::ir::FuncRef,
+    load_idle_32_ref: cranelift::codegen::ir::FuncRef,
     store_32_ref: cranelift::codegen::ir::FuncRef,
-    load_8_ref: cranelift::codegen::ir::FuncRef,
+    load_idle_8_ref: cranelift::codegen::ir::FuncRef,
     store_8_ref: cranelift::codegen::ir::FuncRef,
     dec: DecodedMem,
 ) {
     if dec.cond == ArmCond::Al {
         emit_mem_body(
             builder, gpr_ptr, cpu_ctx,
-            load_32_ref, store_32_ref, load_8_ref, store_8_ref,
+            load_idle_32_ref, store_32_ref, load_idle_8_ref, store_8_ref,
             dec,
         );
         return;
@@ -2880,7 +3014,7 @@ fn emit_conditional_mem(
     builder.seal_block(body);
     emit_mem_body(
         builder, gpr_ptr, cpu_ctx,
-        load_32_ref, store_32_ref, load_8_ref, store_8_ref,
+        load_idle_32_ref, store_32_ref, load_idle_8_ref, store_8_ref,
         dec,
     );
     builder.ins().jump(merge, &[]);
@@ -2888,13 +3022,16 @@ fn emit_conditional_mem(
     builder.seal_block(merge);
 }
 
+/// Emit the address-compute + load/store sequence for an ARM single-data
+/// transfer (LDR/STR/LDRB/STRB). LDR uses the *_with_idle trampoline so
+/// the +1I idle cycle scalar adds is paid; STR uses the plain store_*.
 fn emit_mem_body(
     builder: &mut FunctionBuilder,
     gpr_ptr: Value,
     cpu_ctx: Value,
-    load_32_ref: cranelift::codegen::ir::FuncRef,
+    load_idle_32_ref: cranelift::codegen::ir::FuncRef,
     store_32_ref: cranelift::codegen::ir::FuncRef,
-    load_8_ref: cranelift::codegen::ir::FuncRef,
+    load_idle_8_ref: cranelift::codegen::ir::FuncRef,
     store_8_ref: cranelift::codegen::ir::FuncRef,
     dec: DecodedMem,
 ) {
@@ -2914,7 +3051,7 @@ fn emit_mem_body(
 
     match (dec.load, dec.byte) {
         (true, false) => {
-            let call = builder.ins().call(load_32_ref, &[cpu_ctx, addr]);
+            let call = builder.ins().call(load_idle_32_ref, &[cpu_ctx, addr]);
             let loaded = builder.inst_results(call)[0];
             builder.ins().store(
                 MemFlags::trusted(),
@@ -2927,7 +3064,7 @@ fn emit_mem_body(
             // LDRB returns u32 zero extended via the u32 sig on the
             // trampoline. Mask to 8 bits on the trampoline side; here we
             // just store what comes back.
-            let call = builder.ins().call(load_8_ref, &[cpu_ctx, addr]);
+            let call = builder.ins().call(load_idle_8_ref, &[cpu_ctx, addr]);
             let loaded = builder.inst_results(call)[0];
             let byte_only = builder.ins().band_imm(loaded, 0xff);
             builder.ins().store(
@@ -3752,6 +3889,19 @@ mod tests {
     /// be a real Arm7tdmiCore; these unit tests use a TestBus so the
     /// stub intentionally does nothing.
     unsafe extern "C" fn test_thumb_fetch_n(_ctx: *mut u8, _pc: u32, _count: u32) {}
+    /// Noop stand-in for the post-block NonSeq fixup. The real integration
+    /// updates `cpu.next_fetch_access`; these unit tests don't have a real
+    /// Arm7tdmiCore so the stub is empty.
+    unsafe extern "C" fn test_set_next_fetch_nonseq(_ctx: *mut u8) {}
+    /// Stand-ins for the +1I LDR variants. These tests check codegen
+    /// shape, not cycle accounting, so they just forward to the plain
+    /// no-idle variants.
+    unsafe extern "C" fn test_load_with_idle_32(ctx: *mut u8, addr: u32) -> u32 {
+        unsafe { test_load_32(ctx, addr) }
+    }
+    unsafe extern "C" fn test_load_with_idle_8(ctx: *mut u8, addr: u32) -> u32 {
+        unsafe { test_load_8(ctx, addr) }
+    }
 
     fn test_trampolines() -> BusTrampolines {
         BusTrampolines {
@@ -3759,6 +3909,9 @@ mod tests {
             store_32: test_store_32,
             load_8: test_load_8,
             store_8: test_store_8,
+            load_with_idle_32: test_load_with_idle_32,
+            load_with_idle_8: test_load_with_idle_8,
+            set_next_fetch_nonseq: test_set_next_fetch_nonseq,
             thumb_fetch_n: test_thumb_fetch_n,
         }
     }
@@ -4167,6 +4320,105 @@ mod tests {
         let cpu_ctx = &mut cpu as *mut Arm7tdmiCore<SimpleMemory> as *mut u8;
         func(gpr.as_mut_ptr(), &mut cpsr, cpu_ctx);
         assert_eq!(gpr[1], 0x4433_2211);
+    }
+
+    /// MemoryInterface stub that counts every cycle-bearing event the
+    /// dynarec trampolines could trigger: `load_*`, `store_*`, and
+    /// `idle_cycle`. Lets us assert the +1I behavior of the *_with_idle
+    /// trampolines without having to plug in the full SysBus + Scheduler.
+    struct CycleCountingMem {
+        loads: u32,
+        stores: u32,
+        idles: u32,
+    }
+    impl CycleCountingMem {
+        fn new() -> Self {
+            Self { loads: 0, stores: 0, idles: 0 }
+        }
+    }
+    impl crate::memory::MemoryInterface for CycleCountingMem {
+        fn load_8(&mut self, _: u32, _: crate::memory::MemoryAccess) -> u8 { self.loads += 1; 0 }
+        fn load_16(&mut self, _: u32, _: crate::memory::MemoryAccess) -> u16 { self.loads += 1; 0 }
+        fn load_32(&mut self, _: u32, _: crate::memory::MemoryAccess) -> u32 { self.loads += 1; 0 }
+        fn store_8(&mut self, _: u32, _: u8, _: crate::memory::MemoryAccess) { self.stores += 1; }
+        fn store_16(&mut self, _: u32, _: u16, _: crate::memory::MemoryAccess) { self.stores += 1; }
+        fn store_32(&mut self, _: u32, _: u32, _: crate::memory::MemoryAccess) { self.stores += 1; }
+        fn idle_cycle(&mut self) { self.idles += 1; }
+    }
+
+    /// Catches the cycle accounting bug the PR #200 reviewer flagged:
+    /// scalar Thumb LDR charges +1I after the data fetch, but the
+    /// dynarec was calling the plain `load_32` trampoline which did
+    /// not. With the fix, `load_with_idle_32` calls `cpu.idle_cycle()`
+    /// after the read so the cycle counts match scalar.
+    #[test]
+    fn load_with_idle_32_invokes_idle_cycle() {
+        use crate::cpu::Arm7tdmiCore;
+        use rustboyadvance_utils::Shared;
+
+        // Plain load_32: 1 load, 0 idles.
+        let m = Shared::new(CycleCountingMem::new());
+        let mut cpu = Arm7tdmiCore::new(m.clone());
+        unsafe {
+            super::trampolines::load_32::<CycleCountingMem>(
+                &mut cpu as *mut _ as *mut u8,
+                0x20,
+            );
+        }
+        assert_eq!(cpu.bus.loads, 1);
+        assert_eq!(cpu.bus.idles, 0, "plain load_32 must not idle");
+
+        // load_with_idle_32: 1 load, 1 idle.
+        let m2 = Shared::new(CycleCountingMem::new());
+        let mut cpu2 = Arm7tdmiCore::new(m2.clone());
+        unsafe {
+            super::trampolines::load_with_idle_32::<CycleCountingMem>(
+                &mut cpu2 as *mut _ as *mut u8,
+                0x20,
+            );
+        }
+        assert_eq!(cpu2.bus.loads, 1);
+        assert_eq!(cpu2.bus.idles, 1, "load_with_idle_32 must charge +1I");
+    }
+
+    /// Same shape for load_with_idle_8 (LDRB).
+    #[test]
+    fn load_with_idle_8_invokes_idle_cycle() {
+        use crate::cpu::Arm7tdmiCore;
+        use rustboyadvance_utils::Shared;
+
+        let m = Shared::new(CycleCountingMem::new());
+        let mut cpu = Arm7tdmiCore::new(m.clone());
+        unsafe {
+            super::trampolines::load_with_idle_8::<CycleCountingMem>(
+                &mut cpu as *mut _ as *mut u8,
+                0x10,
+            );
+        }
+        assert_eq!(cpu.bus.loads, 1);
+        assert_eq!(cpu.bus.idles, 1);
+    }
+
+    /// Catches the second leak: a compiled block whose last instruction
+    /// is a STORE must leave `cpu.next_fetch_access = NonSeq` so the
+    /// post-block fetch in the cached interp loop pays NonSeq cycles.
+    /// The trampoline that does this is `set_next_fetch_nonseq`.
+    #[test]
+    fn set_next_fetch_nonseq_trampoline_flips_access_mode() {
+        use crate::SimpleMemory;
+        use crate::cpu::Arm7tdmiCore;
+        use crate::memory::MemoryAccess;
+        use rustboyadvance_utils::Shared;
+
+        let m = Shared::new(SimpleMemory::new(64));
+        let mut cpu = Arm7tdmiCore::new(m);
+        cpu.next_fetch_access = MemoryAccess::Seq;
+        unsafe {
+            super::trampolines::set_next_fetch_nonseq::<SimpleMemory>(
+                &mut cpu as *mut _ as *mut u8,
+            );
+        }
+        assert!(matches!(cpu.next_fetch_access, MemoryAccess::NonSeq));
     }
 
     // --- Unified Thumb mem+branch block compiler ---

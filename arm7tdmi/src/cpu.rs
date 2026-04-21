@@ -554,9 +554,25 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
         // Dispatch to a dynarec compiled native block when one is attached.
         // Only Thumb blocks get compiled today, and the compiler only kicks
         // in when `enable_dynarec` has installed a compiler on the cache.
-        // No cycle accounting yet beyond what the data access trampolines
-        // already pay, so this path is guarded by a runtime enable that
-        // stays off until the cycle accounting work lands in a follow up.
+        //
+        // Cycle accounting status:
+        //   - Instruction fetches: paid up front via `thumb_fetch_n` at
+        //     block entry.
+        //   - LDR family: `load_with_idle_*` trampolines pay `load_X` +
+        //     the +1I scalar adds after every data load.
+        //   - STR family: `store_X` trampolines pay the data store. If the
+        //     LAST instruction in the block is a store, the codegen also
+        //     emits a `set_next_fetch_nonseq` call so the post-block
+        //     fetch sees `next_fetch_access = NonSeq`, mirroring scalar
+        //     `CpuAction::AdvancePC(NonSeq)`.
+        //   - KNOWN GAP: a STORE in the middle of a block followed by
+        //     another body instruction. The intermediate fetch was
+        //     pre-paid as Seq by `thumb_fetch_n`, but scalar would have
+        //     paid NonSeq. Under-charges by `(N - S)` cycles per such
+        //     intermediate store. ROM-only (PR currently only compiles
+        //     ROM blocks, where N != S). Tracked as a follow up; the
+        //     fix needs a `pay_extra_thumb_fetch_nonseq_delta` trampoline
+        //     called once per intermediate store at codegen time.
         #[cfg(feature = "dynarec")]
         if self.dynarec_dispatch_enabled
             && let Some(compiled) = block.compiled
