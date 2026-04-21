@@ -200,6 +200,14 @@ impl GameBoyAdvance {
         Ok(())
     }
 
+    /// Current emulated cycle timestamp. Used by the JNI record/replay
+    /// layer to stamp keypad edges so a playback line up exactly with
+    /// the cycle it was captured at.
+    #[inline]
+    pub fn cycles(&self) -> usize {
+        self.scheduler.timestamp()
+    }
+
     pub fn get_game_title(&self) -> String {
         self.sysbus.cartridge.header.game_title.clone()
     }
