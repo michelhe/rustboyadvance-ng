@@ -104,6 +104,18 @@ pub trait MemoryInterface {
     fn cached_block_should_abort(&self) -> bool {
         false
     }
+
+    /// Pay the *extra* cycles a NonSeq Thumb instruction fetch costs
+    /// over a Seq one for `addr` — i.e. `n_cycles16[page] - s_cycles16[page]`
+    /// for a SysBus-style bus, or 0 for a uniform-cost test bus.
+    ///
+    /// The dynarec uses this to compensate `thumb_fetch_n`'s pre-paid
+    /// all-Seq fetches when an in-block STORE makes the next fetch
+    /// NonSeq under scalar dispatch. Default implementation does
+    /// nothing, which is correct for buses where fetch cost doesn't
+    /// vary by access mode (most test buses).
+    #[inline]
+    fn pay_thumb_fetch_extra_nonseq(&mut self, _addr: u32) {}
 }
 
 impl<I: MemoryInterface> MemoryInterface for Arm7tdmiCore<I> {
@@ -151,6 +163,11 @@ impl<I: MemoryInterface> MemoryInterface for Arm7tdmiCore<I> {
     #[inline]
     fn cached_block_should_abort(&self) -> bool {
         self.bus.cached_block_should_abort()
+    }
+
+    #[inline]
+    fn pay_thumb_fetch_extra_nonseq(&mut self, addr: u32) {
+        self.bus.pay_thumb_fetch_extra_nonseq(addr);
     }
 }
 

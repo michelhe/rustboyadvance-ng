@@ -578,6 +578,22 @@ impl MemoryInterface for SysBus {
         self.scheduler.update(1)
     }
 
+    /// Charge `n_cycles16[page] - s_cycles16[page]` for the dynarec's
+    /// in-block STORE NonSeq compensation. The dynarec's
+    /// `thumb_fetch_n` pre-paid every fetch after the first as Seq,
+    /// but scalar STR sets the next fetch's access to NonSeq via
+    /// `CpuAction::AdvancePC(NonSeq)`. The compiled code calls into
+    /// here once per intermediate store to make the timing match.
+    #[inline]
+    fn pay_thumb_fetch_extra_nonseq(&mut self, addr: u32) {
+        let page = ((addr >> 24) & 0xF) as usize;
+        let delta = self.cycle_luts.n_cycles16[page]
+            .saturating_sub(self.cycle_luts.s_cycles16[page]);
+        if delta > 0 {
+            self.scheduler.update(delta);
+        }
+    }
+
     #[cfg(feature = "cached_interp")]
     #[inline]
     fn take_block_cache_dirty(&mut self) -> bool {

@@ -565,14 +565,11 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
         //     emits a `set_next_fetch_nonseq` call so the post-block
         //     fetch sees `next_fetch_access = NonSeq`, mirroring scalar
         //     `CpuAction::AdvancePC(NonSeq)`.
-        //   - KNOWN GAP: a STORE in the middle of a block followed by
-        //     another body instruction. The intermediate fetch was
-        //     pre-paid as Seq by `thumb_fetch_n`, but scalar would have
-        //     paid NonSeq. Under-charges by `(N - S)` cycles per such
-        //     intermediate store. ROM-only (PR currently only compiles
-        //     ROM blocks, where N != S). Tracked as a follow up; the
-        //     fix needs a `pay_extra_thumb_fetch_nonseq_delta` trampoline
-        //     called once per intermediate store at codegen time.
+        //   - In-block STORE followed by another body item or by the
+        //     branch terminator: codegen emits one
+        //     `pay_thumb_fetch_extra_nonseq` trampoline call per body
+        //     STORE, charging the missing `(n - s)` cycles for the next
+        //     fetch. Address is `entry_pc` (page-invariant within a block).
         #[cfg(feature = "dynarec")]
         if self.dynarec_dispatch_enabled
             && let Some(compiled) = block.compiled

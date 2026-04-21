@@ -57,6 +57,12 @@ pub type BusLoadIdle8Fn = unsafe extern "C" fn(*mut u8, u32) -> u32;
 /// interpreter loop pays NonSeq cycles like it would have under scalar
 /// dispatch.
 pub type BusSetNextFetchNonSeqFn = unsafe extern "C" fn(*mut u8);
+/// Pay the *extra* cycles a NonSeq Thumb fetch costs over a Seq one
+/// for the address `fetch_pc` — i.e. `n_cycles16[page] - s_cycles16[page]`.
+/// Called from compiled blocks once per intermediate STORE in the body,
+/// passing the PC of the next fetch (the one that would have been
+/// NonSeq in scalar but was pre-paid as Seq by `thumb_fetch_n`).
+pub type BusPayThumbFetchExtraNonSeqFn = unsafe extern "C" fn(*mut u8, u32);
 /// Pay scheduler cycles for N Thumb fetches and update CPU pipeline/pc.
 /// Called once at each compiled Thumb block's entry so cycle accounting
 /// stays parity-correct with the interpreter.
@@ -120,6 +126,22 @@ pub mod trampolines {
         cpu.next_fetch_access = MemoryAccess::NonSeq;
     }
 
+    /// Compensation trampoline for the in-block STORE-followed-by-X
+    /// case. `thumb_fetch_n` pre-paid every fetch after the first as
+    /// Seq, but scalar STR sets the next fetch's access to NonSeq via
+    /// `CpuAction::AdvancePC(NonSeq)`. For each intermediate STORE in
+    /// a compiled block we charge the missing `n - s` cycles for the
+    /// fetch at `fetch_pc` here. Forwards to the bus's
+    /// `pay_thumb_fetch_extra_nonseq` (default is no-op for test buses,
+    /// SysBus implements via the cycle LUT).
+    pub unsafe extern "C" fn pay_thumb_fetch_extra_nonseq<I: MemoryInterface>(
+        ctx: *mut u8,
+        fetch_pc: u32,
+    ) {
+        let cpu = unsafe { &mut *(ctx as *mut Arm7tdmiCore<I>) };
+        cpu.bus.pay_thumb_fetch_extra_nonseq(fetch_pc);
+    }
+
     /// Pay the scheduler cycles for N Thumb instruction fetches at the
     /// start of a compiled block, and update the CPU's pipeline[0/1] +
     /// next_fetch_access + pc so post-block state matches what the
@@ -181,6 +203,7 @@ pub mod trampolines {
             load_with_idle_32: load_with_idle_32::<I>,
             load_with_idle_8: load_with_idle_8::<I>,
             set_next_fetch_nonseq: set_next_fetch_nonseq::<I>,
+            pay_thumb_fetch_extra_nonseq: pay_thumb_fetch_extra_nonseq::<I>,
             thumb_fetch_n: thumb_fetch_n::<I>,
         }
     }
@@ -200,6 +223,9 @@ pub struct BusTrampolines {
     pub load_with_idle_8: BusLoadIdle8Fn,
     /// Force `cpu.next_fetch_access = NonSeq` for post-block-store fixup.
     pub set_next_fetch_nonseq: BusSetNextFetchNonSeqFn,
+    /// Pay the `n - s` cycle delta for a single intermediate STORE's
+    /// next fetch.
+    pub pay_thumb_fetch_extra_nonseq: BusPayThumbFetchExtraNonSeqFn,
     pub thumb_fetch_n: BusThumbFetchNFn,
 }
 
@@ -230,6 +256,7 @@ struct BusImports {
     load_with_idle_32: FuncId,
     load_with_idle_8: FuncId,
     set_next_fetch_nonseq: FuncId,
+    pay_thumb_fetch_extra_nonseq: FuncId,
     thumb_fetch_n: FuncId,
 }
 
@@ -267,6 +294,8 @@ impl DynarecCompiler {
             jit_builder.symbol("rba_bus_load_with_idle_32",  b.load_with_idle_32    as *const u8);
             jit_builder.symbol("rba_bus_load_with_idle_8",   b.load_with_idle_8     as *const u8);
             jit_builder.symbol("rba_set_next_fetch_nonseq",  b.set_next_fetch_nonseq as *const u8);
+            jit_builder.symbol("rba_pay_thumb_fetch_extra_nonseq",
+                                                              b.pay_thumb_fetch_extra_nonseq as *const u8);
             jit_builder.symbol("rba_thumb_fetch_n",          b.thumb_fetch_n        as *const u8);
         }
 
@@ -336,6 +365,18 @@ impl DynarecCompiler {
                 .declare_function("rba_set_next_fetch_nonseq", Linkage::Import, &sig_nonseq)
                 .expect("declare set_next_fetch_nonseq failed");
 
+            // pay_thumb_fetch_extra_nonseq: extern "C" fn(*mut u8, u32)
+            let mut sig_pay_extra = module.make_signature();
+            sig_pay_extra.params.push(AbiParam::new(ptr_ty));
+            sig_pay_extra.params.push(AbiParam::new(types::I32));
+            let pay_thumb_fetch_extra_nonseq = module
+                .declare_function(
+                    "rba_pay_thumb_fetch_extra_nonseq",
+                    Linkage::Import,
+                    &sig_pay_extra,
+                )
+                .expect("declare pay_thumb_fetch_extra_nonseq failed");
+
             // thumb_fetch_n: extern "C" fn(*mut u8, u32, u32)
             let mut sig_fetch_n = module.make_signature();
             sig_fetch_n.params.push(AbiParam::new(ptr_ty));
@@ -353,6 +394,7 @@ impl DynarecCompiler {
                 load_with_idle_32,
                 load_with_idle_8,
                 set_next_fetch_nonseq,
+                pay_thumb_fetch_extra_nonseq,
                 thumb_fetch_n,
             }
         });
@@ -1432,6 +1474,19 @@ impl DynarecCompiler {
             Body(Body),
         }
 
+        /// True for body items whose scalar handler returns
+        /// `CpuAction::AdvancePC(NonSeq)` — i.e. STORE shapes. The
+        /// dynarec needs to charge `(n - s)` extra cycles after each
+        /// such item so the next fetch matches scalar's NonSeq access.
+        fn body_item_is_store(item: &Body) -> bool {
+            match item {
+                Body::F9(d) => !d.load,
+                Body::F11(d) => !d.load,
+                Body::F14(d) => d.push,
+                _ => false,
+            }
+        }
+
         fn classify_body(op: u16) -> Option<Body> {
             if let Some(d) = DynarecCompiler::decode_thumb_format14_non_pc(op) {
                 Some(Body::F14(d))
@@ -1530,6 +1585,15 @@ impl DynarecCompiler {
                 self.module.declare_func_in_func(imports.store_8, builder.func);
             let fetch_n_ref =
                 self.module.declare_func_in_func(imports.thumb_fetch_n, builder.func);
+            // pay_extra_nonseq: charges (n - s) cycles for the next fetch
+            // after each in-body STORE (mirrors scalar STR's
+            // `CpuAction::AdvancePC(NonSeq)`). Address-invariant within a
+            // block since all fetches share the same region/page, so we
+            // can pass `entry_pc` for every call.
+            let pay_extra_nonseq_ref = self
+                .module
+                .declare_func_in_func(imports.pay_thumb_fetch_extra_nonseq, builder.func);
+            let entry_pc_val = builder.ins().iconst(types::I32, entry_pc as i64);
 
             // Pay fetch cycles for the whole block up front and let the
             // trampoline stage pipeline[0/1] + pc + next_fetch_access so
@@ -1568,6 +1632,18 @@ impl DynarecCompiler {
 
             for item in &body {
                 emit_body(&mut builder, item);
+                // Compensate for the under-counted next fetch when this
+                // body item is a STORE: scalar would have charged NonSeq
+                // for the fetch that follows, but `thumb_fetch_n` paid
+                // Seq up front. One trampoline call per intermediate
+                // store covers both:
+                //   - in-body STORE → next body item's fetch
+                //   - last body STORE → tail/branch fetch
+                if body_item_is_store(item) {
+                    builder
+                        .ins()
+                        .call(pay_extra_nonseq_ref, &[cpu_ctx, entry_pc_val]);
+                }
             }
 
             let took_var = builder.declare_var(types::I32);
@@ -3902,6 +3978,9 @@ mod tests {
     unsafe extern "C" fn test_load_with_idle_8(ctx: *mut u8, addr: u32) -> u32 {
         unsafe { test_load_8(ctx, addr) }
     }
+    /// No-op stand-in. SimpleMemory / TestBus have uniform fetch cost
+    /// (no LUT), so the SysBus override doesn't apply here.
+    unsafe extern "C" fn test_pay_thumb_fetch_extra_nonseq(_ctx: *mut u8, _pc: u32) {}
 
     fn test_trampolines() -> BusTrampolines {
         BusTrampolines {
@@ -3912,6 +3991,7 @@ mod tests {
             load_with_idle_32: test_load_with_idle_32,
             load_with_idle_8: test_load_with_idle_8,
             set_next_fetch_nonseq: test_set_next_fetch_nonseq,
+            pay_thumb_fetch_extra_nonseq: test_pay_thumb_fetch_extra_nonseq,
             thumb_fetch_n: test_thumb_fetch_n,
         }
     }
@@ -4344,6 +4424,101 @@ mod tests {
         fn store_16(&mut self, _: u32, _: u16, _: crate::memory::MemoryAccess) { self.stores += 1; }
         fn store_32(&mut self, _: u32, _: u32, _: crate::memory::MemoryAccess) { self.stores += 1; }
         fn idle_cycle(&mut self) { self.idles += 1; }
+    }
+
+    /// MemoryInterface stub that ALSO counts pay_thumb_fetch_extra_nonseq
+    /// calls so we can verify the codegen emits the right number of
+    /// post-store compensation calls. Returns a fixed delta of 2 per
+    /// call so we can also see in the cycle stream whether the call
+    /// landed.
+    struct CycleCountingMemWithExtra {
+        loads: u32,
+        stores: u32,
+        idles: u32,
+        extras: u32,
+    }
+    impl CycleCountingMemWithExtra {
+        fn new() -> Self {
+            Self { loads: 0, stores: 0, idles: 0, extras: 0 }
+        }
+    }
+    impl crate::memory::MemoryInterface for CycleCountingMemWithExtra {
+        fn load_8(&mut self, _: u32, _: crate::memory::MemoryAccess) -> u8 { self.loads += 1; 0 }
+        fn load_16(&mut self, _: u32, _: crate::memory::MemoryAccess) -> u16 { self.loads += 1; 0 }
+        fn load_32(&mut self, _: u32, _: crate::memory::MemoryAccess) -> u32 { self.loads += 1; 0 }
+        fn store_8(&mut self, _: u32, _: u8, _: crate::memory::MemoryAccess) { self.stores += 1; }
+        fn store_16(&mut self, _: u32, _: u16, _: crate::memory::MemoryAccess) { self.stores += 1; }
+        fn store_32(&mut self, _: u32, _: u32, _: crate::memory::MemoryAccess) { self.stores += 1; }
+        fn idle_cycle(&mut self) { self.idles += 1; }
+        fn pay_thumb_fetch_extra_nonseq(&mut self, _addr: u32) { self.extras += 1; }
+    }
+
+    /// Codegen check for the in-block STR NonSeq compensation: a Thumb
+    /// block of [STR, MOV, MOV, BX] should call
+    /// `pay_thumb_fetch_extra_nonseq` exactly once (one intermediate
+    /// store followed by non-store body items + a branch terminator).
+    /// A block of [MOV, MOV, BX] (no stores) should call it zero times.
+    #[test]
+    fn pay_thumb_fetch_extra_nonseq_emitted_once_per_intermediate_store() {
+        use crate::cpu::Arm7tdmiCore;
+        use rustboyadvance_utils::Shared;
+
+        // STR R0, [R1] = 0x6008 (Thumb format 9, store word, offset 0)
+        // MOV R2, #0   = 0x2200
+        // BX  LR       = 0x4770
+        let opcodes = [0x6008, 0x2200, 0x2200, 0x4770];
+
+        let m = Shared::new(CycleCountingMemWithExtra::new());
+        let mut cpu = Arm7tdmiCore::new(m);
+        let mut compiler = DynarecCompiler::new_with_bus(
+            super::trampolines::for_cpu::<CycleCountingMemWithExtra>(),
+        );
+        let func = compiler
+            .try_compile_thumb_mem_block_with_branch(&opcodes, 0x0800_0000)
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[14] = 0x0800_1235; // BX LR target
+        let mut cpsr = 0u32;
+        let mut pc_out = 0u32;
+        let _ = func(
+            gpr.as_mut_ptr(), &mut cpsr, &mut pc_out,
+            &mut cpu as *mut _ as *mut u8,
+        );
+        assert_eq!(
+            cpu.bus.extras, 1,
+            "expected exactly 1 pay_thumb_fetch_extra_nonseq call for the \
+             single STR in body[0]; got {}",
+            cpu.bus.extras
+        );
+        assert_eq!(cpu.bus.stores, 1);
+    }
+
+    #[test]
+    fn pay_thumb_fetch_extra_nonseq_not_emitted_when_no_stores() {
+        use crate::cpu::Arm7tdmiCore;
+        use rustboyadvance_utils::Shared;
+
+        let opcodes = [0x2001, 0x2002, 0x4770]; // MOV, MOV, BX LR
+
+        let m = Shared::new(CycleCountingMemWithExtra::new());
+        let mut cpu = Arm7tdmiCore::new(m);
+        let mut compiler = DynarecCompiler::new_with_bus(
+            super::trampolines::for_cpu::<CycleCountingMemWithExtra>(),
+        );
+        let func = compiler
+            .try_compile_thumb_mem_block_with_branch(&opcodes, 0x0800_0000)
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[14] = 0;
+        let mut cpsr = 0u32;
+        let mut pc_out = 0u32;
+        let _ = func(
+            gpr.as_mut_ptr(), &mut cpsr, &mut pc_out,
+            &mut cpu as *mut _ as *mut u8,
+        );
+        assert_eq!(cpu.bus.extras, 0, "no stores -> no extra-nonseq calls");
     }
 
     /// Catches the cycle accounting bug the PR #200 reviewer flagged:
