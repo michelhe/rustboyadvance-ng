@@ -1156,6 +1156,266 @@ impl DynarecCompiler {
         })
     }
 
+    /// Unified Thumb block compiler. Accepts any mix of supported Thumb
+    /// body shapes plus an optional trailing terminator (BX, B, Bcc, or
+    /// POP{regs,pc}). Always takes all four params even if a given block
+    /// doesn't use all of them, so `step_block` integration has a single
+    /// dispatch shape.
+    ///
+    /// Signature:
+    ///   extern "C" fn(
+    ///     gpr: *mut u32,
+    ///     cpsr: *mut u32,
+    ///     pc_out: *mut u32,
+    ///     cpu_ctx: *mut u8,
+    ///   ) -> u32     // 0 = fall through, 1 = branch taken, pc_out written
+    ///
+    /// Body shapes (non-terminating):
+    ///   format 1/2/3/4-logical/5-nb/9/11/14-non-PC
+    /// Tail shapes (terminating, only in last slot):
+    ///   BX, format 16 Bcc, format 18 B, POP{regs, pc}
+    ///
+    /// Requires bus trampolines (new_with_bus). Returns None for any
+    /// unsupported encoding or if the compiler has no bus.
+    pub fn try_compile_thumb_mem_block_with_branch(
+        &mut self,
+        opcodes: &[u16],
+        entry_pc: u32,
+    ) -> Option<extern "C" fn(*mut u32, *mut u32, *mut u32, *mut u8) -> u32> {
+        if opcodes.is_empty() {
+            return None;
+        }
+        let imports = self.bus_imports?;
+
+        enum Body {
+            F1(DecodedThumb1),
+            F2(DecodedThumb2),
+            F3(DecodedThumb3),
+            F4(DecodedThumb4),
+            F5(DecodedThumb5),
+            F9(DecodedThumb9),
+            F11(DecodedThumb11),
+            F14(DecodedThumb14),
+        }
+        enum Tail {
+            Bx(DecodedThumbBx),
+            PcBranch(DecodedThumbPcBranch),
+            PopPc(DecodedThumb14),
+            Body(Body),
+        }
+
+        fn classify_body(op: u16) -> Option<Body> {
+            if let Some(d) = DynarecCompiler::decode_thumb_format14_non_pc(op) {
+                Some(Body::F14(d))
+            } else if let Some(d) = DynarecCompiler::decode_thumb_format11(op) {
+                Some(Body::F11(d))
+            } else if let Some(d) = DynarecCompiler::decode_thumb_format9(op) {
+                Some(Body::F9(d))
+            } else if let Some(d) = DynarecCompiler::decode_thumb_format1(op) {
+                Some(Body::F1(d))
+            } else if let Some(d) = DynarecCompiler::decode_thumb_format2(op) {
+                Some(Body::F2(d))
+            } else if let Some(d) = DynarecCompiler::decode_thumb_format3(op) {
+                Some(Body::F3(d))
+            } else if let Some(d) = DynarecCompiler::decode_thumb_format4_logical(op) {
+                Some(Body::F4(d))
+            } else if let Some(d) = DynarecCompiler::decode_thumb_format5_non_branch(op) {
+                Some(Body::F5(d))
+            } else {
+                None
+            }
+        }
+        fn classify_tail(op: u16) -> Option<Tail> {
+            if let Some(d) = DynarecCompiler::decode_thumb_bx(op) {
+                Some(Tail::Bx(d))
+            } else if let Some(d) = DynarecCompiler::decode_thumb_format18(op) {
+                Some(Tail::PcBranch(d))
+            } else if let Some(d) = DynarecCompiler::decode_thumb_format16(op) {
+                Some(Tail::PcBranch(d))
+            } else if let Some(d) = DynarecCompiler::decode_thumb_pop_pc(op) {
+                Some(Tail::PopPc(d))
+            } else {
+                classify_body(op).map(Tail::Body)
+            }
+        }
+
+        let (body_opcodes, tail_slot) = opcodes.split_at(opcodes.len() - 1);
+        let mut body: Vec<Body> = Vec::with_capacity(body_opcodes.len());
+        for &op in body_opcodes {
+            // Terminators not allowed in body.
+            if Self::decode_thumb_bx(op).is_some()
+                || Self::decode_thumb_format16(op).is_some()
+                || Self::decode_thumb_format18(op).is_some()
+                || Self::decode_thumb_pop_pc(op).is_some()
+            {
+                return None;
+            }
+            body.push(classify_body(op)?);
+        }
+        let tail = classify_tail(tail_slot[0])?;
+
+        let ptr_type = self.module.isa().pointer_type();
+        let mut sig = self.module.make_signature();
+        sig.params.push(AbiParam::new(ptr_type)); // gpr
+        sig.params.push(AbiParam::new(ptr_type)); // cpsr
+        sig.params.push(AbiParam::new(ptr_type)); // pc_out
+        sig.params.push(AbiParam::new(ptr_type)); // cpu_ctx
+        sig.returns.push(AbiParam::new(types::I32));
+
+        self.next_id += 1;
+        let name = format!("dynarec_thumb_unified_{}", self.next_id);
+        let func_id = self
+            .module
+            .declare_function(&name, Linkage::Local, &sig)
+            .expect("declare_function failed");
+        self.ctx.func.signature = sig;
+
+        {
+            let mut builder =
+                FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+            let entry = builder.create_block();
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            builder.seal_block(entry);
+
+            let gpr_ptr = builder.block_params(entry)[0];
+            let cpsr_ptr = builder.block_params(entry)[1];
+            let pc_out = builder.block_params(entry)[2];
+            let cpu_ctx = builder.block_params(entry)[3];
+
+            let cpsr_var = builder.declare_var(types::I32);
+            let cpsr_initial =
+                builder.ins().load(types::I32, MemFlags::trusted(), cpsr_ptr, 0);
+            builder.def_var(cpsr_var, cpsr_initial);
+
+            let load_32_ref =
+                self.module.declare_func_in_func(imports.load_32, builder.func);
+            let store_32_ref =
+                self.module.declare_func_in_func(imports.store_32, builder.func);
+            let load_8_ref =
+                self.module.declare_func_in_func(imports.load_8, builder.func);
+            let store_8_ref =
+                self.module.declare_func_in_func(imports.store_8, builder.func);
+
+            let emit_body = |builder: &mut FunctionBuilder, item: &Body| {
+                match item {
+                    Body::F1(d) => emit_thumb_format1(builder, gpr_ptr, cpsr_var, *d),
+                    Body::F2(d) => emit_thumb_format2(builder, gpr_ptr, cpsr_var, *d),
+                    Body::F3(d) => emit_thumb_format3(builder, gpr_ptr, cpsr_var, *d),
+                    Body::F4(d) => emit_thumb_format4_logical(builder, gpr_ptr, cpsr_var, *d),
+                    Body::F5(d) => emit_thumb_format5_non_branch(builder, gpr_ptr, cpsr_var, *d),
+                    Body::F9(d) => emit_thumb_format9(
+                        builder, gpr_ptr, cpu_ctx,
+                        load_32_ref, store_32_ref, load_8_ref, store_8_ref, *d,
+                    ),
+                    Body::F11(d) => emit_thumb_format11(
+                        builder, gpr_ptr, cpu_ctx,
+                        load_32_ref, store_32_ref, *d,
+                    ),
+                    Body::F14(d) => emit_thumb_format14(
+                        builder, gpr_ptr, cpu_ctx,
+                        load_32_ref, store_32_ref, *d,
+                    ),
+                }
+            };
+
+            for item in &body {
+                emit_body(&mut builder, item);
+            }
+
+            let took_var = builder.declare_var(types::I32);
+            let zero = builder.ins().iconst(types::I32, 0);
+            builder.def_var(took_var, zero);
+
+            match &tail {
+                Tail::Body(b) => {
+                    emit_body(&mut builder, b);
+                }
+                Tail::Bx(bx) => {
+                    let target = builder.ins().load(
+                        types::I32, MemFlags::trusted(), gpr_ptr, Offset32::new(bx.rs * 4),
+                    );
+                    builder.ins().store(MemFlags::trusted(), target, pc_out, 0);
+                    let one = builder.ins().iconst(types::I32, 1);
+                    builder.def_var(took_var, one);
+                }
+                Tail::PcBranch(br) => {
+                    let body_len = body.len() as u32;
+                    let branch_pc = entry_pc.wrapping_add(body_len.wrapping_mul(2));
+                    let target = branch_pc
+                        .wrapping_add(4)
+                        .wrapping_add((br.offset_signed << 1) as u32)
+                        | 1;
+                    let cond_pass = emit_cond_check(&mut builder, cpsr_var, br.cond);
+                    let taken_blk = builder.create_block();
+                    let merge_blk = builder.create_block();
+                    builder.ins().brif(cond_pass, taken_blk, &[], merge_blk, &[]);
+
+                    builder.switch_to_block(taken_blk);
+                    builder.seal_block(taken_blk);
+                    let t_val = builder.ins().iconst(types::I32, target as i64);
+                    builder.ins().store(MemFlags::trusted(), t_val, pc_out, 0);
+                    let one = builder.ins().iconst(types::I32, 1);
+                    builder.def_var(took_var, one);
+                    builder.ins().jump(merge_blk, &[]);
+
+                    builder.switch_to_block(merge_blk);
+                    builder.seal_block(merge_blk);
+                }
+                Tail::PopPc(dec) => {
+                    let sp = builder.ins().load(
+                        types::I32, MemFlags::trusted(), gpr_ptr, Offset32::new(13 * 4),
+                    );
+                    let mut byte_offset: i64 = 0;
+                    for i in 0..8 {
+                        if dec.reg_list & (1 << i) != 0 {
+                            let addr = builder.ins().iadd_imm(sp, byte_offset);
+                            let call = builder.ins().call(load_32_ref, &[cpu_ctx, addr]);
+                            let v = builder.inst_results(call)[0];
+                            builder.ins().store(
+                                MemFlags::trusted(), v, gpr_ptr, Offset32::new(i * 4),
+                            );
+                            byte_offset += 4;
+                        }
+                    }
+                    let pc_addr = builder.ins().iadd_imm(sp, byte_offset);
+                    let pc_call = builder.ins().call(load_32_ref, &[cpu_ctx, pc_addr]);
+                    let pc_val = builder.inst_results(pc_call)[0];
+                    builder.ins().store(MemFlags::trusted(), pc_val, pc_out, 0);
+                    byte_offset += 4;
+                    let new_sp = builder.ins().iadd_imm(sp, byte_offset);
+                    builder.ins().store(
+                        MemFlags::trusted(), new_sp, gpr_ptr, Offset32::new(13 * 4),
+                    );
+                    let one = builder.ins().iconst(types::I32, 1);
+                    builder.def_var(took_var, one);
+                }
+            }
+
+            let cpsr_final = builder.use_var(cpsr_var);
+            builder.ins().store(MemFlags::trusted(), cpsr_final, cpsr_ptr, 0);
+            let ret = builder.use_var(took_var);
+            builder.ins().return_(&[ret]);
+            builder.finalize();
+        }
+
+        self.module
+            .define_function(func_id, &mut self.ctx)
+            .expect("define_function failed");
+        self.module.clear_context(&mut self.ctx);
+        self.module
+            .finalize_definitions()
+            .expect("finalize_definitions failed");
+
+        let code = self.module.get_finalized_function(func_id);
+        Some(unsafe {
+            std::mem::transmute::<
+                *const u8,
+                extern "C" fn(*mut u32, *mut u32, *mut u32, *mut u8) -> u32,
+            >(code)
+        })
+    }
+
     /// Compile a standalone POP {regs, pc} as a block terminator. Pops
     /// every listed register in R0..R7 order from SP, SP+4, ... then
     /// pops PC from the next word and writes it (bit 0 preserved for the
@@ -3667,6 +3927,154 @@ mod tests {
         func(gpr.as_mut_ptr(), &mut cpsr);
         assert_eq!(gpr[0], 0);
         assert_ne!(cpsr & (1 << 30), 0, "Z should be set");
+    }
+
+    // --- Unified Thumb mem+branch block compiler ---
+
+    #[test]
+    fn unified_thumb_fall_through_body_only() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        // MOV R0, #5  (no branch, no memory)
+        let func = compiler
+            .try_compile_thumb_mem_block_with_branch(&[0x2005], 0x0800_0000)
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        let mut cpsr = 0u32;
+        let mut pc_out = 0xBADC0FFEu32;
+        let taken = func(
+            gpr.as_mut_ptr(), &mut cpsr, &mut pc_out,
+            &bus as *const TestBus as *mut u8,
+        );
+        assert_eq!(taken, 0);
+        assert_eq!(gpr[0], 5);
+        assert_eq!(pc_out, 0xBADC0FFEu32, "no branch, pc_out untouched");
+    }
+
+    #[test]
+    fn unified_thumb_bx_terminator() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        // BX LR  -> 0x4770
+        let func = compiler
+            .try_compile_thumb_mem_block_with_branch(&[0x4770], 0x0800_0000)
+            .unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[14] = 0x0800_1235;
+        let mut cpsr = 0u32;
+        let mut pc_out = 0u32;
+        let taken = func(
+            gpr.as_mut_ptr(), &mut cpsr, &mut pc_out,
+            &bus as *const TestBus as *mut u8,
+        );
+        assert_eq!(taken, 1);
+        assert_eq!(pc_out, 0x0800_1235);
+    }
+
+    #[test]
+    fn unified_thumb_pop_pc_terminator() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        unsafe {
+            let b = &mut *bus.bytes.get();
+            let pc = 0x0800_5555u32.to_le_bytes();
+            b[0x40..0x44].copy_from_slice(&pc);
+        }
+        // POP {PC}
+        let func = compiler
+            .try_compile_thumb_mem_block_with_branch(&[0xBD00], 0)
+            .unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[13] = 0x40;
+        let mut cpsr = 0u32;
+        let mut pc_out = 0u32;
+        let taken = func(
+            gpr.as_mut_ptr(), &mut cpsr, &mut pc_out,
+            &bus as *const TestBus as *mut u8,
+        );
+        assert_eq!(taken, 1);
+        assert_eq!(pc_out, 0x0800_5555);
+        assert_eq!(gpr[13], 0x44);
+    }
+
+    #[test]
+    fn unified_thumb_mem_body_plus_pop_pc_epilogue() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        // Prepare epilogue: stack has R4, PC at SP..SP+8
+        unsafe {
+            let b = &mut *bus.bytes.get();
+            let r4 = 0xCAFEu32.to_le_bytes();
+            let pc = 0x0800_1011u32.to_le_bytes();
+            b[0x50..0x54].copy_from_slice(&r4);
+            b[0x54..0x58].copy_from_slice(&pc);
+        }
+        // MOV R0, #1 ; STR R0, [SP, #0x10] ; POP {R4, PC}
+        //   MOV R0, #1 = 0x2001
+        //   STR R0, [SP, #0x10] -> imm8=4 -> 1001_0_000_00000100 = 0x9004
+        //   POP {R4, PC}        -> reg_list=0x10 -> 1011_1_10_1_00010000 = 0xBD10
+        let func = compiler
+            .try_compile_thumb_mem_block_with_branch(
+                &[0x2001, 0x9004, 0xBD10],
+                0x0800_3000,
+            )
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[13] = 0x50;
+        let mut cpsr = 0u32;
+        let mut pc_out = 0u32;
+        let taken = func(
+            gpr.as_mut_ptr(), &mut cpsr, &mut pc_out,
+            &bus as *const TestBus as *mut u8,
+        );
+        assert_eq!(taken, 1);
+        assert_eq!(pc_out, 0x0800_1011);
+        assert_eq!(gpr[4], 0xCAFE);
+        assert_eq!(gpr[13], 0x58, "SP += 8 (1 reg + PC)");
+        unsafe {
+            let b = &*bus.bytes.get();
+            assert_eq!(u32::from_le_bytes([b[0x60], b[0x61], b[0x62], b[0x63]]), 1,
+                       "STR wrote R0=1 to SP+0x10=0x60");
+        }
+    }
+
+    #[test]
+    fn unified_thumb_bcc_not_taken_keeps_going() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        // BEQ +4 with Z=0 -> not taken, pc_out untouched, return 0.
+        let func = compiler
+            .try_compile_thumb_mem_block_with_branch(&[0xD002], 0x0800_4000)
+            .unwrap();
+        let mut gpr = [0u32; 15];
+        let mut cpsr = 0u32;
+        let mut pc_out = 0xC0FF_EE00u32;
+        let taken = func(
+            gpr.as_mut_ptr(), &mut cpsr, &mut pc_out,
+            &bus as *const TestBus as *mut u8,
+        );
+        assert_eq!(taken, 0);
+        assert_eq!(pc_out, 0xC0FF_EE00);
+    }
+
+    #[test]
+    fn unified_thumb_rejects_mid_block_terminator() {
+        let (_bus, mut compiler) = new_bus_and_compiler();
+        // BX followed by MOV -> BX not in last slot -> reject.
+        assert!(compiler
+            .try_compile_thumb_mem_block_with_branch(&[0x4770, 0x2001], 0)
+            .is_none());
+        // POP{PC} in middle, same.
+        assert!(compiler
+            .try_compile_thumb_mem_block_with_branch(&[0xBD00, 0x2001], 0)
+            .is_none());
+    }
+
+    #[test]
+    fn unified_thumb_requires_bus() {
+        let mut compiler = DynarecCompiler::new();
+        assert!(compiler
+            .try_compile_thumb_mem_block_with_branch(&[0x2005], 0)
+            .is_none());
     }
 
     // --- Thumb POP {regs, pc} terminator ---
