@@ -512,7 +512,7 @@ impl BusIO for SysBus {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn read_16(&mut self, addr: Addr) -> u16 {
         match addr & 0xff000000 {
             BIOS_ADDR => {
