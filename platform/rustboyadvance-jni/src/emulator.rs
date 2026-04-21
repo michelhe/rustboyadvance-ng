@@ -2,6 +2,8 @@ use rustboyadvance_core::prelude::*;
 use rustboyadvance_utils::FpsCounter;
 use rustboyadvance_utils::audio::SampleConsumer;
 
+use std::fs::File;
+use std::io::{BufWriter, Read, Write};
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -139,6 +141,94 @@ fn create_audio(
     ))
 }
 
+/// RBAREC01 file format: magic + (cycle: u64 LE, state: u16 LE) records.
+/// Same format the SDL frontend emits and fps_bench reads.
+const REC_MAGIC: &[u8; 8] = b"RBAREC01";
+
+/// Appends keypad edges to a file as the emulator sees them. Only records
+/// when the state actually changed vs the previous sample so the file stays
+/// small.
+struct Recorder {
+    w: BufWriter<File>,
+    last_state: u16,
+}
+
+impl Recorder {
+    fn open(path: &str) -> std::io::Result<Self> {
+        let f = File::create(path)?;
+        let mut w = BufWriter::new(f);
+        w.write_all(REC_MAGIC)?;
+        Ok(Recorder { w, last_state: 0 })
+    }
+
+    /// Called once per frame with the current keypad state and the
+    /// emulator's cycle counter. Writes a record only on an edge.
+    fn observe(&mut self, cycle: u64, state: u16) -> std::io::Result<()> {
+        if state == self.last_state {
+            return Ok(());
+        }
+        self.w.write_all(&cycle.to_le_bytes())?;
+        self.w.write_all(&state.to_le_bytes())?;
+        self.last_state = state;
+        Ok(())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.w.flush()
+    }
+}
+
+/// Plays back a recording against the emulator. `apply_due` returns the
+/// state the emulator should use for the upcoming frame, overriding
+/// whatever the Java keypad says.
+struct Replayer {
+    events: Vec<(u64, u16)>, // (cycle, state)
+    cursor: usize,
+    current_state: u16,
+}
+
+impl Replayer {
+    fn load(path: &str) -> std::io::Result<Self> {
+        let mut f = File::open(path)?;
+        let mut magic = [0u8; 8];
+        f.read_exact(&mut magic)?;
+        if &magic != REC_MAGIC {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "recording magic mismatch",
+            ));
+        }
+        let mut events = Vec::new();
+        let mut buf = [0u8; 10];
+        loop {
+            match f.read_exact(&mut buf) {
+                Ok(()) => {
+                    let c = u64::from_le_bytes(buf[0..8].try_into().unwrap());
+                    let s = u16::from_le_bytes(buf[8..10].try_into().unwrap());
+                    events.push((c, s));
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(Replayer { events, cursor: 0, current_state: 0 })
+    }
+
+    /// Advance through events whose cycle has already passed, letting
+    /// later events win. Returns the state to hand to the emulator.
+    fn apply_due(&mut self, now: u64) -> u16 {
+        while self.cursor < self.events.len() && self.events[self.cursor].0 <= now {
+            self.current_state = self.events[self.cursor].1;
+            self.cursor += 1;
+        }
+        self.current_state
+    }
+
+    fn exhausted(&self) -> bool {
+        self.cursor >= self.events.len()
+    }
+}
+
 pub struct EmulatorContext {
     audio_consumer: Option<SampleConsumer>,
     renderer: Renderer,
@@ -146,6 +236,12 @@ pub struct EmulatorContext {
     keypad: Keypad,
     pub emustate: Mutex<EmulationState>,
     pub gba: GameBoyAdvance,
+    /// On-device keypad recorder. When Some, every frame writes an edge
+    /// record to the backing file. None means no recording.
+    recorder: Mutex<Option<Recorder>>,
+    /// On-device keypad replayer. When Some, every frame overrides the
+    /// keypad state with the replayer's next event.
+    replayer: Mutex<Option<Replayer>>,
 }
 
 impl EmulatorContext {
@@ -201,6 +297,8 @@ impl EmulatorContext {
             audio_player_ref,
             emustate: Mutex::new(EmulationState::default()),
             audio_consumer: Some(audio_consumer),
+            recorder: Mutex::new(None),
+            replayer: Mutex::new(None),
         };
         Ok(context)
     }
@@ -246,6 +344,8 @@ impl EmulatorContext {
             audio_player_ref,
             emustate: Mutex::new(EmulationState::default()),
             audio_consumer: Some(audio_consumer),
+            recorder: Mutex::new(None),
+            replayer: Mutex::new(None),
         })
     }
 
@@ -300,8 +400,23 @@ impl EmulatorContext {
             };
 
             let start_time = Instant::now();
-            // check key state
-            *self.gba.get_key_state_mut() = self.keypad.get_key_state(env);
+            // check key state: live from the Java keypad unless a replay
+            // session is active, in which case the replay file overrides.
+            let live_state = self.keypad.get_key_state(env);
+            let gba_cycles = self.gba.cycles() as u64;
+            let effective_state = {
+                let mut replayer = self.replayer.lock().unwrap();
+                if let Some(r) = replayer.as_mut() {
+                    r.apply_due(gba_cycles)
+                } else {
+                    live_state
+                }
+            };
+            *self.gba.get_key_state_mut() = effective_state;
+            // If recording, log any edge the emulator saw this frame.
+            if let Some(rec) = self.recorder.lock().unwrap().as_mut() {
+                let _ = rec.observe(gba_cycles, effective_state);
+            }
 
             // run frame
             self.gba.frame();
@@ -376,6 +491,48 @@ impl EmulatorContext {
 
     pub fn set_turbo(&mut self, turbo: bool) {
         *self.emustate.lock().unwrap() = EmulationState::Running(turbo);
+    }
+
+    /// Begin recording keypad edges to the file at `path`. Overwrites any
+    /// existing recording. Stops and discards an active replay session.
+    pub fn start_recording(&self, path: &str) -> Result<(), String> {
+        *self.replayer.lock().unwrap() = None;
+        match Recorder::open(path) {
+            Ok(r) => {
+                *self.recorder.lock().unwrap() = Some(r);
+                info!("recording keypad to {}", path);
+                Ok(())
+            }
+            Err(e) => Err(format!("could not open {} for recording: {}", path, e)),
+        }
+    }
+
+    /// Flushes and closes the active recorder, if any.
+    pub fn stop_recording(&self) {
+        if let Some(mut r) = self.recorder.lock().unwrap().take() {
+            let _ = r.flush();
+            info!("recording stopped");
+        }
+    }
+
+    /// Load a recording from `path` and start feeding its events into the
+    /// emulator. Stops any active recording session first.
+    pub fn start_replay(&self, path: &str) -> Result<(), String> {
+        *self.recorder.lock().unwrap() = None;
+        match Replayer::load(path) {
+            Ok(r) => {
+                info!("replaying {} events from {}", r.events.len(), path);
+                *self.replayer.lock().unwrap() = Some(r);
+                Ok(())
+            }
+            Err(e) => Err(format!("could not open {} for replay: {}", path, e)),
+        }
+    }
+
+    /// Stop an active replay session.
+    pub fn stop_replay(&self) {
+        let _ = self.replayer.lock().unwrap().take();
+        info!("replay stopped");
     }
 
     pub fn request_stop(&mut self) {

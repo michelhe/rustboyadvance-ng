@@ -54,6 +54,13 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
     private AndroidAudioPlayer audioPlayer;
     private byte[] on_resume_saved_state = null;
 
+    /// Fixed recording file path. Lives under the app's external Downloads
+    /// so it's easy to pull with adb or share. Users who want multiple
+    /// recordings rename the file between sessions.
+    private static final String REC_FILE_PATH = "/sdcard/Download/rbarec.rec";
+    private boolean isRecording = false;
+    private boolean isReplaying = false;
+
     private Emulator emulator;
     private ScreenView screenView;
     private CompoundButton turboButton;
@@ -393,6 +400,7 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         super.onCreateOptionsMenu(menu);
+        this.menu = menu;
         getMenuInflater().inflate(R.menu.menu_emulator, menu);
         return true;
     }
@@ -411,6 +419,12 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
             return true;
         } else if (id == R.id.action_set_library_image) {
             doSaveScreenshotToLibrary();
+            return true;
+        } else if (id == R.id.action_record_toggle) {
+            toggleRecording(item);
+            return true;
+        } else if (id == R.id.action_replay_toggle) {
+            toggleReplay(item);
             return true;
         } else if (id == R.id.action_settings) {
             Intent intent = new Intent(this, SettingsActivity.class);
@@ -474,6 +488,56 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
         screenView.onResume();
         resumeEmulation();
         audioPlayer.play();
+    }
+
+    private void toggleRecording(MenuItem item) {
+        if (!isEmulatorRunning()) {
+            Toast.makeText(this, "No game is running!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        long ctx = emulator.getCtx();
+        if (!isRecording) {
+            if (isReplaying) {
+                EmulatorBindings.stopReplay(ctx);
+                isReplaying = false;
+                MenuItem replayItem = menu.findItem(R.id.action_replay_toggle);
+                if (replayItem != null) replayItem.setTitle(R.string.action_replay_start);
+            }
+            EmulatorBindings.startRecording(ctx, REC_FILE_PATH);
+            isRecording = true;
+            item.setTitle(R.string.action_record_stop);
+            Toast.makeText(this, "Recording to " + REC_FILE_PATH, Toast.LENGTH_SHORT).show();
+        } else {
+            EmulatorBindings.stopRecording(ctx);
+            isRecording = false;
+            item.setTitle(R.string.action_record_start);
+            Toast.makeText(this, "Recording saved", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void toggleReplay(MenuItem item) {
+        if (!isEmulatorRunning()) {
+            Toast.makeText(this, "No game is running!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        long ctx = emulator.getCtx();
+        if (!isReplaying) {
+            if (isRecording) {
+                EmulatorBindings.stopRecording(ctx);
+                isRecording = false;
+                MenuItem recItem = menu.findItem(R.id.action_record_toggle);
+                if (recItem != null) recItem.setTitle(R.string.action_record_start);
+            }
+            EmulatorBindings.startReplay(ctx, REC_FILE_PATH);
+            isReplaying = true;
+            item.setTitle(R.string.action_replay_stop);
+            Toast.makeText(this, "Replaying " + REC_FILE_PATH, Toast.LENGTH_SHORT).show();
+        } else {
+            EmulatorBindings.stopReplay(ctx);
+            isReplaying = false;
+            item.setTitle(R.string.action_replay_start);
+            Toast.makeText(this, "Replay stopped", Toast.LENGTH_SHORT).show();
+        }
     }
 
     public void doSaveScreenshotToLibrary() {

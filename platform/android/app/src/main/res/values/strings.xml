@@ -16,6 +16,11 @@
     <string name="action_delete">Delete</string>
     <string name="action_set_library_image"> Take screenshot for library view </string>
 
+    <string name="action_record_start">Start Recording</string>
+    <string name="action_record_stop">Stop Recording</string>
+    <string name="action_replay_start">Start Replay</string>
+    <string name="action_replay_stop">Stop Replay</string>
+
     <string name="title_activity_snapshot">Snapshot Manager</string>
 
     <string name="color_correction_setting">Apply color correction shader</string>
