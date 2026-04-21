@@ -43,6 +43,10 @@ pub type BusLoad32Fn = unsafe extern "C" fn(*mut u8, u32) -> u32;
 pub type BusStore32Fn = unsafe extern "C" fn(*mut u8, u32, u32);
 pub type BusLoad8Fn = unsafe extern "C" fn(*mut u8, u32) -> u32;
 pub type BusStore8Fn = unsafe extern "C" fn(*mut u8, u32, u32);
+/// Pay scheduler cycles for N Thumb fetches and update CPU pipeline/pc.
+/// Called once at each compiled Thumb block's entry so cycle accounting
+/// stays parity-correct with the interpreter.
+pub type BusThumbFetchNFn = unsafe extern "C" fn(*mut u8, u32, u32);
 
 /// Generic bus trampolines. Instantiate with the concrete MemoryInterface
 /// type of your CPU. The `cpu_ctx` opaque pointer passed to the dynarec
@@ -128,6 +132,7 @@ pub mod trampolines {
             store_32: store_32::<I>,
             load_8: load_8::<I>,
             store_8: store_8::<I>,
+            thumb_fetch_n: thumb_fetch_n::<I>,
         }
     }
 }
@@ -141,6 +146,7 @@ pub struct BusTrampolines {
     pub store_32: BusStore32Fn,
     pub load_8: BusLoad8Fn,
     pub store_8: BusStore8Fn,
+    pub thumb_fetch_n: BusThumbFetchNFn,
 }
 
 /// Handle to a Cranelift JIT module. One per CPU instance; freed on CPU drop.
@@ -167,6 +173,7 @@ struct BusImports {
     store_32: FuncId,
     load_8: FuncId,
     store_8: FuncId,
+    thumb_fetch_n: FuncId,
 }
 
 impl DynarecCompiler {
@@ -196,10 +203,11 @@ impl DynarecCompiler {
         // declare_function(Linkage::Import, ...) can resolve to the real
         // rust side fn pointers at link time.
         if let Some(b) = bus {
-            jit_builder.symbol("rba_bus_load_32",  b.load_32  as *const u8);
-            jit_builder.symbol("rba_bus_store_32", b.store_32 as *const u8);
-            jit_builder.symbol("rba_bus_load_8",   b.load_8   as *const u8);
-            jit_builder.symbol("rba_bus_store_8",  b.store_8  as *const u8);
+            jit_builder.symbol("rba_bus_load_32",       b.load_32       as *const u8);
+            jit_builder.symbol("rba_bus_store_32",      b.store_32      as *const u8);
+            jit_builder.symbol("rba_bus_load_8",        b.load_8        as *const u8);
+            jit_builder.symbol("rba_bus_store_8",       b.store_8       as *const u8);
+            jit_builder.symbol("rba_thumb_fetch_n",     b.thumb_fetch_n as *const u8);
         }
 
         let mut module = JITModule::new(jit_builder);
@@ -243,7 +251,16 @@ impl DynarecCompiler {
                 .declare_function("rba_bus_store_8", Linkage::Import, &sig_store_8)
                 .expect("declare store_8 failed");
 
-            BusImports { load_32, store_32, load_8, store_8 }
+            // thumb_fetch_n: extern "C" fn(*mut u8, u32, u32)
+            let mut sig_fetch_n = module.make_signature();
+            sig_fetch_n.params.push(AbiParam::new(ptr_ty));
+            sig_fetch_n.params.push(AbiParam::new(types::I32));
+            sig_fetch_n.params.push(AbiParam::new(types::I32));
+            let thumb_fetch_n = module
+                .declare_function("rba_thumb_fetch_n", Linkage::Import, &sig_fetch_n)
+                .expect("declare thumb_fetch_n failed");
+
+            BusImports { load_32, store_32, load_8, store_8, thumb_fetch_n }
         });
 
         DynarecCompiler {
@@ -1384,6 +1401,21 @@ impl DynarecCompiler {
                 self.module.declare_func_in_func(imports.load_8, builder.func);
             let store_8_ref =
                 self.module.declare_func_in_func(imports.store_8, builder.func);
+            let fetch_n_ref =
+                self.module.declare_func_in_func(imports.thumb_fetch_n, builder.func);
+
+            // Pay fetch cycles for the whole block up front and let the
+            // trampoline stage pipeline[0/1] + pc + next_fetch_access so
+            // the register-only block body can run without any further
+            // bus access on the instruction side. first_fetch_pc is
+            // block_start_addr + 4 per the Thumb pipeline-head convention;
+            // entry_pc in this compile API is block_start_addr.
+            let total_count = (body.len() as u32) + 1; // body + tail
+            let first_fetch_pc_val = builder
+                .ins()
+                .iconst(types::I32, (entry_pc.wrapping_add(4)) as i64);
+            let count_val = builder.ins().iconst(types::I32, total_count as i64);
+            builder.ins().call(fetch_n_ref, &[cpu_ctx, first_fetch_pc_val, count_val]);
 
             let emit_body = |builder: &mut FunctionBuilder, item: &Body| {
                 match item {
@@ -3715,6 +3747,11 @@ mod tests {
         let bytes = &mut *bus.bytes.get();
         bytes[addr as usize & 0xFF] = val as u8;
     }
+    /// Noop stand-in for the fetch-cycle trampoline. Real integration
+    /// supplies `trampolines::thumb_fetch_n::<I>` which requires ctx to
+    /// be a real Arm7tdmiCore; these unit tests use a TestBus so the
+    /// stub intentionally does nothing.
+    unsafe extern "C" fn test_thumb_fetch_n(_ctx: *mut u8, _pc: u32, _count: u32) {}
 
     fn test_trampolines() -> BusTrampolines {
         BusTrampolines {
@@ -3722,6 +3759,7 @@ mod tests {
             store_32: test_store_32,
             load_8: test_load_8,
             store_8: test_store_8,
+            thumb_fetch_n: test_thumb_fetch_n,
         }
     }
 
