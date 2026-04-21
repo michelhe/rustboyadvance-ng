@@ -168,6 +168,38 @@ pub struct SysBus {
 
 pub type SysBusPtr = WeakPointer<SysBus>;
 
+/// Result of resolving a DMA endpoint to a raw byte pointer plus the
+/// per-access cycle costs we'll use to charge the scheduler. Generic
+/// over `*const u8` (source) vs `*mut u8` (destination); the actual
+/// width-aware cycle pickup happens in `pick_dma_cycle_counts` so the
+/// fast path uses the same LUT row the scalar `add_cycles` would.
+#[derive(Copy, Clone)]
+struct BulkRegion<P> {
+    ptr: P,
+    n_cycles: usize,
+    s_cycles: usize,
+}
+
+type BulkSrc = BulkRegion<*const u8>;
+type BulkDst = BulkRegion<*mut u8>;
+
+/// Match the scalar `add_cycles` LUT pick: 32-bit accesses use the
+/// 32-bit cycle row, otherwise the 16-bit row. EWRAM in particular has
+/// `n_cycles32 = 6` vs `n_cycles16 = 3`, so a 32-bit DMA into EWRAM
+/// must charge the 32-bit row to stay equivalent to the slow path.
+#[inline]
+fn pick_dma_cycle_counts(
+    luts: &CycleLookupTables,
+    page: usize,
+    word_size_bytes: u32,
+) -> (usize, usize) {
+    if word_size_bytes == 4 {
+        (luts.n_cycles32[page], luts.s_cycles32[page])
+    } else {
+        (luts.n_cycles16[page], luts.s_cycles16[page])
+    }
+}
+
 impl SchedulerConnect for SysBus {
     fn connect_scheduler(&mut self, scheduler: SharedScheduler) {
         self.scheduler = scheduler.clone();
@@ -255,16 +287,17 @@ impl SysBus {
     /// DMA fast path: if `src` and `dst` each sit in a contiguous, linearly
     /// addressable memory region we own (EWRAM / IWRAM / ROM-on-cartridge),
     /// and the transfer doesn't cross the region boundary, perform the copy
-    /// as a single `copy_from_slice` and advance the scheduler once for the
-    /// whole burst instead of calling `load_N` / `store_N` per word.
+    /// as a single `ptr::copy` and advance the scheduler once for the whole
+    /// burst instead of calling `load_N` / `store_N` per word.
     ///
     /// Returns `true` if the fast path handled the transfer; `false` means
     /// the caller must fall back to the scalar word-by-word loop.
     ///
     /// Matches the slow path's cycle accounting: first access is Non-Seq,
     /// subsequent accesses are Seq, counted for both the source fetch and
-    /// the destination store. VRAM/Palette/OAM/IO regions are deliberately
-    /// left to the slow path — they have side effects, mirroring rules, or
+    /// the destination store, picking the 32 vs 16 bit LUT row from
+    /// `word_size_bytes`. VRAM/Palette/OAM/IO regions are deliberately left
+    /// to the slow path — they have side effects, mirroring rules, or
     /// privileged write gating that a raw copy would skip.
     pub fn dma_bulk_copy(
         &mut self,
@@ -282,35 +315,41 @@ impl SysBus {
         // allow writable RAM regions our fast path knows how to address.
         let byte_len = word_count * word_size_bytes;
 
-        // Returns (slice, starts_non_seq_cycles, seq_cycles) for the src region.
-        let src_region = self.resolve_bulk_src(src_addr, byte_len);
-        let Some((src_ptr_range, src_n_cycles, src_s_cycles)) = src_region else {
+        let Some(src) = self.resolve_bulk_src(src_addr, byte_len, word_size_bytes) else {
+            return false;
+        };
+        let Some(dst) = self.resolve_bulk_dst(dst_addr, byte_len, word_size_bytes) else {
             return false;
         };
 
-        let dst_region = self.resolve_bulk_dst(dst_addr, byte_len);
-        let Some((dst_ptr_range, dst_n_cycles, dst_s_cycles)) = dst_region else {
+        // Overlap check: src and dst may land in the same RAM region (e.g.
+        // legal in-place EWRAM-to-EWRAM shift like DMA3 0x02000100 ->
+        // 0x02000104). The scalar word-by-word loop produces "cascading"
+        // semantics where each store overwrites the next read's source —
+        // a memcpy/memmove would NOT match those bytes. Bail to the scalar
+        // path when the byte ranges actually overlap so behavior stays
+        // bit-identical with the slow path.
+        let src_start = src.ptr as usize;
+        let dst_start = dst.ptr as usize;
+        let len = byte_len as usize;
+        if src_start < dst_start + len && dst_start < src_start + len {
             return false;
-        };
+        }
 
-        // SAFETY: resolve_bulk_{src,dst} returned ranges inside distinct owned
-        // byte buffers (ewram, iwram, cartridge). We borrow them through raw
-        // pointers to avoid fighting the borrow checker over &self.* / &mut
-        // self.* on distinct fields. No aliasing: src is either in ROM (no
-        // aliasing possible) or in ewram/iwram distinct from dst's region.
+        // SAFETY: resolve_bulk_{src,dst} returned in-bounds offsets inside
+        // owned byte buffers (ewram, iwram, cartridge), and the overlap
+        // check above guarantees the source and destination byte ranges
+        // are disjoint, so copy_nonoverlapping is sound here.
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                src_ptr_range,
-                dst_ptr_range,
-                byte_len as usize,
-            );
+            std::ptr::copy_nonoverlapping(src.ptr, dst.ptr, len);
         }
 
         // Cycle accounting: one N + (count-1) S for each of the source fetch
-        // and the destination store, using the per-region widths from our
-        // cycle LUT (which the scalar path also uses via `add_cycles`).
-        let total_read_cycles = src_n_cycles + src_s_cycles * (word_count as usize - 1);
-        let total_write_cycles = dst_n_cycles + dst_s_cycles * (word_count as usize - 1);
+        // and the destination store, using the per-region per-width values
+        // from our cycle LUT (which the scalar path also uses via
+        // `add_cycles`).
+        let total_read_cycles = src.n_cycles + src.s_cycles * (word_count as usize - 1);
+        let total_write_cycles = dst.n_cycles + dst.s_cycles * (word_count as usize - 1);
         self.scheduler.update(total_read_cycles + total_write_cycles);
 
         // RAM regions can hold executable code — any write may invalidate a
@@ -324,39 +363,33 @@ impl SysBus {
         true
     }
 
-    /// Resolve a source DMA address into a (raw-ptr, n-cycles, s-cycles)
-    /// triple. Returns None if the address doesn't fall in a region we can
-    /// fast-path or if the length would overflow the region.
+    /// Resolve a source DMA address into a `BulkSrc` (pointer + per-access
+    /// cycle counts). Returns None if the address doesn't fall in a region
+    /// we can fast-path or if the length would overflow the region.
     fn resolve_bulk_src(
         &self,
         src_addr: u32,
         byte_len: u32,
-    ) -> Option<(*const u8, usize, usize)> {
+        word_size_bytes: u32,
+    ) -> Option<BulkSrc> {
         let page = ((src_addr >> 24) & 0xF) as usize;
+        let (n_cycles, s_cycles) = pick_dma_cycle_counts(&self.cycle_luts, page, word_size_bytes);
         match src_addr & 0xff000000 {
             EWRAM_ADDR => {
-                let off = (src_addr & 0x3_ffff) as usize;
+                let off = (src_addr as usize) & (WORK_RAM_SIZE - 1);
                 if off + byte_len as usize > self.ewram.len() {
                     return None;
                 }
-                let p = unsafe { self.ewram.as_ptr().add(off) };
-                Some((
-                    p,
-                    self.cycle_luts.n_cycles16[page],
-                    self.cycle_luts.s_cycles16[page],
-                ))
+                let ptr = unsafe { self.ewram.as_ptr().add(off) };
+                Some(BulkRegion { ptr, n_cycles, s_cycles })
             }
             IWRAM_ADDR => {
-                let off = (src_addr & 0x7fff) as usize;
+                let off = (src_addr as usize) & (INTERNAL_RAM_SIZE - 1);
                 if off + byte_len as usize > self.iwram.len() {
                     return None;
                 }
-                let p = unsafe { self.iwram.as_ptr().add(off) };
-                Some((
-                    p,
-                    self.cycle_luts.n_cycles16[page],
-                    self.cycle_luts.s_cycles16[page],
-                ))
+                let ptr = unsafe { self.iwram.as_ptr().add(off) };
+                Some(BulkRegion { ptr, n_cycles, s_cycles })
             }
             // ROM: read-only, side-effect-free, but we must be careful not to
             // cross a 128 KiB "force-non-seq" cartridge boundary (GBATEK). For
@@ -376,12 +409,8 @@ impl SysBus {
                 if off + byte_len as usize > rom.len() {
                     return None;
                 }
-                let p = unsafe { rom.as_ptr().add(off) };
-                Some((
-                    p,
-                    self.cycle_luts.n_cycles16[page],
-                    self.cycle_luts.s_cycles16[page],
-                ))
+                let ptr = unsafe { rom.as_ptr().add(off) };
+                Some(BulkRegion { ptr, n_cycles, s_cycles })
             }
             _ => None,
         }
@@ -392,32 +421,33 @@ impl SysBus {
         &mut self,
         dst_addr: u32,
         byte_len: u32,
-    ) -> Option<(*mut u8, usize, usize)> {
+        _word_size_bytes: u32,
+    ) -> Option<BulkDst> {
         let page = ((dst_addr >> 24) & 0xF) as usize;
+        // TODO: this should match `_word_size_bytes` like resolve_bulk_src
+        // does, but the scalar `store_32` and `store_16` impls (sysbus.rs:752,
+        // 758) both call `add_cycles` with `MemoryAccessWidth::MemoryAccess8`
+        // which routes to the 16-bit cycle row regardless of width. To stay
+        // bit-identical with the scalar path (the whole point of the fast
+        // path), we mirror that quirk here. Fix the scalar `store_*` impls
+        // first, then promote this to width-correct in a follow-up.
+        let (n_cycles, s_cycles) = pick_dma_cycle_counts(&self.cycle_luts, page, 2);
         match dst_addr & 0xff000000 {
             EWRAM_ADDR => {
-                let off = (dst_addr & 0x3_ffff) as usize;
+                let off = (dst_addr as usize) & (WORK_RAM_SIZE - 1);
                 if off + byte_len as usize > self.ewram.len() {
                     return None;
                 }
-                let p = unsafe { self.ewram.as_mut_ptr().add(off) };
-                Some((
-                    p,
-                    self.cycle_luts.n_cycles16[page],
-                    self.cycle_luts.s_cycles16[page],
-                ))
+                let ptr = unsafe { self.ewram.as_mut_ptr().add(off) };
+                Some(BulkRegion { ptr, n_cycles, s_cycles })
             }
             IWRAM_ADDR => {
-                let off = (dst_addr & 0x7fff) as usize;
+                let off = (dst_addr as usize) & (INTERNAL_RAM_SIZE - 1);
                 if off + byte_len as usize > self.iwram.len() {
                     return None;
                 }
-                let p = unsafe { self.iwram.as_mut_ptr().add(off) };
-                Some((
-                    p,
-                    self.cycle_luts.n_cycles16[page],
-                    self.cycle_luts.s_cycles16[page],
-                ))
+                let ptr = unsafe { self.iwram.as_mut_ptr().add(off) };
+                Some(BulkRegion { ptr, n_cycles, s_cycles })
             }
             _ => None,
         }
@@ -779,5 +809,207 @@ impl MemoryInterface for SysBus {
 impl DmaNotifer for SysBus {
     fn notify(&mut self, timing: u16) {
         self.io.dmac.notify_from_gpu(timing);
+    }
+}
+
+#[cfg(test)]
+mod dma_bulk_tests {
+    //! Equivalence tests for `dma_bulk_copy`: for each region/size combo
+    //! we exercise, run BOTH the fast path and a hand rolled scalar
+    //! `load_N` / `store_N` loop on identical pre states, then assert
+    //! the destination bytes and the scheduler delta agree. Catches:
+    //!  - cycle accounting drift (16-bit row used for 32-bit DMA, etc)
+    //!  - aliasing / overlap UB if `copy_nonoverlapping` ever returns
+    //!  - region resolver off-by-one (boundary, wraparound mask)
+    use super::*;
+    use crate::cartridge::GamepakBuilder;
+    use crate::sound::interface::DynAudioInterface;
+    use crate::sound::interface::SimpleAudioInterface;
+
+    /// Smallest valid GBA cartridge header so `GamepakBuilder` accepts
+    /// the ROM. Most fields are zeroed; we only need the magic so the
+    /// build doesn't fail. ROM body is whatever caller provides.
+    fn build_test_rom(size: usize) -> Vec<u8> {
+        let mut rom = vec![0u8; size.max(0xc0)];
+        // Header is mostly don't care, but the entry-point branch and
+        // the Nintendo logo (0x04..=0x9f) are checksum-relevant. The
+        // GamepakBuilder does basic sanity, no checksum, so we skip the
+        // logo. Game title at 0xa0..=0xab, code at 0xac..=0xaf, "GBA "
+        // is enough.
+        rom[0xa0..0xa0 + 4].copy_from_slice(b"TEST");
+        rom[0xac..0xac + 4].copy_from_slice(b"TEST");
+        rom
+    }
+
+    fn make_test_sysbus() -> SysBus {
+        // Minimal viable construction. We just need the cycle LUTs, the
+        // ewram/iwram buffers, and a working scheduler. No CPU is
+        // attached, so any code path that touches arm_core would panic
+        // — dma_bulk_copy doesn't.
+        let bios = vec![0u8; 0x4000].into_boxed_slice();
+        let rom = build_test_rom(0x10_0000); // 1 MiB
+        let cartridge = GamepakBuilder::new()
+            .take_buffer(rom.into_boxed_slice())
+            .with_sram()
+            .without_backup_to_file()
+            .build()
+            .unwrap();
+
+        let scheduler = Scheduler::new_shared();
+        let (audio, _) = SimpleAudioInterface::create_channel(44100, None);
+        let audio_iface: DynAudioInterface = Box::new(*audio);
+        let io = Shared::new(IoDevices::new(
+            crate::interrupt::InterruptController::new(std::rc::Rc::new(std::cell::Cell::new(
+                crate::interrupt::IrqBitmask(0),
+            ))),
+            Box::new(crate::gpu::Gpu::new(
+                &mut scheduler.clone(),
+                std::rc::Rc::new(std::cell::Cell::new(crate::interrupt::IrqBitmask(0))),
+            )),
+            crate::dma::DmaController::new(std::rc::Rc::new(std::cell::Cell::new(
+                crate::interrupt::IrqBitmask(0),
+            ))),
+            crate::timer::Timers::new(std::rc::Rc::new(std::cell::Cell::new(
+                crate::interrupt::IrqBitmask(0),
+            ))),
+            Box::new(crate::sound::SoundController::new(
+                &mut scheduler.clone(),
+                audio_iface.get_sample_rate() as f32,
+            )),
+            scheduler.clone(),
+        ));
+        SysBus::new(scheduler, io, bios, cartridge)
+    }
+
+    /// Hand-rolled scalar equivalent to dma.rs's word loop, run against
+    /// `sb`'s actual buses + scheduler so cycle accounting goes through
+    /// the same `add_cycles` LUT path the production code uses.
+    fn scalar_dma(sb: &mut SysBus, src: u32, dst: u32, count: u32, word_size: u32) {
+        let mut access = MemoryAccess::NonSeq;
+        for i in 0..count {
+            let s = src + i * word_size;
+            let d = dst + i * word_size;
+            if word_size == 4 {
+                let v = sb.load_32(s & !3, access);
+                sb.store_32(d & !3, v, access);
+            } else {
+                let v = sb.load_16(s & !1, access);
+                sb.store_16(d & !1, v, access);
+            }
+            access = MemoryAccess::Seq;
+        }
+    }
+
+    fn fill_ewram(sb: &mut SysBus, off: usize, pattern: u8, len: usize) {
+        for i in 0..len {
+            sb.ewram[off + i] = pattern.wrapping_add(i as u8);
+        }
+    }
+
+    /// Read back a window of EWRAM as bytes for cmp.
+    fn snapshot_ewram(sb: &SysBus, off: usize, len: usize) -> Vec<u8> {
+        sb.ewram[off..off + len].to_vec()
+    }
+
+    #[test]
+    fn ewram_to_ewram_32bit_matches_scalar() {
+        let count: u32 = 128;
+        let word_size: u32 = 4;
+        let src = EWRAM_ADDR + 0x100;
+        let dst = EWRAM_ADDR + 0x800;
+
+        let mut sb_fast = make_test_sysbus();
+        fill_ewram(&mut sb_fast, 0x100, 0x10, (count * word_size) as usize);
+        let t_before_fast = sb_fast.scheduler.timestamp();
+        let handled = sb_fast.dma_bulk_copy(src, dst, count, word_size);
+        assert!(handled, "fast path should handle this");
+        let cycles_fast = sb_fast.scheduler.timestamp() - t_before_fast;
+        let bytes_fast = snapshot_ewram(&sb_fast, 0x800, (count * word_size) as usize);
+
+        let mut sb_scalar = make_test_sysbus();
+        fill_ewram(&mut sb_scalar, 0x100, 0x10, (count * word_size) as usize);
+        let t_before_scalar = sb_scalar.scheduler.timestamp();
+        scalar_dma(&mut sb_scalar, src, dst, count, word_size);
+        let cycles_scalar = sb_scalar.scheduler.timestamp() - t_before_scalar;
+        let bytes_scalar = snapshot_ewram(&sb_scalar, 0x800, (count * word_size) as usize);
+
+        assert_eq!(bytes_fast, bytes_scalar, "destination bytes must match scalar");
+        assert_eq!(
+            cycles_fast, cycles_scalar,
+            "scheduler delta must match scalar (the bug: 32-bit DMA was using the 16-bit cycle row)"
+        );
+    }
+
+    #[test]
+    fn ewram_to_ewram_16bit_matches_scalar() {
+        let count: u32 = 64;
+        let word_size: u32 = 2;
+        let src = EWRAM_ADDR + 0x40;
+        let dst = EWRAM_ADDR + 0x400;
+
+        let mut sb_fast = make_test_sysbus();
+        fill_ewram(&mut sb_fast, 0x40, 0x55, (count * word_size) as usize);
+        let t0 = sb_fast.scheduler.timestamp();
+        assert!(sb_fast.dma_bulk_copy(src, dst, count, word_size));
+        let cycles_fast = sb_fast.scheduler.timestamp() - t0;
+        let bytes_fast = snapshot_ewram(&sb_fast, 0x400, (count * word_size) as usize);
+
+        let mut sb_scalar = make_test_sysbus();
+        fill_ewram(&mut sb_scalar, 0x40, 0x55, (count * word_size) as usize);
+        let t0 = sb_scalar.scheduler.timestamp();
+        scalar_dma(&mut sb_scalar, src, dst, count, word_size);
+        let cycles_scalar = sb_scalar.scheduler.timestamp() - t0;
+        let bytes_scalar = snapshot_ewram(&sb_scalar, 0x400, (count * word_size) as usize);
+
+        assert_eq!(bytes_fast, bytes_scalar);
+        assert_eq!(cycles_fast, cycles_scalar);
+    }
+
+    #[test]
+    fn ewram_to_ewram_overlapping_forward_bails_to_scalar() {
+        // Forward shift inside one EWRAM region: src=0x100, dst=0x108,
+        // count=64 (32-bit). Source and dest byte ranges overlap. The
+        // GBA-correct semantic is the scalar word-by-word "cascading"
+        // copy where each store overwrites the next read's source —
+        // a memmove would NOT match those bytes, and copy_nonoverlapping
+        // would be UB. The fast path must bail to the scalar loop in
+        // this case.
+        let count: u32 = 64;
+        let word_size: u32 = 4;
+        let src = EWRAM_ADDR + 0x100;
+        let dst = EWRAM_ADDR + 0x108;
+
+        let mut sb = make_test_sysbus();
+        fill_ewram(&mut sb, 0x100, 0xa0, ((count + 4) * word_size) as usize);
+        assert!(
+            !sb.dma_bulk_copy(src, dst, count, word_size),
+            "overlapping ewram-to-ewram DMA must fall through to the scalar path \
+             so the cascading word-by-word semantics are preserved"
+        );
+    }
+
+    #[test]
+    fn ewram_to_iwram_32bit_matches_scalar() {
+        let count: u32 = 32;
+        let word_size: u32 = 4;
+        let src = EWRAM_ADDR + 0x200;
+        let dst = IWRAM_ADDR + 0x100;
+
+        let mut sb_fast = make_test_sysbus();
+        fill_ewram(&mut sb_fast, 0x200, 0xc3, (count * word_size) as usize);
+        let t0 = sb_fast.scheduler.timestamp();
+        assert!(sb_fast.dma_bulk_copy(src, dst, count, word_size));
+        let cycles_fast = sb_fast.scheduler.timestamp() - t0;
+        let dst_bytes_fast = sb_fast.iwram[0x100..0x100 + (count * word_size) as usize].to_vec();
+
+        let mut sb_scalar = make_test_sysbus();
+        fill_ewram(&mut sb_scalar, 0x200, 0xc3, (count * word_size) as usize);
+        let t0 = sb_scalar.scheduler.timestamp();
+        scalar_dma(&mut sb_scalar, src, dst, count, word_size);
+        let cycles_scalar = sb_scalar.scheduler.timestamp() - t0;
+        let dst_bytes_scalar = sb_scalar.iwram[0x100..0x100 + (count * word_size) as usize].to_vec();
+
+        assert_eq!(dst_bytes_fast, dst_bytes_scalar);
+        assert_eq!(cycles_fast, cycles_scalar);
     }
 }
