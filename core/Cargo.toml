@@ -62,3 +62,6 @@ elf_support = []
 debugger = ["nom", "rustyline", "fuzzy-matcher", "elf_support", "goblin", "arm7tdmi/debugger"]
 # See arm7tdmi/Cargo.toml for the feature description.
 cached_interp = ["arm7tdmi/cached_interp"]
+# Enables Cranelift-backed dynarec on the CPU's block cache. Implies
+# cached_interp (which provides the block cache scaffolding).
+dynarec = ["arm7tdmi/dynarec", "cached_interp"]

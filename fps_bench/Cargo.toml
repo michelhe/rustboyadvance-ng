@@ -13,3 +13,4 @@ clap = { version = "4", features = ["derive"] }
 # Pass-through so `cargo run -p fps_bench --features cached_interp <args>`
 # exercises the cached-interpreter path in the core crate.
 cached_interp = ["rustboyadvance-core/cached_interp"]
+dynarec = ["rustboyadvance-core/dynarec"]

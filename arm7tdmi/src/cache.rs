@@ -131,12 +131,25 @@ pub struct BlockCache<I: MemoryInterface> {
 /// Try to JIT compile the recorded block's Thumb instructions. Bails out
 /// (returns None) for any block that isn't all Thumb, or whose shapes the
 /// dynarec doesn't yet support.
+/// Minimum block length to attempt compilation. Short blocks (just a
+/// handful of instructions) don't amortize the fixed dispatch overhead
+/// of a compiled block entry: fetch_n trampoline call, cpsr
+/// load/store, extern C call through a fn pointer. Empirical: at 1
+/// instruction per block the dynarec is ~25% slower than the cached
+/// interpreter on pokeemerald; at >=4 instructions it pulls even or
+/// ahead. Gate compilation until we cross that line.
+#[cfg(feature = "dynarec")]
+const DYNAREC_MIN_BLOCK_LEN: usize = 4;
+
 #[cfg(feature = "dynarec")]
 fn try_compile_thumb<I: MemoryInterface>(
     compiler: &mut DynarecCompiler,
     block: &Block<I>,
 ) -> Option<CompiledThumbFn> {
     if !compiler.has_bus() {
+        return None;
+    }
+    if block.instrs.len() < DYNAREC_MIN_BLOCK_LEN {
         return None;
     }
     let mut raws: Vec<u16> = Vec::with_capacity(block.instrs.len());
@@ -149,8 +162,13 @@ fn try_compile_thumb<I: MemoryInterface>(
     if raws.is_empty() {
         return None;
     }
-    let entry_pc_word_aligned = block.entry_pc & !1;
-    compiler.try_compile_thumb_mem_block_with_branch(&raws, entry_pc_word_aligned)
+    // block.entry_pc is self.pc at step_block entry with the Thumb bit
+    // OR'd into bit 0. Masking off that bit gives the pipeline-head pc,
+    // which equals block_start_addr + 4 per Thumb pipeline convention.
+    // The dynarec compile API takes entry_pc = block_start_addr (what
+    // the unit tests use), so subtract 4 to match.
+    let block_start_addr = (block.entry_pc & !1).wrapping_sub(4);
+    compiler.try_compile_thumb_mem_block_with_branch(&raws, block_start_addr)
 }
 
 /// Classify a guest PC by memory region for the block-cache split.
@@ -280,7 +298,13 @@ impl<I: MemoryInterface> BlockCache<I> {
 
         #[cfg(feature = "dynarec")]
         {
-            if let Some(compiler) = self.compiler.as_mut() {
+            // Only compile ROM blocks. RAM blocks get flushed on every RAM
+            // write, so compilation would burn a Cranelift codegen pass
+            // for a single use. ROM blocks stay warm for the whole run.
+            let pc = key.0 & !1;
+            if is_rom_address(pc)
+                && let Some(compiler) = self.compiler.as_mut()
+            {
                 block.compiled = try_compile_thumb(compiler, &block);
             }
         }
@@ -338,16 +362,37 @@ mod tests {
         );
         assert!(cache.has_dynarec());
 
-        // Record a single MOV R0, #5 (Thumb fmt 3) as an all-Thumb block
-        // starting at a ROM address so it gets a slot in rom_blocks.
+        // Record a block of DYNAREC_MIN_BLOCK_LEN Thumb instructions
+        // at a ROM address so it gets a slot in rom_blocks AND exceeds
+        // the minimum-length gate for compilation.
+        let key = BlockKey::new(0x0800_0000, true);
+        cache.begin_record(key);
+        for _ in 0..super::DYNAREC_MIN_BLOCK_LEN {
+            cache.record_instr(thumb(0x2005, stub_thumb_handler));
+        }
+        cache.finish_record();
+
+        let block = cache.get(key).expect("block in cache");
+        assert!(block.compiled.is_some(),
+                "dynarec should have compiled this supported shape");
+    }
+
+    #[test]
+    fn block_not_compiled_when_below_min_length() {
+        let mut cache: BlockCache<SimpleMemory> = BlockCache::new();
+        cache.enable_dynarec(
+            DynarecCompiler::new_with_bus(trampolines::for_cpu::<SimpleMemory>()),
+        );
+
+        // Single instruction block, below DYNAREC_MIN_BLOCK_LEN.
         let key = BlockKey::new(0x0800_0000, true);
         cache.begin_record(key);
         cache.record_instr(thumb(0x2005, stub_thumb_handler));
         cache.finish_record();
 
         let block = cache.get(key).expect("block in cache");
-        assert!(block.compiled.is_some(),
-                "dynarec should have compiled this supported shape");
+        assert!(block.compiled.is_none(),
+                "short block should not be compiled (amortization gate)");
     }
 
     #[test]

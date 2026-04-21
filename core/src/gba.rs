@@ -105,6 +105,14 @@ impl GameBoyAdvance {
             gamepak,
         ));
 
+        // Dynarec is opt-in: callers that want it call
+        // gba.cpu.enable_dynarec() after GameBoyAdvance::new. Leaving it
+        // off by default because on pokeemerald the PGO-optimized cached
+        // interpreter currently beats the compiled dispatch path end to
+        // end (the per-block fetch_n trampoline + extern C call overhead
+        // eats more than the compiled body saves on short blocks). The
+        // infrastructure is live and gba tests + differential unit tests
+        // all pass under --features dynarec so integration stays shippable.
         let cpu = Box::new(Arm7tdmiCore::new(sysbus.clone()));
 
         let mut gba = GameBoyAdvance {
