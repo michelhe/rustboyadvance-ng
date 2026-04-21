@@ -44,6 +44,45 @@ pub type BusStore32Fn = unsafe extern "C" fn(*mut u8, u32, u32);
 pub type BusLoad8Fn = unsafe extern "C" fn(*mut u8, u32) -> u32;
 pub type BusStore8Fn = unsafe extern "C" fn(*mut u8, u32, u32);
 
+/// Generic bus trampolines. Instantiate with the concrete MemoryInterface
+/// type of your CPU. The `cpu_ctx` opaque pointer passed to the dynarec
+/// compiled block must be a `*mut Arm7tdmiCore<I>` cast to `*mut u8`.
+/// Data accesses use MemoryAccess::NonSeq, matching the ARM7TDMI
+/// interpreter's LDR/STR path.
+pub mod trampolines {
+    use crate::cpu::Arm7tdmiCore;
+    use crate::memory::{MemoryAccess, MemoryInterface};
+
+    pub unsafe extern "C" fn load_32<I: MemoryInterface>(ctx: *mut u8, addr: u32) -> u32 {
+        let cpu = unsafe { &mut *(ctx as *mut Arm7tdmiCore<I>) };
+        cpu.load_32(addr, MemoryAccess::NonSeq)
+    }
+    pub unsafe extern "C" fn store_32<I: MemoryInterface>(ctx: *mut u8, addr: u32, value: u32) {
+        let cpu = unsafe { &mut *(ctx as *mut Arm7tdmiCore<I>) };
+        cpu.store_32(addr, value, MemoryAccess::NonSeq);
+    }
+    pub unsafe extern "C" fn load_8<I: MemoryInterface>(ctx: *mut u8, addr: u32) -> u32 {
+        let cpu = unsafe { &mut *(ctx as *mut Arm7tdmiCore<I>) };
+        cpu.load_8(addr, MemoryAccess::NonSeq) as u32
+    }
+    pub unsafe extern "C" fn store_8<I: MemoryInterface>(ctx: *mut u8, addr: u32, value: u32) {
+        let cpu = unsafe { &mut *(ctx as *mut Arm7tdmiCore<I>) };
+        cpu.store_8(addr, value as u8, MemoryAccess::NonSeq);
+    }
+
+    /// Fill a `BusTrampolines` with pointers to the generic trampolines
+    /// monomorphized for `I`. Call once at compiler construction time and
+    /// hand the returned struct to `DynarecCompiler::new_with_bus`.
+    pub fn for_cpu<I: MemoryInterface>() -> super::BusTrampolines {
+        super::BusTrampolines {
+            load_32: load_32::<I>,
+            store_32: store_32::<I>,
+            load_8: load_8::<I>,
+            store_8: store_8::<I>,
+        }
+    }
+}
+
 /// Optional set of bus trampolines. When None the dynarec will refuse to
 /// compile anything that needs memory access (returns None from compile
 /// paths). When set, compiled blocks can call into these at runtime.
@@ -3927,6 +3966,41 @@ mod tests {
         func(gpr.as_mut_ptr(), &mut cpsr);
         assert_eq!(gpr[0], 0);
         assert_ne!(cpsr & (1 << 30), 0, "Z should be set");
+    }
+
+    // --- Generic trampolines for real CPU ---
+
+    #[test]
+    fn trampolines_for_simple_memory_round_trip() {
+        use crate::SimpleMemory;
+        use crate::cpu::Arm7tdmiCore;
+        use crate::memory::{MemoryAccess, MemoryInterface};
+        use rustboyadvance_utils::Shared;
+
+        // Seed a known u32 at offset 0x20 of SimpleMemory via the CPU's
+        // bus store API, then read it back through a dynarec compiled
+        // LDR that goes through the trampoline.
+        let mem = SimpleMemory::new(1024);
+        let m = Shared::new(mem);
+        let mut cpu = Arm7tdmiCore::new(m.clone());
+        MemoryInterface::store_8(&mut cpu, 0x20, 0x11, MemoryAccess::NonSeq);
+        MemoryInterface::store_8(&mut cpu, 0x21, 0x22, MemoryAccess::NonSeq);
+        MemoryInterface::store_8(&mut cpu, 0x22, 0x33, MemoryAccess::NonSeq);
+        MemoryInterface::store_8(&mut cpu, 0x23, 0x44, MemoryAccess::NonSeq);
+
+        let mut compiler =
+            DynarecCompiler::new_with_bus(trampolines::for_cpu::<SimpleMemory>());
+        // LDR R1, [R0, #0x20]  -> E5_90_10_20
+        let func = compiler
+            .try_compile_mem_block(&[0xE590_1020u32])
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[0] = 0;
+        let mut cpsr = 0u32;
+        let cpu_ctx = &mut cpu as *mut Arm7tdmiCore<SimpleMemory> as *mut u8;
+        func(gpr.as_mut_ptr(), &mut cpsr, cpu_ctx);
+        assert_eq!(gpr[1], 0x4433_2211);
     }
 
     // --- Unified Thumb mem+branch block compiler ---
