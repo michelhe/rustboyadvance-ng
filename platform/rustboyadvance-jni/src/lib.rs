@@ -212,6 +212,60 @@ pub mod bindings {
     }
 
     #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_startRecording(
+        mut env: JNIEnv,
+        _obj: JClass,
+        ctx: jlong,
+        path: JString,
+    ) {
+        let ctx = unsafe { cast_ctx(ctx) };
+        let path_rs: String = match env.get_string(&path) {
+            Ok(s) => s.into(),
+            Err(_) => { log::warn!("startRecording: bad path string"); return; }
+        };
+        if let Err(e) = ctx.start_recording(&path_rs) {
+            log::warn!("startRecording failed: {}", e);
+        }
+    }
+
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_stopRecording(
+        _env: JNIEnv,
+        _obj: JClass,
+        ctx: jlong,
+    ) {
+        let ctx = unsafe { cast_ctx(ctx) };
+        ctx.stop_recording();
+    }
+
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_startReplay(
+        mut env: JNIEnv,
+        _obj: JClass,
+        ctx: jlong,
+        path: JString,
+    ) {
+        let ctx = unsafe { cast_ctx(ctx) };
+        let path_rs: String = match env.get_string(&path) {
+            Ok(s) => s.into(),
+            Err(_) => { log::warn!("startReplay: bad path string"); return; }
+        };
+        if let Err(e) = ctx.start_replay(&path_rs) {
+            log::warn!("startReplay failed: {}", e);
+        }
+    }
+
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_stopReplay(
+        _env: JNIEnv,
+        _obj: JClass,
+        ctx: jlong,
+    ) {
+        let ctx = unsafe { cast_ctx(ctx) };
+        ctx.stop_replay();
+    }
+
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_getFrameBuffer(
         env: JNIEnv,
         _obj: JClass,

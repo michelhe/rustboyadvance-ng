@@ -115,6 +115,29 @@ public class EmulatorBindings {
      */
     public static native void log(long ctx);
 
+    /**
+     * Start recording keypad edges to the given file. Overwrites any
+     * existing recording. File format is RBAREC01 which the SDL
+     * frontend and fps_bench can also consume.
+     */
+    public static native void startRecording(long ctx, String path);
+
+    /**
+     * Flush and close an active recording session.
+     */
+    public static native void stopRecording(long ctx);
+
+    /**
+     * Load a recording file and start feeding its events into the
+     * emulator. Overrides the Java keypad state until stopReplay.
+     */
+    public static native void startReplay(long ctx, String path);
+
+    /**
+     * Stop an active replay session.
+     */
+    public static native void stopReplay(long ctx);
+
     public class NativeBindingException extends Exception {
         public NativeBindingException(String errorMessage) {
             super(errorMessage);
