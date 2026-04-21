@@ -154,7 +154,7 @@ impl BusIO for Cartridge {
     /// no GPIO (only at 0xC4/C6/C8), no EEPROM (only near end of large ROMs).
     /// Checking once up front and then reading 4 bytes directly saves a
     /// second trip through read_16's branches per fetched instruction.
-    #[inline]
+    #[inline(always)]
     fn read_32(&mut self, addr: Addr) -> u32 {
         let offset = (addr & 0x01ff_ffff) as usize;
         // Fast path: in-bounds, not GPIO, not EEPROM territory → direct u32.
