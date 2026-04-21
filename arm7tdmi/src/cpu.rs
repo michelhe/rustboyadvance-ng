@@ -117,6 +117,14 @@ pub struct Arm7tdmiCore<I: MemoryInterface> {
     /// `cached_interp` feature is on; zero-sized otherwise.
     #[cfg(feature = "cached_interp")]
     pub block_cache: super::cache::BlockCache<I>,
+
+    /// Runtime kill switch for the dynarec compiled-block dispatch in
+    /// replay_cached_block. Defaults to false so no behavior change lands
+    /// in this commit. A follow up commit wires the CPU constructor to
+    /// install a compiler on the cache AND flip this to true once the
+    /// cycle accounting for compiled blocks is parity-safe.
+    #[cfg(feature = "dynarec")]
+    pub dynarec_dispatch_enabled: bool,
 }
 
 // BlockCache holds handler function pointers keyed by entry-PC; cloning a CPU
@@ -139,6 +147,8 @@ impl<I: MemoryInterface> Clone for Arm7tdmiCore<I> {
             dbg: self.dbg.clone(),
             #[cfg(feature = "cached_interp")]
             block_cache: super::cache::BlockCache::new(),
+            #[cfg(feature = "dynarec")]
+            dynarec_dispatch_enabled: false,
         }
     }
 }
@@ -163,6 +173,8 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
 
             #[cfg(feature = "cached_interp")]
             block_cache: super::cache::BlockCache::new(),
+            #[cfg(feature = "dynarec")]
+            dynarec_dispatch_enabled: false,
         }
     }
 
@@ -191,6 +203,8 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
 
             #[cfg(feature = "cached_interp")]
             block_cache: super::cache::BlockCache::new(),
+            #[cfg(feature = "dynarec")]
+            dynarec_dispatch_enabled: false,
         }
     }
 
@@ -514,6 +528,37 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
     #[cfg(feature = "cached_interp")]
     fn replay_cached_block(&mut self, block: &super::cache::Block<I>, entry_thumb: bool) {
         use super::cache::DecodedInstr;
+
+        // Dispatch to a dynarec compiled native block when one is attached.
+        // Only Thumb blocks get compiled today, and the compiler only kicks
+        // in when `enable_dynarec` has installed a compiler on the cache.
+        // No cycle accounting yet beyond what the data access trampolines
+        // already pay, so this path is guarded by a runtime enable that
+        // stays off until the cycle accounting work lands in a follow up.
+        #[cfg(feature = "dynarec")]
+        if self.dynarec_dispatch_enabled
+            && let Some(compiled) = block.compiled
+            && entry_thumb
+        {
+            let mut pc_out: u32 = 0;
+            let mut cpsr_word: u32 = self.cpsr.get();
+            let gpr_ptr = self.gpr.as_mut_ptr();
+            let cpu_ctx = self as *mut Arm7tdmiCore<I> as *mut u8;
+            let taken = compiled(gpr_ptr, &mut cpsr_word, &mut pc_out, cpu_ctx);
+            // Rebuild CPSR from the possibly-updated word.
+            self.cpsr = super::psr::RegPSR::new(cpsr_word);
+            if taken != 0 {
+                // Branch fired. Apply the mode bit and set pc. The Thumb
+                // bit in pc_out[0] selects the next CPU state; the rest
+                // is the aligned target address. reload_pipeline* on the
+                // new mode flushes and re-fetches.
+                let thumb_bit = pc_out & 1 != 0;
+                self.cpsr.set_state(if thumb_bit { CpuState::THUMB } else { CpuState::ARM });
+                self.pc = pc_out & if thumb_bit { !1 } else { !3 };
+                if thumb_bit { self.reload_pipeline16() } else { self.reload_pipeline32() }
+            }
+            return;
+        }
 
         // Always run the first instruction before checking abort conditions —
         // that guarantees forward progress even when (for example) an IRQ is
