@@ -1156,6 +1156,135 @@ impl DynarecCompiler {
         })
     }
 
+    /// Compile a standalone POP {regs, pc} as a block terminator. Pops
+    /// every listed register in R0..R7 order from SP, SP+4, ... then
+    /// pops PC from the next word and writes it (bit 0 preserved for the
+    /// ARM/Thumb mode signal) into *pc_out. Updates SP by 4 * total
+    /// count. Always returns 1 (branch always taken, POP{PC} is
+    /// unconditional).
+    ///
+    /// Signature:
+    ///   extern "C" fn(
+    ///     gpr: *mut u32,
+    ///     cpsr: *mut u32,
+    ///     pc_out: *mut u32,
+    ///     cpu_ctx: *mut u8,
+    ///   ) -> u32
+    ///
+    /// Returns None if the compiler was built without bus trampolines or
+    /// the opcode isn't a POP with R=1.
+    pub fn try_compile_thumb_pop_pc(
+        &mut self,
+        opcode: u16,
+    ) -> Option<extern "C" fn(*mut u32, *mut u32, *mut u32, *mut u8) -> u32> {
+        let dec = Self::decode_thumb_pop_pc(opcode)?;
+        let imports = self.bus_imports?;
+
+        let ptr_type = self.module.isa().pointer_type();
+        let mut sig = self.module.make_signature();
+        sig.params.push(AbiParam::new(ptr_type)); // gpr
+        sig.params.push(AbiParam::new(ptr_type)); // cpsr (unused but keep shape)
+        sig.params.push(AbiParam::new(ptr_type)); // pc_out
+        sig.params.push(AbiParam::new(ptr_type)); // cpu_ctx
+        sig.returns.push(AbiParam::new(types::I32));
+
+        self.next_id += 1;
+        let name = format!("dynarec_thumb_pop_pc_{}", self.next_id);
+        let func_id = self
+            .module
+            .declare_function(&name, Linkage::Local, &sig)
+            .expect("declare_function failed");
+        self.ctx.func.signature = sig;
+
+        {
+            let mut builder =
+                FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+            let entry = builder.create_block();
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            builder.seal_block(entry);
+
+            let gpr_ptr = builder.block_params(entry)[0];
+            let pc_out = builder.block_params(entry)[2];
+            let cpu_ctx = builder.block_params(entry)[3];
+
+            let load_32_ref =
+                self.module.declare_func_in_func(imports.load_32, builder.func);
+
+            let sp = builder.ins().load(
+                types::I32, MemFlags::trusted(), gpr_ptr, Offset32::new(13 * 4),
+            );
+
+            // Pop each R0..R7 in the list, low-to-high.
+            let mut byte_offset: i64 = 0;
+            for i in 0..8 {
+                if dec.reg_list & (1 << i) != 0 {
+                    let addr = builder.ins().iadd_imm(sp, byte_offset);
+                    let call = builder.ins().call(load_32_ref, &[cpu_ctx, addr]);
+                    let v = builder.inst_results(call)[0];
+                    builder.ins().store(
+                        MemFlags::trusted(), v, gpr_ptr, Offset32::new(i * 4),
+                    );
+                    byte_offset += 4;
+                }
+            }
+            // Pop PC from the next slot.
+            let pc_addr = builder.ins().iadd_imm(sp, byte_offset);
+            let pc_call = builder.ins().call(load_32_ref, &[cpu_ctx, pc_addr]);
+            let pc_val = builder.inst_results(pc_call)[0];
+            builder.ins().store(MemFlags::trusted(), pc_val, pc_out, 0);
+            byte_offset += 4;
+
+            // Update SP.
+            let new_sp = builder.ins().iadd_imm(sp, byte_offset);
+            builder.ins().store(
+                MemFlags::trusted(), new_sp, gpr_ptr, Offset32::new(13 * 4),
+            );
+
+            let one = builder.ins().iconst(types::I32, 1);
+            builder.ins().return_(&[one]);
+            builder.finalize();
+        }
+
+        self.module
+            .define_function(func_id, &mut self.ctx)
+            .expect("define_function failed");
+        self.module.clear_context(&mut self.ctx);
+        self.module
+            .finalize_definitions()
+            .expect("finalize_definitions failed");
+
+        let code = self.module.get_finalized_function(func_id);
+        Some(unsafe {
+            std::mem::transmute::<
+                *const u8,
+                extern "C" fn(*mut u32, *mut u32, *mut u32, *mut u8) -> u32,
+            >(code)
+        })
+    }
+
+    /// Classify a POP {regs, pc} (format 14 with L=1, R=1). This is a
+    /// block terminator: the popped PC value becomes the new program
+    /// counter, so control flow leaves the compiled block.
+    fn decode_thumb_pop_pc(op: u16) -> Option<DecodedThumb14> {
+        if (op >> 12) & 0xF != 0b1011 {
+            return None;
+        }
+        // L must be 1 (POP), R must be 1 (include PC), bits 10:9 = 10.
+        if (op >> 9) & 0b111 != 0b110 {
+            return None;
+        }
+        if (op >> 8) & 1 == 0 {
+            return None;
+        }
+        let reg_list = (op & 0xff) as u8;
+        Some(DecodedThumb14 {
+            push: false,
+            extra_reg: true,
+            reg_list,
+        })
+    }
+
     /// Classify a Thumb format 18 unconditional branch:
     ///   11100_iiiiiiiiiii   (11 bit signed offset)
     /// Target = current pc (= instr + 4) + sign_extend(imm11) << 1.
@@ -3538,6 +3667,91 @@ mod tests {
         func(gpr.as_mut_ptr(), &mut cpsr);
         assert_eq!(gpr[0], 0);
         assert_ne!(cpsr & (1 << 30), 0, "Z should be set");
+    }
+
+    // --- Thumb POP {regs, pc} terminator ---
+
+    #[test]
+    fn decode_thumb_pop_pc_shapes() {
+        // POP {PC} only -> 1011_1_10_1_00000000 = 0xBD00
+        let d = DynarecCompiler::decode_thumb_pop_pc(0xBD00).expect("POP {PC}");
+        assert_eq!(d.push, false);
+        assert_eq!(d.extra_reg, true);
+        assert_eq!(d.reg_list, 0);
+
+        // POP {R4-R7, PC} -> 1011_1_10_1_11110000 = 0xBDF0
+        let d = DynarecCompiler::decode_thumb_pop_pc(0xBDF0).expect("POP {r,pc}");
+        assert_eq!(d.reg_list, 0xF0);
+        assert_eq!(d.count(), 5);
+
+        // PUSH forms rejected.
+        assert!(DynarecCompiler::decode_thumb_pop_pc(0xB500).is_none());
+        // POP without R (not a terminator) rejected.
+        assert!(DynarecCompiler::decode_thumb_pop_pc(0xBC01).is_none());
+    }
+
+    #[test]
+    fn compile_thumb_pop_pc_only() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        // Stage a PC value on the stack.
+        unsafe {
+            let b = &mut *bus.bytes.get();
+            // write 0x0800_1235 (Thumb-marked) at SP
+            let v = 0x0800_1235u32.to_le_bytes();
+            b[0x40] = v[0]; b[0x41] = v[1]; b[0x42] = v[2]; b[0x43] = v[3];
+        }
+        // POP {PC}
+        let func = compiler.try_compile_thumb_pop_pc(0xBD00).unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[13] = 0x40;
+        let mut cpsr = 0u32;
+        let mut pc_out = 0u32;
+        let taken = func(
+            gpr.as_mut_ptr(), &mut cpsr, &mut pc_out,
+            &bus as *const TestBus as *mut u8,
+        );
+        assert_eq!(taken, 1);
+        assert_eq!(pc_out, 0x0800_1235, "Thumb bit preserved");
+        assert_eq!(gpr[13], 0x44, "SP advanced by 4");
+    }
+
+    #[test]
+    fn compile_thumb_pop_regs_and_pc() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        // Stage 3 words: R4, R5, PC  at SP..SP+8
+        unsafe {
+            let b = &mut *bus.bytes.get();
+            let r4 = 0xAAu32.to_le_bytes();
+            let r5 = 0xBBu32.to_le_bytes();
+            let pc = 0x0800_CAFEu32.to_le_bytes();
+            b[0x30..0x34].copy_from_slice(&r4);
+            b[0x34..0x38].copy_from_slice(&r5);
+            b[0x38..0x3C].copy_from_slice(&pc);
+        }
+        // POP {R4, R5, PC}  reg_list = 0b0011_0000 = 0x30
+        //   1011_1_10_1_00110000 = 0xBD30
+        let func = compiler.try_compile_thumb_pop_pc(0xBD30).unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[13] = 0x30;
+        let mut cpsr = 0u32;
+        let mut pc_out = 0u32;
+        let taken = func(
+            gpr.as_mut_ptr(), &mut cpsr, &mut pc_out,
+            &bus as *const TestBus as *mut u8,
+        );
+        assert_eq!(taken, 1);
+        assert_eq!(gpr[4], 0xAA);
+        assert_eq!(gpr[5], 0xBB);
+        assert_eq!(pc_out, 0x0800_CAFE);
+        assert_eq!(gpr[13], 0x3C, "SP += 12");
+    }
+
+    #[test]
+    fn compile_thumb_pop_pc_requires_bus() {
+        let mut compiler = DynarecCompiler::new();
+        assert!(compiler.try_compile_thumb_pop_pc(0xBD00).is_none());
     }
 
     // --- Thumb format 14 PUSH/POP (non PC variant) ---
