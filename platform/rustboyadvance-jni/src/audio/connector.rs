@@ -70,8 +70,12 @@ impl AudioJNIConnector {
             _ => panic!("bad return value"),
         };
 
+        // Size the shared JNI buffer to match the ringbuffer capacity (sample_count * 2,
+        // set in emulator.rs::create_audio). In turbo mode the consumer can pop up to that
+        // many shorts in one go; sizing smaller causes ArrayIndexOutOfBoundsException in
+        // set_short_array_region and crashes the audio worker thread.
         let audio_buffer = env
-            .new_short_array(sample_count as i32)
+            .new_short_array((sample_count * 2) as i32)
             .expect("failed to create sound buffer");
         let audio_buffer_ref = env.new_global_ref(audio_buffer).unwrap();
 

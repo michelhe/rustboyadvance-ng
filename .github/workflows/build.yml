@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - master
+  pull_request:
 
 jobs:
   build-linux:
@@ -58,45 +59,63 @@ jobs:
         name: rustboyadvance-sdl2-x86_64-unknown-linux-gnu
         path: artifacts
 
-  # TODO: this workflow is stale
-  # build-android-apk:
+  build-android-apk:
 
-  #   runs-on: ubuntu-latest
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
-  #   steps:
-  #   - name: Checkout 🛎️
-  #     uses: actions/checkout@v4
-  #     with:
-  #       submodules: recursive
-  #   - name: Install toolchains
-  #     run: rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android
+    steps:
+    - name: Checkout 🛎️
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
-  #   - name: Cache cargo registry
-  #     uses: actions/cache@v4
-  #     with:
-  #       path: ~/.cargo/registry
-  #       key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-  #   - name: Cache cargo index
-  #     uses: actions/cache@v4
-  #     with:
-  #       path: ~/.cargo/git
-  #       key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
-  #   - name: Cache cargo build
-  #     uses: actions/cache@v4
-  #     with:
-  #       path: target
-  #       key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
 
-  #   - name: Build APK
-  #     working-directory: ./platform/android
-  #     run: ./gradlew assemble
-  #   - name: Upload artifacts
-  #     uses: actions/upload-artifact@v4
-  #     with:
-  #       name: rustdroid.apk
-  #       path: ./platform/android/app/build/outputs/apk/release/app-release-unsigned.apk
+    - name: Install Rust Android targets
+      run: rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
 
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-android-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+    - name: Cache cargo index
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-android-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+    - name: Cache cargo build
+      uses: actions/cache@v4
+      with:
+        path: target
+        key: ${{ runner.os }}-android-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
 
+    - name: Decode keystore
+      run: |
+        if [ -n "${{ secrets.KEYSTORE_BASE64 }}" ]; then
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ runner.temp }}/release.keystore
+        fi
+
+    - name: Build APK
+      working-directory: ./platform/android
+      run: ./gradlew assembleRelease
+      env:
+        KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: rustdroid.apk
+        path: ./platform/android/app/build/outputs/apk/release/app-release.apk
 
   build-windows-64:
 

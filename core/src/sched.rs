@@ -200,7 +200,18 @@ impl Scheduler {
         }
     }
 
+    /// True iff the scheduler has overshot the next event's timestamp.
+    /// Mirrors the exit condition of `gba::run`'s inner while loop
+    /// (`while timestamp <= next_event_ts`) — the cached interpreter uses
+    /// this to yield back to the outer loop at the same granularity that
+    /// the non-cached path would, without risking an underflow from the
+    /// subtraction in `get_cycles_to_next_event`.
     #[inline]
+    pub fn has_events_due(&self) -> bool {
+        matches!(self.events.peek(), Some(event) if self.timestamp > event.time)
+    }
+
+    #[inline(always)]
     /// Safety - Onyl safe to call when we know the event queue is not empty
     pub unsafe fn timestamp_of_next_event_unchecked(&self) -> usize {
         self.events
@@ -209,7 +220,7 @@ impl Scheduler {
             .time
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn timestamp(&self) -> usize {
         self.timestamp
     }

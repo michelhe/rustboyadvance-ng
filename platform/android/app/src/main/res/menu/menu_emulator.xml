@@ -36,6 +36,16 @@
         android:title="@string/action_set_library_image" />
 
     <item
+        android:id="@+id/action_record_toggle"
+        android:orderInCategory="200"
+        android:title="@string/action_record_start" />
+
+    <item
+        android:id="@+id/action_replay_toggle"
+        android:orderInCategory="201"
+        android:title="@string/action_replay_start" />
+
+    <item
         android:id="@+id/action_settings"
         android:menuCategory="system"
         android:orderInCategory="100"

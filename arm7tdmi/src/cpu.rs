@@ -93,13 +93,16 @@ pub struct DebuggerState {
     pub trace_exceptions: bool,
 }
 
-#[derive(Clone)]
 pub struct Arm7tdmiCore<I: MemoryInterface> {
     pub pc: u32,
     pub bus: Shared<I>,
 
-    next_fetch_access: MemoryAccess,
-    pipeline: [u32; 2],
+    // pub(crate) so the sibling dynarec::trampolines module can touch
+    // these when paying fetch cycles at a compiled block's entry. Kept
+    // out of the external public surface because they're part of the
+    // pipeline emulation invariants.
+    pub(crate) next_fetch_access: MemoryAccess,
+    pub(crate) pipeline: [u32; 2],
     pub gpr: [u32; 15],
 
     pub cpsr: RegPSR,
@@ -113,6 +116,45 @@ pub struct Arm7tdmiCore<I: MemoryInterface> {
     /// Deprecated in-house debugger state
     #[cfg(feature = "debugger")]
     pub dbg: DebuggerState,
+
+    /// Block cache for the cached interpreter. Only populated when the
+    /// `cached_interp` feature is on; zero-sized otherwise.
+    #[cfg(feature = "cached_interp")]
+    pub block_cache: super::cache::BlockCache<I>,
+
+    /// Runtime kill switch for the dynarec compiled-block dispatch in
+    /// replay_cached_block. Defaults to false so no behavior change lands
+    /// in this commit. A follow up commit wires the CPU constructor to
+    /// install a compiler on the cache AND flip this to true once the
+    /// cycle accounting for compiled blocks is parity-safe.
+    #[cfg(feature = "dynarec")]
+    pub dynarec_dispatch_enabled: bool,
+}
+
+// BlockCache holds handler function pointers keyed by entry-PC; cloning a CPU
+// with a populated cache would share those fn pointers (cheap), but the cache
+// is a transient runtime optimization and we'd rather not clone it by accident.
+// Implement Clone manually so we can reset the cache on clone.
+impl<I: MemoryInterface> Clone for Arm7tdmiCore<I> {
+    fn clone(&self) -> Self {
+        Arm7tdmiCore {
+            pc: self.pc,
+            bus: self.bus.clone(),
+            next_fetch_access: self.next_fetch_access,
+            pipeline: self.pipeline,
+            gpr: self.gpr,
+            cpsr: self.cpsr,
+            spsr: self.spsr,
+            banks: self.banks.clone(),
+            breakpoints: self.breakpoints.clone(),
+            #[cfg(feature = "debugger")]
+            dbg: self.dbg.clone(),
+            #[cfg(feature = "cached_interp")]
+            block_cache: super::cache::BlockCache::new(),
+            #[cfg(feature = "dynarec")]
+            dynarec_dispatch_enabled: false,
+        }
+    }
 }
 
 impl<I: MemoryInterface> Arm7tdmiCore<I> {
@@ -132,11 +174,34 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
 
             #[cfg(feature = "debugger")]
             dbg: DebuggerState::default(),
+
+            #[cfg(feature = "cached_interp")]
+            block_cache: super::cache::BlockCache::new(),
+            #[cfg(feature = "dynarec")]
+            dynarec_dispatch_enabled: false,
         }
     }
 
     pub fn weak_ptr(&mut self) -> WeakPointer<Arm7tdmiCore<I>> {
         WeakPointer::new(self as *mut Arm7tdmiCore<I>)
+    }
+
+    /// Install a Cranelift-backed dynarec on the block cache and flip
+    /// the runtime dispatch flag so every compiled block in the cache
+    /// runs its native fn pointer instead of the interpreter replay
+    /// loop. Call once per CPU after construction.
+    ///
+    /// After this, new blocks recorded during step_block get a
+    /// JIT-compile attempt; supported Thumb shapes dispatch through
+    /// Cranelift output, everything else falls back to the existing
+    /// cached-interp replay path.
+    #[cfg(feature = "dynarec")]
+    pub fn enable_dynarec(&mut self) {
+        let compiler = super::dynarec::DynarecCompiler::new_with_bus(
+            super::dynarec::trampolines::for_cpu::<I>(),
+        );
+        self.block_cache.enable_dynarec(compiler);
+        self.dynarec_dispatch_enabled = true;
     }
 
     pub fn from_saved_state(bus: Shared<I>, state: SavedCpuState) -> Arm7tdmiCore<I> {
@@ -157,6 +222,11 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
             // savestate does not keep debugger related information, so just reinitialize to default
             #[cfg(feature = "debugger")]
             dbg: DebuggerState::default(),
+
+            #[cfg(feature = "cached_interp")]
+            block_cache: super::cache::BlockCache::new(),
+            #[cfg(feature = "dynarec")]
+            dynarec_dispatch_enabled: false,
         }
     }
 
@@ -439,9 +509,245 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
         self.pipeline[1]
     }
 
+    /// Cached-interpreter entry point. Equivalent to `step()` but executes a
+    /// whole cached block per call instead of a single instruction.
+    ///
+    /// On a cache miss at the current PC, run one pipeline step at a time
+    /// (identical to `step()` except it also records the resolved handler and
+    /// the raw instruction word into the block cache). The recording stops at
+    /// the first pipeline flush or after 64 recorded instructions.
+    ///
+    /// On a cache hit, replay the recorded handlers directly, skipping the
+    /// hash+LUT lookup per instruction and the `single_step()` wrapper checks
+    /// that the outer loop does today.
+    ///
+    /// Accuracy: per-instruction memory accesses still go through the bus and
+    /// advance the scheduler exactly as before. Scheduler events still fire
+    /// between `step_block` calls in the outer loop; worst-case overshoot per
+    /// block is bounded by the 64-instruction record cap.
+    #[cfg(feature = "cached_interp")]
+    #[inline]
+    pub fn step_block(&mut self) {
+        // If any RAM write happened since the last block started, blow the
+        // whole cache. Coarse but cheap and correct; a finer per-page scheme
+        // slots in here later without changing any caller.
+        if self.bus.take_block_cache_dirty() {
+            self.block_cache.flush();
+        }
+
+        let thumb = matches!(self.cpsr.state(), CpuState::THUMB);
+        let key = super::cache::BlockKey::new(self.pc, thumb);
+
+        if let Some(block) = self.block_cache.get(key) {
+            self.replay_cached_block(&block, thumb);
+        } else {
+            self.block_cache.begin_record(key);
+            self.record_new_block(thumb);
+            self.block_cache.finish_record();
+        }
+    }
+
+    #[cfg(feature = "cached_interp")]
+    fn replay_cached_block(&mut self, block: &super::cache::Block<I>, entry_thumb: bool) {
+        use super::cache::DecodedInstr;
+
+        // Dispatch to a dynarec compiled native block when one is attached.
+        // Only Thumb blocks get compiled today, and the compiler only kicks
+        // in when `enable_dynarec` has installed a compiler on the cache.
+        // No cycle accounting yet beyond what the data access trampolines
+        // already pay, so this path is guarded by a runtime enable that
+        // stays off until the cycle accounting work lands in a follow up.
+        #[cfg(feature = "dynarec")]
+        if self.dynarec_dispatch_enabled
+            && let Some(compiled) = block.compiled
+            && entry_thumb
+        {
+            let mut pc_out: u32 = 0;
+            let mut cpsr_word: u32 = self.cpsr.get();
+            let gpr_ptr = self.gpr.as_mut_ptr();
+            let cpu_ctx = self as *mut Arm7tdmiCore<I> as *mut u8;
+            let taken = compiled(gpr_ptr, &mut cpsr_word, &mut pc_out, cpu_ctx);
+            // Rebuild CPSR from the possibly-updated word.
+            self.cpsr = super::psr::RegPSR::new(cpsr_word);
+            if taken != 0 {
+                // Branch fired. Apply the mode bit and set pc. The Thumb
+                // bit in pc_out[0] selects the next CPU state; the rest
+                // is the aligned target address. reload_pipeline* on the
+                // new mode flushes and re-fetches.
+                let thumb_bit = pc_out & 1 != 0;
+                self.cpsr.set_state(if thumb_bit { CpuState::THUMB } else { CpuState::ARM });
+                self.pc = pc_out & if thumb_bit { !1 } else { !3 };
+                if thumb_bit { self.reload_pipeline16() } else { self.reload_pipeline32() }
+            }
+            return;
+        }
+
+        // Always run the first instruction before checking abort conditions —
+        // that guarantees forward progress even when (for example) an IRQ is
+        // pending but CPU has IRQs disabled, so cpu_interrupt() is a no-op and
+        // would otherwise loop us forever between the outer run() while and
+        // step_block's early return.
+        let mut instr_idx: u32 = 0;
+
+        for instr in &block.instrs {
+            // Abort checks run at entry of iterations 1, 3, 5, ... — every
+            // other instruction rather than every one. Worst-case latency for
+            // servicing an IRQ that became pending inside a block is now ~1
+            // extra instruction (~a few cycles), which the GBA's interrupt
+            // model tolerates. Scheduler events get the same slack, bounded
+            // by block length (capped at 64). gba-tests/nes still passes.
+            if instr_idx != 0 && instr_idx & 1 == 1 {
+                // If the CPU state flipped ARM<->Thumb since block entry, the
+                // rest of this block no longer matches; bail and let the next
+                // step_block call re-resolve or re-record.
+                if matches!(self.cpsr.state(), CpuState::THUMB) != entry_thumb {
+                    return;
+                }
+
+                // If an earlier instr in this block wrote to RAM, remaining
+                // cached handlers were resolved from potentially stale memory.
+                if self.bus.take_block_cache_dirty() {
+                    self.block_cache.flush();
+                    return;
+                }
+
+                // Yield to the outer loop at about per-two-instruction
+                // granularity (pending IRQ, newly active DMA, halt, scheduler
+                // overshoot).
+                if self.bus.cached_block_should_abort() {
+                    return;
+                }
+            }
+            instr_idx = instr_idx.wrapping_add(1);
+
+            match *instr {
+                DecodedInstr::Arm { raw: expected, handler } => {
+                    let pc = self.pc & !3;
+                    let fetched_now = self.load_32(pc, self.next_fetch_access);
+                    let insn = self.pipeline[0];
+                    self.pipeline[0] = self.pipeline[1];
+                    self.pipeline[1] = fetched_now;
+                    debug_assert_eq!(
+                        insn, expected,
+                        "cached-block ARM instr mismatch at pc={:#x}: \
+                         cached={:#010x} actual={:#010x}",
+                        pc.wrapping_sub(8), expected, insn,
+                    );
+                    let cond = ArmCond::from_u8(insn.bit_range(28..32) as u8)
+                        .unwrap_or_else(|| unsafe { std::hint::unreachable_unchecked() });
+                    if cond != ArmCond::AL && !self.check_arm_cond(cond) {
+                        self.advance_arm();
+                        self.next_fetch_access = MemoryAccess::NonSeq;
+                        continue;
+                    }
+                    match handler(self, insn) {
+                        CpuAction::AdvancePC(access) => {
+                            self.next_fetch_access = access;
+                            self.advance_arm();
+                        }
+                        CpuAction::PipelineFlushed => return,
+                    }
+                }
+                DecodedInstr::Thumb { raw: expected, handler } => {
+                    let pc = self.pc & !1;
+                    let fetched_now = self.load_16(pc, self.next_fetch_access);
+                    let insn = self.pipeline[0];
+                    self.pipeline[0] = self.pipeline[1];
+                    self.pipeline[1] = fetched_now as u32;
+                    debug_assert_eq!(
+                        insn as u16, expected,
+                        "cached-block Thumb instr mismatch at pc={:#x}: \
+                         cached={:#06x} actual={:#06x}",
+                        pc.wrapping_sub(4), expected, insn as u16,
+                    );
+                    match handler(self, insn as u16) {
+                        CpuAction::AdvancePC(access) => {
+                            self.advance_thumb();
+                            self.next_fetch_access = access;
+                        }
+                        CpuAction::PipelineFlushed => return,
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "cached_interp")]
+    fn record_new_block(&mut self, entry_thumb: bool) {
+        use super::cache::DecodedInstr;
+
+        // Same check-every-other-iter policy as replay_cached_block.
+        // The 64-cap here must match the cap in BlockCache::record_instr; going
+        // past it would just silently drop recordings. Both need to change
+        // together if the limit is tuned.
+        for instr_idx in 0..64u32 {
+            if instr_idx != 0 && instr_idx & 1 == 1 {
+                if matches!(self.cpsr.state(), CpuState::THUMB) != entry_thumb {
+                    return;
+                }
+
+                if self.bus.take_block_cache_dirty() {
+                    self.block_cache.abort_record();
+                    self.block_cache.flush();
+                    return;
+                }
+
+                if self.bus.cached_block_should_abort() {
+                    return;
+                }
+            }
+
+            if entry_thumb {
+                let pc = self.pc & !1;
+                let fetched_now = self.load_16(pc, self.next_fetch_access);
+                let insn = self.pipeline[0];
+                self.pipeline[0] = self.pipeline[1];
+                self.pipeline[1] = fetched_now as u32;
+                let handler = Self::THUMB_LUT[(insn >> 6) as usize].handler_fn;
+                self.block_cache.record_instr(DecodedInstr::Thumb {
+                    raw: insn as u16,
+                    handler,
+                });
+                match handler(self, insn as u16) {
+                    CpuAction::AdvancePC(access) => {
+                        self.advance_thumb();
+                        self.next_fetch_access = access;
+                    }
+                    CpuAction::PipelineFlushed => return,
+                }
+            } else {
+                let pc = self.pc & !3;
+                let fetched_now = self.load_32(pc, self.next_fetch_access);
+                let insn = self.pipeline[0];
+                self.pipeline[0] = self.pipeline[1];
+                self.pipeline[1] = fetched_now;
+                let hash = (((insn >> 16) & 0xff0) | ((insn >> 4) & 0xf)) as usize;
+                let handler = Self::ARM_LUT[hash].handler_fn;
+                self.block_cache.record_instr(DecodedInstr::Arm {
+                    raw: insn,
+                    handler,
+                });
+                let cond = ArmCond::from_u8(insn.bit_range(28..32) as u8)
+                    .unwrap_or_else(|| unsafe { std::hint::unreachable_unchecked() });
+                if cond != ArmCond::AL && !self.check_arm_cond(cond) {
+                    self.advance_arm();
+                    self.next_fetch_access = MemoryAccess::NonSeq;
+                    continue;
+                }
+                match handler(self, insn) {
+                    CpuAction::AdvancePC(access) => {
+                        self.next_fetch_access = access;
+                        self.advance_arm();
+                    }
+                    CpuAction::PipelineFlushed => return,
+                }
+            }
+        }
+    }
+
     /// Perform a pipeline step
     /// If an instruction was executed in this step, return it.
-    #[inline]
+    #[inline(always)]
     pub fn step(&mut self) {
         match self.cpsr.state() {
             CpuState::ARM => {

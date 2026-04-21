@@ -54,16 +54,28 @@ impl Gpu {
 
         let y = self.vcount;
 
+        // Slice the framebuffer row and the obj_buffer row once. The
+        // per-pixel finalize_pixel used to do the y*240+x index per
+        // call; pre-slicing both lets the inner loop turn into a
+        // straight `output[x] = ...` / `obj_row[x]` lookup.
+        let row_start = y * DISPLAY_WIDTH;
         let output = unsafe {
-            let ptr = self.frame_buffer[y * DISPLAY_WIDTH..].as_mut_ptr();
+            let ptr = self.frame_buffer[row_start..].as_mut_ptr();
             std::slice::from_raw_parts_mut(ptr, DISPLAY_WIDTH)
+        };
+        let obj_row: &[ObjBufferEntry] = unsafe {
+            // SAFETY: obj_buffer is owned by `self` and the borrow lives
+            // for this function body only. We don't pass `&mut self` to
+            // anything that touches obj_buffer through `self`.
+            let p = self.obj_buffer.as_ptr().add(row_start);
+            std::slice::from_raw_parts(p, DISPLAY_WIDTH)
         };
 
         if !self.dispcnt.is_using_windows() {
+            let win = WindowInfo::new(WindowType::WinNone, WindowFlags::all());
             for (x, pixel) in output.iter_mut().enumerate() {
-                let win = WindowInfo::new(WindowType::WinNone, WindowFlags::all());
                 *pixel = self
-                    .finalize_pixel(x, y, &win, &sorted_backgrounds, backdrop_color)
+                    .finalize_pixel(x, &win, &sorted_backgrounds, backdrop_color, &obj_row[x])
                     .to_rgb24();
             }
         } else {
@@ -79,7 +91,7 @@ impl Gpu {
                     .skip(self.win0.left())
                 {
                     output[x] = self
-                        .finalize_pixel(x, y, &win, &backgrounds, backdrop_color)
+                        .finalize_pixel(x, &win, &backgrounds, backdrop_color, &obj_row[x])
                         .to_rgb24();
                     *is_occupid = true;
                     occupied_count += 1;
@@ -101,7 +113,7 @@ impl Gpu {
                         continue;
                     }
                     output[x] = self
-                        .finalize_pixel(x, y, &win, &backgrounds, backdrop_color)
+                        .finalize_pixel(x, &win, &backgrounds, backdrop_color, &obj_row[x])
                         .to_rgb24();
                     *is_occupid = true;
                     occupied_count += 1;
@@ -120,16 +132,16 @@ impl Gpu {
                     if *is_occupied {
                         continue;
                     }
-                    let obj_entry = self.obj_buffer_get(x, y);
+                    let obj_entry = &obj_row[x];
                     if obj_entry.window {
                         // WinObj
                         output[x] = self
-                            .finalize_pixel(x, y, &win_obj, &win_obj_backgrounds, backdrop_color)
+                            .finalize_pixel(x, &win_obj, &win_obj_backgrounds, backdrop_color, obj_entry)
                             .to_rgb24();
                     } else {
                         // WinOut
                         output[x] = self
-                            .finalize_pixel(x, y, &win_out, &win_out_backgrounds, backdrop_color)
+                            .finalize_pixel(x, &win_out, &win_out_backgrounds, backdrop_color, obj_entry)
                             .to_rgb24();
                     }
                 }
@@ -139,7 +151,7 @@ impl Gpu {
                         continue;
                     }
                     output[x] = self
-                        .finalize_pixel(x, y, &win_out, &win_out_backgrounds, backdrop_color)
+                        .finalize_pixel(x, &win_out, &win_out_backgrounds, backdrop_color, &obj_row[x])
                         .to_rgb24();
                 }
             }
@@ -147,36 +159,40 @@ impl Gpu {
     }
 
     #[must_use]
+    #[inline(always)]
     fn finalize_pixel(
-        &mut self,
+        &self,
         x: usize,
-        y: usize,
         win: &WindowInfo,
         backgrounds: &[usize],
         backdrop_color: Rgb15,
+        obj_entry: &ObjBufferEntry,
     ) -> Rgb15 {
         // The backdrop layer is the default
         let backdrop_layer = RenderLayer::backdrop(backdrop_color);
 
-        // Backgrounds are already sorted
-        // lets start by taking the first 2 backgrounds that have an opaque pixel at x
-        let mut it = backgrounds
-            .iter()
-            .filter(|i| !self.bg_line[**i][x].is_transparent())
-            .take(2);
-
-        let mut top_layer = it.next().map_or(backdrop_layer, |bg| {
-            RenderLayer::background(*bg, self.bg_line[*bg][x], self.bgcnt[*bg].priority)
-        });
-
-        let mut bot_layer = it.next().map_or(backdrop_layer, |bg| {
-            RenderLayer::background(*bg, self.bg_line[*bg][x], self.bgcnt[*bg].priority)
-        });
-
-        drop(it);
+        // Hot path: walk the already-priority-sorted `backgrounds` slice and
+        // pick the first two non-transparent layers. Explicit loop instead of
+        // filter().take(2) so the compiler can unroll it over a fixed upper
+        // bound of 4 BGs and avoid per-pixel closure setup.
+        let mut top_layer = backdrop_layer;
+        let mut bot_layer = backdrop_layer;
+        let mut found = 0u32;
+        for &bg in backgrounds {
+            let px = self.bg_line[bg][x];
+            if !px.is_transparent() {
+                let layer = RenderLayer::background(bg, px, self.bgcnt[bg].priority);
+                if found == 0 {
+                    top_layer = layer;
+                    found = 1;
+                } else {
+                    bot_layer = layer;
+                    break;
+                }
+            }
+        }
 
         // Now that backgrounds are taken care of, we need to check if there is an object pixel that takes priority of one of the layers
-        let obj_entry = self.obj_buffer_get(x, y);
         if win.flags.obj_enabled() && self.dispcnt.enable_obj && !obj_entry.color.is_transparent() {
             let obj_layer = RenderLayer::objects(obj_entry.color, obj_entry.priority);
             if obj_layer.priority <= top_layer.priority {

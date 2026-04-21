@@ -46,9 +46,13 @@ impl Gpu {
         let mut start_tile_x = bg_x % 8;
         let tile_py = bg_y % 8;
 
-        #[allow(unused)]
+        // Macro parametrized over a compile time const (true for BPP4,
+        // false for BPP8) so the palette_bank branch folds away at
+        // codegen. x_flip / y_flip are tile invariant (one tilemap
+        // entry per 8 pixels) so they get hoisted out of the per pixel
+        // inner loop along with palette_bank itself.
         macro_rules! render_loop {
-            ($read_pixel_index:ident) => {
+            ($read_pixel_index:ident, $is_bpp4:literal) => {
                 loop {
                     let mut map_addr = tilemap_base
                         + SCREEN_BLOCK_SIZE * sbb
@@ -56,17 +60,17 @@ impl Gpu {
                     for _ in se_row..32 {
                         let entry = TileMapEntry(self.vram.read_16(map_addr));
                         let tile_addr = tileset_base + entry.tile_index() * tile_size;
+                        let palette_bank: u32 = if $is_bpp4 {
+                            entry.palette_bank() as u32
+                        } else {
+                            0
+                        };
+                        let py = if entry.y_flip() { 7 - tile_py } else { tile_py };
+                        let x_flip = entry.x_flip();
 
                         for tile_px in start_tile_x..8 {
-                            let index = self.$read_pixel_index(
-                                tile_addr,
-                                if entry.x_flip() { 7 - tile_px } else { tile_px },
-                                if entry.y_flip() { 7 - tile_py } else { tile_py },
-                            );
-                            let palette_bank = match pixel_format {
-                                PixelFormat::BPP4 => entry.palette_bank() as u32,
-                                PixelFormat::BPP8 => 0u32,
-                            };
+                            let px = if x_flip { 7 - tile_px } else { tile_px };
+                            let index = self.$read_pixel_index(tile_addr, px, py);
                             let color = self.get_palette_color(index as u32, palette_bank, 0);
                             self.bg_line[bg][screen_x as usize] = color;
                             screen_x += 1;
@@ -86,8 +90,8 @@ impl Gpu {
         }
 
         match pixel_format {
-            PixelFormat::BPP4 => render_loop!(read_pixel_index_bpp4),
-            PixelFormat::BPP8 => render_loop!(read_pixel_index_bpp8),
+            PixelFormat::BPP4 => render_loop!(read_pixel_index_bpp4, true),
+            PixelFormat::BPP8 => render_loop!(read_pixel_index_bpp8, false),
         }
     }
 

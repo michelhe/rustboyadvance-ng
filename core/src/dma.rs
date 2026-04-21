@@ -115,7 +115,7 @@ impl DmaChannel {
     }
 
     fn transfer(&mut self, sb: &mut SysBus) {
-        let word_size = if self.ctrl.is_32bit() { 4 } else { 2 };
+        let word_size: u32 = if self.ctrl.is_32bit() { 4 } else { 2 };
         let count = match self.internal.count {
             0 => match self.id {
                 3 => 0x1_0000,
@@ -138,13 +138,13 @@ impl DmaChannel {
 
         let src_adj = match self.ctrl.src_adj() {
             /* Increment */ 0 => word_size,
-            /* Decrement */ 1 => 0 - word_size,
+            /* Decrement */ 1 => 0u32.wrapping_sub(word_size),
             /* Fixed */ 2 => 0,
             _ => panic!("forbidden DMA source address adjustment"),
         };
         let dst_adj = match self.ctrl.dst_adj() {
             /* Increment[+Reload] */ 0 | 3 => word_size,
-            /* Decrement */ 1 => 0 - word_size,
+            /* Decrement */ 1 => 0u32.wrapping_sub(word_size),
             /* Fixed */ 2 => 0,
             _ => panic!("forbidden DMA dest address adjustment"),
         };
@@ -157,21 +157,60 @@ impl DmaChannel {
                 access = MemoryAccess::Seq;
                 self.internal.src_addr += 4;
             }
-        } else if word_size == 4 {
-            for _ in 0..count {
-                let w = sb.load_32(self.internal.src_addr & !3, access);
-                sb.store_32(self.internal.dst_addr & !3, w, access);
-                access = MemoryAccess::Seq;
-                self.internal.src_addr += src_adj;
-                self.internal.dst_addr += dst_adj;
-            }
         } else {
-            for _ in 0..count {
-                let hw = sb.load_16(self.internal.src_addr & !1, access);
-                sb.store_16(self.internal.dst_addr & !1, hw, access);
-                access = MemoryAccess::Seq;
-                self.internal.src_addr += src_adj;
-                self.internal.dst_addr += dst_adj;
+            // Fast path: sequential incrementing copy into a linear RAM region.
+            // DMA-heavy games (pokeemerald in particular) spend a chunk of every
+            // frame walking this loop, once per word, each iteration paying a
+            // two-level bus-dispatch match. When the source and destination are
+            // both sequential and sit in regions we own as plain byte buffers,
+            // `sb.dma_bulk_copy` replaces the loop with one `copy_nonoverlapping`
+            // and a single scheduler update. Returns false for weirder shapes
+            // (affine sprite table DMA, FIFO, VRAM-side writes, boundary
+            // crossings, non-word addresses), at which point we fall through to
+            // the scalar loop — behavior is bit-identical.
+            let both_incrementing =
+                src_adj == word_size && dst_adj == word_size;
+            let aligned_ok = match word_size {
+                2 => self.internal.src_addr & 1 == 0 && self.internal.dst_addr & 1 == 0,
+                4 => self.internal.src_addr & 3 == 0 && self.internal.dst_addr & 3 == 0,
+                _ => false,
+            };
+
+            let handled_fast = both_incrementing
+                && aligned_ok
+                && sb.dma_bulk_copy(
+                    self.internal.src_addr,
+                    self.internal.dst_addr,
+                    count,
+                    word_size as u32,
+                );
+
+            if handled_fast {
+                // Advance state to end-of-transfer as the slow loop would have.
+                self.internal.src_addr = self
+                    .internal
+                    .src_addr
+                    .wrapping_add(src_adj.wrapping_mul(count));
+                self.internal.dst_addr = self
+                    .internal
+                    .dst_addr
+                    .wrapping_add(dst_adj.wrapping_mul(count));
+            } else if word_size == 4 {
+                for _ in 0..count {
+                    let w = sb.load_32(self.internal.src_addr & !3, access);
+                    sb.store_32(self.internal.dst_addr & !3, w, access);
+                    access = MemoryAccess::Seq;
+                    self.internal.src_addr += src_adj;
+                    self.internal.dst_addr += dst_adj;
+                }
+            } else {
+                for _ in 0..count {
+                    let hw = sb.load_16(self.internal.src_addr & !1, access);
+                    sb.store_16(self.internal.dst_addr & !1, hw, access);
+                    access = MemoryAccess::Seq;
+                    self.internal.src_addr += src_adj;
+                    self.internal.dst_addr += dst_adj;
+                }
             }
         }
         if self.ctrl.is_triggering_irq() {
@@ -220,6 +259,7 @@ impl DmaController {
         }
     }
 
+    #[inline(always)]
     pub fn is_active(&self) -> bool {
         self.pending_set != 0
     }
