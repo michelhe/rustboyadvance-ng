@@ -147,7 +147,7 @@ impl Gpu {
     }
 
     #[must_use]
-    #[inline]
+    #[inline(always)]
     fn finalize_pixel(
         &mut self,
         x: usize,
