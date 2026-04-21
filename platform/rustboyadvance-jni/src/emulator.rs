@@ -181,6 +181,7 @@ impl Recorder {
 /// Plays back a recording against the emulator. `apply_due` returns the
 /// state the emulator should use for the upcoming frame, overriding
 /// whatever the Java keypad says.
+#[cfg_attr(test, derive(Debug))]
 struct Replayer {
     events: Vec<(u64, u16)>, // (cycle, state)
     cursor: usize,
@@ -543,5 +544,111 @@ impl EmulatorContext {
 
     pub fn is_stopped(&self) -> bool {
         *self.emustate.lock().unwrap() == EmulationState::Stopped
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp_path(name: &str) -> String {
+        let dir = std::env::temp_dir();
+        dir.join(format!("rba-recorder-test-{}-{}.rec",
+                         name, std::process::id())).to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn record_then_replay_round_trips_edges() {
+        let path = tmp_path("edges");
+        let mut rec = Recorder::open(&path).expect("open for write");
+        // Observe a sequence of states with idle duplicates; only edges
+        // should land on disk.
+        rec.observe(100, 0x01).unwrap();
+        rec.observe(200, 0x01).unwrap(); // duplicate, skipped
+        rec.observe(300, 0x03).unwrap();
+        rec.observe(400, 0x00).unwrap();
+        rec.observe(500, 0x00).unwrap(); // duplicate, skipped
+        rec.flush().unwrap();
+        drop(rec);
+
+        let mut rp = Replayer::load(&path).expect("open for read");
+        assert_eq!(rp.events.len(), 3);
+        assert_eq!(rp.events[0], (100, 0x01));
+        assert_eq!(rp.events[1], (300, 0x03));
+        assert_eq!(rp.events[2], (400, 0x00));
+
+        // apply_due semantics: the latest event whose cycle has passed wins.
+        assert_eq!(rp.apply_due(50),  0x00); // before first event -> initial 0
+        assert_eq!(rp.apply_due(150), 0x01);
+        assert_eq!(rp.apply_due(250), 0x01); // no new event yet
+        assert_eq!(rp.apply_due(350), 0x03); // reached second event
+        assert_eq!(rp.apply_due(450), 0x00); // reached third event
+        assert!(rp.exhausted());
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn replay_rejects_bad_magic() {
+        let path = tmp_path("badmagic");
+        std::fs::write(&path, b"NOTAREC\0\0\0\0\0\0\0\0\0\0").unwrap();
+        let err = Replayer::load(&path).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn replay_handles_empty_recording() {
+        let path = tmp_path("empty");
+        let mut rec = Recorder::open(&path).expect("open");
+        rec.flush().unwrap();
+        drop(rec);
+
+        let mut rp = Replayer::load(&path).expect("open");
+        assert_eq!(rp.events.len(), 0);
+        assert!(rp.exhausted());
+        // apply_due on empty replayer returns initial 0.
+        assert_eq!(rp.apply_due(100), 0);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn record_out_of_order_states_preserved() {
+        // Even if the emulator's get_key_state returns values that
+        // "undo" themselves quickly, the recorder captures every edge
+        // so replay matches execution.
+        let path = tmp_path("flicker");
+        let mut rec = Recorder::open(&path).unwrap();
+        rec.observe(10, 0x02).unwrap();
+        rec.observe(20, 0x00).unwrap();
+        rec.observe(30, 0x02).unwrap();
+        rec.observe(40, 0x00).unwrap();
+        rec.flush().unwrap();
+        drop(rec);
+
+        let rp = Replayer::load(&path).unwrap();
+        assert_eq!(rp.events.len(), 4);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn round_trip_binary_compatible_with_fps_bench_format() {
+        // The on-device Recorder must write the exact same byte layout
+        // the desktop SDL frontend emits and fps_bench's replay module
+        // reads, so recordings are portable either direction.
+        let path = tmp_path("format");
+        let mut rec = Recorder::open(&path).unwrap();
+        rec.observe(0x1111_2222_3333_4444, 0xBEEF).unwrap();
+        rec.flush().unwrap();
+        drop(rec);
+
+        let raw = std::fs::read(&path).unwrap();
+        assert_eq!(&raw[0..8], b"RBAREC01");
+        // cycle: u64 LE, state: u16 LE
+        let cycle = u64::from_le_bytes(raw[8..16].try_into().unwrap());
+        let state = u16::from_le_bytes(raw[16..18].try_into().unwrap());
+        assert_eq!(cycle, 0x1111_2222_3333_4444);
+        assert_eq!(state, 0xBEEF);
+        std::fs::remove_file(&path).ok();
     }
 }
