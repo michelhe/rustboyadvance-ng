@@ -281,6 +281,15 @@ impl EmulatorContext {
 
         info!("starting main emulation loop");
 
+        // Tried pinning this thread to the big cluster and to the upper
+        // half of cores via sched_setaffinity(). Measured worse than
+        // letting Android's scheduler balance naturally: pinning to
+        // just cores 6-7 (Pixel 10 Cortex-X925) dropped steady state
+        // turbo from ~800 to ~560 FPS (thermal throttle concentrated
+        // on two cores), and pinning to the upper half 4-7 still came
+        // in lower than unpinned. The EAS scheduler makes better
+        // choices than a static mask for this workload.
+
         let mut fps_counter = FpsCounter::default();
 
         // Turbo mode frame skip: in turbo, render only every Nth emulated
@@ -290,6 +299,16 @@ impl EmulatorContext {
         // through JNI is a big chunk of per frame cost.
         const TURBO_FRAME_SKIP: u32 = 4;
         let mut turbo_frame_idx: u32 = 0;
+
+        // Per second per phase timing buckets. Tells us where the JNI
+        // emulation loop actually spends time, so we can target the real
+        // bottleneck instead of guessing. Dumped alongside each per second
+        // FPS log line and reset on dump.
+        let mut t_keypad_us: u64 = 0;
+        let mut t_frame_us: u64 = 0;
+        let mut t_render_us: u64 = 0;
+        let mut t_audio_us: u64 = 0;
+        let mut t_other_us: u64 = 0;
 
         'running: loop {
             let emustate = *self.emustate.lock().unwrap();
@@ -309,10 +328,13 @@ impl EmulatorContext {
 
             let start_time = Instant::now();
             // check key state
+            let t0 = Instant::now();
             *self.gba.get_key_state_mut() = self.keypad.get_key_state(env);
+            let t1 = Instant::now();
 
             // run frame
             self.gba.frame();
+            let t2 = Instant::now();
 
             // render video (skip N-1 of every N frames in turbo)
             let should_render = if turbo {
@@ -324,16 +346,33 @@ impl EmulatorContext {
             if should_render {
                 self.render_video(env);
             }
+            let t3 = Instant::now();
 
             // request audio worker to render the audio now
             audio_thread_tx
                 .send(AudioThreadCommand::RenderAudio)
                 .unwrap();
+            let t4 = Instant::now();
 
-            // Emit one log line per second with the measured FPS. Use the
-            // LCD tag so `adb logcat -s RustdroidFps` filters cleanly.
+            t_keypad_us += (t1 - t0).as_micros() as u64;
+            t_frame_us  += (t2 - t1).as_micros() as u64;
+            t_render_us += (t3 - t2).as_micros() as u64;
+            t_audio_us  += (t4 - t3).as_micros() as u64;
+            t_other_us  += (t0 - start_time).as_micros() as u64; // typically tiny
+
+            // Emit one log line per second with the measured FPS + phase
+            // timings so we can see where the per frame time actually goes.
             if let Some(fps) = fps_counter.tick() {
-                info!(target: "RustdroidFps", "FPS {}", fps);
+                info!(
+                    target: "RustdroidFps",
+                    "FPS {} keypad={}us frame={}us render={}us audio={}us other={}us",
+                    fps, t_keypad_us, t_frame_us, t_render_us, t_audio_us, t_other_us
+                );
+                t_keypad_us = 0;
+                t_frame_us = 0;
+                t_render_us = 0;
+                t_audio_us = 0;
+                t_other_us = 0;
             }
 
             if vsync {
