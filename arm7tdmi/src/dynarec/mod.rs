@@ -759,6 +759,140 @@ impl DynarecCompiler {
         })
     }
 
+    /// Thumb variant that mixes DP shapes with memory ops. Calls into the
+    /// bus trampolines registered at compiler construction time, like the
+    /// ARM `try_compile_mem_block`. Returns None if the compiler was built
+    /// without `new_with_bus`, or if any opcode is not a supported shape.
+    pub fn try_compile_thumb_mem_block(
+        &mut self,
+        opcodes: &[u16],
+    ) -> Option<extern "C" fn(*mut u32, *mut u32, *mut u8)> {
+        let imports = self.bus_imports?;
+
+        enum MemItem {
+            F1(DecodedThumb1),
+            F2(DecodedThumb2),
+            F3(DecodedThumb3),
+            F4(DecodedThumb4),
+            F5(DecodedThumb5),
+            F9(DecodedThumb9),
+        }
+        let mut items = Vec::with_capacity(opcodes.len());
+        for &op in opcodes {
+            if let Some(d) = Self::decode_thumb_format9(op) {
+                items.push(MemItem::F9(d));
+            } else if let Some(d) = Self::decode_thumb_format1(op) {
+                items.push(MemItem::F1(d));
+            } else if let Some(d) = Self::decode_thumb_format2(op) {
+                items.push(MemItem::F2(d));
+            } else if let Some(d) = Self::decode_thumb_format3(op) {
+                items.push(MemItem::F3(d));
+            } else if let Some(d) = Self::decode_thumb_format4_logical(op) {
+                items.push(MemItem::F4(d));
+            } else if let Some(d) = Self::decode_thumb_format5_non_branch(op) {
+                items.push(MemItem::F5(d));
+            } else {
+                return None;
+            }
+        }
+
+        let ptr_type = self.module.isa().pointer_type();
+        let mut sig = self.module.make_signature();
+        sig.params.push(AbiParam::new(ptr_type));
+        sig.params.push(AbiParam::new(ptr_type));
+        sig.params.push(AbiParam::new(ptr_type));
+
+        self.next_id += 1;
+        let name = format!("dynarec_thumb_mem_block_{}", self.next_id);
+        let func_id = self
+            .module
+            .declare_function(&name, Linkage::Local, &sig)
+            .expect("declare_function failed");
+        self.ctx.func.signature = sig;
+
+        {
+            let mut builder =
+                FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+            let entry = builder.create_block();
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            builder.seal_block(entry);
+
+            let gpr_ptr = builder.block_params(entry)[0];
+            let cpsr_ptr = builder.block_params(entry)[1];
+            let cpu_ctx = builder.block_params(entry)[2];
+
+            let cpsr_var = builder.declare_var(types::I32);
+            let cpsr_initial =
+                builder.ins().load(types::I32, MemFlags::trusted(), cpsr_ptr, 0);
+            builder.def_var(cpsr_var, cpsr_initial);
+
+            let load_32_ref =
+                self.module.declare_func_in_func(imports.load_32, builder.func);
+            let store_32_ref =
+                self.module.declare_func_in_func(imports.store_32, builder.func);
+            let load_8_ref =
+                self.module.declare_func_in_func(imports.load_8, builder.func);
+            let store_8_ref =
+                self.module.declare_func_in_func(imports.store_8, builder.func);
+
+            for item in &items {
+                match item {
+                    MemItem::F1(d) => emit_thumb_format1(&mut builder, gpr_ptr, cpsr_var, *d),
+                    MemItem::F2(d) => emit_thumb_format2(&mut builder, gpr_ptr, cpsr_var, *d),
+                    MemItem::F3(d) => emit_thumb_format3(&mut builder, gpr_ptr, cpsr_var, *d),
+                    MemItem::F4(d) => emit_thumb_format4_logical(&mut builder, gpr_ptr, cpsr_var, *d),
+                    MemItem::F5(d) => emit_thumb_format5_non_branch(&mut builder, gpr_ptr, cpsr_var, *d),
+                    MemItem::F9(d) => emit_thumb_format9(
+                        &mut builder, gpr_ptr, cpu_ctx,
+                        load_32_ref, store_32_ref, load_8_ref, store_8_ref,
+                        *d,
+                    ),
+                }
+            }
+
+            let cpsr_final = builder.use_var(cpsr_var);
+            builder
+                .ins()
+                .store(MemFlags::trusted(), cpsr_final, cpsr_ptr, 0);
+            builder.ins().return_(&[]);
+            builder.finalize();
+        }
+
+        self.module
+            .define_function(func_id, &mut self.ctx)
+            .expect("define_function failed");
+        self.module.clear_context(&mut self.ctx);
+        self.module
+            .finalize_definitions()
+            .expect("finalize_definitions failed");
+
+        let code = self.module.get_finalized_function(func_id);
+        Some(unsafe {
+            std::mem::transmute::<
+                *const u8,
+                extern "C" fn(*mut u32, *mut u32, *mut u8),
+            >(code)
+        })
+    }
+
+    /// Classify a Thumb format 9 LDR/STR immediate offset:
+    ///   011_B_L_iiiii_sss_ddd
+    /// B = 0 word (offset = imm5 * 4), B = 1 byte (offset = imm5).
+    /// L = 0 STR, 1 LDR.
+    fn decode_thumb_format9(op: u16) -> Option<DecodedThumb9> {
+        if (op >> 13) & 0b111 != 0b011 {
+            return None;
+        }
+        let byte = (op >> 12) & 1 != 0;
+        let load = (op >> 11) & 1 != 0;
+        let imm5 = ((op >> 6) & 0b11111) as u32;
+        let rs = ((op >> 3) & 0b111) as i32;
+        let rd = (op & 0b111) as i32;
+        let offset = if byte { imm5 } else { imm5 * 4 };
+        Some(DecodedThumb9 { load, byte, offset, rs, rd })
+    }
+
     /// Thumb variant of `try_compile_block_with_branch`: compiles a block
     /// whose body is supported Thumb shapes plus an optional trailing BX Rs.
     /// BX is a block terminator that writes the target pc (preserving bit 0
@@ -1452,6 +1586,16 @@ struct DecodedThumb5 {
     rs: i32,
 }
 
+/// Thumb format 9 LDR/STR immediate offset (word or unsigned byte).
+#[derive(Clone, Copy, Debug)]
+struct DecodedThumb9 {
+    load: bool,   // true = LDR/LDRB, false = STR/STRB
+    byte: bool,   // true = byte size, false = word
+    offset: u32,  // already scaled (word: imm5*4, byte: imm5)
+    rs: i32,      // base register
+    rd: i32,      // dest / src register
+}
+
 /// Thumb BX Rs (format 5 with oo=11). Reads gpr[rs] at runtime and jumps
 /// there, preserving bit 0 as the ARM/Thumb mode signal.
 #[derive(Clone, Copy, Debug)]
@@ -1626,6 +1770,56 @@ fn emit_conditional_instr(
     builder.ins().jump(merge, &[]);
     builder.switch_to_block(merge);
     builder.seal_block(merge);
+}
+
+/// Emit a Thumb format 9 LDR/STR immediate offset. addr = gpr[rs] + offset.
+/// Word form uses load_32/store_32 trampolines; byte form uses load_8/store_8
+/// with zero extension (LDRB) or low-byte truncation (STRB).
+fn emit_thumb_format9(
+    builder: &mut FunctionBuilder,
+    gpr_ptr: Value,
+    cpu_ctx: Value,
+    load_32_ref: cranelift::codegen::ir::FuncRef,
+    store_32_ref: cranelift::codegen::ir::FuncRef,
+    load_8_ref: cranelift::codegen::ir::FuncRef,
+    store_8_ref: cranelift::codegen::ir::FuncRef,
+    dec: DecodedThumb9,
+) {
+    let rs_val = builder.ins().load(
+        types::I32,
+        MemFlags::trusted(),
+        gpr_ptr,
+        Offset32::new(dec.rs * 4),
+    );
+    let offset = builder.ins().iconst(types::I32, dec.offset as i64);
+    let addr = builder.ins().iadd(rs_val, offset);
+
+    match (dec.load, dec.byte) {
+        (true, false) => {
+            let call = builder.ins().call(load_32_ref, &[cpu_ctx, addr]);
+            let v = builder.inst_results(call)[0];
+            builder.ins().store(MemFlags::trusted(), v, gpr_ptr, Offset32::new(dec.rd * 4));
+        }
+        (true, true) => {
+            let call = builder.ins().call(load_8_ref, &[cpu_ctx, addr]);
+            let v = builder.inst_results(call)[0];
+            let zero_ext = builder.ins().band_imm(v, 0xff);
+            builder.ins().store(MemFlags::trusted(), zero_ext, gpr_ptr, Offset32::new(dec.rd * 4));
+        }
+        (false, false) => {
+            let rd_val = builder.ins().load(
+                types::I32, MemFlags::trusted(), gpr_ptr, Offset32::new(dec.rd * 4),
+            );
+            builder.ins().call(store_32_ref, &[cpu_ctx, addr, rd_val]);
+        }
+        (false, true) => {
+            let rd_val = builder.ins().load(
+                types::I32, MemFlags::trusted(), gpr_ptr, Offset32::new(dec.rd * 4),
+            );
+            let byte_val = builder.ins().band_imm(rd_val, 0xff);
+            builder.ins().call(store_8_ref, &[cpu_ctx, addr, byte_val]);
+        }
+    }
 }
 
 /// Emit a Thumb format 5 non-branch op (ADD/CMP/MOV with Hi registers).
@@ -3143,6 +3337,112 @@ mod tests {
         func(gpr.as_mut_ptr(), &mut cpsr);
         assert_eq!(gpr[0], 0);
         assert_ne!(cpsr & (1 << 30), 0, "Z should be set");
+    }
+
+    // --- Thumb format 9 LDR/STR immediate offset ---
+
+    #[test]
+    fn decode_thumb_format9_shapes() {
+        // STR R0, [R1, #4]  word, offset imm5 = 1 -> scaled to 4
+        //   011_0_0_00001_001_000 = 0b0110_0000_0100_1000 = 0x6048
+        let d = DynarecCompiler::decode_thumb_format9(0x6048).expect("STR word");
+        assert_eq!(d.load, false);
+        assert_eq!(d.byte, false);
+        assert_eq!(d.offset, 4);
+        assert_eq!(d.rs, 1);
+        assert_eq!(d.rd, 0);
+
+        // LDR R2, [R3, #0x1C]  imm5 = 7 -> scaled to 28
+        //   011_0_1_00111_011_010 = 0b0110_1001_1101_1010 = 0x69DA
+        let d = DynarecCompiler::decode_thumb_format9(0x69DA).expect("LDR word");
+        assert_eq!(d.load, true);
+        assert_eq!(d.offset, 28);
+
+        // STRB R0, [R1, #3] byte offset 3
+        //   011_1_0_00011_001_000 = 0b0111_0000_1100_1000 = 0x70C8
+        let d = DynarecCompiler::decode_thumb_format9(0x70C8).expect("STRB");
+        assert_eq!(d.byte, true);
+        assert_eq!(d.offset, 3);
+
+        // LDRB R2, [R3, #1]  011_1_1_00001_011_010 = 0b0111_1000_0101_1010 = 0x785A
+        let d = DynarecCompiler::decode_thumb_format9(0x785A).expect("LDRB");
+        assert_eq!(d.load, true);
+        assert_eq!(d.byte, true);
+
+        // Not format 9 (top 3 bits != 011)
+        assert!(DynarecCompiler::decode_thumb_format9(0x2000).is_none());
+    }
+
+    #[test]
+    fn compile_thumb_ldr_word_immediate() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        unsafe {
+            let b = &mut *bus.bytes.get();
+            b[0x14] = 0x11; b[0x15] = 0x22; b[0x16] = 0x33; b[0x17] = 0x44;
+        }
+        // LDR R1, [R0, #0x14] -> imm5 = 5
+        //   011_0_1_00101_000_001 = 0b0110_1001_0100_0001 = 0x6941
+        let ldr = 0x6941u16;
+        let func = compiler
+            .try_compile_thumb_mem_block(&[ldr])
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[0] = 0;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr, &bus as *const TestBus as *mut u8);
+        assert_eq!(gpr[1], 0x4433_2211);
+    }
+
+    #[test]
+    fn compile_thumb_strb_truncates() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        // STRB R2, [R0, #5]  byte offset 5
+        //   011_1_0_00101_000_010 = 0b0111_0001_0100_0010 = 0x7142
+        let strb = 0x7142u16;
+        let func = compiler.try_compile_thumb_mem_block(&[strb]).unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[0] = 0;
+        gpr[2] = 0xDEAD_BEEF;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr, &bus as *const TestBus as *mut u8);
+        unsafe {
+            let b = &*bus.bytes.get();
+            assert_eq!(b[5], 0xEF);
+            assert_eq!(b[6], 0, "neighbour untouched");
+        }
+    }
+
+    #[test]
+    fn compile_thumb_mem_mixes_with_dp() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        // MOV R2, #0x42 ; STR R2, [R0, #8] ; LDR R3, [R0, #8] ; ADD R4, R3, #1
+        let mov = 0x2242u16;
+        // STR word offset=8 means imm5=2  011_0_0_00010_000_010 = 0x6082
+        let str_ = 0x6082u16;
+        // LDR word offset=8 imm5=2        011_0_1_00010_000_011 = 0x6883
+        let ldr = 0x6883u16;
+        // ADD R4, R3, #1 format 2 imm3    0001_1_1_0_001_011_100 = 0x1C5C
+        let add = 0x1C5Cu16;
+        let func = compiler
+            .try_compile_thumb_mem_block(&[mov, str_, ldr, add])
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[0] = 0;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr, &bus as *const TestBus as *mut u8);
+        assert_eq!(gpr[2], 0x42);
+        assert_eq!(gpr[3], 0x42);
+        assert_eq!(gpr[4], 0x43);
+    }
+
+    #[test]
+    fn thumb_mem_block_requires_bus() {
+        let mut compiler = DynarecCompiler::new();
+        let ldr = 0x6941u16;
+        assert!(compiler.try_compile_thumb_mem_block(&[ldr]).is_none());
     }
 
     // --- Thumb BX as block terminator ---
