@@ -216,7 +216,7 @@ impl Gpu {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn read_pixel_index_bpp4(&mut self, addr: u32, x: u32, y: u32) -> usize {
         let ofs = addr + index2d!(u32, x / 2, y, 4);
         let ofs = ofs as usize;
@@ -228,7 +228,7 @@ impl Gpu {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn read_pixel_index_bpp8(&mut self, addr: u32, x: u32, y: u32) -> usize {
         let ofs = addr;
         self.vram.read_8(ofs + index2d!(u32, x, y, 8)) as usize
