@@ -777,10 +777,13 @@ impl DynarecCompiler {
             F5(DecodedThumb5),
             F9(DecodedThumb9),
             F11(DecodedThumb11),
+            F14(DecodedThumb14),
         }
         let mut items = Vec::with_capacity(opcodes.len());
         for &op in opcodes {
-            if let Some(d) = Self::decode_thumb_format11(op) {
+            if let Some(d) = Self::decode_thumb_format14_non_pc(op) {
+                items.push(MemItem::F14(d));
+            } else if let Some(d) = Self::decode_thumb_format11(op) {
                 items.push(MemItem::F11(d));
             } else if let Some(d) = Self::decode_thumb_format9(op) {
                 items.push(MemItem::F9(d));
@@ -856,6 +859,11 @@ impl DynarecCompiler {
                         load_32_ref, store_32_ref,
                         *d,
                     ),
+                    MemItem::F14(d) => emit_thumb_format14(
+                        &mut builder, gpr_ptr, cpu_ctx,
+                        load_32_ref, store_32_ref,
+                        *d,
+                    ),
                 }
             }
 
@@ -881,6 +889,43 @@ impl DynarecCompiler {
                 *const u8,
                 extern "C" fn(*mut u32, *mut u32, *mut u8),
             >(code)
+        })
+    }
+
+    /// Classify a Thumb format 14 PUSH / POP (non PC variant):
+    ///   1011_L_10_R_rrrrrrrr
+    ///     L = 0 PUSH, 1 POP
+    ///     R = include LR (PUSH) or PC (POP).
+    ///     rrrrrrrr = R0..R7 inclusion bitmap.
+    /// POP with R=1 (POP{PC}) is a block terminator and gets handled in the
+    /// branch block path, so it's rejected here.
+    /// Empty register list (including R) is UNPREDICTABLE per spec,
+    /// rejected.
+    fn decode_thumb_format14_non_pc(op: u16) -> Option<DecodedThumb14> {
+        if (op >> 12) & 0xF != 0b1011 {
+            return None;
+        }
+        let load = (op >> 11) & 1 != 0;
+        // Bits [10:9] must be 10.
+        if (op >> 9) & 0b11 != 0b10 {
+            return None;
+        }
+        let extra = (op >> 8) & 1 != 0;
+        let reg_list = (op & 0xff) as u8;
+
+        // Defer POP{PC} to try_compile_thumb_block_with_branch.
+        if load && extra {
+            return None;
+        }
+        // Empty effective register list is UNPREDICTABLE.
+        if reg_list == 0 && !extra {
+            return None;
+        }
+
+        Some(DecodedThumb14 {
+            push: !load,
+            extra_reg: extra,
+            reg_list,
         })
     }
 
@@ -1627,6 +1672,24 @@ struct DecodedThumb11 {
     offset: u32, // already scaled by 4
 }
 
+/// Thumb format 14 PUSH/POP register list (non PC variant).
+/// `extra_reg` is LR for PUSH or PC for POP. POP with extra_reg=true is
+/// rejected by the classifier because it's a block terminator handled
+/// elsewhere.
+#[derive(Clone, Copy, Debug)]
+struct DecodedThumb14 {
+    push: bool,      // true = PUSH (L=0), false = POP (L=1)
+    extra_reg: bool, // R bit
+    reg_list: u8,    // R0..R7 bitmap
+}
+
+impl DecodedThumb14 {
+    /// Total number of registers transferred by this instruction.
+    fn count(&self) -> u32 {
+        self.reg_list.count_ones() + self.extra_reg as u32
+    }
+}
+
 /// Thumb BX Rs (format 5 with oo=11). Reads gpr[rs] at runtime and jumps
 /// there, preserving bit 0 as the ARM/Thumb mode signal.
 #[derive(Clone, Copy, Debug)]
@@ -1801,6 +1864,83 @@ fn emit_conditional_instr(
     builder.ins().jump(merge, &[]);
     builder.switch_to_block(merge);
     builder.seal_block(merge);
+}
+
+/// Emit a Thumb format 14 PUSH or POP register list.
+///
+/// Address ordering (ARMv4 PUSH/POP = STMDB/LDMIA on SP):
+///   PUSH:  new_sp = SP - 4*count; write registers low-to-high to
+///          addresses new_sp, new_sp+4, ... (lowest reg at lowest addr).
+///          End SP = new_sp.
+///   POP:   read registers low-to-high from SP, SP+4, ... up to
+///          SP + 4*(count-1). End SP = SP + 4*count.
+///
+/// The register list for PUSH is R0..R7 ordered, then LR. For POP the
+/// order is R0..R7, then PC. We only handle POP without PC here
+/// (classifier rejects).
+fn emit_thumb_format14(
+    builder: &mut FunctionBuilder,
+    gpr_ptr: Value,
+    cpu_ctx: Value,
+    load_32_ref: cranelift::codegen::ir::FuncRef,
+    store_32_ref: cranelift::codegen::ir::FuncRef,
+    dec: DecodedThumb14,
+) {
+    let count = dec.count();
+    let bytes = (count as i64) * 4;
+    let sp = builder.ins().load(
+        types::I32,
+        MemFlags::trusted(),
+        gpr_ptr,
+        Offset32::new(13 * 4),
+    );
+
+    let start_addr = if dec.push {
+        builder.ins().iadd_imm(sp, -bytes)
+    } else {
+        sp
+    };
+
+    // Walk the register list low-to-high.
+    let mut byte_offset = 0i64;
+    for i in 0..8 {
+        if dec.reg_list & (1 << i) != 0 {
+            let addr = builder.ins().iadd_imm(start_addr, byte_offset);
+            if dec.push {
+                let v = builder.ins().load(
+                    types::I32, MemFlags::trusted(), gpr_ptr, Offset32::new(i * 4),
+                );
+                builder.ins().call(store_32_ref, &[cpu_ctx, addr, v]);
+            } else {
+                let call = builder.ins().call(load_32_ref, &[cpu_ctx, addr]);
+                let v = builder.inst_results(call)[0];
+                builder.ins().store(
+                    MemFlags::trusted(), v, gpr_ptr, Offset32::new(i * 4),
+                );
+            }
+            byte_offset += 4;
+        }
+    }
+    // LR bit for PUSH (extra_reg = LR = R14). POP with PC bit was rejected
+    // by the classifier.
+    if dec.extra_reg && dec.push {
+        let addr = builder.ins().iadd_imm(start_addr, byte_offset);
+        let lr = builder.ins().load(
+            types::I32, MemFlags::trusted(), gpr_ptr, Offset32::new(14 * 4),
+        );
+        builder.ins().call(store_32_ref, &[cpu_ctx, addr, lr]);
+        // byte_offset += 4; (unused after this, kept for readability)
+    }
+
+    // Update SP.
+    let new_sp = if dec.push {
+        start_addr // which is sp - bytes
+    } else {
+        builder.ins().iadd_imm(sp, bytes)
+    };
+    builder.ins().store(
+        MemFlags::trusted(), new_sp, gpr_ptr, Offset32::new(13 * 4),
+    );
 }
 
 /// Emit a Thumb format 11 SP relative LDR/STR (word). Base register is
@@ -3398,6 +3538,106 @@ mod tests {
         func(gpr.as_mut_ptr(), &mut cpsr);
         assert_eq!(gpr[0], 0);
         assert_ne!(cpsr & (1 << 30), 0, "Z should be set");
+    }
+
+    // --- Thumb format 14 PUSH/POP (non PC variant) ---
+
+    #[test]
+    fn decode_thumb_format14_shapes() {
+        // PUSH {R0} -> 1011_0_10_0_00000001 = 0b1011_0100_0000_0001 = 0xB401
+        let d = DynarecCompiler::decode_thumb_format14_non_pc(0xB401).expect("PUSH R0");
+        assert_eq!(d.push, true);
+        assert_eq!(d.extra_reg, false);
+        assert_eq!(d.reg_list, 0x01);
+
+        // PUSH {R0-R3, LR} -> 1011_0_10_1_00001111 = 0xB50F
+        let d = DynarecCompiler::decode_thumb_format14_non_pc(0xB50F).expect("PUSH r,lr");
+        assert_eq!(d.push, true);
+        assert_eq!(d.extra_reg, true);
+        assert_eq!(d.reg_list, 0x0F);
+        assert_eq!(d.count(), 5);
+
+        // POP {R4-R7} -> 1011_1_10_0_11110000 = 0xBCF0
+        let d = DynarecCompiler::decode_thumb_format14_non_pc(0xBCF0).expect("POP");
+        assert_eq!(d.push, false);
+        assert_eq!(d.reg_list, 0xF0);
+
+        // POP {R4-R7, PC} must be rejected here (deferred to branch path).
+        //   1011_1_10_1_11110000 = 0xBDF0
+        assert!(DynarecCompiler::decode_thumb_format14_non_pc(0xBDF0).is_none());
+
+        // Empty list rejection: PUSH {} with R=0.
+        //   1011_0_10_0_00000000 = 0xB400
+        assert!(DynarecCompiler::decode_thumb_format14_non_pc(0xB400).is_none());
+
+        // Not format 14.
+        assert!(DynarecCompiler::decode_thumb_format14_non_pc(0x6000).is_none());
+    }
+
+    #[test]
+    fn compile_thumb_push_single_reg() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        // PUSH {R0}
+        let push = 0xB401u16;
+        let func = compiler.try_compile_thumb_mem_block(&[push]).unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[13] = 0x40; // SP
+        gpr[0]  = 0x1234_5678;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr, &bus as *const TestBus as *mut u8);
+        assert_eq!(gpr[13], 0x40 - 4, "SP decremented by 4");
+        unsafe {
+            let b = &*bus.bytes.get();
+            assert_eq!(u32::from_le_bytes([b[0x3C], b[0x3D], b[0x3E], b[0x3F]]),
+                       0x1234_5678);
+        }
+    }
+
+    #[test]
+    fn compile_thumb_push_multiple_with_lr() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        // PUSH {R0, R2, LR}
+        //   1011_0_10_1_00000101 = 0xB505
+        let push = 0xB505u16;
+        let func = compiler.try_compile_thumb_mem_block(&[push]).unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[13] = 0x80;
+        gpr[0]  = 0xAA;
+        gpr[2]  = 0xBB;
+        gpr[14] = 0xCC;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr, &bus as *const TestBus as *mut u8);
+        assert_eq!(gpr[13], 0x80 - 12, "SP -= 12 for 3 regs");
+        unsafe {
+            let b = &*bus.bytes.get();
+            // R0 at lowest, then R2, then LR
+            assert_eq!(b[0x74], 0xAA, "R0 at SP-12");
+            assert_eq!(b[0x78], 0xBB, "R2 at SP-8");
+            assert_eq!(b[0x7C], 0xCC, "LR at SP-4");
+        }
+    }
+
+    #[test]
+    fn compile_thumb_push_then_pop_roundtrip() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        // PUSH {R0, R1}; POP {R2, R3}
+        //   1011_0_10_0_00000011 = 0xB403
+        //   1011_1_10_0_00001100 = 0xBC0C
+        let push = 0xB403u16;
+        let pop  = 0xBC0Cu16;
+        let func = compiler.try_compile_thumb_mem_block(&[push, pop]).unwrap();
+
+        let mut gpr = [0u32; 15];
+        gpr[13] = 0x60;
+        gpr[0]  = 0xDEAD;
+        gpr[1]  = 0xBEEF;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr, &bus as *const TestBus as *mut u8);
+        assert_eq!(gpr[2], 0xDEAD, "R2 = pushed R0");
+        assert_eq!(gpr[3], 0xBEEF, "R3 = pushed R1");
+        assert_eq!(gpr[13], 0x60, "SP restored");
     }
 
     // --- Thumb format 11 SP-relative LDR/STR ---
