@@ -97,8 +97,12 @@ pub struct Arm7tdmiCore<I: MemoryInterface> {
     pub pc: u32,
     pub bus: Shared<I>,
 
-    next_fetch_access: MemoryAccess,
-    pipeline: [u32; 2],
+    // pub(crate) so the sibling dynarec::trampolines module can touch
+    // these when paying fetch cycles at a compiled block's entry. Kept
+    // out of the external public surface because they're part of the
+    // pipeline emulation invariants.
+    pub(crate) next_fetch_access: MemoryAccess,
+    pub(crate) pipeline: [u32; 2],
     pub gpr: [u32; 15],
 
     pub cpsr: RegPSR,
