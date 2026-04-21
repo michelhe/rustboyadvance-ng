@@ -768,7 +768,7 @@ impl DynarecCompiler {
     pub fn try_compile_thumb_block_with_branch(
         &mut self,
         opcodes: &[u16],
-        _entry_pc: u32,
+        entry_pc: u32,
     ) -> Option<extern "C" fn(*mut u32, *mut u32, *mut u32) -> u32> {
         if opcodes.is_empty() {
             return None;
@@ -778,7 +778,8 @@ impl DynarecCompiler {
         let tail_insn = tail[0];
 
         // Classify body: every non-tail opcode must be one of the supported
-        // straight-line Thumb shapes and must not itself be a BX.
+        // straight-line Thumb shapes. Branching shapes (BX, fmt 16, fmt 18)
+        // only allowed in the tail slot.
         enum BodyItem {
             F1(DecodedThumb1),
             F2(DecodedThumb2),
@@ -788,8 +789,11 @@ impl DynarecCompiler {
         }
         let mut body: Vec<BodyItem> = Vec::with_capacity(body_opcodes.len());
         for &op in body_opcodes {
-            if Self::decode_thumb_bx(op).is_some() {
-                return None; // BX only permitted as the last instruction
+            if Self::decode_thumb_bx(op).is_some()
+                || Self::decode_thumb_format16(op).is_some()
+                || Self::decode_thumb_format18(op).is_some()
+            {
+                return None;
             }
             if let Some(d) = Self::decode_thumb_format1(op) {
                 body.push(BodyItem::F1(d));
@@ -806,9 +810,14 @@ impl DynarecCompiler {
             }
         }
 
+        // Tail classification: prefer branch shapes over body shapes since
+        // the body also accepts fmt 5 ADD/CMP/MOV which share the 010001
+        // prefix. BX / fmt 16 / fmt 18 each have their own distinguishing
+        // prefix so there's no overlap to worry about.
         let tail_bx = Self::decode_thumb_bx(tail_insn);
-        let tail_body = if tail_bx.is_none() {
-            // Tail is a regular body shape; classify.
+        let tail_pc_branch = Self::decode_thumb_format18(tail_insn)
+            .or_else(|| Self::decode_thumb_format16(tail_insn));
+        let tail_body = if tail_bx.is_none() && tail_pc_branch.is_none() {
             if let Some(d) = Self::decode_thumb_format1(tail_insn) {
                 Some(BodyItem::F1(d))
             } else if let Some(d) = Self::decode_thumb_format2(tail_insn) {
@@ -883,6 +892,32 @@ impl DynarecCompiler {
                 builder.ins().store(MemFlags::trusted(), target, pc_out, 0);
                 let one = builder.ins().iconst(types::I32, 1);
                 builder.def_var(took_branch_var, one);
+            } else if let Some(br) = tail_pc_branch {
+                // Static target at codegen time.
+                // pc_of_branch_in_block = entry_pc + 2 * (body_len)
+                // current_pc_at_execute = pc_of_branch + 4 (Thumb pipeline)
+                // final_target           = current_pc + (offset << 1)
+                let body_len = body.len() as u32;
+                let branch_pc = entry_pc.wrapping_add(body_len.wrapping_mul(2));
+                let target = branch_pc
+                    .wrapping_add(4)
+                    .wrapping_add((br.offset_signed << 1) as u32)
+                    | 1; // stay in Thumb mode
+                let cond_pass = emit_cond_check(&mut builder, cpsr_var, br.cond);
+                let taken = builder.create_block();
+                let not_taken = builder.create_block();
+                builder.ins().brif(cond_pass, taken, &[], not_taken, &[]);
+
+                builder.switch_to_block(taken);
+                builder.seal_block(taken);
+                let t_val = builder.ins().iconst(types::I32, target as i64);
+                builder.ins().store(MemFlags::trusted(), t_val, pc_out, 0);
+                let one = builder.ins().iconst(types::I32, 1);
+                builder.def_var(took_branch_var, one);
+                builder.ins().jump(not_taken, &[]);
+
+                builder.switch_to_block(not_taken);
+                builder.seal_block(not_taken);
             } else if let Some(item) = tail_body {
                 match item {
                     BodyItem::F1(d) => emit_thumb_format1(&mut builder, gpr_ptr, cpsr_var, d),
@@ -916,6 +951,41 @@ impl DynarecCompiler {
                 *const u8,
                 extern "C" fn(*mut u32, *mut u32, *mut u32) -> u32,
             >(code)
+        })
+    }
+
+    /// Classify a Thumb format 18 unconditional branch:
+    ///   11100_iiiiiiiiiii   (11 bit signed offset)
+    /// Target = current pc (= instr + 4) + sign_extend(imm11) << 1.
+    fn decode_thumb_format18(op: u16) -> Option<DecodedThumbPcBranch> {
+        if (op >> 11) & 0b11111 != 0b11100 {
+            return None;
+        }
+        let raw = (op & 0x07FF) as i32;
+        let signed = (raw << 21) >> 21; // sign extend 11 bits
+        Some(DecodedThumbPcBranch {
+            cond: ArmCond::Al,
+            offset_signed: signed,
+        })
+    }
+
+    /// Classify a Thumb format 16 conditional branch:
+    ///   1101_cccc_iiiiiiii
+    /// cond 0xE (AL) is reserved here (that'd be format 18), cond 0xF is
+    /// SWI (format 17). Both rejected. Target = pc + sign_extend(imm8) << 1.
+    fn decode_thumb_format16(op: u16) -> Option<DecodedThumbPcBranch> {
+        if (op >> 12) & 0xF != 0b1101 {
+            return None;
+        }
+        let cond_bits = ((op >> 8) & 0xF) as u8;
+        if cond_bits == 0xE || cond_bits == 0xF {
+            return None;
+        }
+        let raw = (op & 0xFF) as i32;
+        let signed = (raw << 24) >> 24; // sign extend 8 bits
+        Some(DecodedThumbPcBranch {
+            cond: ArmCond::from_bits(cond_bits),
+            offset_signed: signed,
         })
     }
 
@@ -1387,6 +1457,15 @@ struct DecodedThumb5 {
 #[derive(Clone, Copy, Debug)]
 struct DecodedThumbBx {
     rs: i32,
+}
+
+/// Thumb PC relative branch (format 16 conditional or format 18
+/// unconditional). Target pc is computed at codegen time from
+/// entry_pc + in-block offset + 4 (pipeline) + (offset << 1).
+#[derive(Clone, Copy, Debug)]
+struct DecodedThumbPcBranch {
+    cond: ArmCond,           // Al for format 18
+    offset_signed: i32,      // already sign extended, NOT yet shifted by 1
 }
 
 /// ARM shifter operation kind. Only the three Thumb format 1 variants
@@ -3164,6 +3243,136 @@ mod tests {
         assert_eq!(taken, 0);
         assert_eq!(pc_out, 0xC0FF_EE00);
         assert_eq!(gpr[0], 0x42);
+    }
+
+    #[test]
+    fn decode_thumb_format18_unconditional() {
+        // B #+8 (forward). imm11 offset from instr+4. imm11 = 0 means target
+        // = instr+4+0 = instr+4 (skip no instrs).
+        //   11100_00000000000 = 0xE000
+        let d = DynarecCompiler::decode_thumb_format18(0xE000).expect("B +0");
+        assert_eq!(d.cond, ArmCond::Al);
+        assert_eq!(d.offset_signed, 0);
+
+        // Forward 4 instructions: imm11 = 4 -> 0xE004
+        let d = DynarecCompiler::decode_thumb_format18(0xE004).unwrap();
+        assert_eq!(d.offset_signed, 4);
+
+        // Backward: imm11 = -1 -> 0xE7FF
+        let d = DynarecCompiler::decode_thumb_format18(0xE7FF).unwrap();
+        assert_eq!(d.offset_signed, -1);
+
+        // Not format 18.
+        assert!(DynarecCompiler::decode_thumb_format18(0xE800).is_none());
+        assert!(DynarecCompiler::decode_thumb_format18(0x2000).is_none());
+    }
+
+    #[test]
+    fn decode_thumb_format16_conditional() {
+        // BEQ #+4 (cond=0x0, imm8=2 -> target = pc+4+4)
+        //   1101_0000_00000010 = 0xD002
+        let d = DynarecCompiler::decode_thumb_format16(0xD002).expect("BEQ");
+        assert_eq!(d.cond, ArmCond::Eq);
+        assert_eq!(d.offset_signed, 2);
+
+        // BNE -4: cond=0x1, imm8 = -2 -> 0xD1FE
+        let d = DynarecCompiler::decode_thumb_format16(0xD1FE).unwrap();
+        assert_eq!(d.cond, ArmCond::Ne);
+        assert_eq!(d.offset_signed, -2);
+
+        // cond AL (0xE) is reserved for format 18, reject here.
+        assert!(DynarecCompiler::decode_thumb_format16(0xDE00).is_none());
+        // cond 0xF is SWI (format 17), reject.
+        assert!(DynarecCompiler::decode_thumb_format16(0xDF00).is_none());
+        // Not format 16 at all.
+        assert!(DynarecCompiler::decode_thumb_format16(0xC000).is_none());
+    }
+
+    #[test]
+    fn compile_thumb_format18_taken() {
+        let mut compiler = DynarecCompiler::new();
+        // B +0: target = branch_pc + 4 + 0, with Thumb bit.
+        let b = 0xE000u16;
+        let entry_pc = 0x0800_1000u32;
+        let func = compiler
+            .try_compile_thumb_block_with_branch(&[b], entry_pc)
+            .unwrap();
+
+        let mut gpr = [0u32; 15];
+        let mut cpsr = 0u32;
+        let mut pc_out = 0u32;
+        let taken = func(gpr.as_mut_ptr(), &mut cpsr, &mut pc_out);
+        assert_eq!(taken, 1);
+        // branch_pc = entry_pc (body_len = 0). target = entry_pc + 4 | 1.
+        assert_eq!(pc_out, (entry_pc + 4) | 1);
+    }
+
+    #[test]
+    fn compile_thumb_format16_not_taken() {
+        let mut compiler = DynarecCompiler::new();
+        // BEQ #+4 with Z=0.
+        let beq = 0xD002u16;
+        let func = compiler
+            .try_compile_thumb_block_with_branch(&[beq], 0x0800_2000)
+            .unwrap();
+
+        let mut gpr = [0u32; 15];
+        let mut cpsr = 0u32; // Z=0
+        let mut pc_out = 0xBADD_F00Du32;
+        let taken = func(gpr.as_mut_ptr(), &mut cpsr, &mut pc_out);
+        assert_eq!(taken, 0);
+        assert_eq!(pc_out, 0xBADD_F00Du32);
+    }
+
+    #[test]
+    fn compile_thumb_format16_taken_when_z_set() {
+        let mut compiler = DynarecCompiler::new();
+        let beq = 0xD002u16;
+        let entry_pc = 0x0800_3000u32;
+        let func = compiler
+            .try_compile_thumb_block_with_branch(&[beq], entry_pc)
+            .unwrap();
+
+        let mut gpr = [0u32; 15];
+        let mut cpsr: u32 = 1 << 30;
+        let mut pc_out = 0u32;
+        let taken = func(gpr.as_mut_ptr(), &mut cpsr, &mut pc_out);
+        assert_eq!(taken, 1);
+        assert_eq!(pc_out, (entry_pc + 4 + 4) | 1);
+    }
+
+    #[test]
+    fn compile_thumb_body_then_b_tail() {
+        let mut compiler = DynarecCompiler::new();
+        // MOV R0, #1 ; B -0
+        //   MOV R0, #1 -> 0x2001
+        //   B -0 means backward to self (imm11 = -2 -> 0xE7FE)
+        let mov = 0x2001u16;
+        let b   = 0xE7FEu16;
+        let entry_pc = 0x0800_4000u32;
+        let func = compiler
+            .try_compile_thumb_block_with_branch(&[mov, b], entry_pc)
+            .unwrap();
+
+        let mut gpr = [0u32; 15];
+        let mut cpsr = 0u32;
+        let mut pc_out = 0u32;
+        let taken = func(gpr.as_mut_ptr(), &mut cpsr, &mut pc_out);
+        assert_eq!(gpr[0], 1);
+        assert_eq!(taken, 1);
+        // branch_pc = entry_pc + 2 (one body instr). target = branch_pc + 4 + (-2 << 1) = branch_pc.
+        // That's entry_pc + 2. With Thumb bit = (entry_pc + 2) | 1.
+        assert_eq!(pc_out, (entry_pc + 2) | 1);
+    }
+
+    #[test]
+    fn compile_thumb_mid_block_pc_branch_rejected() {
+        let mut compiler = DynarecCompiler::new();
+        let b  = 0xE000u16; // format 18
+        let mov = 0x2042u16;
+        assert!(compiler
+            .try_compile_thumb_block_with_branch(&[b, mov], 0)
+            .is_none());
     }
 
     #[test]
