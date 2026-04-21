@@ -29,6 +29,16 @@ use rustc_hash::FxHashMap;
 use crate::cpu::{Arm7tdmiCore, CpuAction};
 use crate::memory::MemoryInterface;
 
+#[cfg(feature = "dynarec")]
+use crate::dynarec::DynarecCompiler;
+
+/// Fn pointer shape produced by the unified Thumb mem+branch compile path
+/// in the `dynarec` module. Same four args and return value semantics that
+/// try_compile_thumb_mem_block_with_branch hands out.
+#[cfg(feature = "dynarec")]
+pub type CompiledThumbFn =
+    extern "C" fn(*mut u32, *mut u32, *mut u32, *mut u8) -> u32;
+
 /// One recorded instruction inside a block.
 ///
 /// Handler fn signatures differ between ARM and Thumb (u32 vs u16 insn word),
@@ -64,11 +74,26 @@ impl BlockKey {
 /// PipelineFlushed the last time we executed it.
 pub struct Block<I: MemoryInterface> {
     pub instrs: Vec<DecodedInstr<I>>,
+    /// PC at which this block begins, with the Thumb bit in bit 0. Needed
+    /// by the dynarec compiler to fold PC relative branch targets at
+    /// codegen time. Populated even when the `dynarec` feature is off so
+    /// future diagnostics can use it.
+    pub entry_pc: u32,
+    /// Optional compiled block. Set by `finish_record` when the dynarec
+    /// compiler successfully lowers all the recorded opcodes. None for
+    /// blocks that contain any shape the dynarec doesn't yet support.
+    #[cfg(feature = "dynarec")]
+    pub compiled: Option<CompiledThumbFn>,
 }
 
 impl<I: MemoryInterface> Block<I> {
-    fn new() -> Self {
-        Block { instrs: Vec::with_capacity(8) }
+    fn new(entry_pc: u32) -> Self {
+        Block {
+            instrs: Vec::with_capacity(8),
+            entry_pc,
+            #[cfg(feature = "dynarec")]
+            compiled: None,
+        }
     }
 }
 
@@ -95,6 +120,37 @@ pub struct BlockCache<I: MemoryInterface> {
     ram_blocks: FxHashMap<BlockKey, Rc<Block<I>>>,
     /// Block currently being recorded. `None` when not in a recording pass.
     recording: Option<(BlockKey, Block<I>)>,
+    /// Dynarec compiler used to attempt lowering each newly recorded Thumb
+    /// block to native code in `finish_record`. None until
+    /// `enable_dynarec` is called, which the CPU constructor does when the
+    /// dynarec feature is on.
+    #[cfg(feature = "dynarec")]
+    compiler: Option<DynarecCompiler>,
+}
+
+/// Try to JIT compile the recorded block's Thumb instructions. Bails out
+/// (returns None) for any block that isn't all Thumb, or whose shapes the
+/// dynarec doesn't yet support.
+#[cfg(feature = "dynarec")]
+fn try_compile_thumb<I: MemoryInterface>(
+    compiler: &mut DynarecCompiler,
+    block: &Block<I>,
+) -> Option<CompiledThumbFn> {
+    if !compiler.has_bus() {
+        return None;
+    }
+    let mut raws: Vec<u16> = Vec::with_capacity(block.instrs.len());
+    for instr in &block.instrs {
+        match instr {
+            DecodedInstr::Thumb { raw, .. } => raws.push(*raw),
+            DecodedInstr::Arm { .. } => return None,
+        }
+    }
+    if raws.is_empty() {
+        return None;
+    }
+    let entry_pc_word_aligned = block.entry_pc & !1;
+    compiler.try_compile_thumb_mem_block_with_branch(&raws, entry_pc_word_aligned)
 }
 
 /// Classify a guest PC by memory region for the block-cache split.
@@ -113,6 +169,8 @@ impl<I: MemoryInterface> Default for BlockCache<I> {
             rom_blocks: FxHashMap::with_capacity_and_hasher(2048, Default::default()),
             ram_blocks: FxHashMap::with_capacity_and_hasher(256, Default::default()),
             recording: None,
+            #[cfg(feature = "dynarec")]
+            compiler: None,
         }
     }
 }
@@ -156,10 +214,27 @@ impl<I: MemoryInterface> BlockCache<I> {
         self.recording = None;
     }
 
+    /// Install a Cranelift-backed dynarec compiler. After this, any
+    /// newly recorded Thumb block that matches a supported shape will be
+    /// JIT compiled by `finish_record` and its fn pointer stashed on the
+    /// Block for `step_block` to dispatch to. Call once per CPU after
+    /// construction (the CPU knows how to build a trampoline struct
+    /// with its concrete MemoryInterface impl).
+    #[cfg(feature = "dynarec")]
+    pub fn enable_dynarec(&mut self, compiler: DynarecCompiler) {
+        self.compiler = Some(compiler);
+    }
+
+    /// True if a dynarec compiler has been installed.
+    #[cfg(feature = "dynarec")]
+    pub fn has_dynarec(&self) -> bool {
+        self.compiler.is_some()
+    }
+
     /// Begin trace-recording a new block starting at `key`.
     #[inline]
     pub fn begin_record(&mut self, key: BlockKey) {
-        self.recording = Some((key, Block::new()));
+        self.recording = Some((key, Block::new(key.0)));
     }
 
     /// Append one executed instruction to the in-progress recording, if any.
@@ -178,17 +253,43 @@ impl<I: MemoryInterface> BlockCache<I> {
     /// Finish the current recording and insert it into the appropriate cache
     /// half based on the block's entry region. Called on pipeline flush or
     /// when the block length cap is reached.
+    ///
+    /// When the dynarec feature is on and a compiler has been installed,
+    /// this also tries to JIT compile the recorded block into a native fn.
+    /// On compile success the fn pointer is stashed on the Block and
+    /// step_block can dispatch to it; on compile failure (any unsupported
+    /// shape) the Block is left with compiled=None and replays via the
+    /// interpreter handler loop.
     #[inline]
     pub fn finish_record(&mut self) {
-        if let Some((key, block)) = self.recording.take()
-            && !block.instrs.is_empty()
+        if let Some((_key, block)) = self.recording.as_ref()
+            && block.instrs.is_empty()
         {
-            let pc = key.0 & !1;
-            if is_rom_address(pc) {
-                self.rom_blocks.insert(key, Rc::new(block));
-            } else {
-                self.ram_blocks.insert(key, Rc::new(block));
+            self.recording = None;
+            return;
+        }
+
+        #[cfg(feature = "dynarec")]
+        let Some((key, mut block)) = self.recording.take() else {
+            return;
+        };
+        #[cfg(not(feature = "dynarec"))]
+        let Some((key, block)) = self.recording.take() else {
+            return;
+        };
+
+        #[cfg(feature = "dynarec")]
+        {
+            if let Some(compiler) = self.compiler.as_mut() {
+                block.compiled = try_compile_thumb(compiler, &block);
             }
+        }
+
+        let pc = key.0 & !1;
+        if is_rom_address(pc) {
+            self.rom_blocks.insert(key, Rc::new(block));
+        } else {
+            self.ram_blocks.insert(key, Rc::new(block));
         }
     }
 
@@ -210,5 +311,98 @@ impl<I: MemoryInterface> BlockCache<I> {
     #[inline]
     pub fn len(&self) -> usize {
         self.rom_blocks.len() + self.ram_blocks.len()
+    }
+}
+
+#[cfg(all(test, feature = "dynarec"))]
+mod tests {
+    use super::*;
+    use crate::dynarec::{DynarecCompiler, trampolines};
+    use crate::SimpleMemory;
+
+    fn thumb(raw: u16, handler: fn(&mut Arm7tdmiCore<SimpleMemory>, u16) -> CpuAction)
+        -> DecodedInstr<SimpleMemory>
+    {
+        DecodedInstr::Thumb { raw, handler }
+    }
+
+    fn stub_thumb_handler(_cpu: &mut Arm7tdmiCore<SimpleMemory>, _insn: u16) -> CpuAction {
+        CpuAction::AdvancePC(crate::memory::MemoryAccess::Seq)
+    }
+
+    #[test]
+    fn block_carries_compiled_fn_when_dynarec_wired() {
+        let mut cache: BlockCache<SimpleMemory> = BlockCache::new();
+        cache.enable_dynarec(
+            DynarecCompiler::new_with_bus(trampolines::for_cpu::<SimpleMemory>()),
+        );
+        assert!(cache.has_dynarec());
+
+        // Record a single MOV R0, #5 (Thumb fmt 3) as an all-Thumb block
+        // starting at a ROM address so it gets a slot in rom_blocks.
+        let key = BlockKey::new(0x0800_0000, true);
+        cache.begin_record(key);
+        cache.record_instr(thumb(0x2005, stub_thumb_handler));
+        cache.finish_record();
+
+        let block = cache.get(key).expect("block in cache");
+        assert!(block.compiled.is_some(),
+                "dynarec should have compiled this supported shape");
+    }
+
+    #[test]
+    fn block_compiled_is_none_when_dynarec_not_wired() {
+        let mut cache: BlockCache<SimpleMemory> = BlockCache::new();
+        assert!(!cache.has_dynarec());
+
+        let key = BlockKey::new(0x0800_0000, true);
+        cache.begin_record(key);
+        cache.record_instr(thumb(0x2005, stub_thumb_handler));
+        cache.finish_record();
+
+        let block = cache.get(key).expect("block in cache");
+        assert!(block.compiled.is_none());
+    }
+
+    #[test]
+    fn block_compile_bails_on_mixed_arm_thumb() {
+        let mut cache: BlockCache<SimpleMemory> = BlockCache::new();
+        cache.enable_dynarec(
+            DynarecCompiler::new_with_bus(trampolines::for_cpu::<SimpleMemory>()),
+        );
+
+        fn stub_arm_handler(_cpu: &mut Arm7tdmiCore<SimpleMemory>, _insn: u32) -> CpuAction {
+            CpuAction::AdvancePC(crate::memory::MemoryAccess::Seq)
+        }
+
+        let key = BlockKey::new(0x0800_0000, true);
+        cache.begin_record(key);
+        cache.record_instr(thumb(0x2005, stub_thumb_handler));
+        cache.record_instr(DecodedInstr::Arm {
+            raw: 0xE3A0_0001,
+            handler: stub_arm_handler,
+        });
+        cache.finish_record();
+
+        let block = cache.get(key).expect("block in cache");
+        assert!(block.compiled.is_none(), "mixed ARM/Thumb rejects");
+    }
+
+    #[test]
+    fn block_compile_bails_on_unsupported_thumb_shape() {
+        let mut cache: BlockCache<SimpleMemory> = BlockCache::new();
+        cache.enable_dynarec(
+            DynarecCompiler::new_with_bus(trampolines::for_cpu::<SimpleMemory>()),
+        );
+
+        let key = BlockKey::new(0x0800_0000, true);
+        cache.begin_record(key);
+        // Thumb format 6 PC-relative LDR: 0b0100_1ddd_iiiiiiii. 0x4900
+        // is LDR R1, [PC, #0]. Not yet supported by the dynarec.
+        cache.record_instr(thumb(0x4900, stub_thumb_handler));
+        cache.finish_record();
+
+        let block = cache.get(key).expect("block in cache");
+        assert!(block.compiled.is_none(), "unsupported shape -> no compile");
     }
 }
