@@ -776,10 +776,13 @@ impl DynarecCompiler {
             F4(DecodedThumb4),
             F5(DecodedThumb5),
             F9(DecodedThumb9),
+            F11(DecodedThumb11),
         }
         let mut items = Vec::with_capacity(opcodes.len());
         for &op in opcodes {
-            if let Some(d) = Self::decode_thumb_format9(op) {
+            if let Some(d) = Self::decode_thumb_format11(op) {
+                items.push(MemItem::F11(d));
+            } else if let Some(d) = Self::decode_thumb_format9(op) {
                 items.push(MemItem::F9(d));
             } else if let Some(d) = Self::decode_thumb_format1(op) {
                 items.push(MemItem::F1(d));
@@ -848,6 +851,11 @@ impl DynarecCompiler {
                         load_32_ref, store_32_ref, load_8_ref, store_8_ref,
                         *d,
                     ),
+                    MemItem::F11(d) => emit_thumb_format11(
+                        &mut builder, gpr_ptr, cpu_ctx,
+                        load_32_ref, store_32_ref,
+                        *d,
+                    ),
                 }
             }
 
@@ -874,6 +882,21 @@ impl DynarecCompiler {
                 extern "C" fn(*mut u32, *mut u32, *mut u8),
             >(code)
         })
+    }
+
+    /// Classify a Thumb format 11 SP relative LDR/STR:
+    ///   1001_L_ddd_iiiiiiii
+    ///     L = 0 STR, 1 LDR. Always word sized. imm8 is scaled by 4.
+    /// addr = gpr[13] (SP) + imm8 * 4.
+    fn decode_thumb_format11(op: u16) -> Option<DecodedThumb11> {
+        if (op >> 12) & 0xF != 0b1001 {
+            return None;
+        }
+        let load = (op >> 11) & 1 != 0;
+        let rd = ((op >> 8) & 0b111) as i32;
+        let imm8 = (op & 0xff) as u32;
+        let offset = imm8 * 4;
+        Some(DecodedThumb11 { load, rd, offset })
     }
 
     /// Classify a Thumb format 9 LDR/STR immediate offset:
@@ -1596,6 +1619,14 @@ struct DecodedThumb9 {
     rd: i32,      // dest / src register
 }
 
+/// Thumb format 11 SP relative LDR/STR word.
+#[derive(Clone, Copy, Debug)]
+struct DecodedThumb11 {
+    load: bool,
+    rd: i32,
+    offset: u32, // already scaled by 4
+}
+
 /// Thumb BX Rs (format 5 with oo=11). Reads gpr[rs] at runtime and jumps
 /// there, preserving bit 0 as the ARM/Thumb mode signal.
 #[derive(Clone, Copy, Debug)]
@@ -1770,6 +1801,36 @@ fn emit_conditional_instr(
     builder.ins().jump(merge, &[]);
     builder.switch_to_block(merge);
     builder.seal_block(merge);
+}
+
+/// Emit a Thumb format 11 SP relative LDR/STR (word). Base register is
+/// hardcoded to R13 (SP) in the encoding.
+fn emit_thumb_format11(
+    builder: &mut FunctionBuilder,
+    gpr_ptr: Value,
+    cpu_ctx: Value,
+    load_32_ref: cranelift::codegen::ir::FuncRef,
+    store_32_ref: cranelift::codegen::ir::FuncRef,
+    dec: DecodedThumb11,
+) {
+    let sp = builder.ins().load(
+        types::I32,
+        MemFlags::trusted(),
+        gpr_ptr,
+        Offset32::new(13 * 4),
+    );
+    let offset = builder.ins().iconst(types::I32, dec.offset as i64);
+    let addr = builder.ins().iadd(sp, offset);
+    if dec.load {
+        let call = builder.ins().call(load_32_ref, &[cpu_ctx, addr]);
+        let v = builder.inst_results(call)[0];
+        builder.ins().store(MemFlags::trusted(), v, gpr_ptr, Offset32::new(dec.rd * 4));
+    } else {
+        let rd_val = builder.ins().load(
+            types::I32, MemFlags::trusted(), gpr_ptr, Offset32::new(dec.rd * 4),
+        );
+        builder.ins().call(store_32_ref, &[cpu_ctx, addr, rd_val]);
+    }
 }
 
 /// Emit a Thumb format 9 LDR/STR immediate offset. addr = gpr[rs] + offset.
@@ -3337,6 +3398,70 @@ mod tests {
         func(gpr.as_mut_ptr(), &mut cpsr);
         assert_eq!(gpr[0], 0);
         assert_ne!(cpsr & (1 << 30), 0, "Z should be set");
+    }
+
+    // --- Thumb format 11 SP-relative LDR/STR ---
+
+    #[test]
+    fn decode_thumb_format11_shapes() {
+        // STR R0, [SP, #4]  imm8=1 scales to 4
+        //   1001_0_000_00000001 = 0b1001_0000_0000_0001 = 0x9001
+        let d = DynarecCompiler::decode_thumb_format11(0x9001).expect("STR");
+        assert_eq!(d.load, false);
+        assert_eq!(d.rd, 0);
+        assert_eq!(d.offset, 4);
+
+        // LDR R3, [SP, #0x100]  imm8=0x40 scales to 0x100
+        //   1001_1_011_01000000 = 0b1001_1011_0100_0000 = 0x9B40
+        let d = DynarecCompiler::decode_thumb_format11(0x9B40).expect("LDR");
+        assert_eq!(d.load, true);
+        assert_eq!(d.rd, 3);
+        assert_eq!(d.offset, 0x100);
+
+        // Not format 11.
+        assert!(DynarecCompiler::decode_thumb_format11(0x6000).is_none());
+    }
+
+    #[test]
+    fn compile_thumb_sp_relative_store_then_load() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        // Simulated stack base at offset 0x40 in the 256 byte bus buffer.
+        // STR R1, [SP, #0]; LDR R2, [SP, #0]
+        let str_ = 0x9100u16; // 1001_0_001_00000000
+        let ldr  = 0x9A00u16; // 1001_1_010_00000000
+        let func = compiler
+            .try_compile_thumb_mem_block(&[str_, ldr])
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[13] = 0x40;
+        gpr[1] = 0xCAFE_BABE;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr, &bus as *const TestBus as *mut u8);
+        assert_eq!(gpr[2], 0xCAFE_BABE);
+        unsafe {
+            let b = &*bus.bytes.get();
+            assert_eq!(u32::from_le_bytes([b[0x40], b[0x41], b[0x42], b[0x43]]),
+                       0xCAFE_BABE);
+        }
+    }
+
+    #[test]
+    fn compile_thumb_sp_relative_with_offset() {
+        let (bus, mut compiler) = new_bus_and_compiler();
+        // STR R0, [SP, #8]; LDR R1, [SP, #8]
+        let str_ = 0x9002u16; // imm8=2 -> offset 8
+        let ldr  = 0x9902u16;
+        let func = compiler
+            .try_compile_thumb_mem_block(&[str_, ldr])
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[13] = 0x30;
+        gpr[0]  = 0x1234_5678;
+        let mut cpsr = 0u32;
+        func(gpr.as_mut_ptr(), &mut cpsr, &bus as *const TestBus as *mut u8);
+        assert_eq!(gpr[1], 0x1234_5678);
     }
 
     // --- Thumb format 9 LDR/STR immediate offset ---
