@@ -186,6 +186,24 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
         WeakPointer::new(self as *mut Arm7tdmiCore<I>)
     }
 
+    /// Install a Cranelift-backed dynarec on the block cache and flip
+    /// the runtime dispatch flag so every compiled block in the cache
+    /// runs its native fn pointer instead of the interpreter replay
+    /// loop. Call once per CPU after construction.
+    ///
+    /// After this, new blocks recorded during step_block get a
+    /// JIT-compile attempt; supported Thumb shapes dispatch through
+    /// Cranelift output, everything else falls back to the existing
+    /// cached-interp replay path.
+    #[cfg(feature = "dynarec")]
+    pub fn enable_dynarec(&mut self) {
+        let compiler = super::dynarec::DynarecCompiler::new_with_bus(
+            super::dynarec::trampolines::for_cpu::<I>(),
+        );
+        self.block_cache.enable_dynarec(compiler);
+        self.dynarec_dispatch_enabled = true;
+    }
+
     pub fn from_saved_state(bus: Shared<I>, state: SavedCpuState) -> Arm7tdmiCore<I> {
         Arm7tdmiCore {
             bus,
