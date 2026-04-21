@@ -759,6 +759,196 @@ impl DynarecCompiler {
         })
     }
 
+    /// Thumb variant of `try_compile_block_with_branch`: compiles a block
+    /// whose body is supported Thumb shapes plus an optional trailing BX Rs.
+    /// BX is a block terminator that writes the target pc (preserving bit 0
+    /// as the ARM/Thumb mode signal, per ARM BX convention) into *pc_out
+    /// and returns 1. If there's no BX tail the block compiles as usual
+    /// and returns 0.
+    pub fn try_compile_thumb_block_with_branch(
+        &mut self,
+        opcodes: &[u16],
+        _entry_pc: u32,
+    ) -> Option<extern "C" fn(*mut u32, *mut u32, *mut u32) -> u32> {
+        if opcodes.is_empty() {
+            return None;
+        }
+
+        let (body_opcodes, tail) = opcodes.split_at(opcodes.len() - 1);
+        let tail_insn = tail[0];
+
+        // Classify body: every non-tail opcode must be one of the supported
+        // straight-line Thumb shapes and must not itself be a BX.
+        enum BodyItem {
+            F1(DecodedThumb1),
+            F2(DecodedThumb2),
+            F3(DecodedThumb3),
+            F4(DecodedThumb4),
+            F5(DecodedThumb5),
+        }
+        let mut body: Vec<BodyItem> = Vec::with_capacity(body_opcodes.len());
+        for &op in body_opcodes {
+            if Self::decode_thumb_bx(op).is_some() {
+                return None; // BX only permitted as the last instruction
+            }
+            if let Some(d) = Self::decode_thumb_format1(op) {
+                body.push(BodyItem::F1(d));
+            } else if let Some(d) = Self::decode_thumb_format2(op) {
+                body.push(BodyItem::F2(d));
+            } else if let Some(d) = Self::decode_thumb_format3(op) {
+                body.push(BodyItem::F3(d));
+            } else if let Some(d) = Self::decode_thumb_format4_logical(op) {
+                body.push(BodyItem::F4(d));
+            } else if let Some(d) = Self::decode_thumb_format5_non_branch(op) {
+                body.push(BodyItem::F5(d));
+            } else {
+                return None;
+            }
+        }
+
+        let tail_bx = Self::decode_thumb_bx(tail_insn);
+        let tail_body = if tail_bx.is_none() {
+            // Tail is a regular body shape; classify.
+            if let Some(d) = Self::decode_thumb_format1(tail_insn) {
+                Some(BodyItem::F1(d))
+            } else if let Some(d) = Self::decode_thumb_format2(tail_insn) {
+                Some(BodyItem::F2(d))
+            } else if let Some(d) = Self::decode_thumb_format3(tail_insn) {
+                Some(BodyItem::F3(d))
+            } else if let Some(d) = Self::decode_thumb_format4_logical(tail_insn) {
+                Some(BodyItem::F4(d))
+            } else if let Some(d) = Self::decode_thumb_format5_non_branch(tail_insn) {
+                Some(BodyItem::F5(d))
+            } else {
+                return None;
+            }
+        } else {
+            None
+        };
+
+        let ptr_type = self.module.isa().pointer_type();
+        let mut sig = self.module.make_signature();
+        sig.params.push(AbiParam::new(ptr_type));
+        sig.params.push(AbiParam::new(ptr_type));
+        sig.params.push(AbiParam::new(ptr_type));
+        sig.returns.push(AbiParam::new(types::I32));
+
+        self.next_id += 1;
+        let name = format!("dynarec_thumb_branch_block_{}", self.next_id);
+        let func_id = self
+            .module
+            .declare_function(&name, Linkage::Local, &sig)
+            .expect("declare_function failed");
+        self.ctx.func.signature = sig;
+
+        {
+            let mut builder =
+                FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+            let entry = builder.create_block();
+            builder.append_block_params_for_function_params(entry);
+            builder.switch_to_block(entry);
+            builder.seal_block(entry);
+
+            let gpr_ptr = builder.block_params(entry)[0];
+            let cpsr_ptr = builder.block_params(entry)[1];
+            let pc_out = builder.block_params(entry)[2];
+
+            let cpsr_var = builder.declare_var(types::I32);
+            let cpsr_initial =
+                builder.ins().load(types::I32, MemFlags::trusted(), cpsr_ptr, 0);
+            builder.def_var(cpsr_var, cpsr_initial);
+
+            for item in &body {
+                match item {
+                    BodyItem::F1(d) => emit_thumb_format1(&mut builder, gpr_ptr, cpsr_var, *d),
+                    BodyItem::F2(d) => emit_thumb_format2(&mut builder, gpr_ptr, cpsr_var, *d),
+                    BodyItem::F3(d) => emit_thumb_format3(&mut builder, gpr_ptr, cpsr_var, *d),
+                    BodyItem::F4(d) => emit_thumb_format4_logical(&mut builder, gpr_ptr, cpsr_var, *d),
+                    BodyItem::F5(d) => emit_thumb_format5_non_branch(&mut builder, gpr_ptr, cpsr_var, *d),
+                }
+            }
+
+            let took_branch_var = builder.declare_var(types::I32);
+            let zero = builder.ins().iconst(types::I32, 0);
+            builder.def_var(took_branch_var, zero);
+
+            if let Some(bx) = tail_bx {
+                // target = gpr[bx.rs]. Preserve bit 0 (mode signal).
+                let target = builder.ins().load(
+                    types::I32,
+                    MemFlags::trusted(),
+                    gpr_ptr,
+                    Offset32::new(bx.rs * 4),
+                );
+                builder.ins().store(MemFlags::trusted(), target, pc_out, 0);
+                let one = builder.ins().iconst(types::I32, 1);
+                builder.def_var(took_branch_var, one);
+            } else if let Some(item) = tail_body {
+                match item {
+                    BodyItem::F1(d) => emit_thumb_format1(&mut builder, gpr_ptr, cpsr_var, d),
+                    BodyItem::F2(d) => emit_thumb_format2(&mut builder, gpr_ptr, cpsr_var, d),
+                    BodyItem::F3(d) => emit_thumb_format3(&mut builder, gpr_ptr, cpsr_var, d),
+                    BodyItem::F4(d) => emit_thumb_format4_logical(&mut builder, gpr_ptr, cpsr_var, d),
+                    BodyItem::F5(d) => emit_thumb_format5_non_branch(&mut builder, gpr_ptr, cpsr_var, d),
+                }
+            }
+
+            let cpsr_final = builder.use_var(cpsr_var);
+            builder
+                .ins()
+                .store(MemFlags::trusted(), cpsr_final, cpsr_ptr, 0);
+            let ret_val = builder.use_var(took_branch_var);
+            builder.ins().return_(&[ret_val]);
+            builder.finalize();
+        }
+
+        self.module
+            .define_function(func_id, &mut self.ctx)
+            .expect("define_function failed");
+        self.module.clear_context(&mut self.ctx);
+        self.module
+            .finalize_definitions()
+            .expect("finalize_definitions failed");
+
+        let code = self.module.get_finalized_function(func_id);
+        Some(unsafe {
+            std::mem::transmute::<
+                *const u8,
+                extern "C" fn(*mut u32, *mut u32, *mut u32) -> u32,
+            >(code)
+        })
+    }
+
+    /// Classify a Thumb BX (format 5 with oo=11). Encoding:
+    ///   010001_11_0_H2_sss_000
+    /// H1 and the low 3 bits are SBZ (should be zero); if set, we reject
+    /// rather than silently compiling UNPREDICTABLE behavior.
+    fn decode_thumb_bx(op: u16) -> Option<DecodedThumbBx> {
+        if (op >> 10) & 0b111111 != 0b010001 {
+            return None;
+        }
+        let oo = (op >> 8) & 0b11;
+        if oo != 0b11 {
+            return None;
+        }
+        let h1 = (op >> 7) & 1;
+        if h1 != 0 {
+            return None; // SBZ
+        }
+        if op & 0b111 != 0 {
+            return None; // SBZ low bits
+        }
+        let h2 = (op >> 6) & 1;
+        let rs_raw = (op >> 3) & 0b111;
+        let rs = (rs_raw | (h2 << 3)) as i32;
+        // PC as source would mean "BX PC" which flushes into a known
+        // constant pc + 4 (Thumb) / pc + 8 (ARM). Deferred for now.
+        if rs == 15 {
+            return None;
+        }
+        Some(DecodedThumbBx { rs })
+    }
+
     /// Classify a Thumb 16 bit opcode as format 5 (Hi register op),
     /// non-branch mnemonics only. Encoding:
     ///   010001_oo_H1_H2_sss_ddd
@@ -1189,6 +1379,13 @@ enum Thumb5Op { Add, Cmp, Mov }
 struct DecodedThumb5 {
     op: Thumb5Op,
     rd: i32,
+    rs: i32,
+}
+
+/// Thumb BX Rs (format 5 with oo=11). Reads gpr[rs] at runtime and jumps
+/// there, preserving bit 0 as the ARM/Thumb mode signal.
+#[derive(Clone, Copy, Debug)]
+struct DecodedThumbBx {
     rs: i32,
 }
 
@@ -2867,6 +3064,117 @@ mod tests {
         func(gpr.as_mut_ptr(), &mut cpsr);
         assert_eq!(gpr[0], 0);
         assert_ne!(cpsr & (1 << 30), 0, "Z should be set");
+    }
+
+    // --- Thumb BX as block terminator ---
+
+    #[test]
+    fn decode_thumb_bx_shapes() {
+        // BX R1  -> 010001_11_0_0_001_000 = 0b0100_0111_0000_1000 = 0x4708
+        let d = DynarecCompiler::decode_thumb_bx(0x4708).expect("BX R1");
+        assert_eq!(d.rs, 1);
+
+        // BX R14 (LR)  -> 010001_11_0_1_110_000 = 0b0100_0111_0111_0000 = 0x4770
+        let d = DynarecCompiler::decode_thumb_bx(0x4770).expect("BX LR");
+        assert_eq!(d.rs, 14);
+
+        // H1 set is SBZ violation -> reject.
+        //   010001_11_1_0_001_000 = 0b0100_0111_1000_1000 = 0x4788
+        assert!(DynarecCompiler::decode_thumb_bx(0x4788).is_none());
+
+        // Low 3 bits nonzero is SBZ violation -> reject.
+        assert!(DynarecCompiler::decode_thumb_bx(0x4709).is_none());
+
+        // Not format 5 BX.
+        assert!(DynarecCompiler::decode_thumb_bx(0x2000).is_none());
+        assert!(DynarecCompiler::decode_thumb_bx(0x4488).is_none()); // ADD Hi
+    }
+
+    #[test]
+    fn compile_thumb_bx_writes_target_and_returns_1() {
+        let mut compiler = DynarecCompiler::new();
+        // BX R1 (target in R1).
+        let func = compiler
+            .try_compile_thumb_block_with_branch(&[0x4708], 0x0800_0000)
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[1] = 0x0800_1234; // target, bit 0 = 0 -> ARM mode
+        let mut cpsr = 0u32;
+        let mut pc_out = 0xDEAD_BEEFu32;
+        let taken = func(gpr.as_mut_ptr(), &mut cpsr, &mut pc_out);
+        assert_eq!(taken, 1);
+        assert_eq!(pc_out, 0x0800_1234);
+    }
+
+    #[test]
+    fn compile_thumb_bx_preserves_thumb_bit() {
+        let mut compiler = DynarecCompiler::new();
+        // BX R2
+        //   010001_11_0_0_010_000 = 0x4710
+        let func = compiler
+            .try_compile_thumb_block_with_branch(&[0x4710], 0)
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[2] = 0x0800_1235; // bit 0 = 1 -> Thumb mode
+        let mut cpsr = 0u32;
+        let mut pc_out = 0u32;
+        let taken = func(gpr.as_mut_ptr(), &mut cpsr, &mut pc_out);
+        assert_eq!(taken, 1);
+        assert_eq!(pc_out & 1, 1, "Thumb bit preserved");
+        assert_eq!(pc_out & !1, 0x0800_1234);
+    }
+
+    #[test]
+    fn compile_thumb_block_with_body_and_bx_tail() {
+        let mut compiler = DynarecCompiler::new();
+        // MOV R0, #5 ; ADD R1, R0, #3 ; BX LR
+        let mov = 0x2005u16;        // fmt 3
+        let add_imm3 = 0x1CC1u16;   // ADD R1, R0, #3 -> 00011_10_011_000_001 = 0b0001_1100_1100_0001
+        let bx_lr = 0x4770u16;
+        let func = compiler
+            .try_compile_thumb_block_with_branch(&[mov, add_imm3, bx_lr], 0x0800_2000)
+            .expect("compiles");
+
+        let mut gpr = [0u32; 15];
+        gpr[14] = 0x0800_3001; // LR: bit 0 set -> Thumb
+        let mut cpsr = 0u32;
+        let mut pc_out = 0u32;
+        let taken = func(gpr.as_mut_ptr(), &mut cpsr, &mut pc_out);
+        assert_eq!(gpr[0], 5);
+        assert_eq!(gpr[1], 8);
+        assert_eq!(taken, 1);
+        assert_eq!(pc_out, 0x0800_3001);
+    }
+
+    #[test]
+    fn compile_thumb_block_no_bx_returns_0() {
+        let mut compiler = DynarecCompiler::new();
+        // Body only, no BX. Should return 0 and leave pc_out alone.
+        let mov = 0x2042u16;
+        let func = compiler
+            .try_compile_thumb_block_with_branch(&[mov], 0)
+            .unwrap();
+
+        let mut gpr = [0u32; 15];
+        let mut cpsr = 0u32;
+        let mut pc_out = 0xC0FF_EE00u32;
+        let taken = func(gpr.as_mut_ptr(), &mut cpsr, &mut pc_out);
+        assert_eq!(taken, 0);
+        assert_eq!(pc_out, 0xC0FF_EE00);
+        assert_eq!(gpr[0], 0x42);
+    }
+
+    #[test]
+    fn compile_thumb_mid_block_bx_rejected() {
+        let mut compiler = DynarecCompiler::new();
+        // BX can only be in the last slot.
+        let bx = 0x4708u16;
+        let mov = 0x2005u16;
+        assert!(compiler
+            .try_compile_thumb_block_with_branch(&[bx, mov], 0)
+            .is_none());
     }
 
     // --- Thumb format 5 (ADD/CMP/MOV Hi) ---
