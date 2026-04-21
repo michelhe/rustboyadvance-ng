@@ -503,10 +503,16 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
                 MenuItem replayItem = menu.findItem(R.id.action_replay_toggle);
                 if (replayItem != null) replayItem.setTitle(R.string.action_replay_start);
             }
-            EmulatorBindings.startRecording(ctx, REC_FILE_PATH);
-            isRecording = true;
-            item.setTitle(R.string.action_record_stop);
-            Toast.makeText(this, "Recording to " + REC_FILE_PATH, Toast.LENGTH_SHORT).show();
+            // Only flip the UI state if the native side actually opened
+            // the file. Otherwise we'd lie via the menu label and the
+            // toast about a recording that never started.
+            if (EmulatorBindings.startRecording(ctx, REC_FILE_PATH)) {
+                isRecording = true;
+                item.setTitle(R.string.action_record_stop);
+                Toast.makeText(this, "Recording to " + REC_FILE_PATH, Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Could not start recording (see logcat)", Toast.LENGTH_LONG).show();
+            }
         } else {
             EmulatorBindings.stopRecording(ctx);
             isRecording = false;
@@ -528,10 +534,14 @@ public class EmulatorActivity extends AppCompatActivity implements View.OnClickL
                 MenuItem recItem = menu.findItem(R.id.action_record_toggle);
                 if (recItem != null) recItem.setTitle(R.string.action_record_start);
             }
-            EmulatorBindings.startReplay(ctx, REC_FILE_PATH);
-            isReplaying = true;
-            item.setTitle(R.string.action_replay_stop);
-            Toast.makeText(this, "Replaying " + REC_FILE_PATH, Toast.LENGTH_SHORT).show();
+            // Same as toggleRecording: only flip UI state on a true return.
+            if (EmulatorBindings.startReplay(ctx, REC_FILE_PATH)) {
+                isReplaying = true;
+                item.setTitle(R.string.action_replay_stop);
+                Toast.makeText(this, "Replaying " + REC_FILE_PATH, Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Could not start replay (see logcat)", Toast.LENGTH_LONG).show();
+            }
         } else {
             EmulatorBindings.stopReplay(ctx);
             isReplaying = false;

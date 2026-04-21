@@ -211,20 +211,28 @@ pub mod bindings {
         while !ctx.is_stopped() {}
     }
 
+    /// Returns 1 on success, 0 on any failure (bad path, file open error,
+    /// IO error, etc). Java side must check the return and only flip its
+    /// "isRecording" UI state when 1 — otherwise the toast and menu label
+    /// would lie about a recording that never started.
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_startRecording(
         mut env: JNIEnv,
         _obj: JClass,
         ctx: jlong,
         path: JString,
-    ) {
+    ) -> jboolean {
         let ctx = unsafe { cast_ctx(ctx) };
         let path_rs: String = match env.get_string(&path) {
             Ok(s) => s.into(),
-            Err(_) => { log::warn!("startRecording: bad path string"); return; }
+            Err(_) => { log::warn!("startRecording: bad path string"); return 0; }
         };
-        if let Err(e) = ctx.start_recording(&path_rs) {
-            log::warn!("startRecording failed: {}", e);
+        match ctx.start_recording(&path_rs) {
+            Ok(()) => 1,
+            Err(e) => {
+                log::warn!("startRecording failed: {}", e);
+                0
+            }
         }
     }
 
@@ -238,20 +246,27 @@ pub mod bindings {
         ctx.stop_recording();
     }
 
+    /// Returns 1 on success, 0 on any failure (bad path, file open error,
+    /// magic mismatch, IO error, etc). Same lying-toast caveat as
+    /// startRecording — Java must check the return.
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn Java_com_mrmichel_rustboyadvance_EmulatorBindings_startReplay(
         mut env: JNIEnv,
         _obj: JClass,
         ctx: jlong,
         path: JString,
-    ) {
+    ) -> jboolean {
         let ctx = unsafe { cast_ctx(ctx) };
         let path_rs: String = match env.get_string(&path) {
             Ok(s) => s.into(),
-            Err(_) => { log::warn!("startReplay: bad path string"); return; }
+            Err(_) => { log::warn!("startReplay: bad path string"); return 0; }
         };
-        if let Err(e) = ctx.start_replay(&path_rs) {
-            log::warn!("startReplay failed: {}", e);
+        match ctx.start_replay(&path_rs) {
+            Ok(()) => 1,
+            Err(e) => {
+                log::warn!("startReplay failed: {}", e);
+                0
+            }
         }
     }
 

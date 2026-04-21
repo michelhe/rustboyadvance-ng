@@ -415,8 +415,18 @@ impl EmulatorContext {
             };
             *self.gba.get_key_state_mut() = effective_state;
             // If recording, log any edge the emulator saw this frame.
-            if let Some(rec) = self.recorder.lock().unwrap().as_mut() {
-                let _ = rec.observe(gba_cycles, effective_state);
+            // On the first IO error (disk full, sandbox revoked the file
+            // handle, etc), drop the recorder so we stop trying to write
+            // every frame; otherwise we'd silently log forever while the
+            // user thinks recording is still going.
+            {
+                let mut rec_guard = self.recorder.lock().unwrap();
+                if let Some(rec) = rec_guard.as_mut() {
+                    if let Err(e) = rec.observe(gba_cycles, effective_state) {
+                        log::warn!("recorder write failed, stopping recording: {}", e);
+                        *rec_guard = None;
+                    }
+                }
             }
 
             // run frame

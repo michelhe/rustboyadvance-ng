@@ -118,9 +118,12 @@ public class EmulatorBindings {
     /**
      * Start recording keypad edges to the given file. Overwrites any
      * existing recording. File format is RBAREC01 which the SDL
-     * frontend and fps_bench can also consume.
+     * frontend and fps_bench can also consume. Returns true on success;
+     * false if the file could not be opened or the path was invalid.
+     * Caller must check the return before flipping any UI state — a
+     * "started recording" toast on a false return would be a lie.
      */
-    public static native void startRecording(long ctx, String path);
+    public static native boolean startRecording(long ctx, String path);
 
     /**
      * Flush and close an active recording session.
@@ -130,8 +133,10 @@ public class EmulatorBindings {
     /**
      * Load a recording file and start feeding its events into the
      * emulator. Overrides the Java keypad state until stopReplay.
+     * Returns true on success; false if the file is missing, unreadable,
+     * or the magic header doesn't match.
      */
-    public static native void startReplay(long ctx, String path);
+    public static native boolean startReplay(long ctx, String path);
 
     /**
      * Stop an active replay session.
