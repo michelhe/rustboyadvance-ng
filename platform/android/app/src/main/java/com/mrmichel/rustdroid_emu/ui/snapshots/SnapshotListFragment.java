@@ -64,18 +64,18 @@ public class SnapshotListFragment extends Fragment {
         AdapterView.AdapterContextMenuInfo menuInfo = (AdapterView.AdapterContextMenuInfo) item.getMenuInfo();
 
         Snapshot snapshot = snapshots.get(menuInfo.position);
-        switch (item.getItemId()) {
-            case R.id.action_delete:
-                SnapshotManager.getInstance(getContext()).deleteSnapshot(snapshot);
-                snapshots.remove(menuInfo.position);
+        int id = item.getItemId();
+        if (id == R.id.action_delete) {
+            SnapshotManager.getInstance(getContext()).deleteSnapshot(snapshot);
+            snapshots.remove(menuInfo.position);
 
-                SnapshotItemAdapter adapter = new SnapshotItemAdapter(getContext(), snapshots);
-                mGridView.setAdapter(adapter);
-                mGridView.invalidate();
+            SnapshotItemAdapter adapter = new SnapshotItemAdapter(getContext(), snapshots);
+            mGridView.setAdapter(adapter);
+            mGridView.invalidate();
 
-                return true;
-            default:
-                return super.onContextItemSelected(item);
+            return true;
+        } else {
+            return super.onContextItemSelected(item);
         }
     }
 
