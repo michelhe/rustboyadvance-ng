@@ -1,3 +1,4 @@
+import { scheduleAudioBuffer } from "./audioScheduler.mjs";
 import * as wasm from "rustboyadvance-wasm";
 
 var fps_text = document.getElementById('fps');
@@ -69,10 +70,19 @@ var fpsCounter = (function() {
 const audioContext = new (window.AudioContext || window.webkitAudioContext)();
 console.log("audio context " + audioContext);
 
+// Running playback head: the time (on the AudioContext clock) at which the
+// previously scheduled buffer ends. Buffers are scheduled back-to-back from
+// here so streamed frames play gaplessly instead of choppily (issue #80).
+let audioPlaybackHead = 0;
+
 const playAudio = emulator => {
     let audioData = emulator.collect_audio_samples();
 
     let frameCount = audioData.length / 2;
+    if (frameCount === 0) {
+        // No samples this frame; nothing to schedule.
+        return;
+    }
     const audioBuffer = audioContext.createBuffer(
         2,
         frameCount,
@@ -91,7 +101,14 @@ const playAudio = emulator => {
     audioSource.buffer = audioBuffer;
 
     audioSource.connect(audioContext.destination);
-    audioSource.start();
+
+    const { startTime, nextPlaybackHead } = scheduleAudioBuffer(
+        audioContext.currentTime,
+        audioPlaybackHead,
+        audioBuffer.duration
+    );
+    audioPlaybackHead = nextPlaybackHead;
+    audioSource.start(startTime);
 }
 
 const emulatorLoop = function() {
