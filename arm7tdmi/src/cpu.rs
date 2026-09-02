@@ -441,7 +441,7 @@ impl<I: MemoryInterface> Arm7tdmiCore<I> {
 
     /// Perform a pipeline step
     /// If an instruction was executed in this step, return it.
-    #[inline]
+    #[inline(always)]
     pub fn step(&mut self) {
         match self.cpsr.state() {
             CpuState::ARM => {

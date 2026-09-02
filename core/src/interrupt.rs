@@ -44,7 +44,7 @@ impl InterruptController {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn irq_pending(&self) -> bool {
         self.interrupt_master_enable
             & ((self.interrupt_flags.get().value() & self.interrupt_enable.0) != 0)

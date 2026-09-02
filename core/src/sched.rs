@@ -200,7 +200,7 @@ impl Scheduler {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     /// Safety - Onyl safe to call when we know the event queue is not empty
     pub unsafe fn timestamp_of_next_event_unchecked(&self) -> usize {
         self.events
@@ -209,7 +209,7 @@ impl Scheduler {
             .time
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn timestamp(&self) -> usize {
         self.timestamp
     }
