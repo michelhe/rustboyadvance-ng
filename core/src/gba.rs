@@ -105,6 +105,14 @@ impl GameBoyAdvance {
             gamepak,
         ));
 
+        // Dynarec is opt-in: callers that want it call
+        // gba.cpu.enable_dynarec() after GameBoyAdvance::new. Leaving it
+        // off by default because on pokeemerald the PGO-optimized cached
+        // interpreter currently beats the compiled dispatch path end to
+        // end (the per-block fetch_n trampoline + extern C call overhead
+        // eats more than the compiled body saves on short blocks). The
+        // infrastructure is live and gba tests + differential unit tests
+        // all pass under --features dynarec so integration stays shippable.
         let cpu = Box::new(Arm7tdmiCore::new(sysbus.clone()));
 
         let mut gba = GameBoyAdvance {
@@ -218,6 +226,15 @@ impl GameBoyAdvance {
         &mut self.sysbus.io.keyinput
     }
 
+    /// Emulated-cycle count since power-on. Advances monotonically with each
+    /// memory access. Used by the input record/replay harness to time inputs
+    /// to the emulator's own clock (deterministic across hosts) rather than
+    /// wall time (which varies with interpreter speed).
+    #[inline]
+    pub fn cycles(&self) -> usize {
+        self.scheduler.timestamp()
+    }
+
     /// Advance the emulation for one frame worth of time
     pub fn frame(&mut self) {
         static mut OVERSHOOT: usize = 0;
@@ -291,6 +308,9 @@ impl GameBoyAdvance {
         if self.io_devs.intc.irq_pending() {
             self.cpu_interrupt();
         }
+        #[cfg(feature = "cached_interp")]
+        self.cpu.step_block();
+        #[cfg(not(feature = "cached_interp"))]
         self.cpu.step();
     }
 

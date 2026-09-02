@@ -19,6 +19,7 @@ num-traits = "0.2"
 enum-primitive-derive = "0.3.0"
 gdbstub = "0.7.7"
 gdbstub_arch = "0.3.2"
+rustc-hash = "2"
 
 [dev-dependencies]
 simple_logger = "5.0.0"  # For the examples
@@ -28,3 +29,29 @@ bit = "0.1.1"
 
 [features]
 debugger = []
+# Enables a block-granular cached interpreter: decoded instructions and resolved
+# handler fn pointers are memoized by entry-PC, removing the LUT hash + single_step
+# wrapper overhead from the hot path. Accuracy is preserved — the scheduler still
+# sees per-memory-access cycle advancement as it does today.
+cached_interp = []
+# Enables the Cranelift-based ARM→native-code dynarec. Extends cached_interp
+# with a codegen backend that compiles hot ARM data-processing instructions to
+# host machine code. Cranelift is a heavy dep, so gate strictly behind this
+# feature; the default build is unchanged.
+dynarec = ["cached_interp", "dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit", "dep:cranelift-native"]
+
+[dependencies.cranelift]
+version = "0.122"
+optional = true
+
+[dependencies.cranelift-module]
+version = "0.122"
+optional = true
+
+[dependencies.cranelift-jit]
+version = "0.122"
+optional = true
+
+[dependencies.cranelift-native]
+version = "0.122"
+optional = true

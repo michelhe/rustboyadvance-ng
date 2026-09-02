@@ -74,6 +74,48 @@ pub trait MemoryInterface {
     fn store_32(&mut self, addr: u32, value: u32, access: MemoryAccess);
 
     fn idle_cycle(&mut self);
+
+    /// Cached interpreter support: check-and-clear a "RAM was written" flag.
+    /// Returning true tells the cached interpreter that its block cache may
+    /// contain now-stale entries and should be flushed. The default impl is
+    /// always-clean, so bus implementations that never emit SMC-capable writes
+    /// don't need to override this.
+    #[cfg(feature = "cached_interp")]
+    #[inline]
+    fn take_block_cache_dirty(&mut self) -> bool {
+        false
+    }
+
+    /// Cached interpreter support: must the cached block abort right now so
+    /// the outer run loop can regain control?
+    ///
+    /// Returns true when either:
+    ///   * An IRQ is pending (same check the non-cached `cpu_step` runs
+    ///     before every instruction; an IE/IF write inside a block could
+    ///     have raised this).
+    ///   * A DMA channel just became active (non-cached single_step hands
+    ///     the bus over to the DMA engine via `get_bus_master()` the next
+    ///     tick; cached blocks must yield at the same granularity).
+    ///
+    /// Default is always `false`, matching bus implementations that never
+    /// raise interrupts or start DMA (e.g. the arm7tdmi-only `SimpleMemory`).
+    #[cfg(feature = "cached_interp")]
+    #[inline]
+    fn cached_block_should_abort(&self) -> bool {
+        false
+    }
+
+    /// Pay the *extra* cycles a NonSeq Thumb instruction fetch costs
+    /// over a Seq one for `addr` — i.e. `n_cycles16[page] - s_cycles16[page]`
+    /// for a SysBus-style bus, or 0 for a uniform-cost test bus.
+    ///
+    /// The dynarec uses this to compensate `thumb_fetch_n`'s pre-paid
+    /// all-Seq fetches when an in-block STORE makes the next fetch
+    /// NonSeq under scalar dispatch. Default implementation does
+    /// nothing, which is correct for buses where fetch cost doesn't
+    /// vary by access mode (most test buses).
+    #[inline]
+    fn pay_thumb_fetch_extra_nonseq(&mut self, _addr: u32) {}
 }
 
 impl<I: MemoryInterface> MemoryInterface for Arm7tdmiCore<I> {
@@ -109,6 +151,23 @@ impl<I: MemoryInterface> MemoryInterface for Arm7tdmiCore<I> {
     #[inline]
     fn idle_cycle(&mut self) {
         self.bus.idle_cycle();
+    }
+
+    #[cfg(feature = "cached_interp")]
+    #[inline]
+    fn take_block_cache_dirty(&mut self) -> bool {
+        self.bus.take_block_cache_dirty()
+    }
+
+    #[cfg(feature = "cached_interp")]
+    #[inline]
+    fn cached_block_should_abort(&self) -> bool {
+        self.bus.cached_block_should_abort()
+    }
+
+    #[inline]
+    fn pay_thumb_fetch_extra_nonseq(&mut self, addr: u32) {
+        self.bus.pay_thumb_fetch_extra_nonseq(addr);
     }
 }
 
