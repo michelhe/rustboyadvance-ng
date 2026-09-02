@@ -157,6 +157,13 @@ pub struct SysBus {
     cycle_luts: CycleLookupTables,
 
     pub trace_access: bool,
+
+    /// Cached-interpreter invalidation signal. Set whenever the CPU or DMA
+    /// writes to any region that can back executable code (EWRAM/IWRAM/VRAM/
+    /// Palette/OAM — ROM and BIOS writes are no-ops so they don't set this).
+    /// Consumed by Arm7tdmiCore::step_block at the start of each block.
+    #[cfg(feature = "cached_interp")]
+    block_cache_dirty: bool,
 }
 
 pub type SysBusPtr = WeakPointer<SysBus>;
@@ -192,6 +199,9 @@ impl SysBus {
             iwram,
             cycle_luts: luts,
             trace_access: false,
+
+            #[cfg(feature = "cached_interp")]
+            block_cache_dirty: false,
         }
     }
 
@@ -402,8 +412,16 @@ impl BusIO for SysBus {
     fn write_32(&mut self, addr: Addr, value: u32) {
         match addr & 0xff000000 {
             BIOS_ADDR => {}
-            EWRAM_ADDR => self.ewram.write_32(addr & 0x3_fffc, value),
-            IWRAM_ADDR => self.iwram.write_32(addr & 0x7ffc, value),
+            EWRAM_ADDR => {
+                self.ewram.write_32(addr & 0x3_fffc, value);
+                #[cfg(feature = "cached_interp")]
+                { self.block_cache_dirty = true; }
+            }
+            IWRAM_ADDR => {
+                self.iwram.write_32(addr & 0x7ffc, value);
+                #[cfg(feature = "cached_interp")]
+                { self.block_cache_dirty = true; }
+            }
             IOMEM_ADDR => {
                 let addr = if addr & 0xfffc == 0x8000 {
                     0x800
@@ -427,8 +445,16 @@ impl BusIO for SysBus {
     fn write_16(&mut self, addr: Addr, value: u16) {
         match addr & 0xff000000 {
             BIOS_ADDR => {}
-            EWRAM_ADDR => self.ewram.write_16(addr & 0x3_fffe, value),
-            IWRAM_ADDR => self.iwram.write_16(addr & 0x7ffe, value),
+            EWRAM_ADDR => {
+                self.ewram.write_16(addr & 0x3_fffe, value);
+                #[cfg(feature = "cached_interp")]
+                { self.block_cache_dirty = true; }
+            }
+            IWRAM_ADDR => {
+                self.iwram.write_16(addr & 0x7ffe, value);
+                #[cfg(feature = "cached_interp")]
+                { self.block_cache_dirty = true; }
+            }
             IOMEM_ADDR => {
                 let addr = if addr & 0xfffe == 0x8000 {
                     0x800
@@ -452,8 +478,16 @@ impl BusIO for SysBus {
     fn write_8(&mut self, addr: Addr, value: u8) {
         match addr & 0xff000000 {
             BIOS_ADDR => {}
-            EWRAM_ADDR => self.ewram.write_8(addr & 0x3_ffff, value),
-            IWRAM_ADDR => self.iwram.write_8(addr & 0x7fff, value),
+            EWRAM_ADDR => {
+                self.ewram.write_8(addr & 0x3_ffff, value);
+                #[cfg(feature = "cached_interp")]
+                { self.block_cache_dirty = true; }
+            }
+            IWRAM_ADDR => {
+                self.iwram.write_8(addr & 0x7fff, value);
+                #[cfg(feature = "cached_interp")]
+                { self.block_cache_dirty = true; }
+            }
             IOMEM_ADDR => {
                 let addr = if addr & 0xffff == 0x8000 {
                     0x800
@@ -542,6 +576,29 @@ impl MemoryInterface for SysBus {
     #[inline]
     fn idle_cycle(&mut self) {
         self.scheduler.update(1)
+    }
+
+    #[cfg(feature = "cached_interp")]
+    #[inline]
+    fn take_block_cache_dirty(&mut self) -> bool {
+        std::mem::replace(&mut self.block_cache_dirty, false)
+    }
+
+    #[cfg(feature = "cached_interp")]
+    #[inline]
+    fn cached_block_should_abort(&self) -> bool {
+        // Matches everything that gba.rs::single_step()/cpu_step()/run() would
+        // react to between instructions in the non-cached path:
+        //   - pending IRQ
+        //   - newly active DMA channel
+        //   - CPU entering Halt via HALTCNT
+        //   - scheduler advanced past its next event (the outer `run` while
+        //     loop bails on this condition to let `handle_events` process
+        //     pending hardware events before the next instruction runs)
+        self.io.intc.irq_pending()
+            || self.io.dmac.is_active()
+            || !matches!(self.io.haltcnt, crate::iodev::HaltState::Running)
+            || self.scheduler.has_events_due()
     }
 }
 

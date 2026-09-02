@@ -15,6 +15,8 @@ pub mod thumb;
 use arm::ArmInstruction;
 use thumb::ThumbInstruction;
 
+#[cfg(feature = "cached_interp")]
+pub mod cache;
 pub mod cpu;
 pub use cpu::*;
 pub mod alu;

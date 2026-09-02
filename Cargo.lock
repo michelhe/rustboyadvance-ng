@@ -195,6 +195,7 @@ dependencies = [
  "num",
  "num-traits",
  "rustboyadvance-utils",
+ "rustc-hash",
  "serde",
  "simple_logger",
 ]
@@ -1133,6 +1134,7 @@ dependencies = [
 name = "fps_bench"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "rustboyadvance-core",
  "rustboyadvance-utils",
 ]

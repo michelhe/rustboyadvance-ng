@@ -19,6 +19,7 @@ num-traits = "0.2"
 enum-primitive-derive = "0.3.0"
 gdbstub = "0.7.7"
 gdbstub_arch = "0.3.2"
+rustc-hash = "2"
 
 [dev-dependencies]
 simple_logger = "5.0.0"  # For the examples
@@ -28,3 +29,8 @@ bit = "0.1.1"
 
 [features]
 debugger = []
+# Enables a block-granular cached interpreter: decoded instructions and resolved
+# handler fn pointers are memoized by entry-PC, removing the LUT hash + single_step
+# wrapper overhead from the hot path. Accuracy is preserved — the scheduler still
+# sees per-memory-access cycle advancement as it does today.
+cached_interp = []

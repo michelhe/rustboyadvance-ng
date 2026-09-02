@@ -1,8 +1,8 @@
-use log::info;
+use log::{info, warn};
 use rustboyadvance_utils::Consumer;
 use sdl2::audio::{AudioCallback, AudioDevice, AudioFormat, AudioSpec, AudioSpecDesired};
 
-use rustboyadvance_core::prelude::SimpleAudioInterface;
+use rustboyadvance_core::prelude::{DynAudioInterface, NullAudio, SimpleAudioInterface};
 use rustboyadvance_utils::audio::SampleConsumer;
 
 pub struct GbaAudioCallback {
@@ -22,9 +22,25 @@ impl AudioCallback for GbaAudioCallback {
     }
 }
 
+/// Try to set up SDL audio. On platforms where audio isn't available (WSL
+/// without PulseAudio, headless CI, etc.), fall back to a `NullAudio` sink
+/// so the emulator still runs — we care about recording/replay more than
+/// sound anyway.
 pub fn create_audio_player(
     sdl: &sdl2::Sdl,
-) -> Result<(Box<SimpleAudioInterface>, AudioDevice<GbaAudioCallback>), String> {
+) -> (DynAudioInterface, Option<AudioDevice<GbaAudioCallback>>) {
+    match try_create_audio_player(sdl) {
+        Ok((audio, device)) => (audio, Some(device)),
+        Err(e) => {
+            warn!("no audio device available ({}); falling back to NullAudio", e);
+            (NullAudio::new(), None)
+        }
+    }
+}
+
+fn try_create_audio_player(
+    sdl: &sdl2::Sdl,
+) -> Result<(DynAudioInterface, AudioDevice<GbaAudioCallback>), String> {
     let desired_spec = AudioSpecDesired {
         freq: Some(44_100),
         channels: Some(2), // stereo
@@ -35,7 +51,7 @@ pub fn create_audio_player(
 
     let mut freq = 0;
 
-    let mut gba_audio = None;
+    let mut gba_audio: Option<Box<SimpleAudioInterface>> = None;
 
     let device = audio_subsystem.open_playback(None, &desired_spec, |spec| {
         info!("Found audio device: {:?}", spec);
